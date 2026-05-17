@@ -7,12 +7,30 @@ export interface GitRepositoryStatus {
   error?: string;
 }
 
-export function detectGitRepository(cwd: string): GitRepositoryStatus {
-  const insideProbe = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
+export interface GitCommandResult {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error?: Error;
+}
+
+export function runGitCommand(cwd: string, args: string[]): GitCommandResult {
+  const result = spawnSync("git", args, {
     cwd,
     encoding: "utf8",
     shell: false
   });
+
+  return {
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    error: result.error
+  };
+}
+
+export function detectGitRepository(cwd: string): GitRepositoryStatus {
+  const insideProbe = runGitCommand(cwd, ["rev-parse", "--is-inside-work-tree"]);
 
   if (insideProbe.error) {
     return {
@@ -30,11 +48,7 @@ export function detectGitRepository(cwd: string): GitRepositoryStatus {
     };
   }
 
-  const rootProbe = spawnSync("git", ["rev-parse", "--show-toplevel"], {
-    cwd,
-    encoding: "utf8",
-    shell: false
-  });
+  const rootProbe = runGitCommand(cwd, ["rev-parse", "--show-toplevel"]);
 
   return {
     available: true,
@@ -42,4 +56,72 @@ export function detectGitRepository(cwd: string): GitRepositoryStatus {
     rootPath: rootProbe.status === 0 ? rootProbe.stdout.trim() : undefined,
     error: rootProbe.status === 0 ? undefined : rootProbe.stderr.trim() || undefined
   };
+}
+
+export function hasValidHead(cwd: string): boolean {
+  return runGitCommand(cwd, ["rev-parse", "--verify", "HEAD"]).status === 0;
+}
+
+function extractStatusPath(line: string): string {
+  const rawPath = line.slice(3).trim();
+  const renameSeparator = " -> ";
+  const renameIndex = rawPath.indexOf(renameSeparator);
+
+  if (renameIndex >= 0) {
+    return rawPath.slice(renameIndex + renameSeparator.length);
+  }
+
+  return rawPath;
+}
+
+function isHarnessManagedPath(relativePath: string): boolean {
+  return (
+    relativePath === "AGENTS.md" ||
+    relativePath === ".harness" ||
+    relativePath.startsWith(".harness/") ||
+    relativePath.startsWith(".harness\\")
+  );
+}
+
+export function isSourceCheckoutDirty(cwd: string): boolean {
+  const result = runGitCommand(cwd, ["status", "--porcelain", "--untracked-files=all"]);
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || "git status failed");
+  }
+
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0)
+    .map((line) => extractStatusPath(line))
+    .some((relativePath) => !isHarnessManagedPath(relativePath));
+}
+
+export function worktreePathExistsInGit(cwd: string, targetPath: string): boolean {
+  const normalizeWorktreePath = (value: string): string => {
+    const normalized = value.replace(/[\\/]+/g, "/");
+    return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  };
+  const normalizedTarget = normalizeWorktreePath(targetPath);
+  const result = runGitCommand(cwd, ["worktree", "list", "--porcelain"]);
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || "git worktree list failed");
+  }
+
+  return result.stdout
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("worktree "))
+    .map((line) => line.slice("worktree ".length).trim())
+    .map((worktreePath) => normalizeWorktreePath(worktreePath))
+    .includes(normalizedTarget);
 }

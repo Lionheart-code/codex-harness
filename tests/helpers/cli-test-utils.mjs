@@ -78,6 +78,23 @@ export function removeDirectory(targetPath) {
   }
 }
 
+export function writeText(filePath, content) {
+  fs.writeFileSync(filePath, content, "utf8");
+}
+
+export function normalizePathForComparison(targetPath) {
+  const resolved = path.resolve(targetPath);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+export function isPathInside(parentPath, childPath) {
+  const normalizedParent = normalizePathForComparison(parentPath);
+  const normalizedChild = normalizePathForComparison(childPath);
+  const relative = path.relative(normalizedParent, normalizedChild);
+
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
 export function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }

@@ -6,6 +6,7 @@ import {
   AGENTS_BLOCK_START,
   AGENTS_PATH,
   CONFIG_PATH,
+  DEFAULT_WORKTREE_ROOT,
   HARNESS_DIR,
   INSTALL_JSON_PATH,
   TASKS_DIR,
@@ -135,6 +136,9 @@ function buildConfigToml(version: string): string {
     "",
     "[checks]",
     "commands = []",
+    "",
+    "[worktree]",
+    `root = "${DEFAULT_WORKTREE_ROOT}"`,
     ""
   ].join("\n");
 }

@@ -3,12 +3,13 @@ import { runDoctor } from "./doctor";
 import { runInit } from "./init";
 import { runInstall } from "./install";
 import { runStatus } from "./status";
+import { runWorktree } from "./worktree";
 
 type CommandHandler = (args: string[]) => Promise<number>;
 
 function printHelp(): void {
   lines([
-    "codex-harness Phase 3 CLI",
+    "codex-harness Phase 4 CLI",
     "",
     "Usage:",
     "  node bin/ch --help",
@@ -18,12 +19,14 @@ function printHelp(): void {
     "  node bin/ch status",
     "  node bin/ch init \"task title\"",
     "  node bin/ch init \"task title\" --dry-run",
+    "  node bin/ch worktree",
     "",
     "Commands:",
     "  doctor   Report whether the current directory is inside a git repository.",
     "  install  Install or preview the Phase 2 harness layer.",
     "  status   List tasks from the installed Phase 3 task-state layer.",
-    "  init     Create or preview a Phase 3 task folder."
+    "  init     Create or preview a Phase 3 task folder.",
+    "  worktree Create or reuse the Phase 4 task worktree."
   ]);
 }
 
@@ -37,6 +40,8 @@ function getCommandHandler(command: string): CommandHandler | undefined {
       return runStatus;
     case "init":
       return runInit;
+    case "worktree":
+      return runWorktree;
     default:
       return undefined;
   }

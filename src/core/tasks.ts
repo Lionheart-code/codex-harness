@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { detectInstalledLayer } from "./install";
 import { detectGitRepository } from "./git";
-import { createTaskId, getTaskTargetPaths, TASKS_DIR } from "./paths";
+import { BRANCH_RECORD_FILE, WORKTREE_RECORD_FILE, createTaskId, getTaskTargetPaths, TASKS_DIR } from "./paths";
 
 export interface TaskState {
   task_id: string;
@@ -13,6 +13,8 @@ export interface TaskState {
   phase: "3";
   spec: "spec.md";
   acceptance: "acceptance.md";
+  branch?: string;
+  worktree?: string;
 }
 
 export interface TaskCreationPreview {
@@ -32,7 +34,7 @@ export interface TaskListResult {
   tasks: TaskState[];
 }
 
-function requireInstalledTargetRoot(cwd: string): string {
+export function requireInstalledTargetRoot(cwd: string): string {
   const gitStatus = detectGitRepository(cwd);
 
   if (!gitStatus.available) {
@@ -86,12 +88,32 @@ function buildAcceptanceMarkdown(): string {
   ].join("\n") + "\n";
 }
 
-function getTaskDirectory(targetRoot: string, taskId: string): string {
+export function getTaskDirectory(targetRoot: string, taskId: string): string {
   return path.join(targetRoot, TASKS_DIR, taskId);
 }
 
 function readTaskState(statePath: string): TaskState {
   return JSON.parse(fs.readFileSync(statePath, "utf8")) as TaskState;
+}
+
+export function getTaskStatePath(targetRoot: string, taskId: string): string {
+  return path.join(getTaskDirectory(targetRoot, taskId), "state.json");
+}
+
+export function getTaskBranchRecordPath(targetRoot: string, taskId: string): string {
+  return path.join(getTaskDirectory(targetRoot, taskId), BRANCH_RECORD_FILE);
+}
+
+export function getTaskWorktreeRecordPath(targetRoot: string, taskId: string): string {
+  return path.join(getTaskDirectory(targetRoot, taskId), WORKTREE_RECORD_FILE);
+}
+
+export function readTaskStateById(targetRoot: string, taskId: string): TaskState {
+  return readTaskState(getTaskStatePath(targetRoot, taskId));
+}
+
+export function writeTaskState(targetRoot: string, taskId: string, state: TaskState): void {
+  fs.writeFileSync(getTaskStatePath(targetRoot, taskId), `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
 
 export function previewTaskCreation(cwd: string, title: string): TaskCreationPreview {
@@ -118,7 +140,7 @@ export function createTask(cwd: string, title: string): TaskCreationResult {
   const state = buildState(taskId, title, timestamp);
   const specPath = path.join(taskDirectory, "spec.md");
   const acceptancePath = path.join(taskDirectory, "acceptance.md");
-  const statePath = path.join(taskDirectory, "state.json");
+  const statePath = getTaskStatePath(targetRoot, taskId);
 
   fs.mkdirSync(taskDirectory, { recursive: true });
   fs.writeFileSync(specPath, buildSpecMarkdown(taskId, title, timestamp), "utf8");
@@ -154,5 +176,22 @@ export function listTasks(cwd: string): TaskListResult {
   return {
     targetRoot,
     tasks
+  };
+}
+
+export function getSingleTask(cwd: string): { targetRoot: string; task: TaskState } {
+  const result = listTasks(cwd);
+
+  if (result.tasks.length === 0) {
+    throw new Error("No tasks found. Run `node bin/ch init \"task title\"` first.");
+  }
+
+  if (result.tasks.length > 1) {
+    throw new Error("Phase 4 `ch worktree` requires exactly one task.");
+  }
+
+  return {
+    targetRoot: result.targetRoot,
+    task: result.tasks[0]
   };
 }

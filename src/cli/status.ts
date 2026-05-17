@@ -23,8 +23,25 @@ export async function runStatus(args: string[]): Promise<number> {
       "codex-harness status",
       `target root: ${result.targetRoot}`,
       ...result.tasks.map(
-        (task) =>
-          `- ${task.task_id} | ${task.status} | ${task.title} | created_at=${task.created_at} | updated_at=${task.updated_at}`
+        (task) => {
+          const segments = [
+            `- ${task.task_id}`,
+            task.status,
+            task.title,
+            `created_at=${task.created_at}`,
+            `updated_at=${task.updated_at}`
+          ];
+
+          if (task.branch) {
+            segments.push(`branch=${task.branch}`);
+          }
+
+          if (task.worktree) {
+            segments.push(`worktree=${task.worktree}`);
+          }
+
+          return segments.join(" | ");
+        }
       )
     ]);
 

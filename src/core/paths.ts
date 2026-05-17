@@ -8,6 +8,9 @@ export const INSTALL_JSON_PATH = path.join(HARNESS_DIR, "install.json");
 export const AGENTS_PATH = "AGENTS.md";
 export const AGENTS_BLOCK_START = "<!-- codex-harness:start -->";
 export const AGENTS_BLOCK_END = "<!-- codex-harness:end -->";
+export const DEFAULT_WORKTREE_ROOT = "../.codex-harness-worktrees";
+export const BRANCH_RECORD_FILE = "branch.txt";
+export const WORKTREE_RECORD_FILE = "worktree.txt";
 
 export function getInstallTargetPaths(): string[] {
   return [

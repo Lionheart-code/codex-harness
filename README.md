@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 3 adds real task-state creation and a minimal task listing command.
+`codex-harness` is a Codex-first programming harness. Phase 4 adds one branch and one worktree per task.
 
-## Phase 3 commands
+## Phase 4 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -14,6 +14,7 @@ node bin/ch install --dry-run
 node bin/ch status
 node bin/ch init "test task"
 node bin/ch init "test task" --dry-run
+node bin/ch worktree
 ```
 
 ## Local setup
@@ -23,7 +24,7 @@ npm install
 npm run build
 ```
 
-## Phase 3 task-state behavior
+## Phase 4 worktree behavior
 
 - `install` creates `.harness/config.toml`, `.harness/tasks/`, `.harness/templates/`, and `.harness/install.json`.
 - `install --dry-run` previews the same actions without writing files.
@@ -32,8 +33,12 @@ npm run build
 - `init` creates `.harness/tasks/<task-id>/spec.md`, `acceptance.md`, and `state.json`.
 - `init --dry-run` previews the task id and planned file paths without writing files.
 - `status` lists the tasks recorded under `.harness/tasks/`.
+- `worktree` creates one branch and one git worktree for the current task.
+- `worktree` writes `.harness/tasks/<task-id>/branch.txt` and `worktree.txt`, then updates `state.json`.
+- Worktree root is configured in `.harness/config.toml` under `[worktree]`.
 
-## Phase 3 limitations
+## Phase 4 limitations
 
 - No `.codex/` or `.agents/` files are created in this phase.
-- Worktrees, task lifecycle transitions, hooks, adapters, checks, reports, and review flows are not implemented in this phase.
+- Setup commands are not executed in this phase.
+- Hooks, adapters, checks, reports, and review flows are not implemented in this phase.
