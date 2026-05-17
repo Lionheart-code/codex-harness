@@ -3,7 +3,7 @@
 Implement only:
 
 ```text
-tasks/PHASE_02_5_ACCEPTANCE_TEST_RUNNER.md
+tasks/PHASE_03_TASK_STATE.md
 ```
 
-Do not implement Phase 3 or later.
+Do not implement Phase 4 or later.
