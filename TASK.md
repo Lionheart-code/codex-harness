@@ -3,7 +3,7 @@
 Implement only:
 
 ```text
-tasks/PHASE_03_TASK_STATE.md
+tasks/PHASE_04_WORKTREE.md
 ```
 
-Do not implement Phase 4 or later.
+Do not implement Phase 5 or later.
