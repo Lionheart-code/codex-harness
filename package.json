@@ -1,0 +1,15 @@
+{
+  "name": "codex-harness",
+  "version": "0.1.0",
+  "description": "Codex-first programming harness CLI",
+  "bin": {
+    "ch": "bin/ch"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  }
+}

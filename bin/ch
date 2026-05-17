@@ -1,0 +1,28 @@
+#!/usr/bin/env node
+
+const fs = require("node:fs");
+const path = require("node:path");
+
+const entrypoint = path.join(__dirname, "..", "dist", "cli", "index.js");
+
+if (!fs.existsSync(entrypoint)) {
+  console.error("Build output not found. Run `npm run build`.");
+  process.exit(1);
+}
+
+const cli = require(entrypoint);
+
+if (!cli || typeof cli.main !== "function") {
+  console.error("CLI entrypoint is invalid.");
+  process.exit(1);
+}
+
+Promise.resolve(cli.main(process.argv.slice(2)))
+  .then((code) => {
+    process.exit(typeof code === "number" ? code : 0);
+  })
+  .catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exit(1);
+  });
