@@ -55,6 +55,7 @@ export function getTaskTargetPaths(taskId: string): string[] {
   const taskDir = path.join(TASKS_DIR, taskId);
 
   return [
+    taskDir,
     path.join(taskDir, "spec.md"),
     path.join(taskDir, "acceptance.md"),
     path.join(taskDir, "state.json")

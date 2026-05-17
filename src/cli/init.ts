@@ -1,5 +1,5 @@
 import { error, lines } from "../core/logger";
-import { createTaskId, getTaskTargetPaths } from "../core/paths";
+import { createTask, previewTaskCreation } from "../core/tasks";
 
 export async function runInit(args: string[]): Promise<number> {
   const hasDryRun = args.includes("--dry-run");
@@ -11,27 +11,43 @@ export async function runInit(args: string[]): Promise<number> {
     return 1;
   }
 
-  if (!hasDryRun) {
-    error("Phase 1 only supports `ch init \"task title\" --dry-run`.");
-    return 1;
-  }
-
   if (titleParts.length === 0) {
     error("A task title is required.");
     return 1;
   }
 
   const title = titleParts.join(" ");
-  const taskId = createTaskId(title);
 
-  lines([
-    "codex-harness init (dry-run)",
-    `title: ${title}`,
-    `task id: ${taskId}`,
-    "No files will be created in Phase 1.",
-    "Planned Phase 3 task paths:",
-    ...getTaskTargetPaths(taskId).map((target) => `- ${target}`)
-  ]);
+  try {
+    if (hasDryRun) {
+      const preview = previewTaskCreation(process.cwd(), title);
 
-  return 0;
+      lines([
+        "codex-harness init (dry-run)",
+        `title: ${title}`,
+        `task id: ${preview.taskId}`,
+        "No files will be created in Phase 3 dry-run mode.",
+        "Planned Phase 3 task paths:",
+        ...preview.targetPaths.map((target) => `- ${target}`)
+      ]);
+
+      return 0;
+    }
+
+    const result = createTask(process.cwd(), title);
+
+    lines([
+      "codex-harness init",
+      `title: ${title}`,
+      `task id: ${result.taskId}`,
+      "Created Phase 3 task files:",
+      ...result.createdPaths.map((target) => `- ${target}`)
+    ]);
+
+    return 0;
+  } catch (taskError) {
+    const message = taskError instanceof Error ? taskError.message : String(taskError);
+    error(message);
+    return 1;
+  }
 }

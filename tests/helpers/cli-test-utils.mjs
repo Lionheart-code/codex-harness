@@ -50,6 +50,18 @@ export function assertSuccess(result, context) {
   );
 }
 
+export function assertFailure(result, context) {
+  if (result.error) {
+    throw result.error;
+  }
+
+  assert.notEqual(
+    result.status,
+    0,
+    `${context} unexpectedly succeeded.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+  );
+}
+
 export function getGitStatus(cwd) {
   const result = runCommand("git", ["status", "--short", "--untracked-files=all"], { cwd });
   assertSuccess(result, `git status in ${cwd}`);
@@ -68,6 +80,10 @@ export function removeDirectory(targetPath) {
 
 export function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+export function readText(filePath) {
+  return fs.readFileSync(filePath, "utf8");
 }
 
 export function readPackageVersion() {

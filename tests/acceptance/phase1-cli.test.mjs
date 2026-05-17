@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  assertSuccess,
-  ensureBuiltCli,
-  getGitStatus,
-  productRoot,
-  runCli
-} from "../helpers/cli-test-utils.mjs";
+import { assertSuccess, ensureBuiltCli, getGitStatus, productRoot, runCli } from "../helpers/cli-test-utils.mjs";
 
 test("phase 1 help output includes the supported commands", () => {
   ensureBuiltCli();
@@ -41,17 +35,4 @@ test("phase 1 install dry-run does not change product-repo git status", () => {
   assert.equal(afterStatus, beforeStatus, "install --dry-run changed product-repo git status");
   assert.match(result.stdout, /codex-harness install \(dry-run\)/);
   assert.match(result.stdout, /status: no files were written/);
-});
-
-test("phase 1 init dry-run prints task id and does not change product-repo git status", () => {
-  ensureBuiltCli();
-
-  const beforeStatus = getGitStatus(productRoot);
-  const result = runCli(["init", "test task", "--dry-run"], { cwd: productRoot });
-  const afterStatus = getGitStatus(productRoot);
-
-  assertSuccess(result, "node bin/ch init \"test task\" --dry-run");
-  assert.equal(afterStatus, beforeStatus, "init --dry-run changed product-repo git status");
-  assert.match(result.stdout, /codex-harness init \(dry-run\)/);
-  assert.match(result.stdout, /task id: task-test-task/);
 });
