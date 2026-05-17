@@ -7,17 +7,18 @@ type CommandHandler = (args: string[]) => Promise<number>;
 
 function printHelp(): void {
   lines([
-    "codex-harness Phase 1 CLI",
+    "codex-harness Phase 2 CLI",
     "",
     "Usage:",
     "  node bin/ch --help",
     "  node bin/ch doctor",
+    "  node bin/ch install",
     "  node bin/ch install --dry-run",
     "  node bin/ch init \"task title\" --dry-run",
     "",
     "Commands:",
     "  doctor   Report whether the current directory is inside a git repository.",
-    "  install  Show the Phase 2 install plan. Dry-run only in Phase 1.",
+    "  install  Install or preview the Phase 2 harness layer.",
     "  init     Show the Phase 3 task scaffold plan. Dry-run only in Phase 1."
   ]);
 }

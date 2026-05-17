@@ -1,14 +1,15 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 1 provides a minimal TypeScript CLI skeleton only.
+`codex-harness` is a Codex-first programming harness. Phase 2 adds the first real installer for the target `.harness/` layer.
 
-## Phase 1 commands
+## Phase 2 commands
 
 Run the local CLI through `node bin/ch`:
 
 ```bash
 node bin/ch --help
 node bin/ch doctor
+node bin/ch install
 node bin/ch install --dry-run
 node bin/ch init "test task" --dry-run
 ```
@@ -20,9 +21,15 @@ npm install
 npm run build
 ```
 
-## Phase 1 limitations
+## Phase 2 installer behavior
 
-- `install` is dry-run only.
+- `install` creates `.harness/config.toml`, `.harness/tasks/`, `.harness/templates/`, and `.harness/install.json`.
+- `install --dry-run` previews the same actions without writing files.
+- `install` creates or updates a managed block in `AGENTS.md` and backs up the file before patching existing content.
+- Re-running `install` is idempotent when the managed files already match the Phase 2 content.
+
+## Phase 2 limitations
+
 - `init` is dry-run only.
-- No `.harness/`, `.codex/`, or `.agents/` files are created in this phase.
-- Worktrees, hooks, checks, reports, and review flows are not implemented in this phase.
+- No `.codex/` or `.agents/` files are created in this phase.
+- Worktrees, task lifecycle, hooks, adapters, checks, reports, and review flows are not implemented in this phase.
