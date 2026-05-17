@@ -10,6 +10,8 @@ Generate task-aware prompts for Codex.
 - `ch prompt work`;
 - `ch prompt review`;
 - prompt templates.
+- concise implementation-discipline policy in generated prompt templates;
+- short `AGENTS.md` implementation-discipline section if missing.
 
 ## Required prompt context
 
@@ -20,11 +22,14 @@ Generate task-aware prompts for Codex.
 - allowed scope;
 - verification commands;
 - expected output.
+- implementation discipline.
 
 ## Non-goals
 
 No automatic Codex execution.
 No `codex exec`, schema validation, review runner, or automated review result is implemented in this phase.
+Do not paste the full Karpathy Guidelines into generated prompts.
+Do not create a giant AGENTS.md.
 
 ## Acceptance commands
 
@@ -55,3 +60,5 @@ tmp="$(mktemp -d)"
 - prompts are saved under task folder;
 - prompts are concise;
 - prompts reference task files instead of dumping huge context.
+- generated prompts include the concise implementation-discipline block;
+- AGENTS.md remains short and does not include the full Karpathy Guidelines.

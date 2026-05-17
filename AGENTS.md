@@ -15,6 +15,14 @@ This repository builds `codex-harness`: a reusable Codex-first programming harne
 - Do not overwrite user files without backup or explicit confirmation.
 - Acceptance criteria in the current task are mandatory.
 
+## Implementation discipline
+
+- Surface ambiguity before choosing an implementation path.
+- Prefer the smallest implementation that satisfies the active task acceptance criteria.
+- Make surgical changes only; do not refactor unrelated code.
+- Do not add speculative flexibility, future features, or abstractions.
+- Verify with the required acceptance commands before reporting completion.
+
 ## Instruction priority
 
 If instructions conflict, follow this order:
