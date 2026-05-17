@@ -3,7 +3,7 @@
 Implement only:
 
 ```text
-tasks/PHASE_01_CLI_SKELETON.md
+tasks/PHASE_02_INSTALLER.md
 ```
 
-Do not implement Phase 2 or later.
+Do not implement Phase 3 or later.
