@@ -3,7 +3,7 @@
 Implement only:
 
 ```text
-tasks/PHASE_07_READ_ONLY_SCOUT_PROMPTS.md
+tasks/PHASE_08_AGENT_RUN_LEDGER.md
 ```
 
-Do not implement Phase 8 or later.
+Do not implement Phase 9 or later.
