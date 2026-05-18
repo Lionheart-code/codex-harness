@@ -5,6 +5,7 @@ import { runCheck } from "./check";
 import { runDebt } from "./debt";
 import { runDecisions } from "./decisions";
 import { runDoctor } from "./doctor";
+import { runHooks } from "./hooks";
 import { runInit } from "./init";
 import { runInstall } from "./install";
 import { runMemory } from "./memory";
@@ -17,7 +18,7 @@ type CommandHandler = (args: string[]) => Promise<number>;
 
 function printHelp(): void {
   lines([
-    "codex-harness Phase 12 CLI",
+    "codex-harness Phase 13 CLI",
     "",
     "Usage:",
     "  node bin/ch --help",
@@ -28,6 +29,8 @@ function printHelp(): void {
     "  node bin/ch capture",
     "  node bin/ch check",
     "  node bin/ch report",
+    "  node bin/ch hooks --help",
+    "  node bin/ch hooks install",
     "  node bin/ch memory status",
     "  node bin/ch debt add --title \"test debt\" --type technical --severity low --reason \"test\"",
     "  node bin/ch debt list",
@@ -51,6 +54,7 @@ function printHelp(): void {
     "  capture  Capture the current task worktree git status and diff.",
     "  check    Run deterministic checks and write verifier artifacts.",
     "  report   Generate a deterministic task handoff report.",
+    "  hooks    Install minimal Codex sidecar hooks and templates.",
     "  memory   Show Phase 9 memory, debt, decision, and agent-output status.",
     "  debt     Add, list, and resolve Phase 9 debt ledger items.",
     "  decisions Add and list Phase 9 decision records.",
@@ -75,6 +79,8 @@ function getCommandHandler(command: string): CommandHandler | undefined {
       return runCheck;
     case "report":
       return runReport;
+    case "hooks":
+      return runHooks;
     case "memory":
       return runMemory;
     case "debt":

@@ -1,8 +1,10 @@
 import * as path from "node:path";
 
 export const HARNESS_DIR = ".harness";
+export const CODEX_DIR = ".codex";
 export const TASKS_DIR = path.join(HARNESS_DIR, "tasks");
 export const TEMPLATES_DIR = path.join(HARNESS_DIR, "templates");
+export const HOOK_TEMPLATES_DIR = path.join(TEMPLATES_DIR, "hooks");
 export const MEMORY_DIR = path.join(HARNESS_DIR, "memory");
 export const MEMORY_DECISIONS_DIR = path.join(MEMORY_DIR, "decisions");
 export const MEMORY_DEBT_DIR = path.join(MEMORY_DIR, "debt");
@@ -45,6 +47,31 @@ export const REPORT_SECTION_HEADINGS = [
   "Debt resolved",
   "Next action"
 ] as const;
+export const CODEX_HOOKS_DIR = path.join(CODEX_DIR, "hooks");
+export const CODEX_HOOKS_CONFIG_PATH = path.join(CODEX_DIR, "hooks.json");
+export const USER_PROMPT_SUBMIT_HOOK_FILE = "user-prompt-submit.cjs";
+export const PRE_TOOL_USE_HOOK_FILE = "pre-tool-use.cjs";
+export const STOP_HOOK_FILE = "stop.cjs";
+
+export function getHookTemplateTargetPaths(): string[] {
+  return [
+    HOOK_TEMPLATES_DIR,
+    path.join(HOOK_TEMPLATES_DIR, USER_PROMPT_SUBMIT_HOOK_FILE),
+    path.join(HOOK_TEMPLATES_DIR, PRE_TOOL_USE_HOOK_FILE),
+    path.join(HOOK_TEMPLATES_DIR, STOP_HOOK_FILE),
+    path.join(HOOK_TEMPLATES_DIR, "hooks.json")
+  ];
+}
+
+export function getHookInstallTargetPaths(): string[] {
+  return [
+    CODEX_HOOKS_DIR,
+    path.join(CODEX_HOOKS_DIR, USER_PROMPT_SUBMIT_HOOK_FILE),
+    path.join(CODEX_HOOKS_DIR, PRE_TOOL_USE_HOOK_FILE),
+    path.join(CODEX_HOOKS_DIR, STOP_HOOK_FILE),
+    CODEX_HOOKS_CONFIG_PATH
+  ];
+}
 
 export function getInstallTargetPaths(): string[] {
   return [

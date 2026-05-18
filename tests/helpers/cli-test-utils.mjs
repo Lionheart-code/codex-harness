@@ -23,7 +23,8 @@ export function runCommand(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? productRoot,
     encoding: "utf8",
-    shell: false
+    shell: false,
+    input: options.input
   });
 
   return {

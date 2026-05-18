@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 12 adds a deterministic handoff report on top of the Phase 11 capture and check flow.
+`codex-harness` is a Codex-first programming harness. Phase 13 adds minimal Codex sidecar hooks on top of the Phase 12 report flow.
 
-## Phase 12 commands
+## Phase 13 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -16,6 +16,8 @@ node bin/ch agent run codex --role tests
 node bin/ch capture
 node bin/ch check
 node bin/ch report
+node bin/ch hooks --help
+node bin/ch hooks install
 node bin/ch memory status
 node bin/ch debt add --title "test debt" --type technical --severity low --reason "test"
 node bin/ch debt list
@@ -41,6 +43,21 @@ node bin/ch prompt scout --role tests
 npm install
 npm run build
 ```
+
+## Phase 13 hook behavior
+
+- `hooks install` writes minimal Codex sidecar hook files under `.codex/`.
+- Installed hook files are:
+  - `.codex/hooks.json`
+  - `.codex/hooks/user-prompt-submit.cjs`
+  - `.codex/hooks/pre-tool-use.cjs`
+  - `.codex/hooks/stop.cjs`
+- `hooks install` also writes canonical hook templates under `.harness/templates/hooks/`.
+- `UserPromptSubmit` documents and enforces missing task-context behavior by requiring exactly one task with a recorded worktree before coding work.
+- `PreToolUse` documents and enforces a narrow dangerous-command guard for destructive shell/git patterns.
+- `PreToolUse` blocks edit/write paths outside the current task worktree only where the hook payload exposes a path that can be checked.
+- `Stop` prints a short reminder to run `node bin/ch check` and `node bin/ch report`.
+- The hook layer is intentionally best-effort. It is a small sidecar guardrail, not a full policy engine or execution boundary.
 
 ## Phase 12 report behavior
 
@@ -115,8 +132,9 @@ commands = ["git status --short"]
 protected_paths = ["AGENTS.md", ".harness/config.toml"]
 ```
 
-## Phase 12 limitations
+## Phase 13 limitations
 
-- No `.codex/` or `.agents/` files are created in this phase.
+- `.codex/` hook files are created only in installed target repositories, not in the product repo.
+- No `.agents/` files are created in this phase.
 - No write-capable external agent mode is implemented in this phase.
-- No LLM review, hooks, schemas, migrations, API adapters, secrets injection, or uncontrolled runtime state in the product repo are implemented in this phase.
+- No LLM review, schemas, migrations, API adapters, secrets injection, or uncontrolled runtime state in the product repo are implemented in this phase.
