@@ -10,7 +10,7 @@ type CommandHandler = (args: string[]) => Promise<number>;
 
 function printHelp(): void {
   lines([
-    "codex-harness Phase 5 CLI",
+    "codex-harness Phase 7 CLI",
     "",
     "Usage:",
     "  node bin/ch --help",
@@ -24,6 +24,7 @@ function printHelp(): void {
     "  node bin/ch prompt plan",
     "  node bin/ch prompt work",
     "  node bin/ch prompt review",
+    "  node bin/ch prompt scout --role tests",
     "",
     "Commands:",
     "  doctor   Report whether the current directory is inside a git repository.",
@@ -31,7 +32,7 @@ function printHelp(): void {
     "  status   List tasks from the installed Phase 3 task-state layer.",
     "  init     Create or preview a Phase 3 task folder.",
     "  worktree Create or reuse the Phase 4 task worktree.",
-    "  prompt   Generate a Phase 5 task prompt file."
+    "  prompt   Generate Phase 5 or Phase 7 task prompt files."
   ]);
 }
 

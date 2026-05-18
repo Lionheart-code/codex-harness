@@ -8,6 +8,8 @@ import {
   PROMPT_REVIEW_FILE,
   PROMPT_WORK_FILE,
   BRANCH_RECORD_FILE,
+  TASK_PROMPTS_DIR,
+  TASK_SCOUTS_DIR,
   WORKTREE_RECORD_FILE,
   getImplementationDisciplineSection,
   getTaskTargetPaths
@@ -15,16 +17,18 @@ import {
 import { listTasks, getTaskDirectory, TaskState } from "./tasks";
 
 export type PromptMode = "plan" | "work" | "review";
+export type ScoutRole = "repo-map" | "tests" | "docs" | "security" | "architecture";
 type FileWriteStatus = "created" | "updated" | "unchanged";
 
 export interface PromptGenerationResult {
   targetRoot: string;
   taskId: string;
-  mode: PromptMode;
+  mode: PromptMode | "scout";
   outputPath: string;
   outputStatus: FileWriteStatus;
   agentsPath: string;
   agentsStatus: FileWriteStatus;
+  findingsOutputPath?: string;
 }
 
 interface PromptContext {
@@ -60,6 +64,10 @@ function getPromptTitle(mode: PromptMode): string {
     case "review":
       return "Prompt Review";
   }
+}
+
+function isScoutRole(value: string): value is ScoutRole {
+  return value === "repo-map" || value === "tests" || value === "docs" || value === "security" || value === "architecture";
 }
 
 function getAllowedScope(mode: PromptMode): string[] {
@@ -250,6 +258,51 @@ function getImplementationDisciplinePromptLines(): string[] {
   ];
 }
 
+function getScoutPromptTitle(role: ScoutRole): string {
+  switch (role) {
+    case "repo-map":
+      return "Scout Prompt: Repo Map";
+    case "tests":
+      return "Scout Prompt: Tests";
+    case "docs":
+      return "Scout Prompt: Docs";
+    case "security":
+      return "Scout Prompt: Security";
+    case "architecture":
+      return "Scout Prompt: Architecture";
+  }
+}
+
+function getScoutFocus(role: ScoutRole): string[] {
+  switch (role) {
+    case "repo-map":
+      return [
+        "Map the repository structure, entrypoints, and major modules.",
+        "Call out likely ownership zones and high-signal files for follow-up."
+      ];
+    case "tests":
+      return [
+        "Inspect the existing test layout, notable gaps, and likely acceptance coverage points.",
+        "Call out high-signal test files and missing test areas."
+      ];
+    case "docs":
+      return [
+        "Inspect the docs that constrain the task and note stale or missing documentation.",
+        "Call out the most relevant files for future implementation work."
+      ];
+    case "security":
+      return [
+        "Inspect obvious risk surfaces, secrets/config handling, and permission-sensitive areas.",
+        "Call out files or flows that deserve closer review."
+      ];
+    case "architecture":
+      return [
+        "Inspect module boundaries, coupling, and likely implementation impact zones.",
+        "Call out architectural constraints that should shape future work."
+      ];
+  }
+}
+
 function buildPromptContent(mode: PromptMode, context: PromptContext): string {
   const outputFiles = getTaskTargetPaths(context.task.task_id)
     .map((entry) => `- \`${entry}\``);
@@ -352,6 +405,74 @@ function writeGeneratedPrompt(outputPath: string, content: string): FileWriteSta
   return "updated";
 }
 
+function ensureDirectory(targetPath: string): void {
+  fs.mkdirSync(targetPath, { recursive: true });
+}
+
+function buildScoutPromptContent(role: ScoutRole, context: PromptContext): string {
+  const promptDirectory = path.join(context.taskDirectory, TASK_PROMPTS_DIR);
+  const scoutsDirectory = path.join(context.taskDirectory, TASK_SCOUTS_DIR);
+  const findingsOutputPath = path.join(scoutsDirectory, `${role}.md`);
+
+  return [
+    `# ${getScoutPromptTitle(role)}`,
+    "",
+    "This prompt is for manual use in Codex, Gemini CLI, or another trusted agent.",
+    "The harness does not execute any external agent automatically.",
+    "",
+    "Role profile:",
+    "- role: `scout`",
+    "- permission mode: `read_only`",
+    "- working directory policy: `repo_root`",
+    "- output trust: raw and untrusted until reviewed",
+    "",
+    "Task context:",
+    `- task_id: \`${context.task.task_id}\``,
+    `- title: ${context.task.title}`,
+    `- phase: \`${context.task.phase}\``,
+    `- worktree path: \`${context.worktreePath}\``,
+    "",
+    "Reference paths:",
+    `- spec: \`${relativeToTask(context, context.specPath)}\``,
+    `- acceptance: \`${relativeToTask(context, context.acceptancePath)}\``,
+    `- state: \`${relativeToTask(context, context.statePath)}\``,
+    `- branch record: \`${relativeToTask(context, context.branchRecordPath)}\``,
+    `- worktree record: \`${relativeToTask(context, context.worktreeRecordPath)}\``,
+    `- repo AGENTS: \`${relativeToTask(context, path.join(context.targetRoot, AGENTS_PATH))}\``,
+    `- scout prompt directory: \`${relativeToTask(context, promptDirectory)}\``,
+    `- scout output directory: \`${relativeToTask(context, scoutsDirectory)}\``,
+    "",
+    "Scout output path:",
+    `- Write findings only to \`${relativeToTask(context, findingsOutputPath)}\`.`,
+    "",
+    "Read-only rules:",
+    "- Inspect only.",
+    "- Do not edit files.",
+    "- Do not run write commands.",
+    "- Do not create branches or worktrees.",
+    "- Do not create additional output files beyond the specified scout output path.",
+    "- Report uncertainty and assumptions.",
+    "",
+    "Context rules:",
+    "- Reference task files and project paths instead of dumping huge context.",
+    "- Do not paste large raw files or raw logs unless a short excerpt is strictly necessary.",
+    "",
+    "Scout focus:",
+    ...getScoutFocus(role).map((line) => `- ${line}`),
+    "",
+    "Expected findings format:",
+    "- Relevant files",
+    "- Findings",
+    "- Risks",
+    "- Suggested focus",
+    "- Confidence",
+    "- Assumptions and uncertainty",
+    "",
+    ...getImplementationDisciplinePromptLines(),
+    ""
+  ].join("\n");
+}
+
 export function generatePrompt(cwd: string, mode: PromptMode): PromptGenerationResult {
   const context = createPromptContext(cwd);
   const outputPath = path.join(context.taskDirectory, getPromptFilename(mode));
@@ -367,5 +488,34 @@ export function generatePrompt(cwd: string, mode: PromptMode): PromptGenerationR
     outputStatus,
     agentsPath: path.join(context.targetRoot, AGENTS_PATH),
     agentsStatus
+  };
+}
+
+export function generateScoutPrompt(cwd: string, role: string): PromptGenerationResult {
+  if (!isScoutRole(role)) {
+    throw new Error(`Unsupported scout role: ${role}`);
+  }
+
+  const context = createPromptContext(cwd);
+  const scoutsDirectory = path.join(context.taskDirectory, TASK_SCOUTS_DIR);
+  const promptDirectory = path.join(context.taskDirectory, TASK_PROMPTS_DIR);
+  const outputPath = path.join(promptDirectory, `scout-${role}.md`);
+  const findingsOutputPath = path.join(scoutsDirectory, `${role}.md`);
+  const outputContent = buildScoutPromptContent(role, context);
+
+  ensureDirectory(promptDirectory);
+  ensureDirectory(scoutsDirectory);
+
+  const outputStatus = writeGeneratedPrompt(outputPath, outputContent);
+
+  return {
+    targetRoot: context.targetRoot,
+    taskId: context.task.task_id,
+    mode: "scout",
+    outputPath,
+    outputStatus,
+    agentsPath: path.join(context.targetRoot, AGENTS_PATH),
+    agentsStatus: "unchanged",
+    findingsOutputPath
   };
 }

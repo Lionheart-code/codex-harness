@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 5 adds task-aware prompt generation.
+`codex-harness` is a Codex-first programming harness. Phase 7 adds read-only scout prompt generation.
 
-## Phase 5 commands
+## Phase 7 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -18,6 +18,7 @@ node bin/ch worktree
 node bin/ch prompt plan
 node bin/ch prompt work
 node bin/ch prompt review
+node bin/ch prompt scout --role tests
 ```
 
 ## Local setup
@@ -27,7 +28,7 @@ npm install
 npm run build
 ```
 
-## Phase 5 prompt behavior
+## Phase 7 prompt behavior
 
 - `install` creates `.harness/config.toml`, `.harness/tasks/`, `.harness/templates/`, and `.harness/install.json`.
 - `install --dry-run` previews the same actions without writing files.
@@ -44,9 +45,14 @@ npm run build
 - Prompts reference `spec.md`, `acceptance.md`, `state.json`, `branch.txt`, `worktree.txt`, and `AGENTS.md` by path instead of dumping large context.
 - Prompt generation includes the concise implementation-discipline block.
 - If the target repo `AGENTS.md` is missing the short implementation-discipline section, prompt generation appends it and creates a backup before patching an existing file.
+- `prompt scout --role <role>` generates read-only scout prompts under `.harness/tasks/<task-id>/prompts/`.
+- Supported scout roles are `repo-map`, `tests`, `docs`, `security`, and `architecture`.
+- Scout findings must be written manually to `.harness/tasks/<task-id>/scouts/<role>.md`.
+- Scout prompts are manual and read-only only; the harness does not execute external agents.
+- Scout prompts include output path instructions and explicit no-edit/no-write rules.
 
-## Phase 5 limitations
+## Phase 7 limitations
 
 - No `.codex/` or `.agents/` files are created in this phase.
 - No automatic Codex execution or `codex exec` is implemented in this phase.
-- Schema validation, review runners, reports, hooks, and adapters are not implemented in this phase.
+- No external-agent execution, agent ledger, schema validation, review runners, reports, hooks, or adapters are implemented in this phase.

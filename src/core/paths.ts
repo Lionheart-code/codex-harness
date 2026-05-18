@@ -15,6 +15,8 @@ export const WORKTREE_RECORD_FILE = "worktree.txt";
 export const PROMPT_PLAN_FILE = "prompt-plan.md";
 export const PROMPT_WORK_FILE = "prompt-work.md";
 export const PROMPT_REVIEW_FILE = "prompt-review.md";
+export const TASK_PROMPTS_DIR = "prompts";
+export const TASK_SCOUTS_DIR = "scouts";
 
 export function getInstallTargetPaths(): string[] {
   return [
@@ -88,5 +90,15 @@ export function getPromptTargetPaths(taskId: string): string[] {
     path.join(taskDir, PROMPT_PLAN_FILE),
     path.join(taskDir, PROMPT_WORK_FILE),
     path.join(taskDir, PROMPT_REVIEW_FILE)
+  ];
+}
+
+export function getScoutPromptTargetPaths(taskId: string, role: string): string[] {
+  const taskDir = path.join(TASKS_DIR, taskId);
+
+  return [
+    path.join(taskDir, TASK_PROMPTS_DIR),
+    path.join(taskDir, TASK_SCOUTS_DIR),
+    path.join(taskDir, TASK_PROMPTS_DIR, `scout-${role}.md`)
   ];
 }
