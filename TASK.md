@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_17_HARNESS_GOVERNANCE.md
+Implement only: tasks/PHASE_18_INSTALL_UPGRADE_REGISTRY.md
 
-Do not implement Phase 17 or later.
+Do not implement Phase 18 or later.
