@@ -13,7 +13,7 @@ This document defines the Phase 6 role matrix for permissions, working-directory
 | `scout` | Discovery and summarization | `read_only` | `repo_root`, `explicit_path` | findings, summaries, risk lists | cheaper | future external read-only role |
 | `builder` | Scoped implementation | `write_worktree` | `task_worktree` | code changes, implementation summary | medium to expensive | Codex-first current default role |
 | `verifier` | Review and acceptance analysis | `read_only`, `review_only` | `repo_root`, `task_worktree`, `explicit_path` | review findings, PASS/FIX_REQUIRED style output | expensive | documented only |
-| `integrator` | Combine parallel outputs | `review_only`, `write_worktree` | `task_worktree`, `explicit_path` | integration notes, combined result | expensive | later phase only |
+| `integrator` | Combine parallel outputs | `review_only`, `write_worktree` | `task_worktree`, `explicit_path` | integration notes, combined result | expensive | manual scaffold in Phase 16 |
 
 ## Role constraints
 

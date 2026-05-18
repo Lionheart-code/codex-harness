@@ -39,7 +39,7 @@ Reviews diffs, acceptance coverage, and deterministic check results.
 
 ### integrator
 
-Combines outputs from multiple workstreams when that mode exists in a later phase.
+Combines outputs from multiple workstreams through a manual scaffolded integrator flow in Phase 16.
 
 ## Current defaults
 
@@ -60,9 +60,9 @@ Internal-now roles:
 External-later roles:
 
 - scout
-- integrator
+- integrator for external execution
 
-The distinction is about current product support, not about theoretical capability. Phase 6 documents the contract only.
+The distinction is about current product support, not about theoretical capability. Phase 6 documents the contract only, while Phase 16 adds a manual parallel scaffold without implemented external write-agent execution.
 
 ## Delegation policy
 

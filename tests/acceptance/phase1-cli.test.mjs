@@ -27,6 +27,7 @@ test("phase 1 help output includes the supported commands", () => {
   assert.match(result.stdout, /Usage:/);
   assert.match(result.stdout, /node bin\/ch doctor/);
   assert.match(result.stdout, /node bin\/ch eval playground init/);
+  assert.match(result.stdout, /node bin\/ch parallel --help/);
   assert.match(result.stdout, /node bin\/ch install/);
   assert.match(result.stdout, /node bin\/ch init "task title" --dry-run/);
   assert.match(result.stdout, /node bin\/ch agent prompt codex --role tests/);

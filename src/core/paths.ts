@@ -28,6 +28,7 @@ export const TASK_PROMPTS_DIR = "prompts";
 export const TASK_SCOUTS_DIR = "scouts";
 export const TASK_AGENTS_DIR = "agents";
 export const TASK_LOGS_DIR = "logs";
+export const TASK_PARALLEL_DIR = "parallel";
 export const AGENT_RUN_STATUS_FILE = "status.json";
 export const AGENT_RUN_PROMPT_FILE = "prompt.md";
 export const AGENT_RUN_COMMAND_FILE = "command.json";
@@ -39,6 +40,8 @@ export const TASK_REVIEW_FILE = "review.json";
 export const TASK_REVIEW_PROMPT_FILE = "review-prompt.md";
 export const TASK_CHECK_LOG_FILE = "check.log";
 export const TASK_RESULT_FILE = "result.md";
+export const PARALLEL_PLAN_FILE = "plan.json";
+export const PARALLEL_INTEGRATOR_PROMPT_FILE = "integrator-prompt.md";
 export const REPORT_SECTION_HEADINGS = [
   "Done",
   "Not done",
@@ -226,5 +229,16 @@ export function getReportTargetPaths(taskId: string): string[] {
 
   return [
     path.join(taskDir, TASK_RESULT_FILE)
+  ];
+}
+
+export function getParallelTargetPaths(taskId: string): string[] {
+  const taskDir = path.join(TASKS_DIR, taskId);
+  const parallelDir = path.join(taskDir, TASK_PARALLEL_DIR);
+
+  return [
+    parallelDir,
+    path.join(parallelDir, PARALLEL_PLAN_FILE),
+    path.join(parallelDir, PARALLEL_INTEGRATOR_PROMPT_FILE)
   ];
 }

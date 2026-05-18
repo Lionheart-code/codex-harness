@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 15 adds a disposable `eval playground` workflow on top of the Phase 14 review, Phase 13 hooks, and Phase 12 report flow.
+`codex-harness` is a Codex-first programming harness. Phase 16 adds an opt-in parallel worktree scaffold on top of the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
 
-## Phase 15 commands
+## Phase 16 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -30,6 +30,10 @@ node bin/ch doctor
 node bin/ch eval playground init
 node bin/ch eval playground smoke
 node bin/ch eval playground clean
+node bin/ch parallel --help
+node bin/ch parallel plan --worker alpha --worker beta --claim alpha:README.md --claim beta:src
+node bin/ch parallel status
+node bin/ch parallel close
 node bin/ch install
 node bin/ch install --dry-run
 node bin/ch status
@@ -48,6 +52,34 @@ node bin/ch prompt scout --role tests
 npm install
 npm run build
 ```
+
+## Phase 16 parallel scaffold behavior
+
+- `parallel plan` is an opt-in manual scaffold for splitting work across isolated worker worktrees.
+- Phase 16 does not execute write-capable worker agents automatically and does not extend `agent run` beyond Phase 10 read-only behavior.
+- The current single active task remains the explicit integrator task.
+- `parallel plan` requires:
+  - exactly one active task
+  - an existing integrator worktree
+  - a clean source checkout
+  - a clean integrator worktree
+  - at least 2 workers
+  - explicit non-overlapping worker claims
+- Worker claims are literal repo-relative file or directory prefixes only. They must stay inside the repo and must not target harness-managed paths.
+- `parallel plan` writes:
+  - `.harness/tasks/<task-id>/parallel/plan.json`
+  - `.harness/tasks/<task-id>/parallel/integrator-prompt.md`
+  - one worker prompt per worker under the same `parallel/` directory
+- Each worker gets one isolated git worktree on a task-scoped parallel branch and dedicated external worktree path.
+- `parallel status` reports the current scaffold state and fails when recorded worker integrity is broken.
+- `parallel close` is the final gate. It requires:
+  - all worker worktrees still exist and are clean
+  - final `diff.patch`, `verifier.json`, `review.json`, and `result.md`
+  - verifier result `pass`
+  - review result `PASS`
+  - `result.md` containing `READY FOR HUMAN REVIEW`
+  - final tracked integrator changes staying inside the declared claim union
+- `parallel close` records closure only. It does not merge branches, delete worktrees, or run external write agents.
 
 ## Phase 15 eval playground behavior
 
@@ -100,6 +132,8 @@ npm run build
 - Agent output status parsing supports `raw`, `accepted`, `stale`, and `rejected`, while Phase 9 still records new runs as `raw` only.
 - `agent prompt <agent> --role <role>` requires an adapter profile in `.harness/config.toml`, creates a run-local `prompt.md` and `command.json`, and prints the bounded command preview without executing the external agent.
 - `agent run <agent> --role <role>` executes only configured `cli` adapters with `permission_mode = "read_only"`, captures stdout to `output.md`, captures stderr plus run summary to `log.txt`, and records command metadata in `status.json`.
+- `parallel plan`, `parallel status`, and `parallel close` add a manual Phase 16 scaffold for isolated worker worktrees plus an integrator close gate.
+- Phase 16 does not add automatic write-capable worker execution.
 - `capture` reads the active task worktree, captures `git status --porcelain --untracked-files=all`, writes `diff.patch`, and seeds `.harness/tasks/<task-id>/verifier.json` with durable capture state.
 - `check` refreshes capture artifacts, runs `[checks].commands` from `.harness/config.toml`, writes `.harness/tasks/<task-id>/logs/check.log`, and records deterministic pass/fail results in `verifier.json`.
 - `check` treats protected-path changes as failure. If `[checks].protected_paths` is unset, the defaults are `AGENTS.md` and `.harness/config.toml`.

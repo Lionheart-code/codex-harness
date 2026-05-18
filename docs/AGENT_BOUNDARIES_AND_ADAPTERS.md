@@ -106,7 +106,7 @@ Reviews diff, acceptance, checks, and artifacts. Must return PASS or FIX_REQUIRE
 
 Combines outputs from parallel worktree workers. Requires final verifier and human merge gate.
 
-Parallel-worker execution is not active in Phase 6.
+Phase 16 adds a manual scaffold for this role, but does not implement external write-capable agent execution.
 
 ## Per-agent instruction differences
 
