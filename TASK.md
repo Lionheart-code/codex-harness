@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_14_CODEX_EXEC_REVIEW.md
+Implement only: tasks/PHASE_15_PLAYGROUND_EVALS.md
 
-Do not implement Phase 15 or later.
+Do not implement Phase 16 or later.
