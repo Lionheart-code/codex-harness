@@ -1,9 +1,5 @@
 # Current Task
 
-Implement only:
+Implement only: tasks/PHASE_09_PROJECT_MEMORY_AND_DEBT.md
 
-```text
-tasks/PHASE_08_AGENT_RUN_LEDGER.md
-```
-
-Do not implement Phase 9 or later.
+Do not implement Phase 10 or later.
