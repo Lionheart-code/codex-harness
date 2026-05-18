@@ -3,7 +3,7 @@
 Implement only:
 
 ```text
-tasks/PHASE_05_PROMPT_BUILDER.md
+tasks/PHASE_06_AGENT_ROLES_MATRIX.md
 ```
 
-Do not implement Phase 6 or later.
+Do not implement Phase 7 or later.
