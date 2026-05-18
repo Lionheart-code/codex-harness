@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_10_MANUAL_CLI_AGENT_ADAPTER.md
+Implement only: tasks/PHASE_11_CAPTURE_CHECK.md
 
-Do not implement Phase 11 or later.
+Do not implement Phase 12 or later.
