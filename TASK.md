@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_09_PROJECT_MEMORY_AND_DEBT.md
+Implement only: tasks/PHASE_10_MANUAL_CLI_AGENT_ADAPTER.md
 
-Do not implement Phase 10 or later.
+Do not implement Phase 11 or later.
