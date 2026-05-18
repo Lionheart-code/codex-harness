@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_11_CAPTURE_CHECK.md
+Implement only: tasks/PHASE_12_REPORT.md
 
-Do not implement Phase 12 or later.
+Do not implement Phase 13 or later.
