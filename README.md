@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 16 adds an opt-in parallel worktree scaffold on top of the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
+`codex-harness` is a Codex-first programming harness. Phase 17 adds an installed-layer governance loop on top of the Phase 16 parallel worktree scaffold, the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
 
-## Phase 16 commands
+## Phase 17 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -30,6 +30,11 @@ node bin/ch doctor
 node bin/ch eval playground init
 node bin/ch eval playground smoke
 node bin/ch eval playground clean
+node bin/ch governance --help
+node bin/ch governance review
+node bin/ch governance proposal --title "tighten review gate"
+node bin/ch governance metrics
+node bin/ch governance status
 node bin/ch parallel --help
 node bin/ch parallel plan --worker alpha --worker beta --claim alpha:README.md --claim beta:src
 node bin/ch parallel status
@@ -52,6 +57,17 @@ node bin/ch prompt scout --role tests
 npm install
 npm run build
 ```
+
+## Phase 17 governance behavior
+
+- `governance review`, `governance proposal`, `governance metrics`, and `governance status` operate only in installed target repositories, not in the real `codex-harness` product repository.
+- Governance artifacts live under `.harness/governance/` with subdirectories for `reviews/`, `proposals/`, and `metrics/`, plus `changelog.md`.
+- `governance review` writes a dated review artifact for `daily`, `weekly`, or `release` mode and records evidence without changing product code.
+- `governance proposal --title ...` writes a human-readable Harness Enhancement Proposal with required evidence, expected benefit, risk, rollback, acceptance criteria, and evaluation-plan sections.
+- `governance proposal --research <path>` records validated local research-summary file references only. It does not fetch the network.
+- `governance metrics` writes deterministic local summary data to `.harness/governance/metrics/harness-metrics.json`.
+- `governance status` is read-only and summarizes governance, memory, debt, decisions, and agent-output counts.
+- Phase 17 does not add automatic self-modification, auto-merge, silent prompt changes, permission changes, dashboard behavior, or schema/migration infrastructure.
 
 ## Phase 16 parallel scaffold behavior
 
@@ -134,6 +150,8 @@ npm run build
 - `agent run <agent> --role <role>` executes only configured `cli` adapters with `permission_mode = "read_only"`, captures stdout to `output.md`, captures stderr plus run summary to `log.txt`, and records command metadata in `status.json`.
 - `parallel plan`, `parallel status`, and `parallel close` add a manual Phase 16 scaffold for isolated worker worktrees plus an integrator close gate.
 - Phase 16 does not add automatic write-capable worker execution.
+- `governance review`, `governance proposal`, `governance metrics`, and `governance status` add a deterministic Phase 17 maintainer-governance loop for installed harness layers only.
+- Phase 17 governance produces review/proposal/metrics artifacts only. It does not edit the product repository or silently apply harness changes.
 - `capture` reads the active task worktree, captures `git status --porcelain --untracked-files=all`, writes `diff.patch`, and seeds `.harness/tasks/<task-id>/verifier.json` with durable capture state.
 - `check` refreshes capture artifacts, runs `[checks].commands` from `.harness/config.toml`, writes `.harness/tasks/<task-id>/logs/check.log`, and records deterministic pass/fail results in `verifier.json`.
 - `check` treats protected-path changes as failure. If `[checks].protected_paths` is unset, the defaults are `AGENTS.md` and `.harness/config.toml`.

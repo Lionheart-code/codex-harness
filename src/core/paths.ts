@@ -9,6 +9,11 @@ export const MEMORY_DIR = path.join(HARNESS_DIR, "memory");
 export const MEMORY_DECISIONS_DIR = path.join(MEMORY_DIR, "decisions");
 export const MEMORY_DEBT_DIR = path.join(MEMORY_DIR, "debt");
 export const MEMORY_SUMMARIES_DIR = path.join(MEMORY_DIR, "summaries");
+export const GOVERNANCE_DIR = path.join(HARNESS_DIR, "governance");
+export const GOVERNANCE_REVIEWS_DIR = path.join(GOVERNANCE_DIR, "reviews");
+export const GOVERNANCE_PROPOSALS_DIR = path.join(GOVERNANCE_DIR, "proposals");
+export const GOVERNANCE_METRICS_DIR = path.join(GOVERNANCE_DIR, "metrics");
+export const GOVERNANCE_CHANGELOG_PATH = path.join(GOVERNANCE_DIR, "changelog.md");
 export const CONFIG_PATH = path.join(HARNESS_DIR, "config.toml");
 export const INSTALL_JSON_PATH = path.join(HARNESS_DIR, "install.json");
 export const PROJECT_INDEX_PATH = path.join(MEMORY_DIR, "project-index.md");
@@ -42,6 +47,7 @@ export const TASK_CHECK_LOG_FILE = "check.log";
 export const TASK_RESULT_FILE = "result.md";
 export const PARALLEL_PLAN_FILE = "plan.json";
 export const PARALLEL_INTEGRATOR_PROMPT_FILE = "integrator-prompt.md";
+export const GOVERNANCE_METRICS_FILE = "harness-metrics.json";
 export const REPORT_SECTION_HEADINGS = [
   "Done",
   "Not done",
@@ -91,6 +97,11 @@ export function getInstallTargetPaths(): string[] {
     MEMORY_DECISIONS_DIR,
     MEMORY_DEBT_DIR,
     MEMORY_SUMMARIES_DIR,
+    GOVERNANCE_DIR,
+    GOVERNANCE_REVIEWS_DIR,
+    GOVERNANCE_PROPOSALS_DIR,
+    GOVERNANCE_METRICS_DIR,
+    GOVERNANCE_CHANGELOG_PATH,
     INSTALL_JSON_PATH
   ];
 }
@@ -115,6 +126,7 @@ export function getManagedAgentsBlock(): string {
     `- \`${TASKS_DIR}/\``,
     `- \`${TEMPLATES_DIR}/\``,
     `- \`${MEMORY_DIR}/\``,
+    `- \`${GOVERNANCE_DIR}/\``,
     `- \`${INSTALL_JSON_PATH}\``,
     "",
     "Treat `.harness/` as harness-managed project state.",
@@ -240,5 +252,15 @@ export function getParallelTargetPaths(taskId: string): string[] {
     parallelDir,
     path.join(parallelDir, PARALLEL_PLAN_FILE),
     path.join(parallelDir, PARALLEL_INTEGRATOR_PROMPT_FILE)
+  ];
+}
+
+export function getGovernanceTargetPaths(): string[] {
+  return [
+    GOVERNANCE_DIR,
+    GOVERNANCE_REVIEWS_DIR,
+    GOVERNANCE_PROPOSALS_DIR,
+    GOVERNANCE_METRICS_DIR,
+    GOVERNANCE_CHANGELOG_PATH
   ];
 }

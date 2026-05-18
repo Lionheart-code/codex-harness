@@ -6,6 +6,7 @@ import { runDebt } from "./debt";
 import { runDecisions } from "./decisions";
 import { runDoctor } from "./doctor";
 import { runEval } from "./eval";
+import { runGovernance } from "./governance";
 import { runHooks } from "./hooks";
 import { runInit } from "./init";
 import { runInstall } from "./install";
@@ -21,7 +22,7 @@ type CommandHandler = (args: string[]) => Promise<number>;
 
 function printHelp(): void {
   lines([
-    "codex-harness Phase 16 CLI",
+    "codex-harness Phase 17 CLI",
     "",
     "Usage:",
     "  node bin/ch --help",
@@ -46,6 +47,7 @@ function printHelp(): void {
     "  node bin/ch eval playground init",
     "  node bin/ch eval playground smoke",
     "  node bin/ch eval playground clean",
+    "  node bin/ch governance --help",
     "  node bin/ch parallel --help",
     "  node bin/ch install",
     "  node bin/ch install --dry-run",
@@ -70,6 +72,7 @@ function printHelp(): void {
     "  decisions Add and list Phase 9 decision records.",
     "  doctor   Report whether the current directory is inside a git repository.",
     "  eval     Manage a disposable Phase 15 playground and run deterministic smoke scenarios.",
+    "  governance Run Phase 17 harness governance review, proposal, metrics, and status commands.",
     "  parallel Manage the Phase 16 opt-in parallel worktree scaffold.",
     "  install  Install or preview the Phase 2 harness layer.",
     "  status   List tasks from the installed Phase 3 task-state layer.",
@@ -85,6 +88,8 @@ function getCommandHandler(command: string): CommandHandler | undefined {
       return runDoctor;
     case "eval":
       return runEval;
+    case "governance":
+      return runGovernance;
     case "parallel":
       return runParallel;
     case "agent":

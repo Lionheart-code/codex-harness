@@ -40,6 +40,11 @@ test("phase 2 install creates the installed layer and reinstall is idempotent", 
   const decisionsPath = path.join(tempRepo, ".harness", "memory", "decisions");
   const debtPath = path.join(tempRepo, ".harness", "memory", "debt");
   const summariesPath = path.join(tempRepo, ".harness", "memory", "summaries");
+  const governancePath = path.join(tempRepo, ".harness", "governance");
+  const governanceReviewsPath = path.join(governancePath, "reviews");
+  const governanceProposalsPath = path.join(governancePath, "proposals");
+  const governanceMetricsPath = path.join(governancePath, "metrics");
+  const governanceChangelogPath = path.join(governancePath, "changelog.md");
   const installJsonPath = path.join(tempRepo, ".harness", "install.json");
   const projectIndexPath = path.join(tempRepo, ".harness", "memory", "project-index.md");
   const debtJsonlPath = path.join(tempRepo, ".harness", "memory", "debt", "debt.jsonl");
@@ -59,6 +64,15 @@ test("phase 2 install creates the installed layer and reinstall is idempotent", 
   assert.ok(fs.statSync(debtPath).isDirectory(), ".harness/memory/debt is not a directory");
   assert.ok(fs.existsSync(summariesPath), ".harness/memory/summaries was not created");
   assert.ok(fs.statSync(summariesPath).isDirectory(), ".harness/memory/summaries is not a directory");
+  assert.ok(fs.existsSync(governancePath), ".harness/governance was not created");
+  assert.ok(fs.statSync(governancePath).isDirectory(), ".harness/governance is not a directory");
+  assert.ok(fs.existsSync(governanceReviewsPath), ".harness/governance/reviews was not created");
+  assert.ok(fs.statSync(governanceReviewsPath).isDirectory(), ".harness/governance/reviews is not a directory");
+  assert.ok(fs.existsSync(governanceProposalsPath), ".harness/governance/proposals was not created");
+  assert.ok(fs.statSync(governanceProposalsPath).isDirectory(), ".harness/governance/proposals is not a directory");
+  assert.ok(fs.existsSync(governanceMetricsPath), ".harness/governance/metrics was not created");
+  assert.ok(fs.statSync(governanceMetricsPath).isDirectory(), ".harness/governance/metrics is not a directory");
+  assert.ok(fs.existsSync(governanceChangelogPath), ".harness/governance/changelog.md was not created");
   assert.ok(fs.existsSync(installJsonPath), ".harness/install.json was not created");
   assert.ok(fs.existsSync(projectIndexPath), ".harness/memory/project-index.md was not created");
   assert.ok(fs.existsSync(debtJsonlPath), ".harness/memory/debt/debt.jsonl was not created");

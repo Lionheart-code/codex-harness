@@ -57,7 +57,7 @@ Store under:
 ```text
 .harness/governance/
   reviews/
-    <date>-harness-review.md
+    <date>-<mode>-harness-review.md
   proposals/
     HEP-0001-title.md
   metrics/
@@ -66,6 +66,10 @@ Store under:
 ```
 
 HEP means Harness Enhancement Proposal.
+
+Phase 17 keeps these artifacts in installed harness layers only.
+
+The real `codex-harness` product repository stays free of generated `.harness/` state during local deterministic acceptance.
 
 ## Governance cycle
 
@@ -128,15 +132,18 @@ The maintainer needs structured evidence:
 - review blockers;
 - phase where failure occurred.
 
-## Commands planned for future phases
+## Phase 17 command surface
 
 ```bash
 ch governance review
 ch governance proposal
 ch governance metrics
-ch governance changelog
 ch governance status
 ```
+
+`ch governance changelog` is not implemented in Phase 17.
+
+The changelog is a file artifact maintained under `.harness/governance/changelog.md`.
 
 ## Safety
 

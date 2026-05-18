@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { detectGitRepository } from "./git";
+import { getGovernanceSeedFilePlans } from "./governance-scaffold";
 import { getMemorySeedFilePlans } from "./memory-scaffold";
 import {
   AGENTS_BLOCK_END,
@@ -8,6 +9,10 @@ import {
   AGENTS_PATH,
   CONFIG_PATH,
   DEFAULT_WORKTREE_ROOT,
+  GOVERNANCE_DIR,
+  GOVERNANCE_METRICS_DIR,
+  GOVERNANCE_PROPOSALS_DIR,
+  GOVERNANCE_REVIEWS_DIR,
   HARNESS_DIR,
   INSTALL_JSON_PATH,
   MEMORY_DECISIONS_DIR,
@@ -394,11 +399,18 @@ export function installHarness(cwd: string, dryRun: boolean): InstallResult {
     ensureDirectoryPlan(targetRoot, MEMORY_DIR, conflicts),
     ensureDirectoryPlan(targetRoot, MEMORY_DECISIONS_DIR, conflicts),
     ensureDirectoryPlan(targetRoot, MEMORY_DEBT_DIR, conflicts),
-    ensureDirectoryPlan(targetRoot, MEMORY_SUMMARIES_DIR, conflicts)
+    ensureDirectoryPlan(targetRoot, MEMORY_SUMMARIES_DIR, conflicts),
+    ensureDirectoryPlan(targetRoot, GOVERNANCE_DIR, conflicts),
+    ensureDirectoryPlan(targetRoot, GOVERNANCE_REVIEWS_DIR, conflicts),
+    ensureDirectoryPlan(targetRoot, GOVERNANCE_PROPOSALS_DIR, conflicts),
+    ensureDirectoryPlan(targetRoot, GOVERNANCE_METRICS_DIR, conflicts)
   ];
   const configFile = planManagedFile(targetRoot, CONFIG_PATH, buildConfigToml(version), conflicts);
   const installFile = planManagedFile(targetRoot, INSTALL_JSON_PATH, buildInstallJson(metadata), conflicts);
   const memorySeedFiles = getMemorySeedFilePlans(targetRoot).map((seedFile) =>
+    planSeedFile(targetRoot, seedFile.relativePath, seedFile.content, conflicts)
+  );
+  const governanceSeedFiles = getGovernanceSeedFilePlans(targetRoot).map((seedFile) =>
     planSeedFile(targetRoot, seedFile.relativePath, seedFile.content, conflicts)
   );
   const agentsFile = planAgentsFile(targetRoot, conflicts);
@@ -428,19 +440,22 @@ export function installHarness(cwd: string, dryRun: boolean): InstallResult {
     for (const seedFile of memorySeedFiles) {
       applyFilePlan(seedFile);
     }
+    for (const seedFile of governanceSeedFiles) {
+      applyFilePlan(seedFile);
+    }
     applyAgentsPlan(agentsFile);
   }
 
   const created = [
     ...directories.filter((plan) => plan.action === "create").map((plan) => plan.relativePath),
-    ...[configFile, installFile, ...memorySeedFiles, agentsFile]
+    ...[configFile, installFile, ...memorySeedFiles, ...governanceSeedFiles, agentsFile]
       .filter((plan) => plan.action === "create")
       .map((plan) => plan.relativePath)
   ];
   const updated = [agentsFile].filter((plan) => plan.action === "update").map((plan) => plan.relativePath);
   const unchanged = [
     ...directories.filter((plan) => plan.action === "unchanged").map((plan) => plan.relativePath),
-    ...[configFile, installFile, ...memorySeedFiles, agentsFile]
+    ...[configFile, installFile, ...memorySeedFiles, ...governanceSeedFiles, agentsFile]
       .filter((plan) => plan.action === "unchanged")
       .map((plan) => plan.relativePath)
   ];
