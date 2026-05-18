@@ -4,6 +4,8 @@ import { detectInstalledLayer } from "./install";
 import { detectGitRepository } from "./git";
 import { BRANCH_RECORD_FILE, WORKTREE_RECORD_FILE, createTaskId, getTaskTargetPaths, TASKS_DIR } from "./paths";
 
+export type TaskType = "bugfix" | "feature" | "refactor" | "architecture" | "docs" | "deployment";
+
 export interface TaskState {
   task_id: string;
   title: string;
@@ -13,6 +15,7 @@ export interface TaskState {
   phase: "3";
   spec: "spec.md";
   acceptance: "acceptance.md";
+  task_type?: TaskType;
   branch?: string;
   worktree?: string;
 }
@@ -21,6 +24,7 @@ export interface TaskCreationPreview {
   targetRoot: string;
   taskId: string;
   targetPaths: string[];
+  taskType?: TaskType;
 }
 
 export interface TaskCreationResult {
@@ -32,9 +36,27 @@ export interface TaskCreationResult {
 export interface TaskListResult {
   targetRoot: string;
   tasks: TaskState[];
+  warnings: string[];
 }
 
-export function requireInstalledTargetRoot(cwd: string): string {
+export const TASK_TYPES: TaskType[] = [
+  "bugfix",
+  "feature",
+  "refactor",
+  "architecture",
+  "docs",
+  "deployment"
+];
+
+export interface TaskCreationOptions {
+  taskType?: TaskType;
+}
+
+export function isTaskType(value: string): value is TaskType {
+  return TASK_TYPES.includes(value as TaskType);
+}
+
+export function requireGitTargetRoot(cwd: string): string {
   const gitStatus = detectGitRepository(cwd);
 
   if (!gitStatus.available) {
@@ -45,15 +67,26 @@ export function requireInstalledTargetRoot(cwd: string): string {
     throw new Error("This command must run inside a git repository.");
   }
 
-  if (!detectInstalledLayer(gitStatus.rootPath)) {
-    throw new Error("Installed harness layer not found. Run `node bin/ch install` first.");
-  }
-
   return gitStatus.rootPath;
 }
 
-function buildState(taskId: string, title: string, timestamp: string): TaskState {
-  return {
+export function requireInstalledTargetRoot(cwd: string): string {
+  const targetRoot = requireGitTargetRoot(cwd);
+
+  if (!detectInstalledLayer(targetRoot)) {
+    throw new Error("Installed harness layer not found. Run `node bin/ch install` first.");
+  }
+
+  return targetRoot;
+}
+
+function buildState(
+  taskId: string,
+  title: string,
+  timestamp: string,
+  taskType?: TaskType
+): TaskState {
+  const state: TaskState = {
     task_id: taskId,
     title,
     status: "created",
@@ -63,6 +96,52 @@ function buildState(taskId: string, title: string, timestamp: string): TaskState
     spec: "spec.md",
     acceptance: "acceptance.md"
   };
+
+  if (taskType) {
+    state.task_type = taskType;
+  }
+
+  return state;
+}
+
+function parseTaskState(statePath: string): TaskState {
+  const parsed = JSON.parse(fs.readFileSync(statePath, "utf8")) as Partial<TaskState>;
+
+  if (
+    typeof parsed.task_id !== "string" ||
+    typeof parsed.title !== "string" ||
+    parsed.status !== "created" ||
+    typeof parsed.created_at !== "string" ||
+    typeof parsed.updated_at !== "string" ||
+    parsed.phase !== "3" ||
+    parsed.spec !== "spec.md" ||
+    parsed.acceptance !== "acceptance.md"
+  ) {
+    throw new Error("missing required task-state fields");
+  }
+
+  if (parsed.task_type !== undefined && !isTaskType(parsed.task_type)) {
+    throw new Error(`unsupported task_type: ${String(parsed.task_type)}`);
+  }
+
+  if (parsed.branch !== undefined && typeof parsed.branch !== "string") {
+    throw new Error("invalid branch value");
+  }
+
+  if (parsed.worktree !== undefined && typeof parsed.worktree !== "string") {
+    throw new Error("invalid worktree value");
+  }
+
+  return parsed as TaskState;
+}
+
+function buildMalformedTaskWarning(targetRoot: string, statePath: string, taskError: unknown): string {
+  const message = taskError instanceof Error ? taskError.message : String(taskError);
+  return `Skipped malformed task state: ${path.relative(targetRoot, statePath)} (${message})`;
+}
+
+function readTaskState(statePath: string): TaskState {
+  return parseTaskState(statePath);
 }
 
 function buildSpecMarkdown(taskId: string, title: string, timestamp: string): string {
@@ -92,10 +171,6 @@ export function getTaskDirectory(targetRoot: string, taskId: string): string {
   return path.join(targetRoot, TASKS_DIR, taskId);
 }
 
-function readTaskState(statePath: string): TaskState {
-  return JSON.parse(fs.readFileSync(statePath, "utf8")) as TaskState;
-}
-
 export function getTaskStatePath(targetRoot: string, taskId: string): string {
   return path.join(getTaskDirectory(targetRoot, taskId), "state.json");
 }
@@ -116,18 +191,27 @@ export function writeTaskState(targetRoot: string, taskId: string, state: TaskSt
   fs.writeFileSync(getTaskStatePath(targetRoot, taskId), `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
 
-export function previewTaskCreation(cwd: string, title: string): TaskCreationPreview {
-  const targetRoot = requireInstalledTargetRoot(cwd);
+export function previewTaskCreation(
+  cwd: string,
+  title: string,
+  options: TaskCreationOptions = {}
+): TaskCreationPreview {
+  const targetRoot = requireGitTargetRoot(cwd);
   const taskId = createTaskId(title);
 
   return {
     targetRoot,
     taskId,
-    targetPaths: getTaskTargetPaths(taskId)
+    targetPaths: getTaskTargetPaths(taskId),
+    taskType: options.taskType
   };
 }
 
-export function createTask(cwd: string, title: string): TaskCreationResult {
+export function createTask(
+  cwd: string,
+  title: string,
+  options: TaskCreationOptions = {}
+): TaskCreationResult {
   const targetRoot = requireInstalledTargetRoot(cwd);
   const taskId = createTaskId(title);
   const taskDirectory = getTaskDirectory(targetRoot, taskId);
@@ -137,7 +221,7 @@ export function createTask(cwd: string, title: string): TaskCreationResult {
   }
 
   const timestamp = new Date().toISOString();
-  const state = buildState(taskId, title, timestamp);
+  const state = buildState(taskId, title, timestamp, options.taskType);
   const specPath = path.join(taskDirectory, "spec.md");
   const acceptancePath = path.join(taskDirectory, "acceptance.md");
   const statePath = getTaskStatePath(targetRoot, taskId);
@@ -161,21 +245,31 @@ export function listTasks(cwd: string): TaskListResult {
   if (!fs.existsSync(tasksRoot)) {
     return {
       targetRoot,
-      tasks: []
+      tasks: [],
+      warnings: []
     };
   }
 
+  const warnings: string[] = [];
   const tasks = fs
     .readdirSync(tasksRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => path.join(tasksRoot, entry.name, "state.json"))
     .filter((statePath) => fs.existsSync(statePath) && fs.statSync(statePath).isFile())
-    .map((statePath) => readTaskState(statePath))
+    .flatMap((statePath) => {
+      try {
+        return [readTaskState(statePath)];
+      } catch (taskError) {
+        warnings.push(buildMalformedTaskWarning(targetRoot, statePath, taskError));
+        return [];
+      }
+    })
     .sort((left, right) => left.task_id.localeCompare(right.task_id));
 
   return {
     targetRoot,
-    tasks
+    tasks,
+    warnings
   };
 }
 

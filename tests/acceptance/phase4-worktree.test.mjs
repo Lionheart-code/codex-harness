@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { after, test } from "node:test";
 import {
+  assertFailure,
   assertSuccess,
   createTempDirectory,
   ensureBuiltCli,
@@ -89,4 +90,43 @@ test("phase 4 worktree creates one branch and one isolated worktree per task", (
   const secondWorktree = runCli(["worktree"], { cwd: tempRepo });
   assertSuccess(secondWorktree, "worktree second run");
   assert.match(secondWorktree.stdout, /status: worktree already exists/);
+});
+
+test("phase 4 worktree fails clearly when the repository has no initial commit", () => {
+  ensureBuiltCli();
+
+  const tempRepo = createTempDirectory();
+  tempDirectories.push(tempRepo);
+
+  assertSuccess(runCommand("git", ["init"], { cwd: tempRepo }), `git init in ${tempRepo}`);
+  assertSuccess(runCli(["install"], { cwd: tempRepo }), "install");
+  assertSuccess(runCli(["init", "test task"], { cwd: tempRepo }), "init");
+
+  const worktreeResult = runCli(["worktree"], { cwd: tempRepo });
+  assertFailure(worktreeResult, "worktree without initial commit");
+  assert.match(worktreeResult.stderr, /Source repository has no valid HEAD\. Create an initial commit first\./);
+});
+
+test("phase 4 worktree refuses a dirty source checkout", () => {
+  ensureBuiltCli();
+
+  const tempRepo = createTempDirectory();
+  tempDirectories.push(tempRepo);
+
+  assertSuccess(runCommand("git", ["init"], { cwd: tempRepo }), `git init in ${tempRepo}`);
+  assertSuccess(runCommand("git", ["config", "user.email", "test@example.com"], { cwd: tempRepo }), "git config user.email");
+  assertSuccess(runCommand("git", ["config", "user.name", "Test User"], { cwd: tempRepo }), "git config user.name");
+
+  writeText(path.join(tempRepo, "README.md"), "# test\n");
+  assertSuccess(runCommand("git", ["add", "README.md"], { cwd: tempRepo }), "git add README.md");
+  assertSuccess(runCommand("git", ["commit", "-m", "init"], { cwd: tempRepo }), "git commit init");
+
+  assertSuccess(runCli(["install"], { cwd: tempRepo }), "install");
+  assertSuccess(runCli(["init", "test task"], { cwd: tempRepo }), "init");
+
+  writeText(path.join(tempRepo, "DIRTY.txt"), "dirty\n");
+
+  const worktreeResult = runCli(["worktree"], { cwd: tempRepo });
+  assertFailure(worktreeResult, "worktree dirty checkout refusal");
+  assert.match(worktreeResult.stderr, /Source checkout is dirty\./);
 });

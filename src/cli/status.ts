@@ -9,12 +9,17 @@ export async function runStatus(args: string[]): Promise<number> {
 
   try {
     const result = listTasks(process.cwd());
+    const warningLines =
+      result.warnings.length > 0
+        ? ["warnings:", ...result.warnings.map((warning) => `- ${warning}`)]
+        : [];
 
     if (result.tasks.length === 0) {
       lines([
         "codex-harness status",
         `target root: ${result.targetRoot}`,
-        "No tasks found."
+        "No tasks found.",
+        ...warningLines
       ]);
       return 0;
     }
@@ -32,6 +37,10 @@ export async function runStatus(args: string[]): Promise<number> {
             `updated_at=${task.updated_at}`
           ];
 
+          if (task.task_type) {
+            segments.push(`task_type=${task.task_type}`);
+          }
+
           if (task.branch) {
             segments.push(`branch=${task.branch}`);
           }
@@ -42,7 +51,8 @@ export async function runStatus(args: string[]): Promise<number> {
 
           return segments.join(" | ");
         }
-      )
+      ),
+      ...warningLines
     ]);
 
     return 0;

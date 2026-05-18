@@ -11,7 +11,7 @@ type CommandHandler = (args: string[]) => Promise<number>;
 
 function printHelp(): void {
   lines([
-    "codex-harness Phase 7 CLI",
+    "codex-harness Phase 8 CLI",
     "",
     "Usage:",
     "  node bin/ch --help",

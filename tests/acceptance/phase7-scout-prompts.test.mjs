@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { after, test } from "node:test";
 import {
+  assertFailure,
   assertSuccess,
   createTempDirectory,
   ensureBuiltCli,
@@ -61,7 +62,8 @@ test("phase 7 scout prompts are generated as manual read-only prompts with outpu
   assert.match(content, /branch\.txt/);
   assert.match(content, /worktree\.txt/);
   assert.match(content, /AGENTS\.md/);
-  assert.match(content, /scouts[\\/]+tests\.md/);
+  assert.match(content, /scouts\/tests\.md/);
+  assert.doesNotMatch(content, /scouts\\tests\.md/);
   assert.match(content, /permission mode: `read_only`/);
   assert.match(content, /Inspect only\./);
   assert.match(content, /Do not edit files\./);
@@ -79,4 +81,27 @@ test("phase 7 scout prompts are generated as manual read-only prompts with outpu
   const secondScoutResult = runCli(["prompt", "scout", "--role", "tests"], { cwd: tempRepo });
   assertSuccess(secondScoutResult, "prompt scout --role tests second run");
   assert.match(secondScoutResult.stdout, /prompt status: unchanged/);
+});
+
+test("phase 7 scout prompt rejects unsupported scout roles", () => {
+  ensureBuiltCli();
+
+  const tempRepo = createTempDirectory();
+  tempDirectories.push(tempRepo);
+
+  assertSuccess(runCommand("git", ["init"], { cwd: tempRepo }), `git init in ${tempRepo}`);
+  assertSuccess(runCommand("git", ["config", "user.email", "test@example.com"], { cwd: tempRepo }), "git config user.email");
+  assertSuccess(runCommand("git", ["config", "user.name", "Test User"], { cwd: tempRepo }), "git config user.name");
+
+  writeText(path.join(tempRepo, "README.md"), "# test\n");
+  assertSuccess(runCommand("git", ["add", "README.md"], { cwd: tempRepo }), "git add README.md");
+  assertSuccess(runCommand("git", ["commit", "-m", "init"], { cwd: tempRepo }), "git commit init");
+
+  assertSuccess(runCli(["install"], { cwd: tempRepo }), "install");
+  assertSuccess(runCli(["init", "test task"], { cwd: tempRepo }), "init");
+  assertSuccess(runCli(["worktree"], { cwd: tempRepo }), "worktree");
+
+  const scoutResult = runCli(["prompt", "scout", "--role", "invalid-role"], { cwd: tempRepo });
+  assertFailure(scoutResult, "prompt scout --role invalid-role");
+  assert.match(scoutResult.stderr, /Unsupported scout role: invalid-role/);
 });

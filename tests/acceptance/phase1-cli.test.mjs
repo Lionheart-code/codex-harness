@@ -1,6 +1,22 @@
 import assert from "node:assert/strict";
-import test from "node:test";
-import { assertSuccess, ensureBuiltCli, getGitStatus, productRoot, runCli } from "../helpers/cli-test-utils.mjs";
+import { after, test } from "node:test";
+import {
+  assertSuccess,
+  createTempDirectory,
+  ensureBuiltCli,
+  getGitStatus,
+  productRoot,
+  removeDirectory,
+  runCli
+} from "../helpers/cli-test-utils.mjs";
+
+const tempDirectories = [];
+
+after(() => {
+  for (const targetPath of tempDirectories) {
+    removeDirectory(targetPath);
+  }
+});
 
 test("phase 1 help output includes the supported commands", () => {
   ensureBuiltCli();
@@ -35,4 +51,31 @@ test("phase 1 install dry-run does not change product-repo git status", () => {
   assert.equal(afterStatus, beforeStatus, "install --dry-run changed product-repo git status");
   assert.match(result.stdout, /codex-harness install \(dry-run\)/);
   assert.match(result.stdout, /status: no files were written/);
+});
+
+test("phase 1 init dry-run succeeds without an installed harness layer and does not mutate the repo", () => {
+  ensureBuiltCli();
+
+  const beforeStatus = getGitStatus(productRoot);
+  const result = runCli(["init", "test task", "--dry-run"], { cwd: productRoot });
+  const afterStatus = getGitStatus(productRoot);
+
+  assertSuccess(result, "node bin/ch init \"test task\" --dry-run");
+  assert.equal(afterStatus, beforeStatus, "init --dry-run changed product-repo git status");
+  assert.match(result.stdout, /codex-harness init \(dry-run\)/);
+  assert.match(result.stdout, /task id: task-test-task/);
+  assert.match(result.stdout, /Planned Phase 3 task paths:/);
+});
+
+test("phase 1 doctor reports when the current directory is outside git", () => {
+  ensureBuiltCli();
+
+  const tempDir = createTempDirectory();
+  tempDirectories.push(tempDir);
+
+  const result = runCli(["doctor"], { cwd: tempDir });
+  assertSuccess(result, "node bin/ch doctor outside git");
+
+  assert.match(result.stdout, /repository: not inside a git work tree/);
+  assert.match(result.stdout, /installed layer: unavailable/);
 });

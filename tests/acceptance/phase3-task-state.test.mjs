@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { after, test } from "node:test";
 import {
@@ -11,7 +12,8 @@ import {
   readText,
   removeDirectory,
   runCli,
-  runCommand
+  runCommand,
+  writeText
 } from "../helpers/cli-test-utils.mjs";
 
 const tempDirectories = [];
@@ -42,7 +44,11 @@ test("phase 3 init creates task-state files and status lists the task", () => {
   assert.match(dryRunResult.stdout, /codex-harness init \(dry-run\)/);
   assert.match(dryRunResult.stdout, /task id: task-preview-task/);
 
-  const initResult = runCli(["init", "test task"], { cwd: tempRepo });
+  const typedDryRun = runCli(["init", "typed preview", "--type", "bugfix", "--dry-run"], { cwd: tempRepo });
+  assertSuccess(typedDryRun, "node bin/ch init \"typed preview\" --type bugfix --dry-run");
+  assert.match(typedDryRun.stdout, /task type: bugfix/);
+
+  const initResult = runCli(["init", "test task", "--type", "bugfix"], { cwd: tempRepo });
   assertSuccess(initResult, "node bin/ch init \"test task\"");
 
   const taskRoot = path.join(tempRepo, ".harness", "tasks", "task-test-task");
@@ -61,6 +67,7 @@ test("phase 3 init creates task-state files and status lists the task", () => {
     "spec",
     "status",
     "task_id",
+    "task_type",
     "title",
     "updated_at"
   ]);
@@ -70,6 +77,7 @@ test("phase 3 init creates task-state files and status lists the task", () => {
   assert.equal(state.phase, "3");
   assert.equal(state.spec, "spec.md");
   assert.equal(state.acceptance, "acceptance.md");
+  assert.equal(state.task_type, "bugfix");
   assert.equal(typeof state.created_at, "string");
   assert.equal(typeof state.updated_at, "string");
   assert.equal(state.created_at, state.updated_at);
@@ -90,6 +98,7 @@ test("phase 3 init creates task-state files and status lists the task", () => {
   assertSuccess(statusResult, "node bin/ch status");
   assert.match(statusResult.stdout, /codex-harness status/);
   assert.match(statusResult.stdout, /task-test-task \| created \| test task \|/);
+  assert.match(statusResult.stdout, /task_type=bugfix/);
 
   const duplicateInit = runCli(["init", "test task"], { cwd: tempRepo });
   assertFailure(duplicateInit, "duplicate init");
@@ -97,4 +106,25 @@ test("phase 3 init creates task-state files and status lists the task", () => {
 
   const stateAfterDuplicate = readJson(statePath);
   assert.deepEqual(stateAfterDuplicate, state);
+});
+
+test("phase 3 status skips malformed task state entries and reports a warning", () => {
+  ensureBuiltCli();
+
+  const tempRepo = createTempDirectory();
+  tempDirectories.push(tempRepo);
+
+  assertSuccess(runCommand("git", ["init"], { cwd: tempRepo }), `git init in ${tempRepo}`);
+  assertSuccess(runCli(["install"], { cwd: tempRepo }), "install before malformed status test");
+  assertSuccess(runCli(["init", "good task"], { cwd: tempRepo }), "init good task");
+
+  const badTaskRoot = path.join(tempRepo, ".harness", "tasks", "task-bad-task");
+  fs.mkdirSync(badTaskRoot, { recursive: true });
+  writeText(path.join(badTaskRoot, "state.json"), "{ not-valid-json }\n");
+
+  const statusResult = runCli(["status"], { cwd: tempRepo });
+  assertSuccess(statusResult, "node bin/ch status with malformed state");
+  assert.match(statusResult.stdout, /task-good-task \| created \| good task \|/);
+  assert.match(statusResult.stdout, /warnings:/);
+  assert.match(statusResult.stdout, /Skipped malformed task state:/);
 });

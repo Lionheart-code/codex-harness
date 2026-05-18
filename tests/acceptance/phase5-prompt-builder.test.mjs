@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { after, test } from "node:test";
 import {
+  assertFailure,
   assertSuccess,
   createTempDirectory,
   ensureBuiltCli,
@@ -75,6 +76,10 @@ test("phase 5 prompt builder generates concise task prompts and preserves AGENTS
     assert.match(content, /Expected output:/);
     assert.match(content, /Implementation discipline:/);
     assert.match(content, new RegExp(implementationDisciplineBlock.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(content, /branch\.txt/);
+    assert.match(content, /worktree\.txt/);
+    assert.doesNotMatch(content, /branch\\.txt/);
+    assert.doesNotMatch(content, /worktree\\.txt/);
     assert.doesNotMatch(content, /TODO: describe the task details\./);
     assert.doesNotMatch(content, /Define acceptance criteria\./);
   }
@@ -99,4 +104,26 @@ test("phase 5 prompt builder generates concise task prompts and preserves AGENTS
   assert.equal(readText(promptPlanPath), originalPlanContent);
   assert.equal(readText(promptWorkPath), originalWorkContent);
   assert.equal(readText(promptReviewPath), originalReviewContent);
+});
+
+test("phase 5 prompt plan fails before task worktree metadata exists", () => {
+  ensureBuiltCli();
+
+  const tempRepo = createTempDirectory();
+  tempDirectories.push(tempRepo);
+
+  assertSuccess(runCommand("git", ["init"], { cwd: tempRepo }), `git init in ${tempRepo}`);
+  assertSuccess(runCommand("git", ["config", "user.email", "test@example.com"], { cwd: tempRepo }), "git config user.email");
+  assertSuccess(runCommand("git", ["config", "user.name", "Test User"], { cwd: tempRepo }), "git config user.name");
+
+  writeText(path.join(tempRepo, "README.md"), "# test\n");
+  assertSuccess(runCommand("git", ["add", "README.md"], { cwd: tempRepo }), "git add README.md");
+  assertSuccess(runCommand("git", ["commit", "-m", "init"], { cwd: tempRepo }), "git commit init");
+
+  assertSuccess(runCli(["install"], { cwd: tempRepo }), "install");
+  assertSuccess(runCli(["init", "test task"], { cwd: tempRepo }), "init");
+
+  const promptResult = runCli(["prompt", "plan"], { cwd: tempRepo });
+  assertFailure(promptResult, "prompt plan before worktree");
+  assert.match(promptResult.stderr, /Task worktree is not ready\. Run `node bin\/ch worktree` first\./);
 });

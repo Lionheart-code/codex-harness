@@ -42,6 +42,7 @@ export interface AgentListResult {
   targetRoot: string;
   taskId: string;
   runs: AgentRunRecord[];
+  warnings: string[];
 }
 
 function getSingleTaskForLedger(cwd: string): { targetRoot: string; taskId: string } {
@@ -65,6 +66,10 @@ function getTaskAgentsDirectory(targetRoot: string, taskId: string): string {
   return path.join(targetRoot, ".harness", "tasks", taskId, TASK_AGENTS_DIR);
 }
 
+function toPortablePath(targetPath: string): string {
+  return targetPath.replace(/\\/g, "/");
+}
+
 function getNextRunId(agentsDir: string): string {
   if (!fs.existsSync(agentsDir)) {
     return "run-0001";
@@ -83,12 +88,67 @@ function getNextRunId(agentsDir: string): string {
 }
 
 function toRepoRelative(targetRoot: string, absolutePath: string): string {
-  return path.relative(targetRoot, absolutePath) || ".";
+  return toPortablePath(path.relative(targetRoot, absolutePath) || ".");
+}
+
+function isPathWithin(parentPath: string, childPath: string): boolean {
+  const relativePath = path.relative(parentPath, childPath);
+  return relativePath !== "" && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
+}
+
+function resolveAbsolutePath(basePath: string, candidatePath: string): string {
+  return path.isAbsolute(candidatePath) ? path.resolve(candidatePath) : path.resolve(basePath, candidatePath);
+}
+
+function validatePromptPath(targetRoot: string, promptPath: string): string {
+  const absolutePromptPath = resolveAbsolutePath(targetRoot, promptPath);
+
+  if (!isPathWithin(targetRoot, absolutePromptPath)) {
+    throw new Error("Prompt path must stay inside the target repository.");
+  }
+
+  return absolutePromptPath;
+}
+
+function validateOutputPath(runDir: string, outputPath: string): string {
+  const absoluteOutputPath = resolveAbsolutePath(runDir, outputPath);
+
+  if (!isPathWithin(runDir, absoluteOutputPath)) {
+    throw new Error("Output path must stay inside the agent run directory.");
+  }
+
+  return absoluteOutputPath;
+}
+
+function buildMalformedRunWarning(targetRoot: string, statusPath: string, runError: unknown): string {
+  const message = runError instanceof Error ? runError.message : String(runError);
+  return `Skipped malformed agent run: ${toRepoRelative(targetRoot, statusPath)} (${message})`;
+}
+
+function parseRecord(statusPath: string): AgentRunRecord {
+  const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8")) as Partial<AgentRunRecord>;
+
+  if (
+    typeof parsed.run_id !== "string" ||
+    typeof parsed.task_id !== "string" ||
+    typeof parsed.role !== "string" ||
+    typeof parsed.profile !== "string" ||
+    parsed.status !== "raw" ||
+    typeof parsed.prompt_path !== "string" ||
+    typeof parsed.output_path !== "string" ||
+    typeof parsed.created_at !== "string" ||
+    typeof parsed.updated_at !== "string" ||
+    typeof parsed.notes !== "string"
+  ) {
+    throw new Error("missing required agent-run fields");
+  }
+
+  return parsed as AgentRunRecord;
 }
 
 function resolvePromptPath(targetRoot: string, taskId: string, role: string, prompt?: string): { path: string; inferred: boolean } {
   if (prompt && prompt.trim().length > 0) {
-    const absolutePrompt = path.isAbsolute(prompt) ? prompt : path.resolve(targetRoot, prompt);
+    const absolutePrompt = validatePromptPath(targetRoot, prompt);
     return {
       path: toRepoRelative(targetRoot, absolutePrompt),
       inferred: false
@@ -97,7 +157,7 @@ function resolvePromptPath(targetRoot: string, taskId: string, role: string, pro
 
   if (role.startsWith("scout-")) {
     return {
-      path: path.join(".harness", "tasks", taskId, TASK_PROMPTS_DIR, `${role}.md`),
+      path: toPortablePath(path.join(".harness", "tasks", taskId, TASK_PROMPTS_DIR, `${role}.md`)),
       inferred: true
     };
   }
@@ -109,16 +169,12 @@ function resolvePromptPath(targetRoot: string, taskId: string, role: string, pro
 }
 
 function resolveOutputPath(targetRoot: string, runDir: string, output: string): string {
-  const absoluteOutput = path.isAbsolute(output) ? output : path.resolve(runDir, output);
+  const absoluteOutput = validateOutputPath(runDir, output);
   return toRepoRelative(targetRoot, absoluteOutput);
 }
 
 function getMetadataPath(runDir: string): string {
   return path.join(runDir, AGENT_RUN_STATUS_FILE);
-}
-
-function readRecord(statusPath: string): AgentRunRecord {
-  return JSON.parse(fs.readFileSync(statusPath, "utf8")) as AgentRunRecord;
 }
 
 export function recordAgentRun(cwd: string, input: AgentRecordInput): AgentRecordResult {
@@ -155,8 +211,8 @@ export function recordAgentRun(cwd: string, input: AgentRecordInput): AgentRecor
     metadataPath,
     promptPath: record.prompt_path,
     outputPath: record.output_path,
-    inferredPrompt: promptResolution.inferred
-  };
+      inferredPrompt: promptResolution.inferred
+    };
 }
 
 export function listAgentRuns(cwd: string): AgentListResult {
@@ -167,21 +223,31 @@ export function listAgentRuns(cwd: string): AgentListResult {
     return {
       targetRoot,
       taskId,
-      runs: []
+      runs: [],
+      warnings: []
     };
   }
 
+  const warnings: string[] = [];
   const runs = fs
     .readdirSync(agentsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => path.join(agentsDir, entry.name, AGENT_RUN_STATUS_FILE))
     .filter((statusPath) => fs.existsSync(statusPath) && fs.statSync(statusPath).isFile())
-    .map((statusPath) => readRecord(statusPath))
+    .flatMap((statusPath) => {
+      try {
+        return [parseRecord(statusPath)];
+      } catch (runError) {
+        warnings.push(buildMalformedRunWarning(targetRoot, statusPath, runError));
+        return [];
+      }
+    })
     .sort((left, right) => left.run_id.localeCompare(right.run_id));
 
   return {
     targetRoot,
     taskId,
-    runs
+    runs,
+    warnings
   };
 }

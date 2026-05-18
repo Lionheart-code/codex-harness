@@ -44,6 +44,10 @@ interface PromptContext {
   checksCommands: string[];
 }
 
+function toMarkdownPath(targetPath: string): string {
+  return targetPath.replace(/\\/g, "/");
+}
+
 function getPromptFilename(mode: PromptMode): string {
   switch (mode) {
     case "plan":
@@ -228,7 +232,7 @@ function createPromptContext(cwd: string): PromptContext {
 }
 
 function relativeToTask(context: PromptContext, targetPath: string): string {
-  return path.relative(context.taskDirectory, targetPath) || ".";
+  return toMarkdownPath(path.relative(context.taskDirectory, targetPath) || ".");
 }
 
 function buildVerificationLines(context: PromptContext): string[] {
@@ -305,8 +309,8 @@ function getScoutFocus(role: ScoutRole): string[] {
 
 function buildPromptContent(mode: PromptMode, context: PromptContext): string {
   const outputFiles = getTaskTargetPaths(context.task.task_id)
-    .map((entry) => `- \`${entry}\``);
-  const worktreeValue = context.worktreePath.length > 0 ? context.worktreePath : "not recorded";
+    .map((entry) => `- \`${toMarkdownPath(entry)}\``);
+  const worktreeValue = context.worktreePath.length > 0 ? toMarkdownPath(context.worktreePath) : "not recorded";
 
   return [
     `# ${getPromptTitle(mode)}`,
@@ -430,7 +434,7 @@ function buildScoutPromptContent(role: ScoutRole, context: PromptContext): strin
     `- task_id: \`${context.task.task_id}\``,
     `- title: ${context.task.title}`,
     `- phase: \`${context.task.phase}\``,
-    `- worktree path: \`${context.worktreePath}\``,
+    `- worktree path: \`${toMarkdownPath(context.worktreePath)}\``,
     "",
     "Reference paths:",
     `- spec: \`${relativeToTask(context, context.specPath)}\``,

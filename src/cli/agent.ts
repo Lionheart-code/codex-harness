@@ -156,13 +156,18 @@ export async function runAgent(args: string[]): Promise<number> {
 
     try {
       const result = listAgentRuns(process.cwd());
+      const warningLines =
+        result.warnings.length > 0
+          ? ["warnings:", ...result.warnings.map((warning) => `- ${warning}`)]
+          : [];
 
       if (result.runs.length === 0) {
         lines([
           "codex-harness agent list",
           `target root: ${result.targetRoot}`,
           `task id: ${result.taskId}`,
-          "No agent runs found."
+          "No agent runs found.",
+          ...warningLines
         ]);
         return 0;
       }
@@ -186,7 +191,8 @@ export async function runAgent(args: string[]): Promise<number> {
           }
 
           return segments.join(" | ");
-        })
+        }),
+        ...warningLines
       ]);
 
       return 0;
