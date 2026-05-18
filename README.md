@@ -1,13 +1,15 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 7 adds read-only scout prompt generation.
+`codex-harness` is a Codex-first programming harness. Phase 8 adds an agent run ledger for manual or agent-assisted work.
 
-## Phase 7 commands
+## Phase 8 commands
 
 Run the local CLI through `node bin/ch`:
 
 ```bash
 node bin/ch --help
+node bin/ch agent record --role scout-tests --output sample.md
+node bin/ch agent list
 node bin/ch doctor
 node bin/ch install
 node bin/ch install --dry-run
@@ -28,7 +30,12 @@ npm install
 npm run build
 ```
 
-## Phase 7 prompt behavior
+## Phase 8 ledger behavior
+
+- `agent record --role <role> --output <path>` creates an agent run directory under `.harness/tasks/<task-id>/agents/<run-id>/`.
+- The ledger writes `status.json` with task id, run id, role, status, timestamps, prompt path, output path, and optional notes/profile metadata.
+- Recording metadata does not execute any agent and does not create the output file itself.
+- Recorded outputs remain raw and untrusted until reviewed.
 
 - `install` creates `.harness/config.toml`, `.harness/tasks/`, `.harness/templates/`, and `.harness/install.json`.
 - `install --dry-run` previews the same actions without writing files.
@@ -50,9 +57,10 @@ npm run build
 - Scout findings must be written manually to `.harness/tasks/<task-id>/scouts/<role>.md`.
 - Scout prompts are manual and read-only only; the harness does not execute external agents.
 - Scout prompts include output path instructions and explicit no-edit/no-write rules.
+- `agent list` reads the current task ledger entries and prints readable run summaries without requiring chat history.
 
-## Phase 7 limitations
+## Phase 8 limitations
 
 - No `.codex/` or `.agents/` files are created in this phase.
 - No automatic Codex execution or `codex exec` is implemented in this phase.
-- No external-agent execution, agent ledger, schema validation, review runners, reports, hooks, or adapters are implemented in this phase.
+- No external-agent execution, project memory/debt ledger, schema validation, review runners, reports, hooks, or adapters are implemented in this phase.

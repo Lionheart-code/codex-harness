@@ -1,4 +1,5 @@
 import { error, lines } from "../core/logger";
+import { runAgent } from "./agent";
 import { runDoctor } from "./doctor";
 import { runInit } from "./init";
 import { runInstall } from "./install";
@@ -14,6 +15,8 @@ function printHelp(): void {
     "",
     "Usage:",
     "  node bin/ch --help",
+    "  node bin/ch agent record --role scout-tests --output sample.md",
+    "  node bin/ch agent list",
     "  node bin/ch doctor",
     "  node bin/ch install",
     "  node bin/ch install --dry-run",
@@ -27,6 +30,7 @@ function printHelp(): void {
     "  node bin/ch prompt scout --role tests",
     "",
     "Commands:",
+    "  agent    Record and list Phase 8 agent ledger entries.",
     "  doctor   Report whether the current directory is inside a git repository.",
     "  install  Install or preview the Phase 2 harness layer.",
     "  status   List tasks from the installed Phase 3 task-state layer.",
@@ -40,6 +44,8 @@ function getCommandHandler(command: string): CommandHandler | undefined {
   switch (command) {
     case "doctor":
       return runDoctor;
+    case "agent":
+      return runAgent;
     case "install":
       return runInstall;
     case "status":

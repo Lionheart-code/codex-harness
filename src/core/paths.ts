@@ -17,6 +17,8 @@ export const PROMPT_WORK_FILE = "prompt-work.md";
 export const PROMPT_REVIEW_FILE = "prompt-review.md";
 export const TASK_PROMPTS_DIR = "prompts";
 export const TASK_SCOUTS_DIR = "scouts";
+export const TASK_AGENTS_DIR = "agents";
+export const AGENT_RUN_STATUS_FILE = "status.json";
 
 export function getInstallTargetPaths(): string[] {
   return [
@@ -100,5 +102,17 @@ export function getScoutPromptTargetPaths(taskId: string, role: string): string[
     path.join(taskDir, TASK_PROMPTS_DIR),
     path.join(taskDir, TASK_SCOUTS_DIR),
     path.join(taskDir, TASK_PROMPTS_DIR, `scout-${role}.md`)
+  ];
+}
+
+export function getAgentRunTargetPaths(taskId: string, runId: string): string[] {
+  const taskDir = path.join(TASKS_DIR, taskId);
+  const agentsDir = path.join(taskDir, TASK_AGENTS_DIR);
+  const runDir = path.join(agentsDir, runId);
+
+  return [
+    agentsDir,
+    runDir,
+    path.join(runDir, AGENT_RUN_STATUS_FILE)
   ];
 }
