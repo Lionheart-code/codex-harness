@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 4 adds one branch and one worktree per task.
+`codex-harness` is a Codex-first programming harness. Phase 5 adds task-aware prompt generation.
 
-## Phase 4 commands
+## Phase 5 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -15,6 +15,9 @@ node bin/ch status
 node bin/ch init "test task"
 node bin/ch init "test task" --dry-run
 node bin/ch worktree
+node bin/ch prompt plan
+node bin/ch prompt work
+node bin/ch prompt review
 ```
 
 ## Local setup
@@ -24,7 +27,7 @@ npm install
 npm run build
 ```
 
-## Phase 4 worktree behavior
+## Phase 5 prompt behavior
 
 - `install` creates `.harness/config.toml`, `.harness/tasks/`, `.harness/templates/`, and `.harness/install.json`.
 - `install --dry-run` previews the same actions without writing files.
@@ -36,9 +39,14 @@ npm run build
 - `worktree` creates one branch and one git worktree for the current task.
 - `worktree` writes `.harness/tasks/<task-id>/branch.txt` and `worktree.txt`, then updates `state.json`.
 - Worktree root is configured in `.harness/config.toml` under `[worktree]`.
+- `prompt plan`, `prompt work`, and `prompt review` generate prompt files under `.harness/tasks/<task-id>/`.
+- Generated prompt files are `prompt-plan.md`, `prompt-work.md`, and `prompt-review.md`.
+- Prompts reference `spec.md`, `acceptance.md`, `state.json`, `branch.txt`, `worktree.txt`, and `AGENTS.md` by path instead of dumping large context.
+- Prompt generation includes the concise implementation-discipline block.
+- If the target repo `AGENTS.md` is missing the short implementation-discipline section, prompt generation appends it and creates a backup before patching an existing file.
 
-## Phase 4 limitations
+## Phase 5 limitations
 
 - No `.codex/` or `.agents/` files are created in this phase.
-- Setup commands are not executed in this phase.
-- Hooks, adapters, checks, reports, and review flows are not implemented in this phase.
+- No automatic Codex execution or `codex exec` is implemented in this phase.
+- Schema validation, review runners, reports, hooks, and adapters are not implemented in this phase.

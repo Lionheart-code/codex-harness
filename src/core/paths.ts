@@ -8,9 +8,13 @@ export const INSTALL_JSON_PATH = path.join(HARNESS_DIR, "install.json");
 export const AGENTS_PATH = "AGENTS.md";
 export const AGENTS_BLOCK_START = "<!-- codex-harness:start -->";
 export const AGENTS_BLOCK_END = "<!-- codex-harness:end -->";
+export const AGENTS_BACKUP_SUFFIX = ".codex-harness.bak";
 export const DEFAULT_WORKTREE_ROOT = "../.codex-harness-worktrees";
 export const BRANCH_RECORD_FILE = "branch.txt";
 export const WORKTREE_RECORD_FILE = "worktree.txt";
+export const PROMPT_PLAN_FILE = "prompt-plan.md";
+export const PROMPT_WORK_FILE = "prompt-work.md";
+export const PROMPT_REVIEW_FILE = "prompt-review.md";
 
 export function getInstallTargetPaths(): string[] {
   return [
@@ -40,6 +44,18 @@ export function getManagedAgentsBlock(): string {
   ].join("\n");
 }
 
+export function getImplementationDisciplineSection(): string {
+  return [
+    "## Implementation discipline",
+    "",
+    "- Surface ambiguity before choosing an implementation path.",
+    "- Prefer the smallest implementation that satisfies the active task acceptance criteria.",
+    "- Make surgical changes only; do not refactor unrelated code.",
+    "- Do not add speculative flexibility, future features, or abstractions.",
+    "- Verify with the required acceptance commands before reporting completion."
+  ].join("\n");
+}
+
 export function createTaskId(title: string): string {
   const normalized = title
     .trim()
@@ -62,5 +78,15 @@ export function getTaskTargetPaths(taskId: string): string[] {
     path.join(taskDir, "spec.md"),
     path.join(taskDir, "acceptance.md"),
     path.join(taskDir, "state.json")
+  ];
+}
+
+export function getPromptTargetPaths(taskId: string): string[] {
+  const taskDir = path.join(TASKS_DIR, taskId);
+
+  return [
+    path.join(taskDir, PROMPT_PLAN_FILE),
+    path.join(taskDir, PROMPT_WORK_FILE),
+    path.join(taskDir, PROMPT_REVIEW_FILE)
   ];
 }
