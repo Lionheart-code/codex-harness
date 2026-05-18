@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 11 adds deterministic worktree capture and check artifacts on top of the Phase 10 manual/CLI adapter flow.
+`codex-harness` is a Codex-first programming harness. Phase 12 adds a deterministic handoff report on top of the Phase 11 capture and check flow.
 
-## Phase 11 commands
+## Phase 12 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -15,6 +15,7 @@ node bin/ch agent prompt codex --role tests
 node bin/ch agent run codex --role tests
 node bin/ch capture
 node bin/ch check
+node bin/ch report
 node bin/ch memory status
 node bin/ch debt add --title "test debt" --type technical --severity low --reason "test"
 node bin/ch debt list
@@ -41,7 +42,7 @@ npm install
 npm run build
 ```
 
-## Phase 11 capture and check behavior
+## Phase 12 report behavior
 
 - `agent record --role <role> --output <path>` creates an agent run directory under `.harness/tasks/<task-id>/agents/<run-id>/`.
 - The ledger writes `status.json` with task id, run id, role, status, timestamps, prompt path, output path, and optional notes/profile metadata.
@@ -54,6 +55,11 @@ npm run build
 - `check` refreshes capture artifacts, runs `[checks].commands` from `.harness/config.toml`, writes `.harness/tasks/<task-id>/logs/check.log`, and records deterministic pass/fail results in `verifier.json`.
 - `check` treats protected-path changes as failure. If `[checks].protected_paths` is unset, the defaults are `AGENTS.md` and `.harness/config.toml`.
 - `diff.patch` contains tracked-file git diff output only. Untracked files are represented in `verifier.json.git_status_lines`.
+- `report` writes `.harness/tasks/<task-id>/result.md` as a deterministic, artifact-based handoff report.
+- `report` summarizes task metadata, changed files, checks, risks, follow-ups, debt created/resolved, next human action, and merge recommendation.
+- `report` references `diff.patch`, `verifier.json`, and `logs/check.log` when present.
+- `report` may summarize agent runs and related decisions/debt for the current task, but does not treat raw agent output as accepted truth.
+- `report` does not claim PASS unless `verifier.json.result` is exactly `pass`.
 - Phase 10 adapter roles are the read-only scout roles only: `repo-map`, `tests`, `docs`, `security`, and `architecture`.
 - Adapter profiles live under `[agents.<agent_id>]` in `.harness/config.toml`.
 - Supported Phase 10 adapter fields are `transport`, `command`, `args`, `working_directory_policy`, optional `explicit_path`, `permission_mode`, `allowed_roles`, `output_contract`, `timeout_seconds`, and `requires_human_confirmation`.
@@ -90,7 +96,7 @@ npm run build
 - `decisions add` writes one JSON decision record under `.harness/memory/decisions/` and refreshes `.harness/memory/project-index.md`.
 - `decisions list` shows the recorded decision log across the installed target repo.
 
-## Phase 11 config example
+## Phase 12 config example
 
 ```toml
 [agents.codex]
@@ -109,8 +115,8 @@ commands = ["git status --short"]
 protected_paths = ["AGENTS.md", ".harness/config.toml"]
 ```
 
-## Phase 11 limitations
+## Phase 12 limitations
 
 - No `.codex/` or `.agents/` files are created in this phase.
 - No write-capable external agent mode is implemented in this phase.
-- No LLM review/report flows, hooks, schemas, migrations, API adapters, secrets injection, or uncontrolled runtime state in the product repo are implemented in this phase.
+- No LLM review, hooks, schemas, migrations, API adapters, secrets injection, or uncontrolled runtime state in the product repo are implemented in this phase.

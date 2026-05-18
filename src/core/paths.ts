@@ -34,6 +34,7 @@ export const AGENT_RUN_LOG_FILE = "log.txt";
 export const TASK_DIFF_FILE = "diff.patch";
 export const TASK_VERIFIER_FILE = "verifier.json";
 export const TASK_CHECK_LOG_FILE = "check.log";
+export const TASK_RESULT_FILE = "result.md";
 export const REPORT_SECTION_HEADINGS = [
   "Done",
   "Not done",
@@ -176,5 +177,13 @@ export function getCheckTargetPaths(taskId: string): string[] {
     path.join(taskDir, TASK_VERIFIER_FILE),
     logsDir,
     path.join(logsDir, TASK_CHECK_LOG_FILE)
+  ];
+}
+
+export function getReportTargetPaths(taskId: string): string[] {
+  const taskDir = path.join(TASKS_DIR, taskId);
+
+  return [
+    path.join(taskDir, TASK_RESULT_FILE)
   ];
 }

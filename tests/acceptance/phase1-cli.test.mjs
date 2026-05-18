@@ -32,6 +32,7 @@ test("phase 1 help output includes the supported commands", () => {
   assert.match(result.stdout, /node bin\/ch agent run codex --role tests/);
   assert.match(result.stdout, /node bin\/ch capture/);
   assert.match(result.stdout, /node bin\/ch check/);
+  assert.match(result.stdout, /node bin\/ch report/);
   assert.match(result.stdout, /node bin\/ch memory status/);
   assert.match(result.stdout, /node bin\/ch debt list/);
   assert.match(result.stdout, /node bin\/ch decisions list/);
