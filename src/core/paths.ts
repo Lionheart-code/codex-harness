@@ -54,6 +54,9 @@ export const CODEX_HOOKS_CONFIG_PATH = path.join(CODEX_DIR, "hooks.json");
 export const USER_PROMPT_SUBMIT_HOOK_FILE = "user-prompt-submit.cjs";
 export const PRE_TOOL_USE_HOOK_FILE = "pre-tool-use.cjs";
 export const STOP_HOOK_FILE = "stop.cjs";
+export const PLAYGROUND_MARKER_FILE = ".codex-harness-playground.json";
+export const PLAYGROUND_CORPUS_FILE = "eval-corpus.json";
+export const PLAYGROUND_SMOKE_RESULTS_FILE = "smoke-results.json";
 
 export function getHookTemplateTargetPaths(): string[] {
   return [

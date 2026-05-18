@@ -52,8 +52,25 @@ With sample projects:
 ```text
 python-app/
 ts-app/
-mixed-project/
 ```
+
+Phase 15 command surface:
+
+```bash
+node bin/ch eval playground init
+node bin/ch eval playground smoke
+node bin/ch eval playground clean
+```
+
+Rules:
+
+- The playground is a disposable managed external workspace, not a new product subsystem.
+- The default local/manual root is the literal sibling `../codex-harness-playground`.
+- Automated tests may use temporary roots through `--root <path>`.
+- Local deterministic smoke must run without API or internet dependency.
+- `smoke-results.json` must record deterministic results for exactly 4 executed local E2E scenarios.
+- The full 20-task corpus remains metadata for manual release evaluation, not the local acceptance gate.
+- Cleanup must delete only a managed playground with the marker file and must refuse unmanaged targets.
 
 ## Agent-backed evals
 

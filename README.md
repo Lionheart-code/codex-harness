@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 14 adds optional `codex exec` review on top of the Phase 13 hooks and Phase 12 report flow.
+`codex-harness` is a Codex-first programming harness. Phase 15 adds a disposable `eval playground` workflow on top of the Phase 14 review, Phase 13 hooks, and Phase 12 report flow.
 
-## Phase 14 commands
+## Phase 15 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -27,6 +27,9 @@ node bin/ch debt resolve --id DEBT-0001
 node bin/ch decisions add --title "test decision" --reason "test"
 node bin/ch decisions list
 node bin/ch doctor
+node bin/ch eval playground init
+node bin/ch eval playground smoke
+node bin/ch eval playground clean
 node bin/ch install
 node bin/ch install --dry-run
 node bin/ch status
@@ -45,6 +48,27 @@ node bin/ch prompt scout --role tests
 npm install
 npm run build
 ```
+
+## Phase 15 eval playground behavior
+
+- `eval playground init` creates or refreshes a managed disposable playground root.
+- The default playground root is the literal sibling `../codex-harness-playground`.
+- `eval playground init --root <path>` is allowed for local testing, but the command refuses the product repo, paths inside the product repo, the product-repo parent, and other unsafe targets.
+- The managed playground writes:
+  - `.codex-harness-playground.json`
+  - `eval-corpus.json`
+  - `python-app/`
+  - `ts-app/`
+- `eval-corpus.json` materializes the 20-task Phase 15 corpus and marks exactly 4 local deterministic smoke scenarios.
+- `eval playground smoke` runs the 4 deterministic local E2E scenarios without live LLM/API calls and writes `smoke-results.json`.
+- `smoke-results.json` records deterministic metrics for each executed scenario, including pass/fail, timing, failed checks, unsafe command blocks, and null manual-only metrics.
+- The docs scenario uses a separate managed target under the playground root so earlier smoke artifacts remain available until asserted.
+- The safety/lifecycle scenario proves:
+  - non-empty unmanaged init refusal
+  - hook-based unsafe-command blocking
+  - managed clean on a separate managed target
+  - unmanaged clean refusal on a separate unmanaged target
+- `eval playground clean` removes only a managed playground root and refuses unmanaged, product-repo, parent, and filesystem-root targets.
 
 ## Phase 14 review and hook behavior
 
