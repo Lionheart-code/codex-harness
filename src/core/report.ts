@@ -3,7 +3,8 @@ import * as path from "node:path";
 import { listAgentRuns, type AgentRunRecord } from "./agent-ledger";
 import { type VerifierRecord } from "./checks";
 import { listDebt, listDecisions, type DebtItem, type DecisionRecord } from "./memory";
-import { AGENT_RUN_LOG_FILE, AGENT_RUN_OUTPUT_FILE, TASK_CHECK_LOG_FILE, TASK_DIFF_FILE, TASK_RESULT_FILE, TASK_VERIFIER_FILE } from "./paths";
+import { TASK_CHECK_LOG_FILE, TASK_DIFF_FILE, TASK_RESULT_FILE, TASK_REVIEW_FILE, TASK_VERIFIER_FILE } from "./paths";
+import { loadTaskReviewRecord, type ReviewRecord } from "./review";
 import { getSingleTask, getTaskBranchRecordPath, getTaskDirectory, getTaskWorktreeRecordPath, type TaskState } from "./tasks";
 
 export interface ReportResult {
@@ -19,6 +20,7 @@ interface TaskArtifactPaths {
   acceptancePath: string;
   diffPath: string;
   verifierPath: string;
+  reviewPath: string;
   checkLogPath: string;
   resultPath: string;
   branchPath: string;
@@ -30,6 +32,7 @@ interface ArtifactPresence {
   acceptance: boolean;
   diff: boolean;
   verifier: boolean;
+  review: boolean;
   checkLog: boolean;
   branch: boolean;
   worktree: boolean;
@@ -53,6 +56,7 @@ function getTaskArtifactPaths(targetRoot: string, taskId: string): TaskArtifactP
     acceptancePath: path.join(taskDirectory, "acceptance.md"),
     diffPath: path.join(taskDirectory, TASK_DIFF_FILE),
     verifierPath: path.join(taskDirectory, TASK_VERIFIER_FILE),
+    reviewPath: path.join(taskDirectory, TASK_REVIEW_FILE),
     checkLogPath: path.join(logsDirectory, TASK_CHECK_LOG_FILE),
     resultPath: path.join(taskDirectory, TASK_RESULT_FILE),
     branchPath: getTaskBranchRecordPath(targetRoot, taskId),
@@ -80,12 +84,21 @@ function readVerifierRecord(verifierPath: string): VerifierRecord | undefined {
   return JSON.parse(fs.readFileSync(verifierPath, "utf8")) as VerifierRecord;
 }
 
+function readReviewRecord(reviewPath: string, taskId: string): ReviewRecord | undefined {
+  if (!fs.existsSync(reviewPath) || !fs.statSync(reviewPath).isFile()) {
+    return undefined;
+  }
+
+  return loadTaskReviewRecord(reviewPath, taskId);
+}
+
 function getArtifactPresence(paths: TaskArtifactPaths): ArtifactPresence {
   return {
     spec: fs.existsSync(paths.specPath),
     acceptance: fs.existsSync(paths.acceptancePath),
     diff: fs.existsSync(paths.diffPath),
     verifier: fs.existsSync(paths.verifierPath),
+    review: fs.existsSync(paths.reviewPath),
     checkLog: fs.existsSync(paths.checkLogPath),
     branch: fs.existsSync(paths.branchPath),
     worktree: fs.existsSync(paths.worktreePath)
@@ -125,6 +138,7 @@ function buildArtifactReferenceLines(targetRoot: string, paths: TaskArtifactPath
   const lines = [
     `- Diff patch: ${presence.diff ? `\`${toRepoRelative(targetRoot, paths.diffPath)}\`` : "(missing)"}`,
     `- Verifier: ${presence.verifier ? `\`${toRepoRelative(targetRoot, paths.verifierPath)}\`` : "(missing)"}`,
+    `- Review: ${presence.review ? `\`${toRepoRelative(targetRoot, paths.reviewPath)}\`` : "(missing)"}`,
     `- Check log: ${presence.checkLog ? `\`${toRepoRelative(targetRoot, paths.checkLogPath)}\`` : "(missing)"}`,
     `- Result: \`${toRepoRelative(targetRoot, paths.resultPath)}\``
   ];
@@ -160,7 +174,12 @@ function buildAgentRunSummaryLines(runs: AgentRunRecord[]): string[] {
   ];
 }
 
-function buildDoneLines(presence: ArtifactPresence, verifier: VerifierRecord | undefined, runs: AgentRunRecord[]): string[] {
+function buildDoneLines(
+  presence: ArtifactPresence,
+  verifier: VerifierRecord | undefined,
+  review: ReviewRecord | undefined,
+  runs: AgentRunRecord[]
+): string[] {
   const lines: string[] = [];
 
   if (presence.diff) {
@@ -175,6 +194,10 @@ function buildDoneLines(presence: ArtifactPresence, verifier: VerifierRecord | u
     lines.push("Deterministic check log was recorded.");
   }
 
+  if (presence.review) {
+    lines.push(`Review result was recorded: ${review?.result ?? "unknown"}.`);
+  }
+
   if (runs.length > 0) {
     lines.push(`Agent runs were recorded: ${runs.length}.`);
   }
@@ -182,7 +205,11 @@ function buildDoneLines(presence: ArtifactPresence, verifier: VerifierRecord | u
   return renderBulletList(lines);
 }
 
-function buildNotDoneLines(presence: ArtifactPresence, verifier: VerifierRecord | undefined): string[] {
+function buildNotDoneLines(
+  presence: ArtifactPresence,
+  verifier: VerifierRecord | undefined,
+  review: ReviewRecord | undefined
+): string[] {
   const lines: string[] = [];
 
   if (!presence.diff) {
@@ -199,16 +226,34 @@ function buildNotDoneLines(presence: ArtifactPresence, verifier: VerifierRecord 
     lines.push("Check log is missing.");
   }
 
+  if (review?.result === "FIX_REQUIRED") {
+    lines.push("Review blockers prevent READY FOR HUMAN REVIEW.");
+  }
+
   return renderBulletList(lines);
 }
 
-function buildChecksLines(verifier: VerifierRecord | undefined): string[] {
+function buildChecksLines(verifier: VerifierRecord | undefined, review: ReviewRecord | undefined): string[] {
+  const lines: string[] = [];
+
+  if (!review) {
+    lines.push("- Review result: not recorded.");
+  } else {
+    lines.push(`- Review result: ${review.result} | mode=${review.mode} | blockers=${review.blockers.length}`);
+    lines.push(`- Review summary: ${review.summary}`);
+
+    if (review.blockers.length > 0) {
+      lines.push(...review.blockers.map((blocker) => `- Review blocker: ${blocker}`));
+    }
+  }
+
   if (!verifier) {
-    return ["- No verifier result is recorded."];
+    lines.push("- No verifier result is recorded.");
+    return lines;
   }
 
   if (verifier.result === "pass") {
-    const lines = [`- Verifier result: pass`];
+    lines.push("- Verifier result: pass");
 
     if (verifier.commands.length === 0) {
       lines.push("- No deterministic commands were recorded.");
@@ -224,7 +269,7 @@ function buildChecksLines(verifier: VerifierRecord | undefined): string[] {
     return lines;
   }
 
-  const lines = [`- Verifier result: ${verifier.result}`];
+  lines.push(`- Verifier result: ${verifier.result}`);
 
   if (verifier.protected_path_violations.length > 0) {
     lines.push(...verifier.protected_path_violations.map((entry) => `- Protected path violation: ${entry}`));
@@ -246,6 +291,7 @@ function buildChecksLines(verifier: VerifierRecord | undefined): string[] {
 
 function buildRiskLines(
   verifier: VerifierRecord | undefined,
+  review: ReviewRecord | undefined,
   taskDebt: DebtItem[],
   taskRuns: AgentRunRecord[],
   verifierWarnings: string[]
@@ -256,6 +302,12 @@ function buildRiskLines(
     lines.push("No verifier result is recorded.");
   } else if (verifier.result !== "pass") {
     lines.push(`Verifier result is ${verifier.result}.`);
+  }
+
+  if (review?.result === "FIX_REQUIRED") {
+    for (const blocker of review.blockers) {
+      lines.push(`Review blocker: ${blocker}`);
+    }
   }
 
   for (const debt of taskDebt.filter((item) => item.status !== "resolved" && item.status !== "obsolete")) {
@@ -298,7 +350,11 @@ function buildDecisionSummaryLines(taskDecisions: DecisionRecord[]): string[] {
   ];
 }
 
-function buildNextActionLine(verifier: VerifierRecord | undefined, taskDebt: DebtItem[]): string {
+function buildNextActionLine(
+  verifier: VerifierRecord | undefined,
+  review: ReviewRecord | undefined,
+  taskDebt: DebtItem[]
+): string {
   if (!verifier) {
     return "- Run `node bin/ch capture` and `node bin/ch check`, then regenerate the report.";
   }
@@ -309,6 +365,10 @@ function buildNextActionLine(verifier: VerifierRecord | undefined, taskDebt: Deb
 
   if (verifier.result === "fail") {
     return "- Address failed checks or protected-path violations, rerun `node bin/ch check`, then regenerate the report.";
+  }
+
+  if (review?.result === "FIX_REQUIRED") {
+    return "- Address review blockers, regenerate `review.json`, then rerun `node bin/ch review` and `node bin/ch report`.";
   }
 
   const unresolvedHighDebt = taskDebt.some(
@@ -322,8 +382,16 @@ function buildNextActionLine(verifier: VerifierRecord | undefined, taskDebt: Deb
   return "- Human should review the diff, verifier, and report before merge.";
 }
 
-function buildMergeRecommendationLine(verifier: VerifierRecord | undefined, taskDebt: DebtItem[]): string {
+function buildMergeRecommendationLine(
+  verifier: VerifierRecord | undefined,
+  review: ReviewRecord | undefined,
+  taskDebt: DebtItem[]
+): string {
   if (!verifier || verifier.result !== "pass") {
+    return "- DO NOT MERGE";
+  }
+
+  if (review?.result === "FIX_REQUIRED") {
     return "- DO NOT MERGE";
   }
 
@@ -347,6 +415,7 @@ function buildReportMarkdown(
   task: TaskState,
   paths: TaskArtifactPaths,
   verifier: VerifierRecord | undefined,
+  review: ReviewRecord | undefined,
   taskRuns: AgentRunRecord[],
   taskDebt: DebtItem[],
   taskDecisions: DecisionRecord[],
@@ -373,19 +442,19 @@ function buildReportMarkdown(
     ...buildDecisionSummaryLines(taskDecisions),
     "## Done",
     "",
-    ...buildDoneLines(presence, verifier, taskRuns),
+    ...buildDoneLines(presence, verifier, review, taskRuns),
     "",
     "## Not done",
     "",
-    ...buildNotDoneLines(presence, verifier),
+    ...buildNotDoneLines(presence, verifier, review),
     "",
     "## Checks",
     "",
-    ...buildChecksLines(verifier),
+    ...buildChecksLines(verifier, review),
     "",
     "## Risks",
     "",
-    ...buildRiskLines(verifier, taskDebt, taskRuns, warnings),
+    ...buildRiskLines(verifier, review, taskDebt, taskRuns, warnings),
     "",
     "## Follow-ups",
     "",
@@ -401,11 +470,11 @@ function buildReportMarkdown(
     "",
     "## Next action",
     "",
-    buildNextActionLine(verifier, taskDebt),
+    buildNextActionLine(verifier, review, taskDebt),
     "",
     "## Merge recommendation",
     "",
-    buildMergeRecommendationLine(verifier, taskDebt),
+    buildMergeRecommendationLine(verifier, review, taskDebt),
     ""
   ].join("\n");
 }
@@ -414,6 +483,7 @@ export function generateTaskReport(cwd: string): ReportResult {
   const { targetRoot, task } = getSingleTask(cwd);
   const paths = getTaskArtifactPaths(targetRoot, task.task_id);
   const verifier = readVerifierRecord(paths.verifierPath);
+  const review = readReviewRecord(paths.reviewPath, task.task_id);
   const taskRunsResult = listAgentRuns(cwd);
   const debtResult = listDebt(cwd);
   const decisionResult = listDecisions(cwd);
@@ -425,6 +495,7 @@ export function generateTaskReport(cwd: string): ReportResult {
     task,
     paths,
     verifier,
+    review,
     taskRunsResult.runs,
     taskDebt,
     taskDecisions,

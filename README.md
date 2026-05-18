@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 13 adds minimal Codex sidecar hooks on top of the Phase 12 report flow.
+`codex-harness` is a Codex-first programming harness. Phase 14 adds optional `codex exec` review on top of the Phase 13 hooks and Phase 12 report flow.
 
-## Phase 13 commands
+## Phase 14 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -15,6 +15,8 @@ node bin/ch agent prompt codex --role tests
 node bin/ch agent run codex --role tests
 node bin/ch capture
 node bin/ch check
+node bin/ch review
+node bin/ch review --exec
 node bin/ch report
 node bin/ch hooks --help
 node bin/ch hooks install
@@ -44,7 +46,13 @@ npm install
 npm run build
 ```
 
-## Phase 13 hook behavior
+## Phase 14 review and hook behavior
+
+- `review` validates an existing `.harness/tasks/<task-id>/review.json` and fails closed on invalid JSON or invalid review shape.
+- `review --exec` builds a task-aware review prompt, runs `codex exec`, validates the JSON result, and writes `review.json`.
+- `review.json` records `PASS` or `FIX_REQUIRED` plus explicit blockers, summary, mode, and timestamp.
+- Local deterministic acceptance does not require a live Codex installation; `--exec` is optional and may be smoke-tested manually or through a stubbed executable in acceptance tests.
+- `report` now references `review.json` when present and changes the merge recommendation to `DO NOT MERGE` when review blockers exist.
 
 - `hooks install` writes minimal Codex sidecar hook files under `.codex/`.
 - Installed hook files are:
@@ -59,7 +67,7 @@ npm run build
 - `Stop` prints a short reminder to run `node bin/ch check` and `node bin/ch report`.
 - The hook layer is intentionally best-effort. It is a small sidecar guardrail, not a full policy engine or execution boundary.
 
-## Phase 12 report behavior
+## Phase 12 and 14 report behavior
 
 - `agent record --role <role> --output <path>` creates an agent run directory under `.harness/tasks/<task-id>/agents/<run-id>/`.
 - The ledger writes `status.json` with task id, run id, role, status, timestamps, prompt path, output path, and optional notes/profile metadata.
@@ -72,11 +80,15 @@ npm run build
 - `check` refreshes capture artifacts, runs `[checks].commands` from `.harness/config.toml`, writes `.harness/tasks/<task-id>/logs/check.log`, and records deterministic pass/fail results in `verifier.json`.
 - `check` treats protected-path changes as failure. If `[checks].protected_paths` is unset, the defaults are `AGENTS.md` and `.harness/config.toml`.
 - `diff.patch` contains tracked-file git diff output only. Untracked files are represented in `verifier.json.git_status_lines`.
+- `review` reads or writes `.harness/tasks/<task-id>/review.json` as the Phase 14 review artifact.
+- `review` validates review JSON locally without calling Codex.
+- `review --exec` requires `spec.md`, `acceptance.md`, `diff.patch`, and `verifier.json`, and includes scout/agent outputs if present.
 - `report` writes `.harness/tasks/<task-id>/result.md` as a deterministic, artifact-based handoff report.
 - `report` summarizes task metadata, changed files, checks, risks, follow-ups, debt created/resolved, next human action, and merge recommendation.
-- `report` references `diff.patch`, `verifier.json`, and `logs/check.log` when present.
+- `report` references `diff.patch`, `verifier.json`, `review.json`, and `logs/check.log` when present.
 - `report` may summarize agent runs and related decisions/debt for the current task, but does not treat raw agent output as accepted truth.
 - `report` does not claim PASS unless `verifier.json.result` is exactly `pass`.
+- `report` does not recommend `READY FOR HUMAN REVIEW` when a valid review artifact contains blockers.
 - Phase 10 adapter roles are the read-only scout roles only: `repo-map`, `tests`, `docs`, `security`, and `architecture`.
 - Adapter profiles live under `[agents.<agent_id>]` in `.harness/config.toml`.
 - Supported Phase 10 adapter fields are `transport`, `command`, `args`, `working_directory_policy`, optional `explicit_path`, `permission_mode`, `allowed_roles`, `output_contract`, `timeout_seconds`, and `requires_human_confirmation`.
@@ -113,7 +125,7 @@ npm run build
 - `decisions add` writes one JSON decision record under `.harness/memory/decisions/` and refreshes `.harness/memory/project-index.md`.
 - `decisions list` shows the recorded decision log across the installed target repo.
 
-## Phase 12 config example
+## Phase 14 config example
 
 ```toml
 [agents.codex]
@@ -132,9 +144,9 @@ commands = ["git status --short"]
 protected_paths = ["AGENTS.md", ".harness/config.toml"]
 ```
 
-## Phase 13 limitations
+## Phase 14 limitations
 
 - `.codex/` hook files are created only in installed target repositories, not in the product repo.
 - No `.agents/` files are created in this phase.
 - No write-capable external agent mode is implemented in this phase.
-- No LLM review, schemas, migrations, API adapters, secrets injection, or uncontrolled runtime state in the product repo are implemented in this phase.
+- No automatic coding loop, schemas, migrations, API adapters, secrets injection, or uncontrolled runtime state in the product repo are implemented in this phase.
