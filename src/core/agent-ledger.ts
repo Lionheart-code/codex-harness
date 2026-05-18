@@ -25,6 +25,8 @@ export interface AgentRecordInput {
   profile?: string;
   prompt?: string;
   notes?: string;
+  commandMetadata?: Record<string, unknown>;
+  inferPrompt?: boolean;
 }
 
 export interface AgentRecordResult {
@@ -151,7 +153,17 @@ function parseRecord(statusPath: string): AgentRunRecord {
   return parsed as AgentRunRecord;
 }
 
-function resolvePromptPath(targetRoot: string, taskId: string, role: string, prompt?: string): { path: string; inferred: boolean } {
+function writeRecord(statusPath: string, record: AgentRunRecord): void {
+  fs.writeFileSync(statusPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+}
+
+function resolvePromptPath(
+  targetRoot: string,
+  taskId: string,
+  role: string,
+  prompt?: string,
+  inferPrompt = true
+): { path: string; inferred: boolean } {
   if (prompt && prompt.trim().length > 0) {
     const absolutePrompt = validatePromptPath(targetRoot, prompt);
     return {
@@ -160,7 +172,7 @@ function resolvePromptPath(targetRoot: string, taskId: string, role: string, pro
     };
   }
 
-  if (role.startsWith("scout-")) {
+  if (inferPrompt && role.startsWith("scout-")) {
     return {
       path: toPortablePath(path.join(".harness", "tasks", taskId, TASK_PROMPTS_DIR, `${role}.md`)),
       inferred: true
@@ -183,13 +195,17 @@ function getMetadataPath(runDir: string): string {
 }
 
 export function recordAgentRun(cwd: string, input: AgentRecordInput): AgentRecordResult {
+  return reserveAgentRun(cwd, input);
+}
+
+export function reserveAgentRun(cwd: string, input: AgentRecordInput): AgentRecordResult {
   const { targetRoot, taskId } = getSingleTaskForLedger(cwd);
   const agentsDir = getTaskAgentsDirectory(targetRoot, taskId);
   const runId = getNextRunId(agentsDir);
   const runDirectory = path.join(agentsDir, runId);
   const metadataPath = getMetadataPath(runDirectory);
   const timestamp = new Date().toISOString();
-  const promptResolution = resolvePromptPath(targetRoot, taskId, input.role, input.prompt);
+  const promptResolution = resolvePromptPath(targetRoot, taskId, input.role, input.prompt, input.inferPrompt ?? true);
   const outputPath = resolveOutputPath(targetRoot, runDirectory, input.output);
 
   const record: AgentRunRecord = {
@@ -205,8 +221,12 @@ export function recordAgentRun(cwd: string, input: AgentRecordInput): AgentRecor
     notes: input.notes ?? ""
   };
 
+  if (input.commandMetadata) {
+    record.command_metadata = input.commandMetadata;
+  }
+
   fs.mkdirSync(runDirectory, { recursive: true });
-  fs.writeFileSync(metadataPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+  writeRecord(metadataPath, record);
 
   return {
     targetRoot,
@@ -216,8 +236,22 @@ export function recordAgentRun(cwd: string, input: AgentRecordInput): AgentRecor
     metadataPath,
     promptPath: record.prompt_path,
     outputPath: record.output_path,
-      inferredPrompt: promptResolution.inferred
-    };
+    inferredPrompt: promptResolution.inferred
+  };
+}
+
+export function readAgentRunRecord(metadataPath: string): AgentRunRecord {
+  return parseRecord(metadataPath);
+}
+
+export function updateAgentRunRecord(
+  metadataPath: string,
+  update: (record: AgentRunRecord) => AgentRunRecord
+): AgentRunRecord {
+  const current = readAgentRunRecord(metadataPath);
+  const next = update(current);
+  writeRecord(metadataPath, next);
+  return next;
 }
 
 export function listAgentRuns(cwd: string): AgentListResult {

@@ -44,6 +44,13 @@ interface PromptContext {
   checksCommands: string[];
 }
 
+export interface RenderedScoutPrompt {
+  targetRoot: string;
+  taskId: string;
+  content: string;
+  worktreePath: string;
+}
+
 function toMarkdownPath(targetPath: string): string {
   return targetPath.replace(/\\/g, "/");
 }
@@ -70,7 +77,7 @@ function getPromptTitle(mode: PromptMode): string {
   }
 }
 
-function isScoutRole(value: string): value is ScoutRole {
+export function isScoutRole(value: string): value is ScoutRole {
   return value === "repo-map" || value === "tests" || value === "docs" || value === "security" || value === "architecture";
 }
 
@@ -413,10 +420,13 @@ function ensureDirectory(targetPath: string): void {
   fs.mkdirSync(targetPath, { recursive: true });
 }
 
-function buildScoutPromptContent(role: ScoutRole, context: PromptContext): string {
-  const promptDirectory = path.join(context.taskDirectory, TASK_PROMPTS_DIR);
-  const scoutsDirectory = path.join(context.taskDirectory, TASK_SCOUTS_DIR);
-  const findingsOutputPath = path.join(scoutsDirectory, `${role}.md`);
+function buildScoutPromptContent(
+  role: ScoutRole,
+  context: PromptContext,
+  promptDirectory: string,
+  outputDirectory: string,
+  findingsOutputPath: string
+): string {
 
   return [
     `# ${getScoutPromptTitle(role)}`,
@@ -444,7 +454,7 @@ function buildScoutPromptContent(role: ScoutRole, context: PromptContext): strin
     `- worktree record: \`${relativeToTask(context, context.worktreeRecordPath)}\``,
     `- repo AGENTS: \`${relativeToTask(context, path.join(context.targetRoot, AGENTS_PATH))}\``,
     `- scout prompt directory: \`${relativeToTask(context, promptDirectory)}\``,
-    `- scout output directory: \`${relativeToTask(context, scoutsDirectory)}\``,
+    `- scout output directory: \`${relativeToTask(context, outputDirectory)}\``,
     "",
     "Scout output path:",
     `- Write findings only to \`${relativeToTask(context, findingsOutputPath)}\`.`,
@@ -477,6 +487,27 @@ function buildScoutPromptContent(role: ScoutRole, context: PromptContext): strin
   ].join("\n");
 }
 
+export function renderScoutPromptForPaths(
+  cwd: string,
+  role: string,
+  promptDirectory: string,
+  outputDirectory: string,
+  findingsOutputPath: string
+): RenderedScoutPrompt {
+  if (!isScoutRole(role)) {
+    throw new Error(`Unsupported scout role: ${role}`);
+  }
+
+  const context = createPromptContext(cwd);
+
+  return {
+    targetRoot: context.targetRoot,
+    taskId: context.task.task_id,
+    content: buildScoutPromptContent(role, context, promptDirectory, outputDirectory, findingsOutputPath),
+    worktreePath: context.worktreePath
+  };
+}
+
 export function generatePrompt(cwd: string, mode: PromptMode): PromptGenerationResult {
   const context = createPromptContext(cwd);
   const outputPath = path.join(context.taskDirectory, getPromptFilename(mode));
@@ -496,29 +527,26 @@ export function generatePrompt(cwd: string, mode: PromptMode): PromptGenerationR
 }
 
 export function generateScoutPrompt(cwd: string, role: string): PromptGenerationResult {
-  if (!isScoutRole(role)) {
-    throw new Error(`Unsupported scout role: ${role}`);
-  }
-
-  const context = createPromptContext(cwd);
-  const scoutsDirectory = path.join(context.taskDirectory, TASK_SCOUTS_DIR);
-  const promptDirectory = path.join(context.taskDirectory, TASK_PROMPTS_DIR);
+  const base = ensureSingleTask(cwd);
+  const taskDirectory = getTaskDirectory(base.targetRoot, base.task.task_id);
+  const scoutsDirectory = path.join(taskDirectory, TASK_SCOUTS_DIR);
+  const promptDirectory = path.join(taskDirectory, TASK_PROMPTS_DIR);
   const outputPath = path.join(promptDirectory, `scout-${role}.md`);
   const findingsOutputPath = path.join(scoutsDirectory, `${role}.md`);
-  const outputContent = buildScoutPromptContent(role, context);
+  const rendered = renderScoutPromptForPaths(cwd, role, promptDirectory, scoutsDirectory, findingsOutputPath);
 
   ensureDirectory(promptDirectory);
   ensureDirectory(scoutsDirectory);
 
-  const outputStatus = writeGeneratedPrompt(outputPath, outputContent);
+  const outputStatus = writeGeneratedPrompt(outputPath, rendered.content);
 
   return {
-    targetRoot: context.targetRoot,
-    taskId: context.task.task_id,
+    targetRoot: rendered.targetRoot,
+    taskId: rendered.taskId,
     mode: "scout",
     outputPath,
     outputStatus,
-    agentsPath: path.join(context.targetRoot, AGENTS_PATH),
+    agentsPath: path.join(rendered.targetRoot, AGENTS_PATH),
     agentsStatus: "unchanged",
     findingsOutputPath
   };

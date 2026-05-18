@@ -83,7 +83,14 @@ export function writeText(filePath, content) {
 }
 
 export function normalizePathForComparison(targetPath) {
-  const resolved = path.resolve(targetPath);
+  let resolved;
+
+  try {
+    resolved = fs.realpathSync.native(targetPath);
+  } catch {
+    resolved = path.resolve(targetPath);
+  }
+
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 

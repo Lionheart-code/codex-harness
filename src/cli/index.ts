@@ -14,12 +14,14 @@ type CommandHandler = (args: string[]) => Promise<number>;
 
 function printHelp(): void {
   lines([
-    "codex-harness Phase 9 CLI",
+    "codex-harness Phase 10 CLI",
     "",
     "Usage:",
     "  node bin/ch --help",
     "  node bin/ch agent record --role scout-tests --output sample.md",
     "  node bin/ch agent list",
+    "  node bin/ch agent prompt codex --role tests",
+    "  node bin/ch agent run codex --role tests",
     "  node bin/ch memory status",
     "  node bin/ch debt add --title \"test debt\" --type technical --severity low --reason \"test\"",
     "  node bin/ch debt list",
@@ -39,7 +41,7 @@ function printHelp(): void {
     "  node bin/ch prompt scout --role tests",
     "",
     "Commands:",
-    "  agent    Record and list Phase 8 agent ledger entries.",
+    "  agent    Record, prompt, run, and list bounded agent ledger entries.",
     "  memory   Show Phase 9 memory, debt, decision, and agent-output status.",
     "  debt     Add, list, and resolve Phase 9 debt ledger items.",
     "  decisions Add and list Phase 9 decision records.",
@@ -80,7 +82,7 @@ function getCommandHandler(command: string): CommandHandler | undefined {
 }
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
-  if (argv.length === 0 || argv.includes("--help") || argv.includes("-h") || argv[0] === "help") {
+  if (argv.length === 0 || argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help") {
     printHelp();
     return 0;
   }

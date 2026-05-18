@@ -26,6 +26,10 @@ export const TASK_PROMPTS_DIR = "prompts";
 export const TASK_SCOUTS_DIR = "scouts";
 export const TASK_AGENTS_DIR = "agents";
 export const AGENT_RUN_STATUS_FILE = "status.json";
+export const AGENT_RUN_PROMPT_FILE = "prompt.md";
+export const AGENT_RUN_COMMAND_FILE = "command.json";
+export const AGENT_RUN_OUTPUT_FILE = "output.md";
+export const AGENT_RUN_LOG_FILE = "log.txt";
 export const REPORT_SECTION_HEADINGS = [
   "Done",
   "Not done",
@@ -144,5 +148,17 @@ export function getAgentRunTargetPaths(taskId: string, runId: string): string[] 
     agentsDir,
     runDir,
     path.join(runDir, AGENT_RUN_STATUS_FILE)
+  ];
+}
+
+export function getAgentRunArtifactPaths(taskId: string, runId: string): string[] {
+  const taskDir = path.join(TASKS_DIR, taskId);
+  const runDir = path.join(taskDir, TASK_AGENTS_DIR, runId);
+
+  return [
+    path.join(runDir, AGENT_RUN_PROMPT_FILE),
+    path.join(runDir, AGENT_RUN_COMMAND_FILE),
+    path.join(runDir, AGENT_RUN_OUTPUT_FILE),
+    path.join(runDir, AGENT_RUN_LOG_FILE)
   ];
 }
