@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 10 adds a bounded manual/CLI scout adapter layer on top of the Phase 9 memory and agent ledger flow.
+`codex-harness` is a Codex-first programming harness. Phase 11 adds deterministic worktree capture and check artifacts on top of the Phase 10 manual/CLI adapter flow.
 
-## Phase 10 commands
+## Phase 11 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -13,6 +13,8 @@ node bin/ch agent list
 node bin/ch agent --help
 node bin/ch agent prompt codex --role tests
 node bin/ch agent run codex --role tests
+node bin/ch capture
+node bin/ch check
 node bin/ch memory status
 node bin/ch debt add --title "test debt" --type technical --severity low --reason "test"
 node bin/ch debt list
@@ -39,7 +41,7 @@ npm install
 npm run build
 ```
 
-## Phase 10 adapter behavior
+## Phase 11 capture and check behavior
 
 - `agent record --role <role> --output <path>` creates an agent run directory under `.harness/tasks/<task-id>/agents/<run-id>/`.
 - The ledger writes `status.json` with task id, run id, role, status, timestamps, prompt path, output path, and optional notes/profile metadata.
@@ -48,11 +50,17 @@ npm run build
 - Agent output status parsing supports `raw`, `accepted`, `stale`, and `rejected`, while Phase 9 still records new runs as `raw` only.
 - `agent prompt <agent> --role <role>` requires an adapter profile in `.harness/config.toml`, creates a run-local `prompt.md` and `command.json`, and prints the bounded command preview without executing the external agent.
 - `agent run <agent> --role <role>` executes only configured `cli` adapters with `permission_mode = "read_only"`, captures stdout to `output.md`, captures stderr plus run summary to `log.txt`, and records command metadata in `status.json`.
+- `capture` reads the active task worktree, captures `git status --porcelain --untracked-files=all`, writes `diff.patch`, and seeds `.harness/tasks/<task-id>/verifier.json` with durable capture state.
+- `check` refreshes capture artifacts, runs `[checks].commands` from `.harness/config.toml`, writes `.harness/tasks/<task-id>/logs/check.log`, and records deterministic pass/fail results in `verifier.json`.
+- `check` treats protected-path changes as failure. If `[checks].protected_paths` is unset, the defaults are `AGENTS.md` and `.harness/config.toml`.
+- `diff.patch` contains tracked-file git diff output only. Untracked files are represented in `verifier.json.git_status_lines`.
 - Phase 10 adapter roles are the read-only scout roles only: `repo-map`, `tests`, `docs`, `security`, and `architecture`.
 - Adapter profiles live under `[agents.<agent_id>]` in `.harness/config.toml`.
 - Supported Phase 10 adapter fields are `transport`, `command`, `args`, `working_directory_policy`, optional `explicit_path`, `permission_mode`, `allowed_roles`, `output_contract`, `timeout_seconds`, and `requires_human_confirmation`.
 - Supported argument placeholders in `args` are `{prompt_path}`, `{output_path}`, `{log_path}`, and `{cwd}` only.
 - No adapter is enabled by default; the harness fails closed when the named profile is missing or malformed.
+- `[checks].commands` remains a string-array of shell commands run in the recorded task worktree.
+- `[checks].protected_paths` is an optional string-array override for protected-path detection during `check`.
 
 - `install` creates `.harness/config.toml`, `.harness/tasks/`, `.harness/templates/`, `.harness/memory/`, and `.harness/install.json`.
 - `install --dry-run` previews the same actions without writing files.
@@ -82,7 +90,7 @@ npm run build
 - `decisions add` writes one JSON decision record under `.harness/memory/decisions/` and refreshes `.harness/memory/project-index.md`.
 - `decisions list` shows the recorded decision log across the installed target repo.
 
-## Phase 10 adapter profile example
+## Phase 11 config example
 
 ```toml
 [agents.codex]
@@ -95,10 +103,14 @@ allowed_roles = ["tests"]
 output_contract = "markdown"
 timeout_seconds = 600
 requires_human_confirmation = true
+
+[checks]
+commands = ["git status --short"]
+protected_paths = ["AGENTS.md", ".harness/config.toml"]
 ```
 
-## Phase 10 limitations
+## Phase 11 limitations
 
 - No `.codex/` or `.agents/` files are created in this phase.
 - No write-capable external agent mode is implemented in this phase.
-- No capture/check/report flows, hooks, schemas, migrations, API adapters, secrets injection, or uncontrolled shell execution are implemented in this phase.
+- No LLM review/report flows, hooks, schemas, migrations, API adapters, secrets injection, or uncontrolled runtime state in the product repo are implemented in this phase.

@@ -25,11 +25,15 @@ export const PROMPT_REVIEW_FILE = "prompt-review.md";
 export const TASK_PROMPTS_DIR = "prompts";
 export const TASK_SCOUTS_DIR = "scouts";
 export const TASK_AGENTS_DIR = "agents";
+export const TASK_LOGS_DIR = "logs";
 export const AGENT_RUN_STATUS_FILE = "status.json";
 export const AGENT_RUN_PROMPT_FILE = "prompt.md";
 export const AGENT_RUN_COMMAND_FILE = "command.json";
 export const AGENT_RUN_OUTPUT_FILE = "output.md";
 export const AGENT_RUN_LOG_FILE = "log.txt";
+export const TASK_DIFF_FILE = "diff.patch";
+export const TASK_VERIFIER_FILE = "verifier.json";
+export const TASK_CHECK_LOG_FILE = "check.log";
 export const REPORT_SECTION_HEADINGS = [
   "Done",
   "Not done",
@@ -160,5 +164,17 @@ export function getAgentRunArtifactPaths(taskId: string, runId: string): string[
     path.join(runDir, AGENT_RUN_COMMAND_FILE),
     path.join(runDir, AGENT_RUN_OUTPUT_FILE),
     path.join(runDir, AGENT_RUN_LOG_FILE)
+  ];
+}
+
+export function getCheckTargetPaths(taskId: string): string[] {
+  const taskDir = path.join(TASKS_DIR, taskId);
+  const logsDir = path.join(taskDir, TASK_LOGS_DIR);
+
+  return [
+    path.join(taskDir, TASK_DIFF_FILE),
+    path.join(taskDir, TASK_VERIFIER_FILE),
+    logsDir,
+    path.join(logsDir, TASK_CHECK_LOG_FILE)
   ];
 }

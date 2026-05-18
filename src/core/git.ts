@@ -29,6 +29,56 @@ export function runGitCommand(cwd: string, args: string[]): GitCommandResult {
   };
 }
 
+function extractStatusPaths(line: string): string[] {
+  const rawPath = line.slice(3).trim();
+  const renameSeparator = " -> ";
+  const renameIndex = rawPath.indexOf(renameSeparator);
+
+  if (renameIndex >= 0) {
+    return [
+      rawPath.slice(0, renameIndex),
+      rawPath.slice(renameIndex + renameSeparator.length)
+    ];
+  }
+
+  return [rawPath];
+}
+
+export function getGitStatusLines(cwd: string): string[] {
+  const result = runGitCommand(cwd, ["status", "--porcelain", "--untracked-files=all"]);
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || "git status failed");
+  }
+
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+}
+
+export function getGitDiffPatch(cwd: string): string {
+  const result = runGitCommand(cwd, ["diff", "--no-ext-diff", "--binary", "HEAD", "--"]);
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || "git diff failed");
+  }
+
+  return result.stdout;
+}
+
+export function getGitStatusPaths(statusLines: string[]): string[] {
+  return statusLines.flatMap((line) => extractStatusPaths(line));
+}
+
 export function detectGitRepository(cwd: string): GitRepositoryStatus {
   const insideProbe = runGitCommand(cwd, ["rev-parse", "--is-inside-work-tree"]);
 
@@ -62,18 +112,6 @@ export function hasValidHead(cwd: string): boolean {
   return runGitCommand(cwd, ["rev-parse", "--verify", "HEAD"]).status === 0;
 }
 
-function extractStatusPath(line: string): string {
-  const rawPath = line.slice(3).trim();
-  const renameSeparator = " -> ";
-  const renameIndex = rawPath.indexOf(renameSeparator);
-
-  if (renameIndex >= 0) {
-    return rawPath.slice(renameIndex + renameSeparator.length);
-  }
-
-  return rawPath;
-}
-
 function isHarnessManagedPath(relativePath: string): boolean {
   return (
     relativePath === "AGENTS.md" ||
@@ -84,21 +122,8 @@ function isHarnessManagedPath(relativePath: string): boolean {
 }
 
 export function isSourceCheckoutDirty(cwd: string): boolean {
-  const result = runGitCommand(cwd, ["status", "--porcelain", "--untracked-files=all"]);
-
-  if (result.error) {
-    throw result.error;
-  }
-
-  if (result.status !== 0) {
-    throw new Error(result.stderr.trim() || "git status failed");
-  }
-
-  return result.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter((line) => line.length > 0)
-    .map((line) => extractStatusPath(line))
+  return getGitStatusLines(cwd)
+    .flatMap((line) => extractStatusPaths(line))
     .some((relativePath) => !isHarnessManagedPath(relativePath));
 }
 
