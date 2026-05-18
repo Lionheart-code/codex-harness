@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 8 adds an agent run ledger for manual or agent-assisted work.
+`codex-harness` is a Codex-first programming harness. Phase 9 adds governed project memory, debt, and decision tracking on top of the Phase 8 agent run ledger.
 
-## Phase 8 commands
+## Phase 9 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -10,6 +10,12 @@ Run the local CLI through `node bin/ch`:
 node bin/ch --help
 node bin/ch agent record --role scout-tests --output sample.md
 node bin/ch agent list
+node bin/ch memory status
+node bin/ch debt add --title "test debt" --type technical --severity low --reason "test"
+node bin/ch debt list
+node bin/ch debt resolve --id DEBT-0001
+node bin/ch decisions add --title "test decision" --reason "test"
+node bin/ch decisions list
 node bin/ch doctor
 node bin/ch install
 node bin/ch install --dry-run
@@ -30,14 +36,15 @@ npm install
 npm run build
 ```
 
-## Phase 8 ledger behavior
+## Phase 9 memory behavior
 
 - `agent record --role <role> --output <path>` creates an agent run directory under `.harness/tasks/<task-id>/agents/<run-id>/`.
 - The ledger writes `status.json` with task id, run id, role, status, timestamps, prompt path, output path, and optional notes/profile metadata.
 - Recording metadata does not execute any agent and does not create the output file itself.
 - Recorded outputs remain raw and untrusted until reviewed.
+- Agent output status parsing supports `raw`, `accepted`, `stale`, and `rejected`, while Phase 9 still records new runs as `raw` only.
 
-- `install` creates `.harness/config.toml`, `.harness/tasks/`, `.harness/templates/`, and `.harness/install.json`.
+- `install` creates `.harness/config.toml`, `.harness/tasks/`, `.harness/templates/`, `.harness/memory/`, and `.harness/install.json`.
 - `install --dry-run` previews the same actions without writing files.
 - `install` creates or updates a managed block in `AGENTS.md` and backs up the file before patching existing content.
 - Re-running `install` is idempotent when the managed files already match the Phase 2 content.
@@ -58,9 +65,15 @@ npm run build
 - Scout prompts are manual and read-only only; the harness does not execute external agents.
 - Scout prompts include output path instructions and explicit no-edit/no-write rules.
 - `agent list` reads the current task ledger entries and prints readable run summaries without requiring chat history.
+- `memory status` reports current memory paths plus debt, decision, and agent-output counts.
+- `debt add` appends a debt item to `.harness/memory/debt/debt.jsonl`, refreshes `.harness/memory/debt/debt.md`, and updates `.harness/memory/project-index.md`.
+- `debt list` shows project debt across the installed target repo with unresolved items first.
+- `debt resolve --id <DEBT-...>` marks an existing debt item as `resolved` and refreshes derived memory files.
+- `decisions add` writes one JSON decision record under `.harness/memory/decisions/` and refreshes `.harness/memory/project-index.md`.
+- `decisions list` shows the recorded decision log across the installed target repo.
 
-## Phase 8 limitations
+## Phase 9 limitations
 
 - No `.codex/` or `.agents/` files are created in this phase.
 - No automatic Codex execution or `codex exec` is implemented in this phase.
-- No external-agent execution, project memory/debt ledger, schema validation, review runners, reports, hooks, or adapters are implemented in this phase.
+- No external-agent execution, adapters, hooks, capture/check/report flows, schema validation, migrations, vector DB memory, or hidden automatic memory are implemented in this phase.

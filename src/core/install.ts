@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { detectGitRepository } from "./git";
+import { getMemorySeedFilePlans } from "./memory-scaffold";
 import {
   AGENTS_BLOCK_END,
   AGENTS_BLOCK_START,
@@ -9,6 +10,10 @@ import {
   DEFAULT_WORKTREE_ROOT,
   HARNESS_DIR,
   INSTALL_JSON_PATH,
+  MEMORY_DECISIONS_DIR,
+  MEMORY_DEBT_DIR,
+  MEMORY_DIR,
+  MEMORY_SUMMARIES_DIR,
   TASKS_DIR,
   TEMPLATES_DIR,
   getManagedAgentsBlock
@@ -214,6 +219,29 @@ function planManagedFile(
   };
 }
 
+function planSeedFile(targetRoot: string, relativePath: string, desiredContent: string, conflicts: string[]): FilePlan {
+  const absolutePath = path.join(targetRoot, relativePath);
+
+  if (!fs.existsSync(absolutePath)) {
+    return {
+      relativePath,
+      absolutePath,
+      action: "create",
+      content: desiredContent
+    };
+  }
+
+  if (!fs.statSync(absolutePath).isFile()) {
+    conflicts.push(`${relativePath} exists but is not a file.`);
+  }
+
+  return {
+    relativePath,
+    absolutePath,
+    action: "unchanged"
+  };
+}
+
 function buildAgentsTargetContent(existingContent: string): { content: string; description: string } {
   const managedBlock = getManagedAgentsBlock();
   const hasStart = existingContent.includes(AGENTS_BLOCK_START);
@@ -362,10 +390,17 @@ export function installHarness(cwd: string, dryRun: boolean): InstallResult {
   const directories = [
     ensureDirectoryPlan(targetRoot, HARNESS_DIR, conflicts),
     ensureDirectoryPlan(targetRoot, TASKS_DIR, conflicts),
-    ensureDirectoryPlan(targetRoot, TEMPLATES_DIR, conflicts)
+    ensureDirectoryPlan(targetRoot, TEMPLATES_DIR, conflicts),
+    ensureDirectoryPlan(targetRoot, MEMORY_DIR, conflicts),
+    ensureDirectoryPlan(targetRoot, MEMORY_DECISIONS_DIR, conflicts),
+    ensureDirectoryPlan(targetRoot, MEMORY_DEBT_DIR, conflicts),
+    ensureDirectoryPlan(targetRoot, MEMORY_SUMMARIES_DIR, conflicts)
   ];
   const configFile = planManagedFile(targetRoot, CONFIG_PATH, buildConfigToml(version), conflicts);
   const installFile = planManagedFile(targetRoot, INSTALL_JSON_PATH, buildInstallJson(metadata), conflicts);
+  const memorySeedFiles = getMemorySeedFilePlans(targetRoot).map((seedFile) =>
+    planSeedFile(targetRoot, seedFile.relativePath, seedFile.content, conflicts)
+  );
   const agentsFile = planAgentsFile(targetRoot, conflicts);
 
   if (conflicts.length > 0) {
@@ -390,19 +425,22 @@ export function installHarness(cwd: string, dryRun: boolean): InstallResult {
 
     applyFilePlan(configFile);
     applyFilePlan(installFile);
+    for (const seedFile of memorySeedFiles) {
+      applyFilePlan(seedFile);
+    }
     applyAgentsPlan(agentsFile);
   }
 
   const created = [
     ...directories.filter((plan) => plan.action === "create").map((plan) => plan.relativePath),
-    ...[configFile, installFile, agentsFile]
+    ...[configFile, installFile, ...memorySeedFiles, agentsFile]
       .filter((plan) => plan.action === "create")
       .map((plan) => plan.relativePath)
   ];
   const updated = [agentsFile].filter((plan) => plan.action === "update").map((plan) => plan.relativePath);
   const unchanged = [
     ...directories.filter((plan) => plan.action === "unchanged").map((plan) => plan.relativePath),
-    ...[configFile, installFile, agentsFile]
+    ...[configFile, installFile, ...memorySeedFiles, agentsFile]
       .filter((plan) => plan.action === "unchanged")
       .map((plan) => plan.relativePath)
   ];

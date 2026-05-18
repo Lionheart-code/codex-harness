@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { AGENT_RUN_STATUS_FILE, TASK_AGENTS_DIR, TASK_PROMPTS_DIR } from "./paths";
 import { listTasks } from "./tasks";
 
-export type AgentRunStatus = "raw";
+export type AgentRunStatus = "raw" | "accepted" | "stale" | "rejected";
 
 export interface AgentRunRecord {
   run_id: string;
@@ -125,6 +125,10 @@ function buildMalformedRunWarning(targetRoot: string, statusPath: string, runErr
   return `Skipped malformed agent run: ${toRepoRelative(targetRoot, statusPath)} (${message})`;
 }
 
+export function isAgentRunStatus(value: string): value is AgentRunStatus {
+  return value === "raw" || value === "accepted" || value === "stale" || value === "rejected";
+}
+
 function parseRecord(statusPath: string): AgentRunRecord {
   const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8")) as Partial<AgentRunRecord>;
 
@@ -133,7 +137,8 @@ function parseRecord(statusPath: string): AgentRunRecord {
     typeof parsed.task_id !== "string" ||
     typeof parsed.role !== "string" ||
     typeof parsed.profile !== "string" ||
-    parsed.status !== "raw" ||
+    typeof parsed.status !== "string" ||
+    !isAgentRunStatus(parsed.status) ||
     typeof parsed.prompt_path !== "string" ||
     typeof parsed.output_path !== "string" ||
     typeof parsed.created_at !== "string" ||
@@ -247,6 +252,47 @@ export function listAgentRuns(cwd: string): AgentListResult {
   return {
     targetRoot,
     taskId,
+    runs,
+    warnings
+  };
+}
+
+export function listAllAgentRunsInTarget(targetRoot: string): { runs: AgentRunRecord[]; warnings: string[] } {
+  const tasksRoot = path.join(targetRoot, ".harness", "tasks");
+
+  if (!fs.existsSync(tasksRoot)) {
+    return {
+      runs: [],
+      warnings: []
+    };
+  }
+
+  const warnings: string[] = [];
+  const runs = fs
+    .readdirSync(tasksRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(tasksRoot, entry.name, TASK_AGENTS_DIR))
+    .filter((agentsDir) => fs.existsSync(agentsDir) && fs.statSync(agentsDir).isDirectory())
+    .flatMap((agentsDir) =>
+      fs.readdirSync(agentsDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => path.join(agentsDir, entry.name, AGENT_RUN_STATUS_FILE))
+    )
+    .filter((statusPath) => fs.existsSync(statusPath) && fs.statSync(statusPath).isFile())
+    .flatMap((statusPath) => {
+      try {
+        return [parseRecord(statusPath)];
+      } catch (runError) {
+        warnings.push(buildMalformedRunWarning(targetRoot, statusPath, runError));
+        return [];
+      }
+    })
+    .sort((left, right) => {
+      const taskComparison = left.task_id.localeCompare(right.task_id);
+      return taskComparison !== 0 ? taskComparison : left.run_id.localeCompare(right.run_id);
+    });
+
+  return {
     runs,
     warnings
   };

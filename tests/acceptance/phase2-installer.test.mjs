@@ -36,7 +36,14 @@ test("phase 2 install creates the installed layer and reinstall is idempotent", 
   const configPath = path.join(tempRepo, ".harness", "config.toml");
   const tasksPath = path.join(tempRepo, ".harness", "tasks");
   const templatesPath = path.join(tempRepo, ".harness", "templates");
+  const memoryPath = path.join(tempRepo, ".harness", "memory");
+  const decisionsPath = path.join(tempRepo, ".harness", "memory", "decisions");
+  const debtPath = path.join(tempRepo, ".harness", "memory", "debt");
+  const summariesPath = path.join(tempRepo, ".harness", "memory", "summaries");
   const installJsonPath = path.join(tempRepo, ".harness", "install.json");
+  const projectIndexPath = path.join(tempRepo, ".harness", "memory", "project-index.md");
+  const debtJsonlPath = path.join(tempRepo, ".harness", "memory", "debt", "debt.jsonl");
+  const debtMarkdownPath = path.join(tempRepo, ".harness", "memory", "debt", "debt.md");
   const agentsPath = path.join(tempRepo, "AGENTS.md");
 
   assert.ok(fs.existsSync(configPath), ".harness/config.toml was not created");
@@ -44,7 +51,18 @@ test("phase 2 install creates the installed layer and reinstall is idempotent", 
   assert.ok(fs.statSync(tasksPath).isDirectory(), ".harness/tasks is not a directory");
   assert.ok(fs.existsSync(templatesPath), ".harness/templates was not created");
   assert.ok(fs.statSync(templatesPath).isDirectory(), ".harness/templates is not a directory");
+  assert.ok(fs.existsSync(memoryPath), ".harness/memory was not created");
+  assert.ok(fs.statSync(memoryPath).isDirectory(), ".harness/memory is not a directory");
+  assert.ok(fs.existsSync(decisionsPath), ".harness/memory/decisions was not created");
+  assert.ok(fs.statSync(decisionsPath).isDirectory(), ".harness/memory/decisions is not a directory");
+  assert.ok(fs.existsSync(debtPath), ".harness/memory/debt was not created");
+  assert.ok(fs.statSync(debtPath).isDirectory(), ".harness/memory/debt is not a directory");
+  assert.ok(fs.existsSync(summariesPath), ".harness/memory/summaries was not created");
+  assert.ok(fs.statSync(summariesPath).isDirectory(), ".harness/memory/summaries is not a directory");
   assert.ok(fs.existsSync(installJsonPath), ".harness/install.json was not created");
+  assert.ok(fs.existsSync(projectIndexPath), ".harness/memory/project-index.md was not created");
+  assert.ok(fs.existsSync(debtJsonlPath), ".harness/memory/debt/debt.jsonl was not created");
+  assert.ok(fs.existsSync(debtMarkdownPath), ".harness/memory/debt/debt.md was not created");
   assert.ok(fs.existsSync(agentsPath), "AGENTS.md was not created");
 
   const agentsContent = fs.readFileSync(agentsPath, "utf8");

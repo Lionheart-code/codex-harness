@@ -1,8 +1,11 @@
 import { error, lines } from "../core/logger";
 import { runAgent } from "./agent";
+import { runDebt } from "./debt";
+import { runDecisions } from "./decisions";
 import { runDoctor } from "./doctor";
 import { runInit } from "./init";
 import { runInstall } from "./install";
+import { runMemory } from "./memory";
 import { runPrompt } from "./prompt";
 import { runStatus } from "./status";
 import { runWorktree } from "./worktree";
@@ -11,12 +14,18 @@ type CommandHandler = (args: string[]) => Promise<number>;
 
 function printHelp(): void {
   lines([
-    "codex-harness Phase 8 CLI",
+    "codex-harness Phase 9 CLI",
     "",
     "Usage:",
     "  node bin/ch --help",
     "  node bin/ch agent record --role scout-tests --output sample.md",
     "  node bin/ch agent list",
+    "  node bin/ch memory status",
+    "  node bin/ch debt add --title \"test debt\" --type technical --severity low --reason \"test\"",
+    "  node bin/ch debt list",
+    "  node bin/ch debt resolve --id DEBT-0001",
+    "  node bin/ch decisions add --title \"test decision\" --reason \"test\"",
+    "  node bin/ch decisions list",
     "  node bin/ch doctor",
     "  node bin/ch install",
     "  node bin/ch install --dry-run",
@@ -31,6 +40,9 @@ function printHelp(): void {
     "",
     "Commands:",
     "  agent    Record and list Phase 8 agent ledger entries.",
+    "  memory   Show Phase 9 memory, debt, decision, and agent-output status.",
+    "  debt     Add, list, and resolve Phase 9 debt ledger items.",
+    "  decisions Add and list Phase 9 decision records.",
     "  doctor   Report whether the current directory is inside a git repository.",
     "  install  Install or preview the Phase 2 harness layer.",
     "  status   List tasks from the installed Phase 3 task-state layer.",
@@ -46,6 +58,12 @@ function getCommandHandler(command: string): CommandHandler | undefined {
       return runDoctor;
     case "agent":
       return runAgent;
+    case "memory":
+      return runMemory;
+    case "debt":
+      return runDebt;
+    case "decisions":
+      return runDecisions;
     case "install":
       return runInstall;
     case "status":

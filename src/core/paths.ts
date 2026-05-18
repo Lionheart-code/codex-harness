@@ -3,8 +3,15 @@ import * as path from "node:path";
 export const HARNESS_DIR = ".harness";
 export const TASKS_DIR = path.join(HARNESS_DIR, "tasks");
 export const TEMPLATES_DIR = path.join(HARNESS_DIR, "templates");
+export const MEMORY_DIR = path.join(HARNESS_DIR, "memory");
+export const MEMORY_DECISIONS_DIR = path.join(MEMORY_DIR, "decisions");
+export const MEMORY_DEBT_DIR = path.join(MEMORY_DIR, "debt");
+export const MEMORY_SUMMARIES_DIR = path.join(MEMORY_DIR, "summaries");
 export const CONFIG_PATH = path.join(HARNESS_DIR, "config.toml");
 export const INSTALL_JSON_PATH = path.join(HARNESS_DIR, "install.json");
+export const PROJECT_INDEX_PATH = path.join(MEMORY_DIR, "project-index.md");
+export const DEBT_JSONL_PATH = path.join(MEMORY_DEBT_DIR, "debt.jsonl");
+export const DEBT_MARKDOWN_PATH = path.join(MEMORY_DEBT_DIR, "debt.md");
 export const AGENTS_PATH = "AGENTS.md";
 export const AGENTS_BLOCK_START = "<!-- codex-harness:start -->";
 export const AGENTS_BLOCK_END = "<!-- codex-harness:end -->";
@@ -19,6 +26,16 @@ export const TASK_PROMPTS_DIR = "prompts";
 export const TASK_SCOUTS_DIR = "scouts";
 export const TASK_AGENTS_DIR = "agents";
 export const AGENT_RUN_STATUS_FILE = "status.json";
+export const REPORT_SECTION_HEADINGS = [
+  "Done",
+  "Not done",
+  "Checks",
+  "Risks",
+  "Follow-ups",
+  "Debt created",
+  "Debt resolved",
+  "Next action"
+] as const;
 
 export function getInstallTargetPaths(): string[] {
   return [
@@ -26,7 +43,19 @@ export function getInstallTargetPaths(): string[] {
     CONFIG_PATH,
     TASKS_DIR,
     TEMPLATES_DIR,
+    MEMORY_DIR,
+    MEMORY_DECISIONS_DIR,
+    MEMORY_DEBT_DIR,
+    MEMORY_SUMMARIES_DIR,
     INSTALL_JSON_PATH
+  ];
+}
+
+export function getMemorySeedPaths(): string[] {
+  return [
+    PROJECT_INDEX_PATH,
+    DEBT_JSONL_PATH,
+    DEBT_MARKDOWN_PATH
   ];
 }
 
@@ -41,6 +70,7 @@ export function getManagedAgentsBlock(): string {
     `- \`${CONFIG_PATH}\``,
     `- \`${TASKS_DIR}/\``,
     `- \`${TEMPLATES_DIR}/\``,
+    `- \`${MEMORY_DIR}/\``,
     `- \`${INSTALL_JSON_PATH}\``,
     "",
     "Treat `.harness/` as harness-managed project state.",

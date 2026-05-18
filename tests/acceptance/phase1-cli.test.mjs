@@ -28,6 +28,9 @@ test("phase 1 help output includes the supported commands", () => {
   assert.match(result.stdout, /node bin\/ch doctor/);
   assert.match(result.stdout, /node bin\/ch install/);
   assert.match(result.stdout, /node bin\/ch init "task title" --dry-run/);
+  assert.match(result.stdout, /node bin\/ch memory status/);
+  assert.match(result.stdout, /node bin\/ch debt list/);
+  assert.match(result.stdout, /node bin\/ch decisions list/);
 });
 
 test("phase 1 doctor reports git repository and installed-layer status text", () => {
