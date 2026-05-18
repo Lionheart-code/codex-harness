@@ -8,6 +8,8 @@ Different coding agents interpret instructions, filesystem scope, tools, and saf
 
 The harness must normalize agent usage through explicit profiles.
 
+Phase 6 defines these profiles as documentation only. It does not enable external-agent execution, automatic delegation, or API integration.
+
 ## Core rule
 
 One harness can coordinate many agents only if every agent run has:
@@ -21,6 +23,13 @@ One harness can coordinate many agents only if every agent run has:
 - a timeout;
 - an allowlist or explicit manual execution mode;
 - a verification step.
+
+External agents are disabled by default.
+External agents are read-only by default.
+No agent output is trusted without verification.
+Write-capable agents require explicit task worktree boundaries.
+API is optional, not required.
+Codex-first does not mean Codex-only.
 
 ## Agent profile
 
@@ -43,6 +52,8 @@ Each agent profile must define:
   "requires_human_confirmation": true
 }
 ```
+
+These fields define a future contract. They do not grant runtime execution in Phase 6.
 
 ## Permission modes
 
@@ -94,6 +105,8 @@ Reviews diff, acceptance, checks, and artifacts. Must return PASS or FIX_REQUIRE
 ### integrator
 
 Combines outputs from parallel worktree workers. Requires final verifier and human merge gate.
+
+Parallel-worker execution is not active in Phase 6.
 
 ## Per-agent instruction differences
 
@@ -163,6 +176,8 @@ To enable an external CLI agent:
 6. Run `ch doctor agents`.
 7. Run a scout-only smoke test.
 
+Those steps are future-facing. Phase 6 does not implement them.
+
 ## Delegation policy
 
 Delegate to cheaper/read-only agents when the task is:
@@ -181,6 +196,8 @@ Use stronger/expensive agents when the task is:
 - high-risk review;
 - final plan validation.
 
+In Phase 6, delegation policy is descriptive only. The harness does not execute agents automatically.
+
 ## Verification
 
 No agent output is trusted by default.
@@ -192,3 +209,17 @@ All agent outputs must be:
 - reviewed by the next step;
 - checked by deterministic commands where possible;
 - included in final report if used.
+
+## Working directory policy
+
+### `repo_root`
+
+Use when an agent needs broad read visibility across the repository without write access.
+
+### `task_worktree`
+
+Use when a write-capable agent must remain isolated to the current task worktree.
+
+### `explicit_path`
+
+Use when an agent should be restricted to a narrower path such as a docs folder, output folder, or selected artifact subtree.
