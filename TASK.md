@@ -3,7 +3,7 @@
 Implement only:
 
 ```text
-tasks/PHASE_06_AGENT_ROLES_MATRIX.md
+tasks/PHASE_07_READ_ONLY_SCOUT_PROMPTS.md
 ```
 
-Do not implement Phase 7 or later.
+Do not implement Phase 8 or later.
