@@ -45,7 +45,7 @@ export interface CheckResult extends CaptureResult {
   logPath: string;
 }
 
-interface CheckConfig {
+export interface CheckConfig {
   commands: string[];
   protectedPaths: string[];
 }
@@ -56,7 +56,7 @@ interface CommandExecutionResult extends CheckCommandRecord {
   timedOut: boolean;
 }
 
-const DEFAULT_PROTECTED_PATHS = ["AGENTS.md", ".harness/config.toml"];
+export const DEFAULT_PROTECTED_PATHS = ["AGENTS.md", ".harness/config.toml"];
 const COMMAND_TIMEOUT_MS = 120000;
 
 function toPortablePath(targetPath: string): string {
@@ -137,7 +137,11 @@ function validateCheckCommands(commands: string[]): string[] {
   return commands;
 }
 
-function readCheckConfig(targetRoot: string): CheckConfig {
+export interface CheckConfigInspection extends CheckConfig {
+  protectedPathsSource: "default" | "configured";
+}
+
+export function inspectCheckConfig(targetRoot: string): CheckConfigInspection {
   const configPath = path.join(targetRoot, CONFIG_PATH);
   const lines = fs.readFileSync(configPath, "utf8").split(/\r?\n/);
   let currentSection = "";
@@ -188,7 +192,8 @@ function readCheckConfig(targetRoot: string): CheckConfig {
 
   return {
     commands: commands ?? [],
-    protectedPaths: protectedPaths ?? DEFAULT_PROTECTED_PATHS
+    protectedPaths: protectedPaths ?? DEFAULT_PROTECTED_PATHS,
+    protectedPathsSource: protectedPaths ? "configured" : "default"
   };
 }
 
@@ -272,7 +277,7 @@ function captureSnapshot(cwd: string): {
   capturedAt: string;
 } {
   const { targetRoot, taskId, worktreePath } = getSingleTaskWithWorktree(cwd);
-  const config = readCheckConfig(targetRoot);
+  const config = inspectCheckConfig(targetRoot);
   const paths = getTaskPaths(targetRoot, taskId);
   const gitStatusLines = getGitStatusLines(worktreePath);
   const diffPatch = getGitDiffPatch(worktreePath);
@@ -370,7 +375,7 @@ export function captureTaskState(cwd: string): CaptureResult {
 
 export function runDeterministicChecks(cwd: string): CheckResult {
   const snapshot = captureSnapshot(cwd);
-  const config = readCheckConfig(snapshot.targetRoot);
+  const config = inspectCheckConfig(snapshot.targetRoot);
   const paths = getTaskPaths(snapshot.targetRoot, snapshot.taskId);
   const checkedAt = new Date().toISOString();
   const commandExecutions = config.commands.map((command) => executeCheckCommand(command, snapshot.worktreePath));

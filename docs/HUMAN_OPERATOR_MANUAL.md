@@ -48,6 +48,25 @@ Check:
 - top-level `schemas/` and `migrations/` are treated as intentional product-source directories during Phase 19;
 - no hidden upgrade/migration occurred.
 
+## Phase 20 operator checks
+
+Before trusting the current security or context posture:
+
+```bash
+node bin/ch security doctor
+node bin/ch context inspect review
+node bin/ch eval
+```
+
+Check:
+
+- `security doctor` only reports current posture and does not change
+  permission state;
+- `context inspect` reports artifact paths and task/worktree context without
+  generating prompt files;
+- bare `eval` runs deterministic local regression checks only;
+- `eval playground ...` remains the separate disposable playground workflow.
+
 ## Install and upgrade safety
 
 Before applying an installed-layer update in a target project:

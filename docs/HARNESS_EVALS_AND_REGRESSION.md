@@ -35,9 +35,20 @@ Examples:
 ```bash
 npm run build
 npm test
+node bin/ch eval
 node bin/ch install --dry-run
 node bin/ch init "test task" --dry-run
 ```
+
+Phase 20 adds bare `node bin/ch eval` as a deterministic local regression
+runner for the product repository.
+
+Rules:
+
+- it must run locally without API or internet dependency;
+- it must fail closed outside the product repository root;
+- it must not replace or broaden the Phase 15 playground contract;
+- `node bin/ch eval playground ...` remains the playground surface.
 
 ## Playground evals
 

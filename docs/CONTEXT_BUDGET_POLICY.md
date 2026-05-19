@@ -60,6 +60,22 @@ The prompt builder must:
 - warn when prompt context is too large;
 - prefer references over raw content when safe.
 
+## Phase 20 inspect surface
+
+`node bin/ch context inspect ...` is a read-only reporting surface for the
+current prompt-context inputs.
+
+Rules:
+
+- reuse the existing prompt/artifact selection logic instead of inventing a
+  second context-selection system;
+- report artifact paths and task/worktree identity without generating prompt
+  files;
+- preserve the rule that raw logs are referenced by path rather than pasted
+  wholesale by default;
+- fail closed when installed layer, task state, or worktree metadata is
+  missing, or when the requested mode/role is unsupported.
+
 ## Compaction
 
 Compaction must:

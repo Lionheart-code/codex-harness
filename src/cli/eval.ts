@@ -1,4 +1,5 @@
 import { error, lines } from "../core/logger";
+import { runEvalRegression } from "../core/eval-regression";
 import { cleanPlayground, initializePlayground } from "../core/eval-playground";
 import { runPlaygroundSmoke } from "../core/eval-smoke";
 
@@ -7,6 +8,8 @@ type EvalAction = "init" | "smoke" | "clean";
 function printEvalHelp(): void {
   lines([
     "Usage:",
+    "  node bin/ch eval",
+    "  node bin/ch eval --help",
     "  node bin/ch eval playground init",
     "  node bin/ch eval playground init --root <path>",
     "  node bin/ch eval playground smoke",
@@ -44,9 +47,34 @@ function parsePlaygroundArgs(args: string[]): { action?: EvalAction; root?: stri
 export async function runEval(args: string[]): Promise<number> {
   const [scope, ...scopeArgs] = args;
 
-  if (!scope || scope === "--help" || scope === "-h" || scope === "help") {
+  if (scope === "--help" || scope === "-h" || scope === "help") {
     printEvalHelp();
     return 0;
+  }
+
+  if (!scope) {
+    try {
+      const result = runEvalRegression(process.cwd());
+      const failed = result.steps.find((step) => step.exitCode !== 0);
+
+      lines([
+        "codex-harness eval",
+        `cwd: ${result.cwd}`,
+        `product root: ${result.productRoot}`,
+        "mode: deterministic_local_regression",
+        ...result.steps.map(
+          (step) =>
+            `- ${step.name} | exit_code=${step.exitCode} | command=${step.command}`
+        ),
+        `status: ${failed ? `failed at ${failed.name}` : "passed"}`
+      ]);
+
+      return failed ? 1 : 0;
+    } catch (evalError) {
+      const message = evalError instanceof Error ? evalError.message : String(evalError);
+      error(message);
+      return 1;
+    }
   }
 
   if (scope !== "playground") {

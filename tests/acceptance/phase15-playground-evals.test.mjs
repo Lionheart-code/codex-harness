@@ -65,6 +65,7 @@ test("phase 15 eval help succeeds and invalid playground roots fail closed", () 
 
   const helpResult = runCli(["eval", "--help"], { cwd: productRoot });
   assertSuccess(helpResult, "eval help");
+  assert.match(helpResult.stdout, /node bin\/ch eval$/m);
   assert.match(helpResult.stdout, /node bin\/ch eval playground init/);
   assert.match(helpResult.stdout, /node bin\/ch eval playground smoke/);
   assert.match(helpResult.stdout, /node bin\/ch eval playground clean/);

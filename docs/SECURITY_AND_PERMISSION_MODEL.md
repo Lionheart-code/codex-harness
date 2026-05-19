@@ -6,6 +6,9 @@
 
 The default posture must be safe-by-default.
 
+Phase 20 adds inspect-only security reporting. It does not add a new runtime
+permission-enforcement layer.
+
 ## Core security principles
 
 - read-only by default for external agents;
@@ -108,6 +111,18 @@ If protected files change:
 ```text
 check fails until human accepts or reverts
 ```
+
+## Phase 20 command posture
+
+- `node bin/ch security doctor` audits and reports the current implemented
+  security posture only.
+- In the product repo, it reports product-repo posture and that installed-layer
+  security audit is unavailable there.
+- In installed target repos, it reports the current protected-path posture and
+  discovered adapter-profile details from the installed config.
+- It fails closed on malformed adapter config or unclear permission state.
+- It does not change permission state and does not enable new external
+  capability.
 
 ## Human authority
 

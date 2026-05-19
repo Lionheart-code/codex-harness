@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 19 adds explicit artifact schemas and migrations on top of the Phase 18 install/upgrade lifecycle, the Phase 17 governance loop, the Phase 16 parallel worktree scaffold, the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
+`codex-harness` is a Codex-first programming harness. Phase 20 adds inspect-only security posture reporting, deterministic local regression evals, prompt-context inspection, and operator hardening on top of the Phase 19 artifact schemas and migrations, the Phase 18 install/upgrade lifecycle, the Phase 17 governance loop, the Phase 16 parallel worktree scaffold, the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
 
-## Phase 19 commands
+## Phase 20 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -29,6 +29,14 @@ node bin/ch decisions list
 node bin/ch doctor
 node bin/ch doctor --help
 node bin/ch doctor --all
+node bin/ch security --help
+node bin/ch security doctor
+node bin/ch context --help
+node bin/ch context inspect plan
+node bin/ch context inspect work
+node bin/ch context inspect review
+node bin/ch context inspect scout --role tests
+node bin/ch eval
 node bin/ch eval playground init
 node bin/ch eval playground smoke
 node bin/ch eval playground clean
@@ -66,6 +74,17 @@ node bin/ch prompt scout --role tests
 npm install
 npm run build
 ```
+
+## Phase 20 security, eval, and context behavior
+
+- `security doctor` is inspect/report only. It audits the current product-repo or installed-target posture and does not change permission state.
+- `security doctor` succeeds in the product repo and reports installed-layer audit as unavailable there.
+- `security doctor` succeeds in installed target repos when the installed layer and config are readable, and it reports the current protected-path posture plus discovered adapter profiles.
+- `security doctor` fails closed on malformed adapter config or unclear permission state.
+- bare `eval` runs deterministic local regression checks from the product repository root only and does not require internet, API access, or external agents.
+- `eval playground init`, `eval playground smoke`, and `eval playground clean` remain the Phase 15 disposable playground surface.
+- `context inspect` is read-only only. It reports the current prompt-context inputs for `plan`, `work`, `review`, or `scout --role <role>` using the same task/worktree preconditions as prompt generation.
+- `context inspect` references artifacts by path and preserves the rule that raw logs are not prompt context by default.
 
 ## Phase 19 install, upgrade, and schema behavior
 

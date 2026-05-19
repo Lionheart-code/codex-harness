@@ -2,6 +2,7 @@ import { error, lines } from "../core/logger";
 import { runAgent } from "./agent";
 import { runCapture } from "./capture";
 import { runCheck } from "./check";
+import { runContext } from "./context";
 import { runDebt } from "./debt";
 import { runDecisions } from "./decisions";
 import { runDoctor } from "./doctor";
@@ -15,6 +16,7 @@ import { runParallel } from "./parallel";
 import { runPrompt } from "./prompt";
 import { runReport } from "./report";
 import { runReview } from "./review";
+import { runSecurity } from "./security";
 import { runSchema } from "./schema";
 import { runStatus } from "./status";
 import { runUpgrade } from "./upgrade";
@@ -24,7 +26,7 @@ type CommandHandler = (args: string[]) => Promise<number>;
 
 function printHelp(): void {
   lines([
-    "codex-harness Phase 19 CLI",
+    "codex-harness Phase 20 CLI",
     "",
     "Usage:",
     "  node bin/ch --help",
@@ -52,6 +54,14 @@ function printHelp(): void {
     "  node bin/ch doctor",
     "  node bin/ch doctor --help",
     "  node bin/ch doctor --all",
+    "  node bin/ch security --help",
+    "  node bin/ch security doctor",
+    "  node bin/ch context --help",
+    "  node bin/ch context inspect plan",
+    "  node bin/ch context inspect work",
+    "  node bin/ch context inspect review",
+    "  node bin/ch context inspect scout --role tests",
+    "  node bin/ch eval",
     "  node bin/ch eval playground init",
     "  node bin/ch eval playground smoke",
     "  node bin/ch eval playground clean",
@@ -79,11 +89,13 @@ function printHelp(): void {
     "  report   Generate a deterministic task handoff report.",
     "  schema   Validate or migrate Phase 19 machine-readable artifacts.",
     "  hooks    Install minimal Codex sidecar hooks and templates.",
+    "  security Audit the current implemented security and permission posture.",
+    "  context  Inspect the current prompt context inputs without writing files.",
     "  memory   Show Phase 9 memory, debt, decision, and agent-output status.",
     "  debt     Add, list, and resolve Phase 9 debt ledger items.",
     "  decisions Add and list Phase 9 decision records.",
     "  doctor   Report whether the current directory is inside a git repository.",
-    "  eval     Manage a disposable Phase 15 playground and run deterministic smoke scenarios.",
+    "  eval     Run deterministic local regression checks or manage the Phase 15 playground.",
     "  governance Run Phase 17 harness governance review, proposal, metrics, and status commands.",
     "  parallel Manage the Phase 16 opt-in parallel worktree scaffold.",
     "  install  Install or preview the Phase 2 harness layer.",
@@ -99,6 +111,10 @@ function getCommandHandler(command: string): CommandHandler | undefined {
   switch (command) {
     case "doctor":
       return runDoctor;
+    case "security":
+      return runSecurity;
+    case "context":
+      return runContext;
     case "eval":
       return runEval;
     case "governance":

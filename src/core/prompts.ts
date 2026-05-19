@@ -3,7 +3,6 @@ import * as path from "node:path";
 import {
   AGENTS_BACKUP_SUFFIX,
   AGENTS_PATH,
-  CONFIG_PATH,
   PROMPT_PLAN_FILE,
   PROMPT_REVIEW_FILE,
   PROMPT_WORK_FILE,
@@ -14,6 +13,7 @@ import {
   getImplementationDisciplineSection,
   getTaskTargetPaths
 } from "./paths";
+import { inspectCheckConfig } from "./checks";
 import { listTasks, getTaskDirectory, TaskState } from "./tasks";
 
 export type PromptMode = "plan" | "work" | "review";
@@ -41,6 +41,21 @@ interface PromptContext {
   branchRecordPath: string;
   worktreeRecordPath: string;
   worktreePath: string;
+  checksCommands: string[];
+}
+
+export interface PromptInspectionContext {
+  targetRoot: string;
+  taskId: string;
+  title: string;
+  phase: string;
+  taskDirectory: string;
+  worktreePath: string;
+  specPath: string;
+  acceptancePath: string;
+  statePath: string;
+  branchRecordPath: string;
+  worktreeRecordPath: string;
   checksCommands: string[];
 }
 
@@ -155,63 +170,13 @@ function ensureSingleTask(cwd: string): { targetRoot: string; task: TaskState } 
   }
 
   if (result.tasks.length > 1) {
-    throw new Error("Phase 5 `ch prompt` supports exactly one task.");
+    throw new Error("Exactly one task is required.");
   }
 
   return {
     targetRoot: result.targetRoot,
     task: result.tasks[0]
   };
-}
-
-function parseChecksCommands(targetRoot: string): string[] {
-  const configPath = path.join(targetRoot, CONFIG_PATH);
-
-  if (!fs.existsSync(configPath)) {
-    return [];
-  }
-
-  const lines = fs.readFileSync(configPath, "utf8").split(/\r?\n/);
-  let currentSection = "";
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (trimmed.length === 0 || trimmed.startsWith("#")) {
-      continue;
-    }
-
-    const sectionMatch = /^\[([^\]]+)\]$/.exec(trimmed);
-
-    if (sectionMatch) {
-      currentSection = sectionMatch[1];
-      continue;
-    }
-
-    if (currentSection !== "checks") {
-      continue;
-    }
-
-    const commandsMatch = /^commands\s*=\s*\[(.*)\]\s*$/.exec(trimmed);
-
-    if (!commandsMatch) {
-      continue;
-    }
-
-    const rawItems = commandsMatch[1].trim();
-
-    if (rawItems.length === 0) {
-      return [];
-    }
-
-    return rawItems
-      .split(",")
-      .map((item) => item.trim())
-      .filter((item) => item.startsWith("\"") && item.endsWith("\""))
-      .map((item) => item.slice(1, -1));
-  }
-
-  return [];
 }
 
 function createPromptContext(cwd: string): PromptContext {
@@ -234,7 +199,26 @@ function createPromptContext(cwd: string): PromptContext {
     branchRecordPath,
     worktreeRecordPath,
     worktreePath: task.worktree,
-    checksCommands: parseChecksCommands(targetRoot)
+    checksCommands: inspectCheckConfig(targetRoot).commands
+  };
+}
+
+export function getPromptInspectionContext(cwd: string): PromptInspectionContext {
+  const context = createPromptContext(cwd);
+
+  return {
+    targetRoot: context.targetRoot,
+    taskId: context.task.task_id,
+    title: context.task.title,
+    phase: context.task.phase,
+    taskDirectory: context.taskDirectory,
+    worktreePath: context.worktreePath,
+    specPath: context.specPath,
+    acceptancePath: context.acceptancePath,
+    statePath: context.statePath,
+    branchRecordPath: context.branchRecordPath,
+    worktreeRecordPath: context.worktreeRecordPath,
+    checksCommands: [...context.checksCommands]
   };
 }
 
