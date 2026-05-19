@@ -44,7 +44,8 @@ Check:
 - scope matches current task;
 - acceptance commands passed;
 - non-goals respected;
-- no forbidden files created;
+- no forbidden runtime/generated files created;
+- top-level `schemas/` and `migrations/` are treated as intentional product-source directories during Phase 19;
 - no hidden upgrade/migration occurred.
 
 ## Install and upgrade safety
@@ -68,6 +69,28 @@ After apply:
 - inspect any reported `.codex-harness.bak*` files before deleting them;
 - confirm `AGENTS.md` non-managed text still looks correct;
 - confirm `.harness/install.json` recorded the latest upgrade result.
+
+## Schema validation and migration safety
+
+Before rewriting legacy governed artifacts in an installed target project:
+
+```bash
+node bin/ch schema validate
+node bin/ch schema migrate --dry-run
+```
+
+Check:
+
+- validation either passes cleanly or reports the exact malformed or unsupported artifact;
+- unknown explicit schema versions fail closed instead of being guessed;
+- dry-run shows only governed artifact rewrites and planned backup paths;
+- installed target repos receive `.harness/schemas/` only; target-root `schemas/` and `migrations/` must not be created.
+
+After apply:
+
+- inspect any reported `.codex-harness.bak*` files before deleting them;
+- rerun `node bin/ch schema validate`;
+- confirm governance proposal markdown remains the human review artifact and any adjacent `.json` sidecar validates.
 
 ## Moving to next phase
 
@@ -96,6 +119,13 @@ If a managed upgrade applied the wrong installed-layer change in a target projec
 2. restore the affected managed file from its backup;
 3. rerun `node bin/ch doctor` and `node bin/ch upgrade --dry-run`;
 4. do not continue until the drift is understood.
+
+If a schema migration applied the wrong governed-artifact change in a target project:
+
+1. inspect the reported `.codex-harness.bak*` files;
+2. restore the affected governed artifact from its backup;
+3. rerun `node bin/ch schema validate` and `node bin/ch schema migrate --dry-run`;
+4. do not continue until the schema mismatch is understood.
 
 
 ## Windows/macOS/Linux note

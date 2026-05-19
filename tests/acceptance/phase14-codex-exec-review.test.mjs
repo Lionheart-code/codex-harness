@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { after, test } from "node:test";
 import {
+  assertProductRepoBoundaryState,
   assertFailure,
   assertSuccess,
   createTempDirectory,
@@ -342,6 +343,8 @@ test("phase 14 review --exec sends the full multiline prompt through stdin and w
   assert.match(receivedPrompt, /"summary": "short review summary"/);
 
   const review = readJson(getReviewPath(tempRepo));
+  assert.equal(review.schema_version, 1);
+  assert.equal(review.producer_command, "node bin/ch review --exec");
   assert.equal(review.task_id, "task-test-task");
   assert.equal(review.result, "PASS");
   assert.equal(review.mode, "exec");
@@ -367,6 +370,8 @@ test("phase 14 review --exec accepts JSON wrapped in a single markdown code fenc
   assert.match(result.stdout, /result: PASS/);
 
   const review = readJson(getReviewPath(tempRepo));
+  assert.equal(review.schema_version, 1);
+  assert.equal(review.producer_command, "node bin/ch review --exec");
   assert.equal(review.result, "PASS");
   assert.equal(review.summary, "Fenced review passed.");
 });
@@ -516,12 +521,5 @@ test("phase 14 review --exec reports ETIMEDOUT clearly and does not write review
 
 test("phase 14 acceptance leaves forbidden generated paths absent in the product repo", () => {
   ensureBuiltCli();
-
-  for (const relativePath of [".harness", ".codex", ".agents", "schemas", "migrations"]) {
-    assert.equal(
-      fs.existsSync(path.join(productRoot, relativePath)),
-      false,
-      `forbidden generated path exists in product repo: ${relativePath}`
-    );
-  }
+  assertProductRepoBoundaryState();
 });

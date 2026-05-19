@@ -123,3 +123,21 @@ export function readPackageVersion() {
   assert.equal(typeof packageJson.version, "string");
   return packageJson.version;
 }
+
+export function assertProductRepoBoundaryState() {
+  for (const relativePath of [".harness", ".codex", ".agents"]) {
+    assert.equal(
+      fs.existsSync(path.join(productRoot, relativePath)),
+      false,
+      `forbidden generated path exists in product repo: ${relativePath}`
+    );
+  }
+
+  for (const relativePath of ["schemas", "migrations"]) {
+    assert.equal(
+      fs.existsSync(path.join(productRoot, relativePath)),
+      true,
+      `expected product source path to exist in product repo: ${relativePath}`
+    );
+  }
+}

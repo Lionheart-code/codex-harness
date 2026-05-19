@@ -5,6 +5,7 @@ import {
   contentEquals,
   detectInstalledLayer,
   extractManagedAgentsBlock,
+  getSchemaSnapshotFilePlans,
   getBackupPath,
   getManagedBaselineContents,
   getPackageVersion,
@@ -15,6 +16,7 @@ import {
   renderAgentsFileContent
 } from "./install";
 import { getMemorySeedFilePlans } from "./memory-scaffold";
+import { CURRENT_SCHEMA_VERSION, buildSchemaMetadata } from "./schema-migrations";
 import {
   AGENTS_PATH,
   CONFIG_PATH,
@@ -24,6 +26,7 @@ import {
   GOVERNANCE_REVIEWS_DIR,
   HARNESS_DIR,
   INSTALL_JSON_PATH,
+  INSTALLED_SCHEMAS_DIR,
   MANAGED_AGENTS_BLOCK_PATH,
   MANAGED_CONFIG_PATH,
   MANAGED_TEMPLATES_DIR,
@@ -386,6 +389,8 @@ function planInstallMetadataUpdate(
     templates_version: version,
     installed_at: existingMetadata.installed_at,
     source: existingMetadata.source,
+    ...buildSchemaMetadata("node bin/ch upgrade"),
+    updated_at: appliedAt,
     last_upgrade: buildLastUpgradeMetadata(
       existingMetadata,
       version,
@@ -501,6 +506,7 @@ export function upgradeHarness(cwd: string, dryRun: boolean): UpgradeResult {
   const version = getPackageVersion();
   const desiredManagedContent = getManagedBaselineContents(version);
   const currentBaselines = readInstalledManagedBaselines(targetRoot);
+  const schemaSnapshotFiles = getSchemaSnapshotFilePlans(targetRoot);
   const appliedAt = new Date().toISOString();
 
   const directoryPlans: UpgradeDirectoryPlan[] = [
@@ -508,6 +514,7 @@ export function upgradeHarness(cwd: string, dryRun: boolean): UpgradeResult {
     ensureCreateIfMissingDirectory(targetRoot, TASKS_DIR),
     ensureCreateIfMissingDirectory(targetRoot, TEMPLATES_DIR),
     ensureCreateIfMissingDirectory(targetRoot, MANAGED_TEMPLATES_DIR),
+    ensureCreateIfMissingDirectory(targetRoot, INSTALLED_SCHEMAS_DIR),
     ensureCreateIfMissingDirectory(targetRoot, MEMORY_DIR),
     ensureCreateIfMissingDirectory(targetRoot, MEMORY_DECISIONS_DIR),
     ensureCreateIfMissingDirectory(targetRoot, MEMORY_DEBT_DIR),
@@ -523,6 +530,9 @@ export function upgradeHarness(cwd: string, dryRun: boolean): UpgradeResult {
     planAgentsUpgrade(targetRoot, desiredManagedContent.agentsBlock, currentBaselines.agentsBlock),
     planManagedBaselineFile(targetRoot, MANAGED_AGENTS_BLOCK_PATH, desiredManagedContent.agentsBlock),
     planManagedBaselineFile(targetRoot, MANAGED_CONFIG_PATH, desiredManagedContent.configToml),
+    ...schemaSnapshotFiles.map((schemaFile) =>
+      planManagedBaselineFile(targetRoot, schemaFile.relativePath, schemaFile.content)
+    ),
     ...getMemorySeedFilePlans(targetRoot).map((seedFile) =>
       ensureSeedFile(targetRoot, seedFile.relativePath, seedFile.content)
     ),

@@ -1,11 +1,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AGENT_RUN_STATUS_FILE, TASK_AGENTS_DIR, TASK_PROMPTS_DIR } from "./paths";
+import { CURRENT_SCHEMA_VERSION, buildSchemaMetadata, validateOptionalSchemaMetadata } from "./schema-migrations";
 import { listTasks } from "./tasks";
 
 export type AgentRunStatus = "raw" | "accepted" | "stale" | "rejected";
 
 export interface AgentRunRecord {
+  schema_version?: typeof CURRENT_SCHEMA_VERSION;
+  producer_command?: string;
   run_id: string;
   task_id: string;
   role: string;
@@ -132,7 +135,8 @@ export function isAgentRunStatus(value: string): value is AgentRunStatus {
 }
 
 function parseRecord(statusPath: string): AgentRunRecord {
-  const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8")) as Partial<AgentRunRecord>;
+  const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8")) as Partial<AgentRunRecord> & Record<string, unknown>;
+  validateOptionalSchemaMetadata(parsed, `agent run ${statusPath}`);
 
   if (
     typeof parsed.run_id !== "string" ||
@@ -209,6 +213,7 @@ export function reserveAgentRun(cwd: string, input: AgentRecordInput): AgentReco
   const outputPath = resolveOutputPath(targetRoot, runDirectory, input.output);
 
   const record: AgentRunRecord = {
+    ...buildSchemaMetadata("node bin/ch agent record"),
     run_id: runId,
     task_id: taskId,
     role: input.role,

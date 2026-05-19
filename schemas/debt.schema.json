@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-harness debt item",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer_command",
+    "created_at",
+    "updated_at",
+    "debt_id",
+    "title",
+    "type",
+    "severity",
+    "created_by_task",
+    "created_by_agent_run",
+    "reason",
+    "location",
+    "impact",
+    "paydown_condition",
+    "status"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_command": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "minLength": 1 },
+    "updated_at": { "type": "string", "minLength": 1 },
+    "debt_id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "type": { "enum": ["technical", "architectural", "test", "documentation", "security", "process"] },
+    "severity": { "enum": ["low", "medium", "high"] },
+    "created_by_task": { "type": "string", "minLength": 1 },
+    "created_by_agent_run": { "type": "string" },
+    "reason": { "type": "string", "minLength": 1 },
+    "location": { "type": "array", "items": { "type": "string" } },
+    "impact": { "type": "string" },
+    "paydown_condition": { "type": "string" },
+    "status": { "enum": ["open", "in_progress", "resolved", "accepted", "obsolete"] }
+  },
+  "additionalProperties": true
+}

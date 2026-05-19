@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { after, test } from "node:test";
 import {
+  assertProductRepoBoundaryState,
   assertFailure,
   assertSuccess,
   createTempDirectory,
@@ -189,12 +190,5 @@ test("phase 13 hooks install fails closed on conflicting managed files", () => {
 
 test("phase 13 acceptance leaves forbidden generated paths absent in the product repo", () => {
   ensureBuiltCli();
-
-  for (const relativePath of [".harness", ".codex", ".agents", "schemas", "migrations"]) {
-    assert.equal(
-      fs.existsSync(path.join(productRoot, relativePath)),
-      false,
-      `forbidden generated path exists in product repo: ${relativePath}`
-    );
-  }
+  assertProductRepoBoundaryState();
 });

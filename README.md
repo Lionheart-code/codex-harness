@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 18 adds safe install/upgrade lifecycle management and an optional project registry on top of the Phase 17 governance loop, the Phase 16 parallel worktree scaffold, the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
+`codex-harness` is a Codex-first programming harness. Phase 19 adds explicit artifact schemas and migrations on top of the Phase 18 install/upgrade lifecycle, the Phase 17 governance loop, the Phase 16 parallel worktree scaffold, the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
 
-## Phase 18 commands
+## Phase 19 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -46,6 +46,10 @@ node bin/ch install --dry-run
 node bin/ch upgrade --help
 node bin/ch upgrade --dry-run
 node bin/ch upgrade
+node bin/ch schema --help
+node bin/ch schema validate
+node bin/ch schema migrate --dry-run
+node bin/ch schema migrate
 node bin/ch status
 node bin/ch init "test task"
 node bin/ch init "test task" --dry-run
@@ -63,13 +67,17 @@ npm install
 npm run build
 ```
 
-## Phase 18 install and upgrade behavior
+## Phase 19 install, upgrade, and schema behavior
 
-- `install` creates the installed harness layer, writes `.harness/install.json`, seeds managed baselines under `.harness/templates/managed/`, and may update the optional `~/.codex-harness/registry.json`.
+- `install` creates the installed harness layer, writes `.harness/install.json`, seeds managed baselines under `.harness/templates/managed/`, seeds installed schema snapshots under `.harness/schemas/`, and may update the optional `~/.codex-harness/registry.json`.
 - `upgrade --dry-run` previews install-owned changes without writing files.
-- `upgrade` updates only install-owned static content, creates backups before rewriting managed files, refreshes install metadata, and fails closed when managed files contain local modifications.
+- `upgrade` updates only install-owned static content, refreshes `.harness/schemas/`, creates backups before rewriting managed files, refreshes install metadata, and fails closed when managed files contain local modifications.
 - `doctor --all` reads the optional project registry and reports the status of registered repositories without turning the registry into the source of truth.
-- Runtime/generated project state under `.harness/tasks/`, `.harness/memory/`, `.harness/governance/`, and `.codex/` is never overwritten during upgrade once present.
+- `schema validate` checks the current installed target repository for malformed governed artifacts, missing schema snapshots, malformed `[agents.*]` adapter profiles, and unknown explicit schema versions.
+- `schema migrate --dry-run` previews legacy unversioned artifact rewrites without changing the repository.
+- `schema migrate` performs explicit governed-artifact rewrites only, creates `.codex-harness.bak*` backups before updates, and leaves absent optional runtime artifacts absent.
+- Runtime/generated project state under `.harness/tasks/`, `.harness/memory/`, `.harness/governance/`, and `.codex/` is never overwritten during `upgrade`; governed runtime JSON files are touched only by explicit `schema migrate`.
+- Product-source `schemas/` and `migrations/` live in the real `codex-harness` repository, while installed target repositories receive only `.harness/schemas/`.
 - Rollback is file-based: inspect the reported `.codex-harness.bak*` backups before restoring any managed file manually.
 
 ## Phase 17 governance behavior
@@ -81,7 +89,7 @@ npm run build
 - `governance proposal --research <path>` records validated local research-summary file references only. It does not fetch the network.
 - `governance metrics` writes deterministic local summary data to `.harness/governance/metrics/harness-metrics.json`.
 - `governance status` is read-only and summarizes governance, memory, debt, decisions, and agent-output counts.
-- Phase 17 does not add automatic self-modification, auto-merge, silent prompt changes, permission changes, dashboard behavior, or schema/migration infrastructure.
+- Phase 17 itself did not add automatic self-modification, auto-merge, silent prompt changes, permission changes, dashboard behavior, or schema/migration infrastructure.
 
 ## Phase 16 parallel scaffold behavior
 
@@ -190,11 +198,15 @@ npm run build
 - `install` creates `.harness/config.toml`, `.harness/tasks/`, `.harness/templates/`, `.harness/memory/`, and `.harness/install.json`.
 - `install --dry-run` previews the same actions without writing files.
 - `install` also seeds `.harness/templates/managed/agents-block.md` and `.harness/templates/managed/config.toml` for future upgrade drift detection.
+- `install` also seeds `.harness/schemas/` with the product schema snapshot used by the installed layer.
 - `install` creates or updates a managed block in `AGENTS.md` and backs up the file before patching existing content.
 - Re-running `install` is idempotent when the managed files already match the Phase 2 content.
-- `upgrade --dry-run` previews Phase 18 install-owned changes without writing files.
-- `upgrade` updates install-owned static files only, records additive `last_upgrade` metadata in `.harness/install.json`, and creates `.codex-harness.bak*` backups before rewriting managed files.
+- `upgrade --dry-run` previews install-owned changes without writing files.
+- `upgrade` updates install-owned static files only, refreshes `.harness/schemas/`, records additive `last_upgrade` metadata in `.harness/install.json`, and creates `.codex-harness.bak*` backups before rewriting managed files.
 - `doctor --all` summarizes the optional `~/.codex-harness/registry.json` without replacing repo-local `.harness/` state.
+- `schema validate` scans only existing governed artifacts plus configured `[agents.*]` adapter profiles and fails closed on malformed or unknown explicit schema versions.
+- `schema migrate --dry-run` previews legacy unversioned artifact rewrites and planned backups without mutating the repo.
+- `schema migrate` is the only command that rewrites governed runtime artifacts; it does not silently run during `upgrade`.
 - `init` creates `.harness/tasks/<task-id>/spec.md`, `acceptance.md`, and `state.json`.
 - `init --dry-run` previews the task id and planned file paths without writing files.
 - `status` lists the tasks recorded under `.harness/tasks/`.
@@ -243,4 +255,4 @@ protected_paths = ["AGENTS.md", ".harness/config.toml"]
 - `.codex/` hook files are created only in installed target repositories, not in the product repo.
 - No `.agents/` files are created in this phase.
 - No write-capable external agent mode is implemented in this phase.
-- No automatic coding loop, schemas, migrations, API adapters, secrets injection, or uncontrolled runtime state in the product repo are implemented in this phase.
+- No automatic coding loop, write-capable external agent mode, secrets injection, or uncontrolled runtime state in the product repo are implemented in this phase.

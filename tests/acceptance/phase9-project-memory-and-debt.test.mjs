@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { after, test } from "node:test";
 import {
+  assertProductRepoBoundaryState,
   assertFailure,
   assertSuccess,
   createTempDirectory,
@@ -79,6 +80,10 @@ test("phase 9 memory, debt, and decisions commands manage target-repo project me
     .split(/\r?\n/)
     .map((line) => JSON.parse(line));
   assert.equal(debtItems.length, 1);
+  assert.equal(debtItems[0].schema_version, 1);
+  assert.equal(debtItems[0].producer_command, "node bin/ch debt add");
+  assert.equal(typeof debtItems[0].created_at, "string");
+  assert.equal(typeof debtItems[0].updated_at, "string");
   assert.equal(debtItems[0].debt_id, "DEBT-0001");
   assert.equal(debtItems[0].status, "open");
   assert.equal(debtItems[0].created_by_task, "task-test-task");
@@ -95,6 +100,9 @@ test("phase 9 memory, debt, and decisions commands manage target-repo project me
   assert.ok(fs.existsSync(decisionPath), `expected decision record to exist: ${decisionPath}`);
 
   const decisionRecord = readJson(decisionPath);
+  assert.equal(decisionRecord.schema_version, 1);
+  assert.equal(decisionRecord.producer_command, "node bin/ch decisions add");
+  assert.equal(typeof decisionRecord.updated_at, "string");
   assert.equal(decisionRecord.decision_id, "DECISION-0001");
   assert.equal(decisionRecord.status, "active");
   assert.equal(decisionRecord.decision, "test decision");
@@ -119,6 +127,7 @@ test("phase 9 memory, debt, and decisions commands manage target-repo project me
     .split(/\r?\n/)
     .map((line) => JSON.parse(line));
   assert.equal(resolvedDebtItems[0].status, "resolved");
+  assert.equal(resolvedDebtItems[0].producer_command, "node bin/ch debt resolve");
 
   const resolvedDebtList = runCli(["debt", "list"], { cwd: tempRepo });
   assertSuccess(resolvedDebtList, "debt list after resolve");
@@ -176,12 +185,5 @@ test("phase 9 decisions list warns on malformed records and decisions add fails 
 
 test("phase 9 acceptance leaves forbidden generated paths absent in the product repo", () => {
   ensureBuiltCli();
-
-  for (const relativePath of [".harness", ".codex", ".agents", "schemas", "migrations"]) {
-    assert.equal(
-      fs.existsSync(path.join(productRoot, relativePath)),
-      false,
-      `forbidden generated path exists in product repo: ${relativePath}`
-    );
-  }
+  assertProductRepoBoundaryState();
 });

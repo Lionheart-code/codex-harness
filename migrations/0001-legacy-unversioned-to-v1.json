@@ -1,0 +1,18 @@
+{
+  "migration_id": "0001-legacy-unversioned-to-v1",
+  "from_schema_version": 0,
+  "to_schema_version": 1,
+  "mode": "explicit",
+  "dry_run_required": true,
+  "backup_required": true,
+  "artifacts": [
+    "install metadata",
+    "task state",
+    "verifier output",
+    "review output",
+    "agent run status",
+    "debt ledger items",
+    "decision records",
+    "governance proposal JSON sidecars"
+  ]
+}

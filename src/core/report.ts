@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { listAgentRuns, type AgentRunRecord } from "./agent-ledger";
-import { type VerifierRecord } from "./checks";
+import { type VerifierRecord, validateVerifierRecord } from "./checks";
 import { listDebt, listDecisions, type DebtItem, type DecisionRecord } from "./memory";
 import { TASK_CHECK_LOG_FILE, TASK_DIFF_FILE, TASK_RESULT_FILE, TASK_REVIEW_FILE, TASK_VERIFIER_FILE } from "./paths";
 import { loadTaskReviewRecord, type ReviewRecord } from "./review";
@@ -81,7 +81,7 @@ function readVerifierRecord(verifierPath: string): VerifierRecord | undefined {
     return undefined;
   }
 
-  return JSON.parse(fs.readFileSync(verifierPath, "utf8")) as VerifierRecord;
+  return validateVerifierRecord(JSON.parse(fs.readFileSync(verifierPath, "utf8")) as unknown);
 }
 
 function readReviewRecord(reviewPath: string, taskId: string): ReviewRecord | undefined {

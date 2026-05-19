@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-harness task state",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer_command",
+    "task_id",
+    "title",
+    "status",
+    "created_at",
+    "updated_at",
+    "phase",
+    "spec",
+    "acceptance"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_command": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "status": { "const": "created" },
+    "created_at": { "type": "string", "minLength": 1 },
+    "updated_at": { "type": "string", "minLength": 1 },
+    "phase": { "const": "3" },
+    "spec": { "const": "spec.md" },
+    "acceptance": { "const": "acceptance.md" }
+  },
+  "additionalProperties": true
+}

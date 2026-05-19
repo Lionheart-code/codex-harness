@@ -77,8 +77,10 @@ test("phase 18 install writes the real optional registry and doctor --all reads 
   const tempRepo = createInstalledRepo(homeDir, "codex-harness-phase18-install-registry-");
   const registryPath = getRegistryPath(homeDir);
   const expectedVersion = readPackageVersion();
+  const installedSchemaPath = path.join(tempRepo, ".harness", "schemas", "install.schema.json");
 
   assert.ok(fs.existsSync(registryPath), "expected install to create the optional registry file");
+  assert.ok(fs.existsSync(installedSchemaPath), "expected install to seed .harness/schemas/install.schema.json");
 
   const registry = readJson(registryPath);
   assert.equal(registry.version, 1);
@@ -209,6 +211,7 @@ test("phase 18 upgrade refreshes legacy managed content, preserves unrelated AGE
   const managedConfigPath = path.join(tempRepo, ".harness", "templates", "managed", "config.toml");
   const projectIndexPath = path.join(tempRepo, ".harness", "memory", "project-index.md");
   const installJsonPath = path.join(tempRepo, ".harness", "install.json");
+  const installedSchemaPath = path.join(tempRepo, ".harness", "schemas", "install.schema.json");
   const originalAgents = readText(agentsPath).trim();
   const legacyAgentsBlock = originalAgents.replace(
     "This repository has an installed `codex-harness` layer.",
@@ -223,6 +226,7 @@ test("phase 18 upgrade refreshes legacy managed content, preserves unrelated AGE
   writeText(configPath, legacyConfig);
   writeText(managedConfigPath, legacyConfig);
   fs.rmSync(projectIndexPath);
+  fs.rmSync(installedSchemaPath);
 
   const dryRun = runCli(["upgrade", "--dry-run"], {
     cwd: tempRepo,
@@ -234,6 +238,7 @@ test("phase 18 upgrade refreshes legacy managed content, preserves unrelated AGE
   assert.match(dryRun.stdout, /\.harness[\\/]config\.toml/);
   assert.match(dryRun.stdout, /created:/);
   assert.match(dryRun.stdout, /\.harness[\\/]memory[\\/]project-index\.md/);
+  assert.match(dryRun.stdout, /\.harness[\\/]schemas[\\/]install\.schema\.json/);
 
   const applyResult = runCli(["upgrade"], {
     cwd: tempRepo,

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { after, test } from "node:test";
 import {
+  assertProductRepoBoundaryState,
   assertFailure,
   assertSuccess,
   createTempDirectory,
@@ -73,6 +74,7 @@ test("phase 17 governance help, review, proposal, metrics, and status stay insid
   assert.match(helpResult.stdout, /node bin\/ch governance proposal/);
   assert.match(helpResult.stdout, /node bin\/ch governance metrics/);
   assert.match(helpResult.stdout, /node bin\/ch governance status/);
+  assert.match(helpResult.stdout, /node bin\/ch governance proposal --title <title>/);
 
   assertSuccess(runCli(["agent", "record", "--role", "scout-tests", "--output", "sample.md"], { cwd: tempRepo }), "agent record");
   assertSuccess(
@@ -125,9 +127,9 @@ test("phase 17 governance help, review, proposal, metrics, and status stay insid
   assert.match(proposalResult.stdout, /proposal id: HEP-0001/);
   assert.match(proposalResult.stdout, /research\/summary\.md/);
 
-  const proposalFiles = fs.readdirSync(proposalDir);
-  assert.deepEqual(proposalFiles, ["HEP-0001-tighten-review-gate.md"]);
-  const proposalContent = readText(path.join(proposalDir, proposalFiles[0]));
+  const proposalFiles = fs.readdirSync(proposalDir).sort();
+  assert.deepEqual(proposalFiles, ["HEP-0001-tighten-review-gate.json", "HEP-0001-tighten-review-gate.md"]);
+  const proposalContent = readText(path.join(proposalDir, "HEP-0001-tighten-review-gate.md"));
   assert.match(proposalContent, /# HEP-0001 - Tighten review gate/);
   assert.match(proposalContent, /## Evidence/);
   assert.match(proposalContent, /## Expected Benefit/);
@@ -135,6 +137,14 @@ test("phase 17 governance help, review, proposal, metrics, and status stay insid
   assert.match(proposalContent, /## Rollback Plan/);
   assert.match(proposalContent, /## Acceptance Criteria/);
   assert.match(proposalContent, /research\/summary\.md/);
+  const proposalRecord = readJson(path.join(proposalDir, "HEP-0001-tighten-review-gate.json"));
+  assert.equal(proposalRecord.schema_version, 1);
+  assert.equal(proposalRecord.producer_command, "node bin/ch governance proposal");
+  assert.equal(proposalRecord.proposal_id, "HEP-0001");
+  assert.equal(proposalRecord.title, "Tighten review gate");
+  assert.equal(proposalRecord.status, "proposed");
+  assert.equal(proposalRecord.markdown_path, ".harness/governance/proposals/HEP-0001-tighten-review-gate.md");
+  assert.deepEqual(proposalRecord.research_inputs, ["research/summary.md"]);
 
   const metricsResult = runCli(["governance", "metrics"], { cwd: tempRepo });
   assertSuccess(metricsResult, "governance metrics");
@@ -203,12 +213,5 @@ test("phase 17 governance fails closed on invalid arguments, missing install sta
 
 test("phase 17 acceptance leaves forbidden generated paths absent in the product repo", () => {
   ensureBuiltCli();
-
-  for (const relativePath of [".harness", ".codex", ".agents", "schemas", "migrations"]) {
-    assert.equal(
-      fs.existsSync(path.join(productRoot, relativePath)),
-      false,
-      `forbidden generated path exists in product repo: ${relativePath}`
-    );
-  }
+  assertProductRepoBoundaryState();
 });

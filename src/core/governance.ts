@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { type AgentRunStatus } from "./agent-ledger";
-import { detectInstalledLayer } from "./install";
+import { detectInstalledLayer, readInstallMetadataFromTarget } from "./install";
 import { getMemoryStatus, type DebtStatus, type DecisionStatus } from "./memory";
 import { ensureGovernanceScaffold } from "./governance-scaffold";
 import {
@@ -21,6 +21,7 @@ import {
   TASK_VERIFIER_FILE,
   TASKS_DIR
 } from "./paths";
+import { CURRENT_SCHEMA_VERSION, buildSchemaMetadata, validateOptionalSchemaMetadata } from "./schema-migrations";
 import { listTasks, requireGitTargetRoot } from "./tasks";
 
 export type GovernanceReviewMode = "daily" | "weekly" | "release";
@@ -38,7 +39,20 @@ export interface GovernanceProposalResult {
   governanceRoot: string;
   proposalId: string;
   proposalPath: string;
+  proposalJsonPath: string;
   researchInputs: string[];
+}
+
+export interface GovernanceProposalRecord {
+  schema_version?: typeof CURRENT_SCHEMA_VERSION;
+  producer_command?: string;
+  proposal_id: string;
+  title: string;
+  status: "proposed" | "accepted" | "rejected" | "implemented" | "reverted";
+  created_at: string;
+  updated_at: string;
+  markdown_path: string;
+  research_inputs: string[];
 }
 
 export interface GovernanceMetricsRecord {
@@ -154,14 +168,13 @@ function ensureReadableFile(filePath: string): void {
 }
 
 function readInstalledHarnessVersion(targetRoot: string): string {
-  const installPath = path.join(targetRoot, INSTALL_JSON_PATH);
-  const parsed = JSON.parse(fs.readFileSync(installPath, "utf8")) as { harness_version?: string };
+  const metadata = readInstallMetadataFromTarget(targetRoot);
 
-  if (typeof parsed.harness_version !== "string" || parsed.harness_version.trim().length === 0) {
+  if (!metadata || metadata.harness_version.trim().length === 0) {
     throw new Error("Existing .harness/install.json is missing harness_version.");
   }
 
-  return parsed.harness_version;
+  return metadata.harness_version;
 }
 
 function isGovernanceReviewMode(value: string): value is GovernanceReviewMode {
@@ -381,6 +394,62 @@ function normalizedRepoRelativeOrAbsolute(targetRoot: string, absolutePath: stri
   return toPortablePath(absolutePath);
 }
 
+export function getGovernanceProposalJsonPath(proposalMarkdownPath: string): string {
+  return proposalMarkdownPath.replace(/\.md$/i, ".json");
+}
+
+export function buildGovernanceProposalRecord(
+  proposalId: string,
+  title: string,
+  researchInputs: string[],
+  createdAt: string,
+  markdownPath: string,
+  producerCommand: string
+): GovernanceProposalRecord {
+  return {
+    ...buildSchemaMetadata(producerCommand),
+    proposal_id: proposalId,
+    title: title.trim(),
+    status: "proposed",
+    created_at: createdAt,
+    updated_at: createdAt,
+    markdown_path: toPortablePath(markdownPath),
+    research_inputs: [...researchInputs]
+  };
+}
+
+export function validateGovernanceProposalRecord(value: unknown): GovernanceProposalRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Governance proposal record must be a JSON object.");
+  }
+
+  const record = value as Record<string, unknown>;
+  validateOptionalSchemaMetadata(record, "governance proposal");
+
+  if (
+    typeof record.proposal_id !== "string" ||
+    typeof record.title !== "string" ||
+    (record.status !== "proposed" &&
+      record.status !== "accepted" &&
+      record.status !== "rejected" &&
+      record.status !== "implemented" &&
+      record.status !== "reverted") ||
+    typeof record.created_at !== "string" ||
+    typeof record.updated_at !== "string" ||
+    typeof record.markdown_path !== "string" ||
+    !Array.isArray(record.research_inputs) ||
+    !record.research_inputs.every((entry) => typeof entry === "string")
+  ) {
+    throw new Error("Governance proposal record is missing required fields.");
+  }
+
+  return record as unknown as GovernanceProposalRecord;
+}
+
+export function writeGovernanceProposalRecord(filePath: string, record: GovernanceProposalRecord): void {
+  fs.writeFileSync(filePath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+}
+
 function buildProposalMarkdown(
   targetRoot: string,
   proposalId: string,
@@ -509,11 +578,24 @@ export function createGovernanceProposal(
     GOVERNANCE_PROPOSALS_DIR,
     `${proposalId}-${slugifyTitle(trimmedTitle)}.md`
   );
+  const proposalJsonPath = getGovernanceProposalJsonPath(proposalPath);
+  const createdAt = new Date().toISOString();
 
   fs.writeFileSync(
     proposalPath,
-    buildProposalMarkdown(targetRoot, proposalId, trimmedTitle, researchInputs, new Date().toISOString()),
+    buildProposalMarkdown(targetRoot, proposalId, trimmedTitle, researchInputs, createdAt),
     "utf8"
+  );
+  writeGovernanceProposalRecord(
+    proposalJsonPath,
+    buildGovernanceProposalRecord(
+      proposalId,
+      trimmedTitle,
+      researchInputs,
+      createdAt,
+      path.relative(targetRoot, proposalPath) || proposalPath,
+      "node bin/ch governance proposal"
+    )
   );
 
   return {
@@ -521,6 +603,7 @@ export function createGovernanceProposal(
     governanceRoot: path.join(targetRoot, GOVERNANCE_DIR),
     proposalId,
     proposalPath,
+    proposalJsonPath,
     researchInputs
   };
 }

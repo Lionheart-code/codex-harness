@@ -15,6 +15,7 @@ import { runParallel } from "./parallel";
 import { runPrompt } from "./prompt";
 import { runReport } from "./report";
 import { runReview } from "./review";
+import { runSchema } from "./schema";
 import { runStatus } from "./status";
 import { runUpgrade } from "./upgrade";
 import { runWorktree } from "./worktree";
@@ -23,7 +24,7 @@ type CommandHandler = (args: string[]) => Promise<number>;
 
 function printHelp(): void {
   lines([
-    "codex-harness Phase 18 CLI",
+    "codex-harness Phase 19 CLI",
     "",
     "Usage:",
     "  node bin/ch --help",
@@ -36,6 +37,10 @@ function printHelp(): void {
     "  node bin/ch review",
     "  node bin/ch review --exec",
     "  node bin/ch report",
+    "  node bin/ch schema --help",
+    "  node bin/ch schema validate",
+    "  node bin/ch schema migrate --dry-run",
+    "  node bin/ch schema migrate",
     "  node bin/ch hooks --help",
     "  node bin/ch hooks install",
     "  node bin/ch memory status",
@@ -72,6 +77,7 @@ function printHelp(): void {
     "  check    Run deterministic checks and write verifier artifacts.",
     "  review   Validate or generate a Phase 14 review artifact.",
     "  report   Generate a deterministic task handoff report.",
+    "  schema   Validate or migrate Phase 19 machine-readable artifacts.",
     "  hooks    Install minimal Codex sidecar hooks and templates.",
     "  memory   Show Phase 9 memory, debt, decision, and agent-output status.",
     "  debt     Add, list, and resolve Phase 9 debt ledger items.",
@@ -109,6 +115,8 @@ function getCommandHandler(command: string): CommandHandler | undefined {
       return runReview;
     case "report":
       return runReport;
+    case "schema":
+      return runSchema;
     case "hooks":
       return runHooks;
     case "memory":

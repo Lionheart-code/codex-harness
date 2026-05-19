@@ -38,6 +38,8 @@ test("phase 2 install creates the installed layer and reinstall is idempotent", 
   const templatesPath = path.join(tempRepo, ".harness", "templates");
   const memoryPath = path.join(tempRepo, ".harness", "memory");
   const managedTemplatesPath = path.join(tempRepo, ".harness", "templates", "managed");
+  const installedSchemasPath = path.join(tempRepo, ".harness", "schemas");
+  const installedInstallSchemaPath = path.join(installedSchemasPath, "install.schema.json");
   const managedAgentsBlockPath = path.join(managedTemplatesPath, "agents-block.md");
   const managedConfigPath = path.join(managedTemplatesPath, "config.toml");
   const decisionsPath = path.join(tempRepo, ".harness", "memory", "decisions");
@@ -61,6 +63,9 @@ test("phase 2 install creates the installed layer and reinstall is idempotent", 
   assert.ok(fs.statSync(templatesPath).isDirectory(), ".harness/templates is not a directory");
   assert.ok(fs.existsSync(managedTemplatesPath), ".harness/templates/managed was not created");
   assert.ok(fs.statSync(managedTemplatesPath).isDirectory(), ".harness/templates/managed is not a directory");
+  assert.ok(fs.existsSync(installedSchemasPath), ".harness/schemas was not created");
+  assert.ok(fs.statSync(installedSchemasPath).isDirectory(), ".harness/schemas is not a directory");
+  assert.ok(fs.existsSync(installedInstallSchemaPath), ".harness/schemas/install.schema.json was not created");
   assert.ok(fs.existsSync(managedAgentsBlockPath), ".harness/templates/managed/agents-block.md was not created");
   assert.ok(fs.existsSync(managedConfigPath), ".harness/templates/managed/config.toml was not created");
   assert.ok(fs.existsSync(memoryPath), ".harness/memory was not created");
@@ -92,10 +97,13 @@ test("phase 2 install creates the installed layer and reinstall is idempotent", 
 
   const installMetadata = readJson(installJsonPath);
   const expectedVersion = readPackageVersion();
+  assert.equal(installMetadata.schema_version, 1);
+  assert.equal(installMetadata.producer_command, "node bin/ch install");
   assert.equal(installMetadata.harness_version, expectedVersion);
   assert.equal(installMetadata.templates_version, expectedVersion);
   assert.equal(typeof installMetadata.installed_at, "string");
   assert.equal(installMetadata.source, "codex-harness");
+  assert.equal(installMetadata.updated_at, installMetadata.installed_at);
   assert.equal(installMetadata.last_upgrade, undefined);
 
   const firstInstalledAt = installMetadata.installed_at;

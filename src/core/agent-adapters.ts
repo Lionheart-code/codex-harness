@@ -10,6 +10,7 @@ import {
   CONFIG_PATH
 } from "./paths";
 import { renderScoutPromptForPaths, type ScoutRole, isScoutRole } from "./prompts";
+import { assertSupportedSchemaVersion } from "./schema-migrations";
 import { listTasks, type TaskState } from "./tasks";
 
 type AdapterTransport = "manual_prompt" | "cli";
@@ -96,6 +97,11 @@ interface CommandExecutionOutcome {
   spawnError?: string;
 }
 
+export interface AdapterProfileSchemaMetadata {
+  schemaVersion?: number;
+  producerCommand?: string;
+}
+
 const ALLOWED_PLACEHOLDERS = new Set(["prompt_path", "output_path", "log_path", "cwd"]);
 
 function toPortablePath(targetPath: string): string {
@@ -173,40 +179,23 @@ function parseInteger(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function isTransport(value: string): value is AdapterTransport {
-  return value === "manual_prompt" || value === "cli";
-}
-
-function isWorkingDirectoryPolicy(value: string): value is WorkingDirectoryPolicy {
-  return value === "repo_root" || value === "task_worktree" || value === "explicit_path";
-}
-
-function validateAllowedRoles(roles: string[]): ScoutRole[] {
-  if (roles.length === 0) {
-    throw new Error("Adapter profile is missing allowed_roles.");
-  }
-
-  const validated: ScoutRole[] = [];
-
-  for (const role of roles) {
-    if (!isScoutRole(role)) {
-      throw new Error(`Unsupported adapter role: ${role}`);
-    }
-
-    validated.push(role);
-  }
-
-  return validated;
-}
-
-function readAdapterProfile(targetRoot: string, agentId: string): AgentAdapterProfile {
+export function listAdapterProfileIds(targetRoot: string): string[] {
   const configPath = path.join(targetRoot, CONFIG_PATH);
 
   if (!fs.existsSync(configPath)) {
-    throw new Error("Installed harness layer not found. Run `node bin/ch install` first.");
+    return [];
   }
 
-  const lines = fs.readFileSync(configPath, "utf8").split(/\r?\n/);
+  return fs
+    .readFileSync(configPath, "utf8")
+    .split(/\r?\n/)
+    .map((line) => /^\[agents\.([^\]]+)\]$/.exec(line.trim()))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match) => match[1])
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function parseAdapterProfileRaw(lines: string[], agentId: string): Record<string, unknown> {
   let inSection = false;
   const sectionName = `agents.${agentId}`;
   const raw: Record<string, unknown> = {};
@@ -256,6 +245,12 @@ function readAdapterProfile(targetRoot: string, agentId: string): AgentAdapterPr
       case "requires_human_confirmation":
         raw[key] = parseBoolean(rawValue);
         break;
+      case "schema_version":
+        raw[key] = parseInteger(rawValue);
+        break;
+      case "producer_command":
+        raw[key] = parseQuotedString(rawValue);
+        break;
       default:
         break;
     }
@@ -263,6 +258,67 @@ function readAdapterProfile(targetRoot: string, agentId: string): AgentAdapterPr
 
   if (Object.keys(raw).length === 0) {
     throw new Error(`Adapter profile not found: ${agentId}. Add [agents.${agentId}] to ${CONFIG_PATH}.`);
+  }
+
+  return raw;
+}
+
+export function readAdapterProfileSchemaMetadata(targetRoot: string, agentId: string): AdapterProfileSchemaMetadata {
+  const configPath = path.join(targetRoot, CONFIG_PATH);
+
+  if (!fs.existsSync(configPath)) {
+    throw new Error("Installed harness layer not found. Run `node bin/ch install` first.");
+  }
+
+  const lines = fs.readFileSync(configPath, "utf8").split(/\r?\n/);
+  const raw = parseAdapterProfileRaw(lines, agentId);
+
+  return {
+    schemaVersion: typeof raw.schema_version === "number" ? raw.schema_version : undefined,
+    producerCommand: typeof raw.producer_command === "string" ? raw.producer_command : undefined
+  };
+}
+
+function isTransport(value: string): value is AdapterTransport {
+  return value === "manual_prompt" || value === "cli";
+}
+
+function isWorkingDirectoryPolicy(value: string): value is WorkingDirectoryPolicy {
+  return value === "repo_root" || value === "task_worktree" || value === "explicit_path";
+}
+
+function validateAllowedRoles(roles: string[]): ScoutRole[] {
+  if (roles.length === 0) {
+    throw new Error("Adapter profile is missing allowed_roles.");
+  }
+
+  const validated: ScoutRole[] = [];
+
+  for (const role of roles) {
+    if (!isScoutRole(role)) {
+      throw new Error(`Unsupported adapter role: ${role}`);
+    }
+
+    validated.push(role);
+  }
+
+  return validated;
+}
+
+export function readAdapterProfile(targetRoot: string, agentId: string): AgentAdapterProfile {
+  const configPath = path.join(targetRoot, CONFIG_PATH);
+
+  if (!fs.existsSync(configPath)) {
+    throw new Error("Installed harness layer not found. Run `node bin/ch install` first.");
+  }
+
+  const lines = fs.readFileSync(configPath, "utf8").split(/\r?\n/);
+  const raw = parseAdapterProfileRaw(lines, agentId);
+
+  assertSupportedSchemaVersion(raw.schema_version, `Adapter profile ${agentId}`);
+
+  if (raw.schema_version !== undefined && typeof raw.producer_command !== "string") {
+    throw new Error(`Adapter profile ${agentId} is missing producer_command for schema_version 1.`);
   }
 
   if (typeof raw.transport !== "string" || !isTransport(raw.transport)) {

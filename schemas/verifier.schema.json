@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-harness verifier record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer_command",
+    "task_id",
+    "worktree_path",
+    "result",
+    "captured_at",
+    "checked_at",
+    "diff_path",
+    "log_path",
+    "git_status_lines",
+    "protected_paths",
+    "protected_path_violations",
+    "commands"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_command": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "worktree_path": { "type": "string", "minLength": 1 },
+    "result": { "enum": ["captured", "pass", "fail"] },
+    "captured_at": { "type": "string", "minLength": 1 },
+    "checked_at": { "type": "string" },
+    "diff_path": { "type": "string", "minLength": 1 },
+    "log_path": { "type": "string", "minLength": 1 },
+    "git_status_lines": { "type": "array", "items": { "type": "string" } },
+    "protected_paths": { "type": "array", "items": { "type": "string" } },
+    "protected_path_violations": { "type": "array", "items": { "type": "string" } },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["command", "exit_code", "duration_ms", "result"],
+        "properties": {
+          "command": { "type": "string", "minLength": 1 },
+          "exit_code": { "type": "number" },
+          "duration_ms": { "type": "number" },
+          "result": { "enum": ["pass", "fail"] }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

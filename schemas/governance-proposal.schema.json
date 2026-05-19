@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-harness governance proposal",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer_command",
+    "proposal_id",
+    "title",
+    "status",
+    "created_at",
+    "updated_at",
+    "markdown_path",
+    "research_inputs"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_command": { "type": "string", "minLength": 1 },
+    "proposal_id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["proposed", "accepted", "rejected", "implemented", "reverted"] },
+    "created_at": { "type": "string", "minLength": 1 },
+    "updated_at": { "type": "string", "minLength": 1 },
+    "markdown_path": { "type": "string", "minLength": 1 },
+    "research_inputs": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

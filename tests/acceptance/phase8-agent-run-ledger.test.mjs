@@ -58,6 +58,8 @@ test("phase 8 agent run ledger records manual agent metadata without executing a
   assert.ok(fs.existsSync(statusPath), `expected status.json to exist: ${statusPath}`);
 
   const status = readJson(statusPath);
+  assert.equal(status.schema_version, 1);
+  assert.equal(status.producer_command, "node bin/ch agent record");
   assert.equal(status.task_id, "task-test-task");
   assert.equal(status.run_id, "run-0001");
   assert.equal(status.role, "scout-tests");
@@ -144,6 +146,8 @@ test("phase 8 agent run ledger appends a second run and records explicit prompt/
   assert.ok(fs.existsSync(secondStatusPath), `expected second status.json to exist: ${secondStatusPath}`);
 
   const secondStatus = readJson(secondStatusPath);
+  assert.equal(secondStatus.schema_version, 1);
+  assert.equal(secondStatus.producer_command, "node bin/ch agent record");
   assert.equal(secondStatus.run_id, "run-0002");
   assert.equal(secondStatus.role, "architect");
   assert.equal(secondStatus.profile, "codex");

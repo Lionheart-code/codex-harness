@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { after, test } from "node:test";
 import {
+  assertProductRepoBoundaryState,
   assertFailure,
   assertSuccess,
   createTempDirectory,
@@ -85,6 +86,8 @@ test("phase 11 capture writes diff.patch and seeds verifier.json from the task w
   assert.match(readText(diffPath), /README\.md/);
 
   const verifier = readJson(verifierPath);
+  assert.equal(verifier.schema_version, 1);
+  assert.equal(verifier.producer_command, "node bin/ch capture");
   assert.equal(verifier.result, "captured");
   assert.equal(verifier.checked_at, "");
   assert.equal(verifier.diff_path, ".harness/tasks/task-test-task/diff.patch");
@@ -110,6 +113,8 @@ test("phase 11 check records passing deterministic commands and writes logs", ()
   const logPath = path.join(taskRoot, "logs", "check.log");
   const verifier = readJson(verifierPath);
 
+  assert.equal(verifier.schema_version, 1);
+  assert.equal(verifier.producer_command, "node bin/ch check");
   assert.equal(verifier.result, "pass");
   assert.equal(typeof verifier.checked_at, "string");
   assert.equal(verifier.commands.length, 1);
@@ -231,12 +236,5 @@ test("phase 11 check rejects empty configured commands before execution", () => 
 
 test("phase 11 acceptance leaves forbidden generated paths absent in the product repo", () => {
   ensureBuiltCli();
-
-  for (const relativePath of [".harness", ".codex", ".agents", "schemas", "migrations"]) {
-    assert.equal(
-      fs.existsSync(path.join(productRoot, relativePath)),
-      false,
-      `forbidden generated path exists in product repo: ${relativePath}`
-    );
-  }
+  assertProductRepoBoundaryState();
 });

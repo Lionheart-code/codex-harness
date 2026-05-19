@@ -6,22 +6,16 @@
 
 Without schema discipline, installed projects will drift and upgrades will become unsafe.
 
-## Core rule
+## Current contract
 
-Every machine-readable harness artifact must have:
+Phase 19 governs the machine-readable artifacts that already existed in earlier phases. Fresh writes for those governed artifacts now emit additive schema metadata while preserving the existing file names and paths.
 
-- schema version;
-- producer command;
-- creation/update timestamp;
-- migration policy;
-- validation command or validator;
-- backward compatibility rule.
+The current schema version is `1`.
 
-## Artifacts requiring schemas
+Governed artifacts are:
 
 ```text
 .harness/install.json
-.harness/config.toml
 .harness/tasks/<task-id>/state.json
 .harness/tasks/<task-id>/verifier.json
 .harness/tasks/<task-id>/review.json
@@ -29,8 +23,16 @@ Every machine-readable harness artifact must have:
 .harness/memory/debt/debt.jsonl
 .harness/memory/decisions/<decision-id>.json
 .harness/governance/proposals/<hep-id>.json
-agent adapter profiles
+[agents.*] adapter profiles inside .harness/config.toml
 ```
+
+Fresh governed writes include:
+
+- `schema_version`;
+- `producer_command`;
+- existing artifact timestamps where the artifact already has a natural created/updated field.
+
+Legacy unversioned artifacts remain readable and migratable, but they are never written anew.
 
 ## Schema location
 
@@ -57,24 +59,66 @@ Installed project:
 
 Installed schemas are a copy of the product schemas used when the layer was installed.
 
-## Migration policy
+## Product and installed locations
 
-Migrations must be explicit:
+Product repository:
 
 ```text
+schemas/
+  install.schema.json
+  task-state.schema.json
+  verifier.schema.json
+  review.schema.json
+  agent-run.schema.json
+  debt.schema.json
+  decision.schema.json
+  adapter-profile.schema.json
+  governance-proposal.schema.json
+
 migrations/
-  0001-initial.ts
-  0002-add-agent-run-ledger.ts
+  0001-legacy-unversioned-to-v1.json
 ```
+
+Installed target repository:
+
+```text
+.harness/schemas/
+```
+
+Installed target repositories must not receive target-root `schemas/` or `migrations/` directories.
+
+## Commands
+
+```bash
+node bin/ch schema --help
+node bin/ch schema validate
+node bin/ch schema migrate --dry-run
+node bin/ch schema migrate
+```
+
+`schema validate` scans only governed artifacts that actually exist in the installed target repository, plus configured `[agents.*]` adapter profiles inside `.harness/config.toml`.
+
+## Migration policy
+
+Migrations are explicit and versioned under `migrations/`.
 
 Rules:
 
 - never mutate artifacts silently;
-- run `ch upgrade --dry-run` before migration;
+- use `node bin/ch upgrade --dry-run` for install-owned layer refreshes;
+- use `node bin/ch schema migrate --dry-run` before runtime artifact rewrites;
 - backup before migration;
 - record migration result;
 - support rollback where practical;
 - fail closed on unknown schema versions.
+
+`upgrade` remains limited to install-owned static content. Runtime artifact rewrites happen only under explicit `schema migrate`.
+
+`schema migrate` must:
+
+- create `.codex-harness.bak*` backups before rewriting governed files;
+- skip absent optional runtime artifacts instead of creating them;
+- keep governance proposal markdown as the primary human artifact while creating or refreshing the adjacent JSON sidecar when needed.
 
 ## Compatibility policy
 
@@ -87,15 +131,11 @@ It must either:
 - fail with clear upgrade instructions.
 
 
-## Acceptance principle
+## Forward rule
 
-Until `tasks/PHASE_19_ARTIFACT_SCHEMAS_AND_MIGRATIONS.md` is the current task, schema and migration implementation is deferred by design.
+Phase 19 now defines the baseline schema and migration discipline for existing core artifacts.
 
-Earlier phases may create the machine-readable artifacts listed in their task files, but they must not create `schemas/`, `migrations/`, or `.harness/schemas/` unless their task file is explicitly promoted and updated for that phase.
-
-When Phase 19 is current, it must create or validate schemas for existing core artifacts and define explicit migration behavior.
-
-After Phase 19, any phase that creates a new machine-readable artifact must either:
+Any later phase that creates a new machine-readable artifact must either:
 
 - create or update its schema, or
 - explicitly state why schema work is deferred.

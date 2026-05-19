@@ -3,10 +3,13 @@ import * as path from "node:path";
 import { detectInstalledLayer } from "./install";
 import { detectGitRepository } from "./git";
 import { BRANCH_RECORD_FILE, WORKTREE_RECORD_FILE, createTaskId, getTaskTargetPaths, TASKS_DIR } from "./paths";
+import { CURRENT_SCHEMA_VERSION, buildSchemaMetadata, validateOptionalSchemaMetadata } from "./schema-migrations";
 
 export type TaskType = "bugfix" | "feature" | "refactor" | "architecture" | "docs" | "deployment";
 
 export interface TaskState {
+  schema_version?: typeof CURRENT_SCHEMA_VERSION;
+  producer_command?: string;
   task_id: string;
   title: string;
   status: "created";
@@ -87,6 +90,7 @@ function buildState(
   taskType?: TaskType
 ): TaskState {
   const state: TaskState = {
+    ...buildSchemaMetadata("node bin/ch init"),
     task_id: taskId,
     title,
     status: "created",
@@ -104,8 +108,10 @@ function buildState(
   return state;
 }
 
-function parseTaskState(statePath: string): TaskState {
-  const parsed = JSON.parse(fs.readFileSync(statePath, "utf8")) as Partial<TaskState>;
+export function parseTaskState(statePath: string): TaskState {
+  const parsed = JSON.parse(fs.readFileSync(statePath, "utf8")) as Partial<TaskState> & Record<string, unknown>;
+
+  validateOptionalSchemaMetadata(parsed, `Task state ${statePath}`);
 
   if (
     typeof parsed.task_id !== "string" ||

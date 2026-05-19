@@ -64,6 +64,8 @@ test("phase 3 init creates task-state files and status lists the task", () => {
     "acceptance",
     "created_at",
     "phase",
+    "producer_command",
+    "schema_version",
     "spec",
     "status",
     "task_id",
@@ -75,6 +77,8 @@ test("phase 3 init creates task-state files and status lists the task", () => {
   assert.equal(state.title, "test task");
   assert.equal(state.status, "created");
   assert.equal(state.phase, "3");
+  assert.equal(state.schema_version, 1);
+  assert.equal(state.producer_command, "node bin/ch init");
   assert.equal(state.spec, "spec.md");
   assert.equal(state.acceptance, "acceptance.md");
   assert.equal(state.task_type, "bugfix");

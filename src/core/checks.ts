@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getGitDiffPatch, getGitStatusLines, getGitStatusPaths } from "./git";
 import { CONFIG_PATH, TASK_CHECK_LOG_FILE, TASK_DIFF_FILE, TASK_LOGS_DIR, TASK_VERIFIER_FILE } from "./paths";
+import { CURRENT_SCHEMA_VERSION, buildSchemaMetadata, validateOptionalSchemaMetadata } from "./schema-migrations";
 import { listTasks } from "./tasks";
 
 type VerifierResult = "captured" | "pass" | "fail";
@@ -16,6 +17,8 @@ export interface CheckCommandRecord {
 }
 
 export interface VerifierRecord {
+  schema_version?: typeof CURRENT_SCHEMA_VERSION;
+  producer_command?: string;
   task_id: string;
   worktree_path: string;
   result: VerifierResult;
@@ -213,6 +216,49 @@ function writeVerifierFile(verifierPath: string, record: VerifierRecord): void {
   fs.writeFileSync(verifierPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 }
 
+export function validateVerifierRecord(value: unknown): VerifierRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Verifier record must be a JSON object.");
+  }
+
+  const record = value as Record<string, unknown>;
+  validateOptionalSchemaMetadata(record, "verifier.json");
+
+  if (
+    typeof record.task_id !== "string" ||
+    typeof record.worktree_path !== "string" ||
+    (record.result !== "captured" && record.result !== "pass" && record.result !== "fail") ||
+    typeof record.captured_at !== "string" ||
+    typeof record.checked_at !== "string" ||
+    typeof record.diff_path !== "string" ||
+    typeof record.log_path !== "string" ||
+    !Array.isArray(record.git_status_lines) ||
+    !record.git_status_lines.every((entry) => typeof entry === "string") ||
+    !Array.isArray(record.protected_paths) ||
+    !record.protected_paths.every((entry) => typeof entry === "string") ||
+    !Array.isArray(record.protected_path_violations) ||
+    !record.protected_path_violations.every((entry) => typeof entry === "string") ||
+    !Array.isArray(record.commands)
+  ) {
+    throw new Error("Verifier record is missing required fields.");
+  }
+
+  for (const command of record.commands) {
+    if (
+      !command ||
+      typeof command !== "object" ||
+      typeof command.command !== "string" ||
+      typeof command.exit_code !== "number" ||
+      typeof command.duration_ms !== "number" ||
+      (command.result !== "pass" && command.result !== "fail")
+    ) {
+      throw new Error("Verifier record has invalid command entries.");
+    }
+  }
+
+  return record as unknown as VerifierRecord;
+}
+
 function captureSnapshot(cwd: string): {
   targetRoot: string;
   taskId: string;
@@ -251,6 +297,7 @@ function captureSnapshot(cwd: string): {
 
 function buildCapturedVerifier(snapshot: ReturnType<typeof captureSnapshot>): VerifierRecord {
   return {
+    ...buildSchemaMetadata("node bin/ch capture"),
     task_id: snapshot.taskId,
     worktree_path: snapshot.worktreePath,
     result: "captured",
@@ -350,6 +397,7 @@ export function runDeterministicChecks(cwd: string): CheckResult {
   const result: VerifierResult =
     hasCommandFailure || snapshot.protectedPathViolations.length > 0 ? "fail" : "pass";
   const verifier: VerifierRecord = {
+    ...buildSchemaMetadata("node bin/ch check"),
     task_id: snapshot.taskId,
     worktree_path: snapshot.worktreePath,
     result,

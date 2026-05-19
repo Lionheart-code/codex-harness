@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-harness agent run record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer_command",
+    "run_id",
+    "task_id",
+    "role",
+    "profile",
+    "status",
+    "prompt_path",
+    "output_path",
+    "created_at",
+    "updated_at",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_command": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "role": { "type": "string", "minLength": 1 },
+    "profile": { "type": "string" },
+    "status": { "enum": ["raw", "accepted", "stale", "rejected"] },
+    "prompt_path": { "type": "string" },
+    "output_path": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "minLength": 1 },
+    "updated_at": { "type": "string", "minLength": 1 },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": true
+}

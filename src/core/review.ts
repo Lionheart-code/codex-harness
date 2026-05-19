@@ -9,12 +9,15 @@ import {
   TASK_SCOUTS_DIR,
   TASK_VERIFIER_FILE
 } from "./paths";
+import { CURRENT_SCHEMA_VERSION, buildSchemaMetadata, validateOptionalSchemaMetadata } from "./schema-migrations";
 import { getSingleTask, getTaskDirectory } from "./tasks";
 
 export type ReviewResult = "PASS" | "FIX_REQUIRED";
 export type ReviewMode = "manual" | "exec";
 
 export interface ReviewRecord {
+  schema_version?: typeof CURRENT_SCHEMA_VERSION;
+  producer_command?: string;
   task_id: string;
   result: ReviewResult;
   blockers: string[];
@@ -120,6 +123,7 @@ export function validateReviewRecord(value: unknown, expectedTaskId: string): Re
   }
 
   const record = value as Record<string, unknown>;
+  validateOptionalSchemaMetadata(record, "review.json");
 
   if (record.task_id !== expectedTaskId) {
     throw new Error(`Review field \`task_id\` must match the current task: ${expectedTaskId}.`);
@@ -152,6 +156,8 @@ export function validateReviewRecord(value: unknown, expectedTaskId: string): Re
   }
 
   return {
+    ...(record.schema_version === CURRENT_SCHEMA_VERSION ? { schema_version: CURRENT_SCHEMA_VERSION } : {}),
+    ...(typeof record.producer_command === "string" ? { producer_command: record.producer_command } : {}),
     task_id: expectedTaskId,
     result: record.result,
     blockers,
@@ -256,6 +262,7 @@ function buildExecReviewRecord(rawOutput: string, taskId: string): ReviewRecord 
   return validateReviewRecord(
     {
       ...parsed,
+      ...buildSchemaMetadata("node bin/ch review --exec"),
       mode: "exec",
       created_at: new Date().toISOString()
     },

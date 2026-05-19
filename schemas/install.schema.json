@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-harness install metadata",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer_command",
+    "harness_version",
+    "templates_version",
+    "installed_at",
+    "source",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_command": { "type": "string", "minLength": 1 },
+    "harness_version": { "type": "string", "minLength": 1 },
+    "templates_version": { "type": "string", "minLength": 1 },
+    "installed_at": { "type": "string", "minLength": 1 },
+    "source": { "type": "string", "minLength": 1 },
+    "updated_at": { "type": "string", "minLength": 1 },
+    "last_upgrade": {
+      "type": "object",
+      "required": ["from_version", "to_version", "applied_at", "changed_paths", "backup_paths"],
+      "properties": {
+        "from_version": { "type": "string", "minLength": 1 },
+        "to_version": { "type": "string", "minLength": 1 },
+        "applied_at": { "type": "string", "minLength": 1 },
+        "changed_paths": { "type": "array", "items": { "type": "string" } },
+        "backup_paths": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

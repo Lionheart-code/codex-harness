@@ -13,6 +13,7 @@ import {
   REPORT_SECTION_HEADINGS,
   TASKS_DIR
 } from "./paths";
+import { CURRENT_SCHEMA_VERSION, buildSchemaMetadata, validateOptionalSchemaMetadata } from "./schema-migrations";
 import { listTasks, requireInstalledTargetRoot, type TaskState } from "./tasks";
 
 export type DebtType = "technical" | "architectural" | "test" | "documentation" | "security" | "process";
@@ -21,6 +22,10 @@ export type DebtStatus = "open" | "in_progress" | "resolved" | "accepted" | "obs
 export type DecisionStatus = "active" | "superseded" | "rejected";
 
 export interface DebtItem {
+  schema_version?: typeof CURRENT_SCHEMA_VERSION;
+  producer_command?: string;
+  created_at?: string;
+  updated_at?: string;
   debt_id: string;
   title: string;
   type: DebtType;
@@ -35,6 +40,9 @@ export interface DebtItem {
 }
 
 export interface DecisionRecord {
+  schema_version?: typeof CURRENT_SCHEMA_VERSION;
+  producer_command?: string;
+  updated_at?: string;
   decision_id: string;
   title: string;
   date: string;
@@ -282,8 +290,9 @@ function getSingleTaskForMemoryMutation(cwd: string): { targetRoot: string; task
   };
 }
 
-function parseDebtItem(value: unknown): DebtItem {
-  const parsed = value as Partial<DebtItem>;
+export function parseDebtItem(value: unknown): DebtItem {
+  const parsed = value as Partial<DebtItem> & Record<string, unknown>;
+  validateOptionalSchemaMetadata(parsed, "debt.jsonl");
 
   if (
     typeof parsed.debt_id !== "string" ||
@@ -304,11 +313,20 @@ function parseDebtItem(value: unknown): DebtItem {
     throw new Error("missing required debt fields");
   }
 
+  if (parsed.created_at !== undefined && typeof parsed.created_at !== "string") {
+    throw new Error("invalid created_at");
+  }
+
+  if (parsed.updated_at !== undefined && typeof parsed.updated_at !== "string") {
+    throw new Error("invalid updated_at");
+  }
+
   return parsed as DebtItem;
 }
 
-function parseDecisionRecord(value: unknown): DecisionRecord {
-  const parsed = value as Partial<DecisionRecord>;
+export function parseDecisionRecord(value: unknown): DecisionRecord {
+  const parsed = value as Partial<DecisionRecord> & Record<string, unknown>;
+  validateOptionalSchemaMetadata(parsed, "decision record");
 
   if (
     typeof parsed.decision_id !== "string" ||
@@ -325,6 +343,10 @@ function parseDecisionRecord(value: unknown): DecisionRecord {
     !isDecisionStatus(parsed.status)
   ) {
     throw new Error("missing required decision fields");
+  }
+
+  if (parsed.updated_at !== undefined && typeof parsed.updated_at !== "string") {
+    throw new Error("invalid updated_at");
   }
 
   return parsed as DecisionRecord;
@@ -488,7 +510,11 @@ export function addDebt(cwd: string, input: DebtAddInput): DebtAddResult {
 
   const debtLoad = loadDebtItemsByTargetRoot(targetRoot, "strict");
   const decisionLoad = loadDecisionRecordsByTargetRoot(targetRoot, "strict");
+  const timestamp = new Date().toISOString();
   const debt: DebtItem = {
+    ...buildSchemaMetadata("node bin/ch debt add"),
+    created_at: timestamp,
+    updated_at: timestamp,
     debt_id: formatSequenceId("DEBT", getNextNumber(debtLoad.items.map((item) => item.debt_id), "DEBT")),
     title: input.title,
     type: input.type,
@@ -529,7 +555,15 @@ export function resolveDebt(cwd: string, debtId: string): DebtResolveResult {
   }
 
   const alreadyResolved = currentDebt.status === "resolved";
-  const nextDebt = alreadyResolved ? currentDebt : { ...currentDebt, status: "resolved" as const };
+  const nextDebt = alreadyResolved
+    ? currentDebt
+    : {
+        ...currentDebt,
+        ...buildSchemaMetadata("node bin/ch debt resolve"),
+        created_at: currentDebt.created_at ?? new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: "resolved" as const
+      };
   const items = debtLoad.items.map((item) => (item.debt_id === debtId ? nextDebt : item));
 
   if (!alreadyResolved) {
@@ -565,13 +599,16 @@ export function addDecision(cwd: string, input: DecisionAddInput): DecisionAddRe
 
   const debtLoad = loadDebtItemsByTargetRoot(targetRoot, "strict");
   const decisionLoad = loadDecisionRecordsByTargetRoot(targetRoot, "strict");
+  const timestamp = new Date().toISOString();
   const decision: DecisionRecord = {
+    ...buildSchemaMetadata("node bin/ch decisions add"),
+    updated_at: timestamp,
     decision_id: formatSequenceId(
       "DECISION",
       getNextNumber(decisionLoad.decisions.map((item) => item.decision_id), "DECISION")
     ),
     title: input.title,
-    date: new Date().toISOString(),
+    date: timestamp,
     context: input.context ?? "",
     decision: input.title,
     alternatives_considered: input.alternatives,

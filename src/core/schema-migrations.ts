@@ -1,0 +1,61 @@
+export const CURRENT_SCHEMA_VERSION = 1 as const;
+export type SchemaVersion = typeof CURRENT_SCHEMA_VERSION;
+
+export const LEGACY_TO_V1_MIGRATION_ID = "0001-legacy-unversioned-to-v1";
+
+export const PRODUCT_SCHEMA_FILE_NAMES = [
+  "install.schema.json",
+  "task-state.schema.json",
+  "verifier.schema.json",
+  "review.schema.json",
+  "agent-run.schema.json",
+  "debt.schema.json",
+  "decision.schema.json",
+  "adapter-profile.schema.json",
+  "governance-proposal.schema.json"
+] as const;
+
+export type ProductSchemaFileName = (typeof PRODUCT_SCHEMA_FILE_NAMES)[number];
+
+export interface SchemaMetadata {
+  schema_version: SchemaVersion;
+  producer_command: string;
+}
+
+export function buildSchemaMetadata(producerCommand: string): SchemaMetadata {
+  return {
+    schema_version: CURRENT_SCHEMA_VERSION,
+    producer_command: producerCommand
+  };
+}
+
+export function assertSupportedSchemaVersion(value: unknown, artifactLabel: string): void {
+  if (value === undefined) {
+    return;
+  }
+
+  if (value !== CURRENT_SCHEMA_VERSION) {
+    throw new Error(
+      `${artifactLabel} uses unsupported schema_version: ${String(value)}. Run \`node bin/ch schema migrate --dry-run\` and \`node bin/ch schema migrate\`.`
+    );
+  }
+}
+
+export function validateOptionalSchemaMetadata(
+  record: Record<string, unknown>,
+  artifactLabel: string
+): void {
+  assertSupportedSchemaVersion(record.schema_version, artifactLabel);
+
+  if (record.producer_command !== undefined && typeof record.producer_command !== "string") {
+    throw new Error(`${artifactLabel} has invalid producer_command.`);
+  }
+
+  if (record.schema_version === CURRENT_SCHEMA_VERSION && typeof record.producer_command !== "string") {
+    throw new Error(`${artifactLabel} is missing producer_command for schema_version 1.`);
+  }
+}
+
+export function hasCurrentSchemaVersion(record: Record<string, unknown>): boolean {
+  return record.schema_version === CURRENT_SCHEMA_VERSION;
+}

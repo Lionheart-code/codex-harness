@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-harness decision record",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer_command",
+    "updated_at",
+    "decision_id",
+    "title",
+    "date",
+    "context",
+    "decision",
+    "alternatives_considered",
+    "reason",
+    "affected_files_or_modules",
+    "related_task_ids",
+    "superseded_by",
+    "status"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_command": { "type": "string", "minLength": 1 },
+    "updated_at": { "type": "string", "minLength": 1 },
+    "decision_id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "date": { "type": "string", "minLength": 1 },
+    "context": { "type": "string" },
+    "decision": { "type": "string", "minLength": 1 },
+    "alternatives_considered": { "type": "array", "items": { "type": "string" } },
+    "reason": { "type": "string", "minLength": 1 },
+    "affected_files_or_modules": { "type": "array", "items": { "type": "string" } },
+    "related_task_ids": { "type": "array", "items": { "type": "string" } },
+    "superseded_by": { "type": "string" },
+    "status": { "enum": ["active", "superseded", "rejected"] }
+  },
+  "additionalProperties": true
+}

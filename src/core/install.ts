@@ -1,6 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { upsertRegistryProject } from "./registry";
+import {
+  CURRENT_SCHEMA_VERSION,
+  PRODUCT_SCHEMA_FILE_NAMES,
+  buildSchemaMetadata,
+  validateOptionalSchemaMetadata
+} from "./schema-migrations";
 import { getGovernanceSeedFilePlans } from "./governance-scaffold";
 import { getMemorySeedFilePlans } from "./memory-scaffold";
 import {
@@ -15,6 +21,7 @@ import {
   GOVERNANCE_REVIEWS_DIR,
   HARNESS_DIR,
   INSTALL_JSON_PATH,
+  INSTALLED_SCHEMAS_DIR,
   MANAGED_AGENTS_BLOCK_PATH,
   MANAGED_CONFIG_PATH,
   MANAGED_TEMPLATES_DIR,
@@ -41,6 +48,9 @@ export interface InstallMetadata {
   templates_version: string;
   installed_at: string;
   source: string;
+  schema_version?: typeof CURRENT_SCHEMA_VERSION;
+  producer_command?: string;
+  updated_at?: string;
   last_upgrade?: LastUpgradeMetadata;
 }
 
@@ -62,6 +72,11 @@ export interface InstallResult {
 export interface ManagedBaselineContents {
   agentsBlock: string;
   configToml: string;
+}
+
+export interface SchemaSnapshotFilePlan {
+  relativePath: string;
+  content: string;
 }
 
 interface FilePlan {
@@ -163,7 +178,7 @@ export function readInstallMetadata(installJsonPath: string): InstallMetadata | 
   }
 
   const raw = fs.readFileSync(installJsonPath, "utf8");
-  const parsed = JSON.parse(raw) as Partial<InstallMetadata>;
+  const parsed = JSON.parse(raw) as Partial<InstallMetadata> & Record<string, unknown>;
 
   if (
     typeof parsed.harness_version !== "string" ||
@@ -178,11 +193,20 @@ export function readInstallMetadata(installJsonPath: string): InstallMetadata | 
     throw new Error("Existing .harness/install.json has invalid last_upgrade metadata.");
   }
 
+  validateOptionalSchemaMetadata(parsed, "Existing .harness/install.json");
+
+  if (parsed.updated_at !== undefined && typeof parsed.updated_at !== "string") {
+    throw new Error("Existing .harness/install.json has invalid updated_at.");
+  }
+
   return {
     harness_version: parsed.harness_version,
     templates_version: parsed.templates_version,
     installed_at: parsed.installed_at,
     source: parsed.source,
+    ...(parsed.schema_version === CURRENT_SCHEMA_VERSION ? { schema_version: CURRENT_SCHEMA_VERSION } : {}),
+    ...(typeof parsed.producer_command === "string" ? { producer_command: parsed.producer_command } : {}),
+    ...(typeof parsed.updated_at === "string" ? { updated_at: parsed.updated_at } : {}),
     ...(parsed.last_upgrade ? { last_upgrade: parsed.last_upgrade } : {})
   };
 }
@@ -211,6 +235,27 @@ function buildConfigToml(version: string): string {
 
 function buildInstallJson(metadata: InstallMetadata): string {
   return `${JSON.stringify(metadata, null, 2)}\n`;
+}
+
+function getProductSchemaDirectory(): string {
+  return path.join(getProductRoot(), "schemas");
+}
+
+export function getSchemaSnapshotFilePlans(targetRoot: string): SchemaSnapshotFilePlan[] {
+  const schemaDirectory = getProductSchemaDirectory();
+
+  return PRODUCT_SCHEMA_FILE_NAMES.map((fileName) => {
+    const sourcePath = path.join(schemaDirectory, fileName);
+
+    if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) {
+      throw new Error(`Product schema file is missing: ${sourcePath}`);
+    }
+
+    return {
+      relativePath: path.join(INSTALLED_SCHEMAS_DIR, fileName),
+      content: fs.readFileSync(sourcePath, "utf8")
+    };
+  });
 }
 
 export function getManagedBaselineContents(version: string = getPackageVersion()): ManagedBaselineContents {
@@ -466,12 +511,20 @@ export function detectInstalledLayer(targetRoot: string): boolean {
   return fs.existsSync(configPath) && fs.existsSync(installJsonPath);
 }
 
-function buildInstallMetadata(version: string, existingMetadata?: InstallMetadata): InstallMetadata {
+export function buildInstallMetadata(
+  version: string,
+  producerCommand: string,
+  existingMetadata?: InstallMetadata
+): InstallMetadata {
+  const installedAt = existingMetadata?.installed_at ?? new Date().toISOString();
   return {
     harness_version: version,
     templates_version: version,
-    installed_at: existingMetadata?.installed_at ?? new Date().toISOString(),
+    installed_at: installedAt,
     source: existingMetadata?.source ?? "codex-harness",
+    schema_version: CURRENT_SCHEMA_VERSION,
+    producer_command: existingMetadata?.producer_command ?? producerCommand,
+    updated_at: existingMetadata?.updated_at ?? installedAt,
     ...(existingMetadata?.last_upgrade ? { last_upgrade: existingMetadata.last_upgrade } : {})
   };
 }
@@ -490,8 +543,9 @@ export function installHarness(cwd: string, dryRun: boolean): InstallResult {
   const targetRoot = gitStatus.rootPath;
   const version = getPackageVersion();
   const existingMetadata = readInstallMetadataFromTarget(targetRoot);
-  const metadata = buildInstallMetadata(version, existingMetadata);
+  const metadata = buildInstallMetadata(version, "node bin/ch install", existingMetadata);
   const managedContent = getManagedBaselineContents(version);
+  const schemaSnapshotFiles = getSchemaSnapshotFilePlans(targetRoot);
 
   const conflicts: string[] = [];
   const warnings: string[] = [];
@@ -500,6 +554,7 @@ export function installHarness(cwd: string, dryRun: boolean): InstallResult {
     ensureDirectoryPlan(targetRoot, TASKS_DIR, conflicts),
     ensureDirectoryPlan(targetRoot, TEMPLATES_DIR, conflicts),
     ensureDirectoryPlan(targetRoot, MANAGED_TEMPLATES_DIR, conflicts),
+    ensureDirectoryPlan(targetRoot, INSTALLED_SCHEMAS_DIR, conflicts),
     ensureDirectoryPlan(targetRoot, MEMORY_DIR, conflicts),
     ensureDirectoryPlan(targetRoot, MEMORY_DECISIONS_DIR, conflicts),
     ensureDirectoryPlan(targetRoot, MEMORY_DEBT_DIR, conflicts),
@@ -522,6 +577,9 @@ export function installHarness(cwd: string, dryRun: boolean): InstallResult {
     MANAGED_CONFIG_PATH,
     managedContent.configToml,
     conflicts
+  );
+  const schemaFiles = schemaSnapshotFiles.map((schemaFile) =>
+    planManagedFile(targetRoot, schemaFile.relativePath, schemaFile.content, conflicts)
   );
   const memorySeedFiles = getMemorySeedFilePlans(targetRoot).map((seedFile) =>
     planSeedFile(targetRoot, seedFile.relativePath, seedFile.content, conflicts)
@@ -555,7 +613,7 @@ export function installHarness(cwd: string, dryRun: boolean): InstallResult {
       applyDirectoryPlan(directory);
     }
 
-    for (const filePlan of [configFile, installFile, managedAgentsBaseline, managedConfigBaseline]) {
+    for (const filePlan of [configFile, installFile, managedAgentsBaseline, managedConfigBaseline, ...schemaFiles]) {
       applyFilePlan(filePlan);
     }
 
@@ -577,7 +635,7 @@ export function installHarness(cwd: string, dryRun: boolean): InstallResult {
     }
   }
 
-  const managedFiles = [configFile, installFile, managedAgentsBaseline, managedConfigBaseline];
+  const managedFiles = [configFile, installFile, managedAgentsBaseline, managedConfigBaseline, ...schemaFiles];
   const created = [
     ...directories.filter((plan) => plan.action === "create").map((plan) => plan.relativePath),
     ...[...managedFiles, ...memorySeedFiles, ...governanceSeedFiles, agentsFile]

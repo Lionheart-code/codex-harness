@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-harness adapter profile",
+  "type": "object",
+  "required": [
+    "transport",
+    "command",
+    "args",
+    "working_directory_policy",
+    "permission_mode",
+    "allowed_roles",
+    "output_contract",
+    "timeout_seconds",
+    "requires_human_confirmation"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_command": { "type": "string", "minLength": 1 },
+    "transport": { "enum": ["manual_prompt", "cli"] },
+    "command": { "type": "string", "minLength": 1 },
+    "args": { "type": "array", "items": { "type": "string" } },
+    "working_directory_policy": { "enum": ["repo_root", "task_worktree", "explicit_path"] },
+    "explicit_path": { "type": "string" },
+    "permission_mode": { "const": "read_only" },
+    "allowed_roles": { "type": "array", "items": { "type": "string" } },
+    "output_contract": { "const": "markdown" },
+    "timeout_seconds": { "type": "number" },
+    "requires_human_confirmation": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}
