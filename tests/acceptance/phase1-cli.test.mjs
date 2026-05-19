@@ -39,6 +39,10 @@ test("phase 1 help output includes the supported commands", () => {
   assert.match(result.stdout, /node bin\/ch memory status/);
   assert.match(result.stdout, /node bin\/ch debt list/);
   assert.match(result.stdout, /node bin\/ch decisions list/);
+  assert.match(result.stdout, /node bin\/ch doctor --help/);
+  assert.match(result.stdout, /node bin\/ch doctor --all/);
+  assert.match(result.stdout, /node bin\/ch upgrade --help/);
+  assert.match(result.stdout, /node bin\/ch upgrade --dry-run/);
 });
 
 test("phase 1 doctor reports git repository and installed-layer status text", () => {

@@ -4,6 +4,9 @@ export const HARNESS_DIR = ".harness";
 export const CODEX_DIR = ".codex";
 export const TASKS_DIR = path.join(HARNESS_DIR, "tasks");
 export const TEMPLATES_DIR = path.join(HARNESS_DIR, "templates");
+export const MANAGED_TEMPLATES_DIR = path.join(TEMPLATES_DIR, "managed");
+export const MANAGED_AGENTS_BLOCK_PATH = path.join(MANAGED_TEMPLATES_DIR, "agents-block.md");
+export const MANAGED_CONFIG_PATH = path.join(MANAGED_TEMPLATES_DIR, "config.toml");
 export const HOOK_TEMPLATES_DIR = path.join(TEMPLATES_DIR, "hooks");
 export const MEMORY_DIR = path.join(HARNESS_DIR, "memory");
 export const MEMORY_DECISIONS_DIR = path.join(MEMORY_DIR, "decisions");
@@ -93,6 +96,9 @@ export function getInstallTargetPaths(): string[] {
     CONFIG_PATH,
     TASKS_DIR,
     TEMPLATES_DIR,
+    MANAGED_TEMPLATES_DIR,
+    MANAGED_AGENTS_BLOCK_PATH,
+    MANAGED_CONFIG_PATH,
     MEMORY_DIR,
     MEMORY_DECISIONS_DIR,
     MEMORY_DEBT_DIR,

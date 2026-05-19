@@ -47,6 +47,12 @@ export async function runInstall(args: string[]): Promise<number> {
     output.push(...(result.unchanged.length > 0 ? result.unchanged : ["- none"]).map((item) => item.startsWith("- ") ? item : `- ${item}`));
     output.push("backups:");
     output.push(...(result.backups.length > 0 ? result.backups : ["- none"]).map((item) => item.startsWith("- ") ? item : `- ${item}`));
+    output.push(`registry action: ${result.registryAction}`);
+
+    if (result.warnings.length > 0) {
+      output.push("warnings:");
+      output.push(...result.warnings.map((warning) => `- ${warning}`));
+    }
 
     lines(output);
     return 0;

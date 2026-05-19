@@ -10,6 +10,7 @@ const helpersDir = path.dirname(currentFilePath);
 export const productRoot = path.resolve(helpersDir, "..", "..");
 export const cliEntrypoint = path.join(productRoot, "bin", "ch");
 export const packageJsonPath = path.join(productRoot, "package.json");
+const defaultTestHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-harness-test-home-"));
 
 export function ensureBuiltCli() {
   const distEntrypoint = path.join(productRoot, "dist", "cli", "index.js");
@@ -24,7 +25,13 @@ export function runCommand(command, args, options = {}) {
     cwd: options.cwd ?? productRoot,
     encoding: "utf8",
     shell: false,
-    input: options.input
+    input: options.input,
+    env: {
+      ...process.env,
+      HOME: defaultTestHome,
+      USERPROFILE: defaultTestHome,
+      ...(options.env ?? {})
+    }
   });
 
   return {

@@ -1,9 +1,32 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
-import { detectInstalledLayer } from "../core/install";
+import { detectInstalledLayer, readInstallMetadataFromTarget } from "../core/install";
 import { detectGitRepository } from "../core/git";
-import { lines } from "../core/logger";
+import { error, lines } from "../core/logger";
+import { getProjectRegistryPath, loadProjectRegistry } from "../core/registry";
 
-export async function runDoctor(_args: string[]): Promise<number> {
+function normalizePathForComparison(targetPath: string): string {
+  let resolved: string;
+
+  try {
+    resolved = fs.realpathSync.native(targetPath);
+  } catch {
+    resolved = path.resolve(targetPath);
+  }
+
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function printDoctorHelp(): void {
+  lines([
+    "Usage:",
+    "  node bin/ch doctor",
+    "  node bin/ch doctor --help",
+    "  node bin/ch doctor --all"
+  ]);
+}
+
+function runLocalDoctor(): number {
   const result = detectGitRepository(process.cwd());
   const output = ["codex-harness doctor", `cwd: ${process.cwd()}`];
 
@@ -33,4 +56,121 @@ export async function runDoctor(_args: string[]): Promise<number> {
 
   lines(output);
   return 0;
+}
+
+function runDoctorAll(): number {
+  const registryPath = getProjectRegistryPath();
+  const registry = loadProjectRegistry();
+  const output = ["codex-harness doctor --all", `registry: ${registryPath}`];
+
+  if (!registry || registry.projects.length === 0) {
+    output.push("projects: 0");
+    output.push("installed: 0");
+    output.push("warnings: 0");
+    output.push("status: no registered projects");
+    lines(output);
+    return 0;
+  }
+
+  const warnings: string[] = [];
+  const projectLines: string[] = [];
+  const seen = new Set<string>();
+  let installedCount = 0;
+
+  for (const entry of registry.projects) {
+    const normalizedRoot = normalizePathForComparison(entry.root_path);
+
+    if (seen.has(normalizedRoot)) {
+      warnings.push(`Duplicate registry entry: ${entry.root_path}`);
+      continue;
+    }
+
+    seen.add(normalizedRoot);
+
+    if (!fs.existsSync(entry.root_path)) {
+      warnings.push(`Registered path is missing: ${entry.root_path}`);
+      projectLines.push(`- ${entry.root_path} | status=missing`);
+      continue;
+    }
+
+    if (!fs.statSync(entry.root_path).isDirectory()) {
+      warnings.push(`Registered path is not a directory: ${entry.root_path}`);
+      projectLines.push(`- ${entry.root_path} | status=not-directory`);
+      continue;
+    }
+
+    const gitStatus = detectGitRepository(entry.root_path);
+
+    if (!gitStatus.available) {
+      warnings.push(`git is unavailable for registry entry: ${entry.root_path}`);
+      projectLines.push(`- ${entry.root_path} | status=git-unavailable`);
+      continue;
+    }
+
+    if (!gitStatus.insideWorkTree || !gitStatus.rootPath) {
+      warnings.push(`Registered path is not inside a git work tree: ${entry.root_path}`);
+      projectLines.push(`- ${entry.root_path} | status=not-git`);
+      continue;
+    }
+
+    const targetRoot = gitStatus.rootPath;
+
+    if (!detectInstalledLayer(targetRoot)) {
+      warnings.push(`Registered path is not an installed harness repository: ${targetRoot}`);
+      projectLines.push(`- ${targetRoot} | status=not-installed`);
+      continue;
+    }
+
+    const metadata = readInstallMetadataFromTarget(targetRoot);
+
+    if (!metadata) {
+      warnings.push(`Installed metadata is unreadable: ${targetRoot}`);
+      projectLines.push(`- ${targetRoot} | status=invalid-install-metadata`);
+      continue;
+    }
+
+    installedCount += 1;
+    projectLines.push(
+      `- ${targetRoot} | status=installed | harness_version=${metadata.harness_version} | templates_version=${metadata.templates_version}`
+    );
+  }
+
+  output.push(`projects: ${registry.projects.length}`);
+  output.push(`installed: ${installedCount}`);
+  output.push(`warnings: ${warnings.length}`);
+  output.push("entries:");
+  output.push(...projectLines);
+
+  if (warnings.length > 0) {
+    output.push("warning details:");
+    output.push(...warnings.map((warning) => `- ${warning}`));
+  }
+
+  lines(output);
+  return 0;
+}
+
+export async function runDoctor(args: string[]): Promise<number> {
+  if (args.length === 0) {
+    return runLocalDoctor();
+  }
+
+  if (args.length === 1 && (args[0] === "--help" || args[0] === "-h" || args[0] === "help")) {
+    printDoctorHelp();
+    return 0;
+  }
+
+  if (args.length === 1 && args[0] === "--all") {
+    try {
+      return runDoctorAll();
+    } catch (doctorError) {
+      const message = doctorError instanceof Error ? doctorError.message : String(doctorError);
+      error(message);
+      return 1;
+    }
+  }
+
+  error(`Unknown doctor argument(s): ${args.join(", ")}`);
+  printDoctorHelp();
+  return 1;
 }

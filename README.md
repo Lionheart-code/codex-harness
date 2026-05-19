@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 17 adds an installed-layer governance loop on top of the Phase 16 parallel worktree scaffold, the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
+`codex-harness` is a Codex-first programming harness. Phase 18 adds safe install/upgrade lifecycle management and an optional project registry on top of the Phase 17 governance loop, the Phase 16 parallel worktree scaffold, the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
 
-## Phase 17 commands
+## Phase 18 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -27,6 +27,8 @@ node bin/ch debt resolve --id DEBT-0001
 node bin/ch decisions add --title "test decision" --reason "test"
 node bin/ch decisions list
 node bin/ch doctor
+node bin/ch doctor --help
+node bin/ch doctor --all
 node bin/ch eval playground init
 node bin/ch eval playground smoke
 node bin/ch eval playground clean
@@ -41,6 +43,9 @@ node bin/ch parallel status
 node bin/ch parallel close
 node bin/ch install
 node bin/ch install --dry-run
+node bin/ch upgrade --help
+node bin/ch upgrade --dry-run
+node bin/ch upgrade
 node bin/ch status
 node bin/ch init "test task"
 node bin/ch init "test task" --dry-run
@@ -57,6 +62,15 @@ node bin/ch prompt scout --role tests
 npm install
 npm run build
 ```
+
+## Phase 18 install and upgrade behavior
+
+- `install` creates the installed harness layer, writes `.harness/install.json`, seeds managed baselines under `.harness/templates/managed/`, and may update the optional `~/.codex-harness/registry.json`.
+- `upgrade --dry-run` previews install-owned changes without writing files.
+- `upgrade` updates only install-owned static content, creates backups before rewriting managed files, refreshes install metadata, and fails closed when managed files contain local modifications.
+- `doctor --all` reads the optional project registry and reports the status of registered repositories without turning the registry into the source of truth.
+- Runtime/generated project state under `.harness/tasks/`, `.harness/memory/`, `.harness/governance/`, and `.codex/` is never overwritten during upgrade once present.
+- Rollback is file-based: inspect the reported `.codex-harness.bak*` backups before restoring any managed file manually.
 
 ## Phase 17 governance behavior
 
@@ -175,8 +189,12 @@ npm run build
 
 - `install` creates `.harness/config.toml`, `.harness/tasks/`, `.harness/templates/`, `.harness/memory/`, and `.harness/install.json`.
 - `install --dry-run` previews the same actions without writing files.
+- `install` also seeds `.harness/templates/managed/agents-block.md` and `.harness/templates/managed/config.toml` for future upgrade drift detection.
 - `install` creates or updates a managed block in `AGENTS.md` and backs up the file before patching existing content.
 - Re-running `install` is idempotent when the managed files already match the Phase 2 content.
+- `upgrade --dry-run` previews Phase 18 install-owned changes without writing files.
+- `upgrade` updates install-owned static files only, records additive `last_upgrade` metadata in `.harness/install.json`, and creates `.codex-harness.bak*` backups before rewriting managed files.
+- `doctor --all` summarizes the optional `~/.codex-harness/registry.json` without replacing repo-local `.harness/` state.
 - `init` creates `.harness/tasks/<task-id>/spec.md`, `acceptance.md`, and `state.json`.
 - `init --dry-run` previews the task id and planned file paths without writing files.
 - `status` lists the tasks recorded under `.harness/tasks/`.

@@ -16,13 +16,14 @@ import { runPrompt } from "./prompt";
 import { runReport } from "./report";
 import { runReview } from "./review";
 import { runStatus } from "./status";
+import { runUpgrade } from "./upgrade";
 import { runWorktree } from "./worktree";
 
 type CommandHandler = (args: string[]) => Promise<number>;
 
 function printHelp(): void {
   lines([
-    "codex-harness Phase 17 CLI",
+    "codex-harness Phase 18 CLI",
     "",
     "Usage:",
     "  node bin/ch --help",
@@ -44,6 +45,8 @@ function printHelp(): void {
     "  node bin/ch decisions add --title \"test decision\" --reason \"test\"",
     "  node bin/ch decisions list",
     "  node bin/ch doctor",
+    "  node bin/ch doctor --help",
+    "  node bin/ch doctor --all",
     "  node bin/ch eval playground init",
     "  node bin/ch eval playground smoke",
     "  node bin/ch eval playground clean",
@@ -51,6 +54,9 @@ function printHelp(): void {
     "  node bin/ch parallel --help",
     "  node bin/ch install",
     "  node bin/ch install --dry-run",
+    "  node bin/ch upgrade --help",
+    "  node bin/ch upgrade --dry-run",
+    "  node bin/ch upgrade",
     "  node bin/ch status",
     "  node bin/ch init \"task title\"",
     "  node bin/ch init \"task title\" --dry-run",
@@ -75,6 +81,7 @@ function printHelp(): void {
     "  governance Run Phase 17 harness governance review, proposal, metrics, and status commands.",
     "  parallel Manage the Phase 16 opt-in parallel worktree scaffold.",
     "  install  Install or preview the Phase 2 harness layer.",
+    "  upgrade  Upgrade or preview the installed Phase 18 harness layer.",
     "  status   List tasks from the installed Phase 3 task-state layer.",
     "  init     Create or preview a Phase 3 task folder.",
     "  worktree Create or reuse the Phase 4 task worktree.",
@@ -112,6 +119,8 @@ function getCommandHandler(command: string): CommandHandler | undefined {
       return runDecisions;
     case "install":
       return runInstall;
+    case "upgrade":
+      return runUpgrade;
     case "status":
       return runStatus;
     case "init":

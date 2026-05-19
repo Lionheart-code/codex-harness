@@ -37,6 +37,9 @@ test("phase 2 install creates the installed layer and reinstall is idempotent", 
   const tasksPath = path.join(tempRepo, ".harness", "tasks");
   const templatesPath = path.join(tempRepo, ".harness", "templates");
   const memoryPath = path.join(tempRepo, ".harness", "memory");
+  const managedTemplatesPath = path.join(tempRepo, ".harness", "templates", "managed");
+  const managedAgentsBlockPath = path.join(managedTemplatesPath, "agents-block.md");
+  const managedConfigPath = path.join(managedTemplatesPath, "config.toml");
   const decisionsPath = path.join(tempRepo, ".harness", "memory", "decisions");
   const debtPath = path.join(tempRepo, ".harness", "memory", "debt");
   const summariesPath = path.join(tempRepo, ".harness", "memory", "summaries");
@@ -56,6 +59,10 @@ test("phase 2 install creates the installed layer and reinstall is idempotent", 
   assert.ok(fs.statSync(tasksPath).isDirectory(), ".harness/tasks is not a directory");
   assert.ok(fs.existsSync(templatesPath), ".harness/templates was not created");
   assert.ok(fs.statSync(templatesPath).isDirectory(), ".harness/templates is not a directory");
+  assert.ok(fs.existsSync(managedTemplatesPath), ".harness/templates/managed was not created");
+  assert.ok(fs.statSync(managedTemplatesPath).isDirectory(), ".harness/templates/managed is not a directory");
+  assert.ok(fs.existsSync(managedAgentsBlockPath), ".harness/templates/managed/agents-block.md was not created");
+  assert.ok(fs.existsSync(managedConfigPath), ".harness/templates/managed/config.toml was not created");
   assert.ok(fs.existsSync(memoryPath), ".harness/memory was not created");
   assert.ok(fs.statSync(memoryPath).isDirectory(), ".harness/memory is not a directory");
   assert.ok(fs.existsSync(decisionsPath), ".harness/memory/decisions was not created");
@@ -89,6 +96,7 @@ test("phase 2 install creates the installed layer and reinstall is idempotent", 
   assert.equal(installMetadata.templates_version, expectedVersion);
   assert.equal(typeof installMetadata.installed_at, "string");
   assert.equal(installMetadata.source, "codex-harness");
+  assert.equal(installMetadata.last_upgrade, undefined);
 
   const firstInstalledAt = installMetadata.installed_at;
   const secondInstall = runCli(["install"], { cwd: tempRepo });
