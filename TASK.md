@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_20_SECURITY_EVALS_CONTEXT_HARDENING.md
+Implement only: tasks/PHASE_21_PLATFORM_COMPATIBILITY.md
 
-Do not implement Phase 20 or later.
+Do not implement Phase 21 or later.
