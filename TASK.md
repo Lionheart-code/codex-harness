@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_18_INSTALL_UPGRADE_REGISTRY.md
+Implement only: tasks/PHASE_19_ARTIFACT_SCHEMAS_AND_MIGRATIONS.md
 
-Do not implement Phase 18 or later.
+Do not implement Phase 19 or later.
