@@ -16,6 +16,7 @@ import { runParallel } from "./parallel";
 import { runPrompt } from "./prompt";
 import { runReport } from "./report";
 import { runReview } from "./review";
+import { runRuntime } from "./run";
 import { runSecurity } from "./security";
 import { runSchema } from "./schema";
 import { runStatus } from "./status";
@@ -39,6 +40,12 @@ function printHelp(): void {
     "  node bin/ch review",
     "  node bin/ch review --exec",
     "  node bin/ch report",
+    "  node bin/ch run --help",
+    "  node bin/ch run start --task TASK.md --dry-run",
+    "  node bin/ch run status --dry-run",
+    "  node bin/ch run verify --dry-run",
+    "  node bin/ch run closeout --dry-run",
+    "  node bin/ch run remote-status --dry-run",
     "  node bin/ch schema --help",
     "  node bin/ch schema validate",
     "  node bin/ch schema migrate --dry-run",
@@ -89,6 +96,7 @@ function printHelp(): void {
     "  check    Run deterministic checks and write verifier artifacts.",
     "  review   Validate or generate a Phase 14 review artifact.",
     "  report   Generate a deterministic task handoff report.",
+    "  run      Represent current work as a Phase 22.5 runtime run.",
     "  schema   Validate or migrate Phase 19 machine-readable artifacts.",
     "  hooks    Install minimal Codex sidecar hooks and templates.",
     "  security Audit the current implemented security and permission posture.",
@@ -133,6 +141,8 @@ function getCommandHandler(command: string): CommandHandler | undefined {
       return runReview;
     case "report":
       return runReport;
+    case "run":
+      return runRuntime;
     case "schema":
       return runSchema;
     case "hooks":

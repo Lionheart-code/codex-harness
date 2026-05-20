@@ -12,7 +12,9 @@ export const PRODUCT_SCHEMA_FILE_NAMES = [
   "debt.schema.json",
   "decision.schema.json",
   "adapter-profile.schema.json",
-  "governance-proposal.schema.json"
+  "governance-proposal.schema.json",
+  "runtime-run.schema.json",
+  "closeout-receipt.schema.json"
 ] as const;
 
 export type ProductSchemaFileName = (typeof PRODUCT_SCHEMA_FILE_NAMES)[number];

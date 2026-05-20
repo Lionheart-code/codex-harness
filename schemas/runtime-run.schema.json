@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-harness runtime run",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer_command",
+    "run_id",
+    "task_path",
+    "status",
+    "created_at",
+    "updated_at",
+    "repository",
+    "phase_runs",
+    "steps",
+    "artifacts",
+    "evidence",
+    "findings",
+    "decisions",
+    "approvals",
+    "command_results",
+    "verification_results",
+    "review_results",
+    "required_gates",
+    "remote_checks",
+    "closeout_receipts"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_command": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "task_path": { "type": "string", "minLength": 1 },
+    "active_task_path": { "type": "string", "minLength": 1 },
+    "phase_id": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["running", "ready", "blocked", "closed"] },
+    "created_at": { "type": "string", "minLength": 1 },
+    "updated_at": { "type": "string", "minLength": 1 },
+    "repository": {
+      "type": "object",
+      "required": ["root_path", "dirty"],
+      "properties": {
+        "root_path": { "type": "string", "minLength": 1 },
+        "branch": { "type": "string" },
+        "head_sha": { "type": "string" },
+        "dirty": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "phase_runs": { "type": "array", "items": { "type": "object" } },
+    "steps": { "type": "array", "items": { "type": "object" } },
+    "artifacts": { "type": "array", "items": { "type": "object" } },
+    "evidence": { "type": "array", "items": { "type": "object" } },
+    "findings": { "type": "array", "items": { "type": "object" } },
+    "decisions": { "type": "array", "items": { "type": "object" } },
+    "approvals": { "type": "array", "items": { "type": "object" } },
+    "command_results": { "type": "array", "items": { "type": "object" } },
+    "verification_results": { "type": "array", "items": { "type": "object" } },
+    "review_results": { "type": "array", "items": { "type": "object" } },
+    "required_gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["gate_id", "name", "required", "status"],
+        "properties": {
+          "gate_id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "required": { "type": "boolean" },
+          "status": { "enum": ["pass", "failed", "skipped", "missing", "unknown"] },
+          "explanation": { "type": "string" },
+          "check_result_id": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "remote_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["check_result_id", "gate_id", "name", "status", "required", "recorded_at", "ci_run"],
+        "properties": {
+          "check_result_id": { "type": "string", "minLength": 1 },
+          "gate_id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["pass", "failed", "skipped", "missing", "unknown"] },
+          "required": { "type": "boolean" },
+          "recorded_at": { "type": "string", "minLength": 1 },
+          "ci_run": {
+            "type": "object",
+            "required": ["provider"],
+            "properties": {
+              "provider": { "type": "string", "minLength": 1 },
+              "run_id": { "type": "string" },
+              "url": { "type": "string" },
+              "metadata": { "type": "object" }
+            },
+            "additionalProperties": true
+          },
+          "explanation": { "type": "string" },
+          "metadata": { "type": "object" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "closeout_receipts": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": true
+}

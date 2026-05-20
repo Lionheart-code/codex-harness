@@ -70,6 +70,44 @@ Capture versioned records for:
 
 Add artifact references by path/hash/metadata rather than storing large raw blobs directly in the event stream. Remote CI logs and command logs should be represented by bounded summaries, hashes, and artifact references rather than unbounded raw log copies by default.
 
+### Verification evidence reuse
+
+Expensive local verification may be reused only when the current snapshot exactly matches a previous successful `VerificationResult`.
+
+This is an evidence decision, not a prompt convention.
+
+Phase 23 must introduce a `VerifiedSnapshot` / `ChangeSetFingerprint` record that includes, at minimum:
+
+- target project root or worktree root;
+- base commit and current commit where applicable;
+- git status snapshot including untracked files;
+- changed tracked file list;
+- untracked file list;
+- tracked diff fingerprint;
+- untracked file content hashes;
+- verification command set and command-set hash;
+- command results, exit codes, duration, and stdout/stderr artifact refs;
+- timestamp.
+
+Reuse decisions must use explicit statuses:
+
+- `LOCAL_VERIFICATION: RUN`
+- `LOCAL_VERIFICATION: REUSED`
+- `LOCAL_VERIFICATION: STALE`
+- `LOCAL_VERIFICATION: MISSING`
+- `LOCAL_VERIFICATION: FAILED`
+
+Verification reuse must be invalidated by:
+
+- changed tracked file;
+- changed untracked file;
+- removed untracked file;
+- changed command set;
+- different root or worktree;
+- different base commit;
+- failed previous verification;
+- missing or corrupt evidence.
+
 ### Schema/versioning
 
 Add explicit schema versions for ledger events and projection records. Unknown versions must fail clearly or be skipped according to documented compatibility policy.
@@ -101,6 +139,14 @@ Define the initial structure for versioned, redacted portable bundles, but do no
 - no Direct API agent-facing layer in this phase;
 - no domain pack logic in core.
 
+Storage architecture for this phase:
+
+- SQLite is the indexed projection and query layer;
+- JSONL is the append-only source of trace;
+- large raw artifacts stay in an ArtifactStore and are referenced by hash or id;
+- raw SQL must not be exposed as the public CLI or API surface;
+- Memory is an evidence backend, not an agent brain.
+
 ## Non-goals
 
 - no agent brain;
@@ -113,7 +159,11 @@ Define the initial structure for versioned, redacted portable bundles, but do no
 - no connector marketplace;
 - no remote ingestion endpoint;
 - no hidden cloud dependency;
-- no vector search as a required feature.
+- no vector search as a required feature;
+- no semantic or vector retrieval by default;
+- no automatic summarization;
+- no raw cloud sync;
+- no domain-specific memory rules.
 
 ## Implementation guardrails
 
@@ -164,6 +214,7 @@ Commands must be local, deterministic, and safe by default.
 
 - runtime events are written to append-only JSONL;
 - SQLite projection can be rebuilt from ledger;
+- deterministic local verification reuse decisions are stored as evidence;
 - run timeline can be queried from projection;
 - artifact references are stable and inspectable;
 - redaction status is tracked;
@@ -198,6 +249,7 @@ node bin/ch memory rebuild --dry-run
 - JSONL ledger writer exists and is covered by tests;
 - SQLite projection is rebuildable from JSONL;
 - rebuild is deterministic for the same ledger input;
+- verification reuse is allowed only for exact-match successful snapshots and is otherwise marked `RUN`, `STALE`, `MISSING`, or `FAILED`;
 - malformed or unsupported schema versions fail clearly;
 - run timeline can be reconstructed from stored evidence;
 - required remote check status can be stored and replayed as evidence;
@@ -211,6 +263,7 @@ node bin/ch memory rebuild --dry-run
 Reviewers must check especially for:
 
 - Memory becoming an autonomous agent or hidden decision-maker;
+- verification reuse being treated as a prompt hint instead of exact-match evidence replay;
 - raw logs/prompts/traces being stored without classification;
 - raw SQLite sync being implied as a supported workflow;
 - product repository pollution from `.harness` runtime files;
@@ -223,13 +276,24 @@ Reviewers must check especially for:
 ## Suggested implementation order
 
 1. Define event envelope and schema versioning.
-2. Add append-only JSONL writer/reader.
-3. Add artifact reference model and remote check evidence records.
-4. Add SQLite projection and rebuild command.
-5. Add redaction/retention metadata.
-6. Add memory status and run timeline commands.
-7. Add package/repo cleanliness tests.
-8. Update docs to distinguish evidence memory from agent memory.
+2. Define `VerifiedSnapshot` / `ChangeSetFingerprint` and verification reuse decision records.
+3. Add append-only JSONL writer/reader.
+4. Add artifact reference model and remote check evidence records.
+5. Add SQLite projection and rebuild command.
+6. Add redaction/retention metadata.
+7. Add memory status and run timeline commands.
+8. Add package/repo cleanliness tests.
+9. Update docs to distinguish evidence memory from agent memory.
+
+## Future extension notes
+
+The same evidence mechanism should later support:
+
+- review-result reuse and staleness;
+- report and packet input fingerprints;
+- CI evidence linked to pushed commit SHA;
+- pack and domain workflows through namespaces;
+- project work and harness self-hosting through the same storage model, separated by `target_project_id`, `namespace`, and `run_id`.
 
 ## Required return from implementation agent
 
