@@ -56,6 +56,10 @@ The package contents policy must be explicit, preferably through
 `package.json` `files`, or through an equivalent allowlist policy with a
 machine-checking script.
 
+The current implementation target should use a `package.json` `files`
+allowlist and a separate machine-checking script so that the package surface is
+explicit and the packed tarball is verified from npm's own file list.
+
 The packed npm package must include:
 
 - `package.json`;
@@ -63,8 +67,13 @@ The packed npm package must include:
 - `bin/ch`;
 - `dist/cli/index.js`;
 - all `dist/**` runtime files required by the CLI;
-- `schemas/**` and `migrations/**` when required by install, upgrade, schema
-  validation, or runtime behavior.
+- `schemas/**` when required by install, upgrade, schema validation, or runtime
+  behavior.
+
+Top-level `migrations/**` remains a product-source directory in the current
+Phase 22 implementation because the installed CLI does not read it at runtime.
+It must stay out of the npm package unless a later phase introduces a real
+runtime dependency on those files.
 
 The packed npm package must exclude:
 
@@ -100,6 +109,10 @@ The packed-install smoke check must:
 - build the project;
 - create the npm tarball;
 - install that tarball into a temporary test project;
+- verify that the packaged `bin/ch` exists and starts with
+  `#!/usr/bin/env node`;
+- verify that the packaged `bin/ch` is executable on non-Windows platforms, or
+  at minimum is runnable through `node` from the installed tarball;
 - run the installed CLI successfully with:
   - `ch --help`;
   - `ch doctor platform`;
@@ -117,6 +130,10 @@ Phase 22 must add a CI workflow under:
 ```
 
 The workflow must run on `pull_request` and `push` to `main`.
+
+The committed CI workflow should use a single verify job with a
+`timeout-minutes: 45` guard unless a shorter bound is proven sufficient by the
+implemented suite.
 
 The workflow must run:
 
@@ -148,6 +165,10 @@ into shell commands.
 Third-party actions should be pinned to full-length commit SHAs where
 practical. If a version tag is used instead, the reason must be documented.
 
+The current Phase 22 target should pin `actions/checkout` and
+`actions/setup-node` to full-length SHAs in the committed workflow so the CI
+gate does not depend on moving tags.
+
 The docs must explain that this CI check should later become a required branch
 protection check.
 
@@ -163,6 +184,10 @@ Phase 22 must tighten the runner so that:
 - `npm test` and `npm run test:acceptance` exit deterministically;
 - CI fails if acceptance checks do not complete successfully.
 
+The runner hardening should stay minimal: keep the existing Node test-runner
+wrapper, add a fail-closed empty-suite check, and add a suite-level timeout
+instead of replacing the test framework.
+
 ### Phase 22.2 — Future trusted publishing and provenance preparation
 
 Phase 22 must document future publishing, not activate it.
@@ -176,6 +201,8 @@ The future publishing plan must cover:
 - `contents: read` for the release job;
 - `id-token: write` only for the future publish/provenance job;
 - no long-lived npm automation token policy;
+- no cache in a future publish/provenance job when following npm trusted
+  publishing guidance;
 - provenance behavior;
 - rollback and deprecation checklist;
 - manual approval before any real public publish.

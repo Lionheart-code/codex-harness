@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 21 adds cross-platform command-runner hardening, structured check-command support, `doctor platform`, `doctor commands`, and a shared Node-based acceptance runner on top of the Phase 20 security/eval/context hardening, the Phase 19 artifact schemas and migrations, the Phase 18 install/upgrade lifecycle, the Phase 17 governance loop, the Phase 16 parallel worktree scaffold, the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
+`codex-harness` is a Codex-first programming harness. Phase 22 adds machine-checked npm package contents, a packed-install smoke gate, and a least-privilege GitHub Actions verify workflow on top of the Phase 21 cross-platform command-runner hardening, the Phase 20 security/eval/context hardening, the Phase 19 artifact schemas and migrations, the Phase 18 install/upgrade lifecycle, the Phase 17 governance loop, the Phase 16 parallel worktree scaffold, the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
 
-## Phase 21 commands
+## Phase 22 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -77,7 +77,18 @@ npm install
 npm run build
 npm test
 npm run test:acceptance
+npm run release:dry-run
 ```
+
+## Phase 22 release hardening behavior
+
+- `npm run release:dry-run` is the local release gate. It builds the project, inspects `npm pack --dry-run --json`, verifies the package allowlist, and runs a packed-install smoke test without publishing anything.
+- The npm package contents are controlled through `package.json` `files` and currently allow only `bin/`, `dist/`, `schemas/`, and `README.md`.
+- The packed tarball must include `bin/ch`, `dist/cli/index.js`, the built runtime files under `dist/**`, and the product schemas required by install and upgrade behavior.
+- The packed tarball must exclude development, task, docs, scripts, runtime-local, and secret-like files such as `src/**`, `tests/**`, `TASK.md`, `.harness/**`, `.codex/**`, `.agents/**`, and generated tarballs.
+- The packed-install smoke gate installs the generated tarball into a temporary project and runs `ch --help`, `ch doctor platform`, and `ch doctor commands` through the packaged `bin/ch` path.
+- `.github/workflows/ci.yml` is a verify-only workflow for `pull_request` and `push` to `main`. It uses `permissions: contents: read`, runs `npm ci`, `npm run build`, `npm test`, `npm run test:acceptance`, and `npm run release:dry-run`, and does not publish or use npm tokens.
+- Future trusted publishing and provenance remain documented only. Phase 22 does not activate public npm publishing.
 
 ## Phase 21 platform, security, eval, and context behavior
 

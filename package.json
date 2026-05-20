@@ -5,10 +5,21 @@
   "bin": {
     "ch": "bin/ch"
   },
+  "files": [
+    "bin",
+    "dist",
+    "schemas",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lionheart-code/codex-harness.git"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node scripts/run-acceptance.mjs",
-    "test:acceptance": "node scripts/run-acceptance.mjs"
+    "test:acceptance": "node scripts/run-acceptance.mjs",
+    "release:dry-run": "npm run build && node scripts/check-package-contents.mjs && node scripts/smoke-packed-install.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
