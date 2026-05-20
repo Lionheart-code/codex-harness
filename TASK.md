@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_22_RELEASE_SUPPLY_CHAIN_SECURITY.md
+Implement only: tasks/PHASE_22_5_CORE_RUNTIME_NORMALIZATION.md
 
-Do not implement Phase 22.5, Phase 23, or later.
+Do not implement Phase 23 or later.
