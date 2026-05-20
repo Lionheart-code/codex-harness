@@ -93,6 +93,21 @@ npm run release:dry-run
 
 It must not publish anything.
 
+Phase 22 must also prove that the tarball is actually installable.
+
+The packed-install smoke check must:
+
+- build the project;
+- create the npm tarball;
+- install that tarball into a temporary test project;
+- run the installed CLI successfully with:
+  - `ch --help`;
+  - `ch doctor platform`;
+  - `ch doctor commands`.
+
+This smoke check must fail if `bin/ch`, `dist/cli/index.js`, or other required
+runtime files are absent, or if the installed packaged CLI cannot start.
+
 ### Phase 22.1 — GitHub Actions CI / PR gates
 
 Phase 22 must add a CI workflow under:
@@ -135,6 +150,18 @@ practical. If a version tag is used instead, the reason must be documented.
 
 The docs must explain that this CI check should later become a required branch
 protection check.
+
+The acceptance runner itself must be reliable enough to serve as a CI and
+release gate.
+
+Phase 22 must tighten the runner so that:
+
+- discovery fails closed when no acceptance tests are found;
+- the full suite has bounded execution via a suite-level timeout or equivalent
+  deterministic guard;
+- failures and hangs produce clear diagnostics where practical;
+- `npm test` and `npm run test:acceptance` exit deterministically;
+- CI fails if acceptance checks do not complete successfully.
 
 ### Phase 22.2 — Future trusted publishing and provenance preparation
 
@@ -214,8 +241,13 @@ Before any future release:
 - run `npm run test:acceptance`;
 - run `npm run release:dry-run`;
 - inspect `npm pack --dry-run --json`;
+- install the generated tarball into a temporary test project;
+- run `ch --help`, `ch doctor platform`, and `ch doctor commands` from that
+  installed tarball;
 - verify package contents include required runtime files;
 - verify package contents exclude forbidden local/runtime/development files;
+- verify acceptance discovery does not silently pass on an empty suite;
+- verify acceptance execution is bounded and fails clearly on hangs;
 - confirm no npm token is present;
 - confirm no public publish is triggered by CI;
 - confirm provenance/trusted publishing notes are current;

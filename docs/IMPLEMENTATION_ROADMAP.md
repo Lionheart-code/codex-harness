@@ -196,6 +196,42 @@ Task:
 Goal:
 Define and implement package dry-run verification, CI/PR release gates, provenance/trusted-publishing preparation, dependency policy, and safe upgrade release notes without publishing.
 
+## Phase 22.5 — core runtime normalization
+
+Task:
+Planning-only after Phase 22 closeout. Define a task file before implementation.
+
+Goal:
+Normalize current CLI, phase, check, review, and report behavior into a shared
+runtime model before Memory/Evidence Core work begins.
+
+Minimal primitives to introduce later:
+
+```text
+Run
+PhaseRun
+Step
+ArtifactRef
+EvidenceRef
+Finding
+Decision
+Approval
+CommandResult
+PolicyDecision
+```
+
+This is an architectural normalization step only. Do not implement it during
+Phase 22.
+
+## Phase 23 — memory/evidence core
+
+Task:
+To be defined after Phase 22.5 planning and closeout.
+
+Goal:
+Build Memory/Evidence Core on top of the normalized runtime model introduced by
+the Phase 22.5 plan.
+
 ## Stop rule
 
 After every phase:

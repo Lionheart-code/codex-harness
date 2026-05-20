@@ -40,6 +40,7 @@ The implementation must:
 - make `release:dry-run` run the deterministic package checks without
   publishing;
 - inspect `npm pack --dry-run --json` output;
+- add a packed-install smoke test for the generated tarball;
 - fail if required runtime files are missing;
 - fail if forbidden development, runtime, local, or secret-like files are
   present;
@@ -78,6 +79,23 @@ Acceptance must prove that `npm run release:dry-run` fails closed when:
 - any required runtime file is missing;
 - any forbidden path is present.
 
+The packed-install smoke test must:
+
+- build the project;
+- create an npm tarball;
+- install that tarball into a temporary test project;
+- run the installed CLI from that temporary installation:
+  - `ch --help`;
+  - `ch doctor platform`;
+  - `ch doctor commands`.
+
+The packed-install smoke test must fail if:
+
+- `bin/ch` is missing;
+- `dist/cli/index.js` is missing;
+- the installed CLI cannot start;
+- required runtime files are absent from the package.
+
 ## Phase 22.1 — GitHub Actions CI / PR gates
 
 The implementation must add `.github/workflows/ci.yml`.
@@ -110,6 +128,18 @@ documented.
 Documentation must state how this CI should later become a required branch
 protection check. PR/CI gating must remain separate from release publishing.
 
+The acceptance runner used by `npm test` and `npm run test:acceptance` must be
+suitable as a CI and release gate.
+
+The future implementation must ensure:
+
+- test discovery fails closed if no acceptance tests are found;
+- the full acceptance suite has a bounded execution model through a
+  suite-level timeout or equivalent deterministic guard;
+- failures and hangs produce clear diagnostics where practical;
+- `npm test` and `npm run test:acceptance` exit deterministically;
+- CI fails if acceptance checks do not complete successfully.
+
 ## Phase 22.2 — Future trusted publishing and provenance preparation
 
 The implementation must document, but not activate, a future npm publishing
@@ -137,9 +167,11 @@ phase, expected to include:
 
 - `package.json`;
 - package verification script(s);
+- `scripts/run-acceptance.mjs`;
 - `.github/workflows/ci.yml`;
 - release documentation;
-- acceptance tests for package contents and release dry-run behavior.
+- acceptance tests for package contents, packed-install smoke behavior, release
+  dry-run behavior, and acceptance-runner gate behavior.
 
 Do not add release infrastructure unrelated to the Phase 22 contract.
 
@@ -175,10 +207,16 @@ npm pack --dry-run --json
 - the packed package includes all runtime files required by the CLI;
 - the packed package excludes forbidden development, runtime, local, and
   secret-like files;
+- the generated npm tarball is installable into a temporary test project;
+- the installed packaged CLI starts and succeeds for `ch --help`,
+  `ch doctor platform`, and `ch doctor commands`;
 - `release:dry-run` fails on missing required files;
 - `release:dry-run` fails on forbidden files;
+- test discovery fails closed when no acceptance tests are found;
+- the acceptance suite has bounded execution with deterministic exit behavior;
 - GitHub Actions CI runs build, test, acceptance, and package dry-run checks;
 - CI does not publish;
+- CI fails when acceptance checks fail or do not complete;
 - no npm token is introduced;
 - no public npm publish occurs;
 - trusted publishing and provenance are documented but not activated as an
