@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { inspectCheckConfig } from "../core/checks";
 import { detectInstalledLayer, readInstallMetadataFromTarget } from "../core/install";
 import { detectGitRepository } from "../core/git";
 import { error, lines } from "../core/logger";
@@ -22,8 +23,14 @@ function printDoctorHelp(): void {
     "Usage:",
     "  node bin/ch doctor",
     "  node bin/ch doctor --help",
-    "  node bin/ch doctor --all"
+    "  node bin/ch doctor --all",
+    "  node bin/ch doctor platform",
+    "  node bin/ch doctor commands"
   ]);
+}
+
+function getNpmCommand(): string {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
 }
 
 function runLocalDoctor(): number {
@@ -150,6 +157,77 @@ function runDoctorAll(): number {
   return 0;
 }
 
+function runDoctorPlatform(): number {
+  const result = detectGitRepository(process.cwd());
+  const output = [
+    "codex-harness doctor platform",
+    `cwd: ${process.cwd()}`,
+    `platform: ${process.platform}`,
+    `arch: ${process.arch}`,
+    `node: ${process.version}`,
+    `path_separator: ${path.sep}`,
+    `npm_command: ${getNpmCommand()}`
+  ];
+
+  if (!result.available) {
+    output.push("git: unavailable");
+    output.push(`repository: unknown (${result.error ?? "git command failed"})`);
+    output.push("installed layer: unavailable");
+    lines(output);
+    return 0;
+  }
+
+  output.push("git: available");
+
+  if (!result.insideWorkTree || !result.rootPath) {
+    output.push("repository: not inside a git work tree");
+    output.push("installed layer: unavailable");
+    lines(output);
+    return 0;
+  }
+
+  output.push("repository: inside git work tree");
+  output.push(`root: ${result.rootPath}`);
+  output.push(`installed layer: ${detectInstalledLayer(result.rootPath) ? "present" : "absent"}`);
+  lines(output);
+  return 0;
+}
+
+function runDoctorCommands(): number {
+  const result = detectGitRepository(process.cwd());
+  const output = [
+    "codex-harness doctor commands",
+    "checks config support: legacy [checks].commands + structured [[checks.commands]]",
+    "legacy execution mode: shell=false tokenized argv only",
+    "legacy shell syntax: blocked fail-closed",
+    "structured shell default: false",
+    "structured shell opt-in: shell = true",
+    "acceptance runner: scripts/run-acceptance.mjs",
+    "npm test: node scripts/run-acceptance.mjs",
+    "npm run test:acceptance: node scripts/run-acceptance.mjs",
+    "bare eval acceptance delegation: node scripts/run-acceptance.mjs"
+  ];
+
+  if (!result.available || !result.insideWorkTree || !result.rootPath) {
+    output.push("configured checks: unavailable");
+    lines(output);
+    return 0;
+  }
+
+  if (!detectInstalledLayer(result.rootPath)) {
+    output.push("configured checks: unavailable (installed layer absent)");
+    lines(output);
+    return 0;
+  }
+
+  const config = inspectCheckConfig(result.rootPath);
+  output.push(`configured checks format: ${config.commandsFormat}`);
+  output.push(`configured checks commands: ${config.commands.length}`);
+  output.push(`protected paths source: ${config.protectedPathsSource}`);
+  lines(output);
+  return 0;
+}
+
 export async function runDoctor(args: string[]): Promise<number> {
   if (args.length === 0) {
     return runLocalDoctor();
@@ -163,6 +241,26 @@ export async function runDoctor(args: string[]): Promise<number> {
   if (args.length === 1 && args[0] === "--all") {
     try {
       return runDoctorAll();
+    } catch (doctorError) {
+      const message = doctorError instanceof Error ? doctorError.message : String(doctorError);
+      error(message);
+      return 1;
+    }
+  }
+
+  if (args.length === 1 && args[0] === "platform") {
+    try {
+      return runDoctorPlatform();
+    } catch (doctorError) {
+      const message = doctorError instanceof Error ? doctorError.message : String(doctorError);
+      error(message);
+      return 1;
+    }
+  }
+
+  if (args.length === 1 && args[0] === "commands") {
+    try {
+      return runDoctorCommands();
     } catch (doctorError) {
       const message = doctorError instanceof Error ? doctorError.message : String(doctorError);
       error(message);

@@ -70,6 +70,14 @@ exit code
 
 Use shell mode only when explicitly required and documented.
 
+For Phase 21 specifically:
+
+- legacy `[checks].commands = ["..."]` entries remain readable;
+- legacy entries are tokenized into `command + args` and run with `shell = false`;
+- legacy entries fail closed on shell-only syntax such as pipes, chaining, redirection, backticks, or command substitution;
+- preferred structured `[[checks.commands]]` entries default to `shell = false`;
+- `shell = true` is explicit structured opt-in only.
+
 ## Windows-specific rules
 
 - Do not assume `test`, `grep`, `mktemp`, `rm`, `cp`, or shell grouping exists.
@@ -81,14 +89,19 @@ Use shell mode only when explicitly required and documented.
 
 ## Acceptance command policy
 
-Task files may contain shell examples, but durable acceptance must move toward:
+Task files may contain shell examples, but durable acceptance must run through the shared Node-based runner:
 
 ```bash
-npm run accept:phase-01
-node scripts/acceptance/phase-01.mjs
+npm test
+npm run test:acceptance
+node scripts/run-acceptance.mjs
 ```
 
-The acceptance scripts must be cross-platform.
+The runner must:
+
+- discover `tests/acceptance/*.test.mjs` in stable sorted order;
+- execute them through Node's built-in test runner;
+- serve as the shared path for `npm test`, `npm run test:acceptance`, and bare `node bin/ch eval` acceptance delegation.
 
 ## Agent adapter execution
 

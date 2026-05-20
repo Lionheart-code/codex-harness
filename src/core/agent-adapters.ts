@@ -1,7 +1,7 @@
-import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { reserveAgentRun, updateAgentRunRecord } from "./agent-ledger";
+import { formatCommandForDisplay, runStructuredCommand } from "./command-runner";
 import {
   AGENT_RUN_COMMAND_FILE,
   AGENT_RUN_LOG_FILE,
@@ -413,7 +413,7 @@ function substituteArgTemplates(args: string[], values: Record<string, string>):
 }
 
 function stringifyCommandPreview(spec: AgentCommandSpec): string {
-  return [spec.command, ...spec.args].map((segment) => (/\s/.test(segment) ? JSON.stringify(segment) : segment)).join(" ");
+  return formatCommandForDisplay(spec.command, spec.args);
 }
 
 function buildCommandMetadata(
@@ -470,27 +470,16 @@ function buildExecutionLog(spec: AgentCommandSpec, outcome: CommandExecutionOutc
 }
 
 function executeCommand(spec: AgentCommandSpec): CommandExecutionOutcome {
-  const startedAt = Date.now();
-  const result = spawnSync(spec.command, spec.args, {
-    cwd: spec.cwd,
-    encoding: "utf8",
-    shell: false,
-    timeout: spec.timeout_seconds * 1000
-  });
-  const durationMs = Date.now() - startedAt;
-  const spawnError = result.error ? result.error.message : undefined;
-  const timedOut =
-    (result.error instanceof Error && "code" in result.error && result.error.code === "ETIMEDOUT") ||
-    (typeof result.signal === "string" && result.signal.length > 0 && result.status === null);
+  const result = runStructuredCommand(spec);
 
   return {
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
-    exitCode: result.status ?? 1,
-    durationMs,
-    timedOut,
-    signal: result.signal ?? "",
-    spawnError
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    durationMs: result.durationMs,
+    timedOut: result.timedOut,
+    signal: result.signal,
+    spawnError: result.spawnError
   };
 }
 

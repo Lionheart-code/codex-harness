@@ -52,17 +52,50 @@ function getWorktreePath(tempRepo) {
   return readText(path.join(getTaskRoot(tempRepo), "worktree.txt")).trim();
 }
 
-function updateChecksConfig(tempRepo, { commands, protectedPaths }) {
+function replaceChecksSection(content, lines) {
+  const replacement = `${lines.join("\n")}\n`;
+  const nextContent = content.replace(/\[checks\]\r?\n[\s\S]*?(?=\[worktree\]\r?\n)/, replacement);
+
+  if (nextContent === content) {
+    throw new Error("Unable to locate the [checks] section in .harness/config.toml.");
+  }
+
+  return nextContent;
+}
+
+function updateLegacyChecksConfig(tempRepo, { commands, protectedPaths }) {
   const configPath = path.join(tempRepo, ".harness", "config.toml");
   const content = readText(configPath);
-  const replacement = [
+  const nextContent = replaceChecksSection(content, [
     "[checks]",
     `commands = ${JSON.stringify(commands)}`,
     ...(protectedPaths ? [`protected_paths = ${JSON.stringify(protectedPaths)}`] : []),
     ""
-  ].join("\n");
-  const nextContent = content.replace(/\[checks\]\r?\ncommands = \[[^\n]*\]\r?\n/, replacement);
+  ]);
   writeText(configPath, nextContent);
+}
+
+function updateStructuredChecksConfig(tempRepo, { commands, protectedPaths }) {
+  const configPath = path.join(tempRepo, ".harness", "config.toml");
+  const content = readText(configPath);
+  const lines = [
+    "[checks]",
+    ...(protectedPaths ? [`protected_paths = ${JSON.stringify(protectedPaths)}`] : []),
+    ""
+  ];
+
+  for (const command of commands) {
+    lines.push("[[checks.commands]]");
+    lines.push(`command = ${JSON.stringify(command.command)}`);
+    lines.push(`args = ${JSON.stringify(command.args)}`);
+    lines.push(`timeout_seconds = ${String(command.timeoutSeconds)}`);
+    if (command.shell !== undefined) {
+      lines.push(`shell = ${command.shell ? "true" : "false"}`);
+    }
+    lines.push("");
+  }
+
+  writeText(configPath, replaceChecksSection(content, lines));
 }
 
 test("phase 11 capture writes diff.patch and seeds verifier.json from the task worktree", () => {
@@ -102,7 +135,7 @@ test("phase 11 check records passing deterministic commands and writes logs", ()
   const tempRepo = createCheckReadyRepo();
   const worktreePath = getWorktreePath(tempRepo);
   fs.appendFileSync(path.join(worktreePath, "README.md"), "check pass\n", "utf8");
-  updateChecksConfig(tempRepo, { commands: ["git status --short"] });
+  updateLegacyChecksConfig(tempRepo, { commands: ["git status --short"] });
 
   const checkResult = runCli(["check"], { cwd: tempRepo });
   assertSuccess(checkResult, "check pass");
@@ -127,11 +160,42 @@ test("phase 11 check records passing deterministic commands and writes logs", ()
   assert.match(readText(logPath), /exit_code: 0/);
 });
 
+test("phase 11 check records passing structured deterministic commands and writes logs", () => {
+  ensureBuiltCli();
+
+  const tempRepo = createCheckReadyRepo();
+  const worktreePath = getWorktreePath(tempRepo);
+  fs.appendFileSync(path.join(worktreePath, "README.md"), "structured check pass\n", "utf8");
+  updateStructuredChecksConfig(tempRepo, {
+    commands: [
+      {
+        command: "git",
+        args: ["status", "--short"],
+        timeoutSeconds: 120
+      }
+    ]
+  });
+
+  const checkResult = runCli(["check"], { cwd: tempRepo });
+  assertSuccess(checkResult, "structured check pass");
+  assert.match(checkResult.stdout, /result: pass/);
+
+  const taskRoot = getTaskRoot(tempRepo);
+  const verifier = readJson(path.join(taskRoot, "verifier.json"));
+  const logContent = readText(path.join(taskRoot, "logs", "check.log"));
+
+  assert.equal(verifier.result, "pass");
+  assert.equal(verifier.commands.length, 1);
+  assert.equal(verifier.commands[0].command, "git status --short");
+  assert.equal(verifier.commands[0].result, "pass");
+  assert.match(logContent, /shell: false/);
+});
+
 test("phase 11 check fails when a configured command fails", () => {
   ensureBuiltCli();
 
   const tempRepo = createCheckReadyRepo();
-  updateChecksConfig(tempRepo, { commands: ["git rev-parse --verify definitely-missing-ref"] });
+  updateLegacyChecksConfig(tempRepo, { commands: ["git rev-parse --verify definitely-missing-ref"] });
 
   const checkResult = runCli(["check"], { cwd: tempRepo });
   assertFailure(checkResult, "check failing command");
@@ -192,7 +256,7 @@ test("phase 11 check uses protected_paths override instead of the default list",
   const tempRepo = createCheckReadyRepo();
   const worktreePath = getWorktreePath(tempRepo);
   writeText(path.join(worktreePath, "AGENTS.md"), "not protected by override\n");
-  updateChecksConfig(tempRepo, { commands: [], protectedPaths: ["README.md"] });
+  updateLegacyChecksConfig(tempRepo, { commands: [], protectedPaths: ["README.md"] });
 
   const checkResult = runCli(["check"], { cwd: tempRepo });
   assertSuccess(checkResult, "check protected override");
@@ -207,7 +271,7 @@ test("phase 11 check succeeds with no configured commands when there are no prot
   ensureBuiltCli();
 
   const tempRepo = createCheckReadyRepo();
-  updateChecksConfig(tempRepo, { commands: [] });
+  updateLegacyChecksConfig(tempRepo, { commands: [] });
 
   const checkResult = runCli(["check"], { cwd: tempRepo });
   assertSuccess(checkResult, "check with no commands");
@@ -226,7 +290,7 @@ test("phase 11 check rejects empty configured commands before execution", () => 
   ensureBuiltCli();
 
   const tempRepo = createCheckReadyRepo();
-  updateChecksConfig(tempRepo, { commands: ["   "] });
+  updateLegacyChecksConfig(tempRepo, { commands: ["   "] });
 
   const checkResult = runCli(["check"], { cwd: tempRepo });
   assertFailure(checkResult, "check empty command rejection");

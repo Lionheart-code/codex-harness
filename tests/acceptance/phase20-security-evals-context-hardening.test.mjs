@@ -285,12 +285,13 @@ test(
     const result = runCli(["eval"], { cwd: productRoot });
     const afterStatus = getGitStatus(productRoot);
 
-    assertSuccess(result, "phase 20 bare eval");
-    assert.equal(afterStatus, beforeStatus, "bare eval changed product-repo git status");
-    assert.match(result.stdout, /mode: deterministic_local_regression/);
-    assert.match(result.stdout, /- build \| exit_code=0/);
-    assert.match(result.stdout, /- acceptance \| exit_code=0/);
-    assert.match(result.stdout, /status: passed/);
+  assertSuccess(result, "phase 20 bare eval");
+  assert.equal(afterStatus, beforeStatus, "bare eval changed product-repo git status");
+  assert.match(result.stdout, /mode: deterministic_local_regression/);
+  assert.match(result.stdout, /- build \| exit_code=0/);
+  assert.match(result.stdout, /- acceptance \| exit_code=0/);
+  assert.match(result.stdout, /scripts[\\/]run-acceptance\.mjs/);
+  assert.match(result.stdout, /status: passed/);
   }
 );
 

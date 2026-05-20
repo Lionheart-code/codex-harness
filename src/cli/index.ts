@@ -26,7 +26,7 @@ type CommandHandler = (args: string[]) => Promise<number>;
 
 function printHelp(): void {
   lines([
-    "codex-harness Phase 20 CLI",
+    "codex-harness Phase 21 CLI",
     "",
     "Usage:",
     "  node bin/ch --help",
@@ -54,6 +54,8 @@ function printHelp(): void {
     "  node bin/ch doctor",
     "  node bin/ch doctor --help",
     "  node bin/ch doctor --all",
+    "  node bin/ch doctor platform",
+    "  node bin/ch doctor commands",
     "  node bin/ch security --help",
     "  node bin/ch security doctor",
     "  node bin/ch context --help",
@@ -94,7 +96,7 @@ function printHelp(): void {
     "  memory   Show Phase 9 memory, debt, decision, and agent-output status.",
     "  debt     Add, list, and resolve Phase 9 debt ledger items.",
     "  decisions Add and list Phase 9 decision records.",
-    "  doctor   Report whether the current directory is inside a git repository.",
+    "  doctor   Report repository, platform, command-runner, and registry state.",
     "  eval     Run deterministic local regression checks or manage the Phase 15 playground.",
     "  governance Run Phase 17 harness governance review, proposal, metrics, and status commands.",
     "  parallel Manage the Phase 16 opt-in parallel worktree scaffold.",

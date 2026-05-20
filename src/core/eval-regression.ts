@@ -1,4 +1,5 @@
-import { spawnSync } from "node:child_process";
+import * as path from "node:path";
+import { runStructuredCommand } from "./command-runner";
 import { getProductRoot } from "./install";
 
 interface EvalStepDefinition {
@@ -50,12 +51,7 @@ export function runEvalRegression(cwd: string): EvalRegressionResult {
     {
       name: "acceptance",
       command: process.execPath,
-      args: [
-        "--test",
-        "tests/acceptance/phase1-cli.test.mjs",
-        "tests/acceptance/phase15-playground-evals.test.mjs",
-        "tests/acceptance/phase20-security-evals-context-hardening.test.mjs"
-      ],
+      args: [path.join("scripts", "run-acceptance.mjs")],
       env: {
         ...process.env,
         CODEX_HARNESS_EVAL_RUNNING: "1"
@@ -66,23 +62,25 @@ export function runEvalRegression(cwd: string): EvalRegressionResult {
   const results: EvalRegressionStepResult[] = [];
 
   for (const step of steps) {
-    const run = spawnSync(step.command, step.args, {
+    const run = runStructuredCommand({
+      command: step.command,
+      args: step.args,
       cwd: productRoot,
-      encoding: "utf8",
+      timeout_seconds: 3600,
       shell: false,
       env: step.env ?? process.env
     });
 
-    if (run.error) {
-      throw run.error;
+    if (run.spawnError) {
+      throw new Error(run.spawnError);
     }
 
     const stepResult: EvalRegressionStepResult = {
       name: step.name,
       command: stringifyCommand(step.command, step.args),
-      exitCode: run.status ?? 1,
-      stdout: run.stdout ?? "",
-      stderr: run.stderr ?? ""
+      exitCode: run.exitCode,
+      stdout: run.stdout,
+      stderr: run.stderr
     };
 
     results.push(stepResult);

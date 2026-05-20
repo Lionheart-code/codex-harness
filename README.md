@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 20 adds inspect-only security posture reporting, deterministic local regression evals, prompt-context inspection, and operator hardening on top of the Phase 19 artifact schemas and migrations, the Phase 18 install/upgrade lifecycle, the Phase 17 governance loop, the Phase 16 parallel worktree scaffold, the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
+`codex-harness` is a Codex-first programming harness. Phase 21 adds cross-platform command-runner hardening, structured check-command support, `doctor platform`, `doctor commands`, and a shared Node-based acceptance runner on top of the Phase 20 security/eval/context hardening, the Phase 19 artifact schemas and migrations, the Phase 18 install/upgrade lifecycle, the Phase 17 governance loop, the Phase 16 parallel worktree scaffold, the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
 
-## Phase 20 commands
+## Phase 21 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -29,6 +29,8 @@ node bin/ch decisions list
 node bin/ch doctor
 node bin/ch doctor --help
 node bin/ch doctor --all
+node bin/ch doctor platform
+node bin/ch doctor commands
 node bin/ch security --help
 node bin/ch security doctor
 node bin/ch context --help
@@ -73,15 +75,20 @@ node bin/ch prompt scout --role tests
 ```bash
 npm install
 npm run build
+npm test
+npm run test:acceptance
 ```
 
-## Phase 20 security, eval, and context behavior
+## Phase 21 platform, security, eval, and context behavior
 
 - `security doctor` is inspect/report only. It audits the current product-repo or installed-target posture and does not change permission state.
 - `security doctor` succeeds in the product repo and reports installed-layer audit as unavailable there.
 - `security doctor` succeeds in installed target repos when the installed layer and config are readable, and it reports the current protected-path posture plus discovered adapter profiles.
 - `security doctor` fails closed on malformed adapter config or unclear permission state.
-- bare `eval` runs deterministic local regression checks from the product repository root only and does not require internet, API access, or external agents.
+- `doctor platform` reports runtime/platform facts without mutating repository state.
+- `doctor commands` reports the command-execution policy, acceptance-runner path, and installed-repo check-config status when available.
+- bare `eval` runs deterministic local regression checks from the product repository root only, does not require internet, API access, or external agents, and delegates acceptance execution to `scripts/run-acceptance.mjs`.
+- `npm test` and `npm run test:acceptance` both delegate to the same Node-based `scripts/run-acceptance.mjs` runner.
 - `eval playground init`, `eval playground smoke`, and `eval playground clean` remain the Phase 15 disposable playground surface.
 - `context inspect` is read-only only. It reports the current prompt-context inputs for `plan`, `work`, `review`, or `scout --role <role>` using the same task/worktree preconditions as prompt generation.
 - `context inspect` references artifacts by path and preserves the rule that raw logs are not prompt context by default.
@@ -188,14 +195,16 @@ npm run build
 - Recorded outputs remain raw and untrusted until reviewed.
 - Agent output status parsing supports `raw`, `accepted`, `stale`, and `rejected`, while Phase 9 still records new runs as `raw` only.
 - `agent prompt <agent> --role <role>` requires an adapter profile in `.harness/config.toml`, creates a run-local `prompt.md` and `command.json`, and prints the bounded command preview without executing the external agent.
-- `agent run <agent> --role <role>` executes only configured `cli` adapters with `permission_mode = "read_only"`, captures stdout to `output.md`, captures stderr plus run summary to `log.txt`, and records command metadata in `status.json`.
+- `agent run <agent> --role <role>` executes only configured `cli` adapters with `permission_mode = "read_only"`, captures stdout to `output.md`, captures stderr plus run summary to `log.txt`, records command metadata in `status.json`, and uses the same shared structured execution path with `shell = false`.
 - `parallel plan`, `parallel status`, and `parallel close` add a manual Phase 16 scaffold for isolated worker worktrees plus an integrator close gate.
 - Phase 16 does not add automatic write-capable worker execution.
 - `governance review`, `governance proposal`, `governance metrics`, and `governance status` add a deterministic Phase 17 maintainer-governance loop for installed harness layers only.
 - Phase 17 governance produces review/proposal/metrics artifacts only. It does not edit the product repository or silently apply harness changes.
 - `capture` reads the active task worktree, captures `git status --porcelain --untracked-files=all`, writes `diff.patch`, and seeds `.harness/tasks/<task-id>/verifier.json` with durable capture state.
-- `check` refreshes capture artifacts, runs `[checks].commands` from `.harness/config.toml`, writes `.harness/tasks/<task-id>/logs/check.log`, and records deterministic pass/fail results in `verifier.json`.
+- `check` refreshes capture artifacts, reads both legacy `[checks].commands` string arrays and preferred structured `[[checks.commands]]` entries from `.harness/config.toml`, runs them from the recorded task worktree through the shared command runner, writes `.harness/tasks/<task-id>/logs/check.log`, and records deterministic pass/fail results in `verifier.json`.
 - `check` treats protected-path changes as failure. If `[checks].protected_paths` is unset, the defaults are `AGENTS.md` and `.harness/config.toml`.
+- Legacy `[checks].commands` string-array entries remain readable, are tokenized into `command + args`, run with `shell = false`, and fail closed on shell-only syntax.
+- Structured `[[checks.commands]]` is the preferred format for fresh config, docs, and tests. `shell = false` is the default, and `shell = true` is explicit opt-in only.
 - `diff.patch` contains tracked-file git diff output only. Untracked files are represented in `verifier.json.git_status_lines`.
 - `review` reads or writes `.harness/tasks/<task-id>/review.json` as the Phase 14 review artifact.
 - `review` validates review JSON locally without calling Codex.
@@ -211,7 +220,8 @@ npm run build
 - Supported Phase 10 adapter fields are `transport`, `command`, `args`, `working_directory_policy`, optional `explicit_path`, `permission_mode`, `allowed_roles`, `output_contract`, `timeout_seconds`, and `requires_human_confirmation`.
 - Supported argument placeholders in `args` are `{prompt_path}`, `{output_path}`, `{log_path}`, and `{cwd}` only.
 - No adapter is enabled by default; the harness fails closed when the named profile is missing or malformed.
-- `[checks].commands` remains a string-array of shell commands run in the recorded task worktree.
+- Legacy `[checks].commands` string arrays remain readable for compatibility.
+- Preferred structured check format uses `[[checks.commands]]` entries with `command`, `args`, `timeout_seconds`, and optional explicit `shell = true`.
 - `[checks].protected_paths` is an optional string-array override for protected-path detection during `check`.
 
 - `install` creates `.harness/config.toml`, `.harness/tasks/`, `.harness/templates/`, `.harness/memory/`, and `.harness/install.json`.
@@ -265,8 +275,13 @@ timeout_seconds = 600
 requires_human_confirmation = true
 
 [checks]
-commands = ["git status --short"]
 protected_paths = ["AGENTS.md", ".harness/config.toml"]
+
+[[checks.commands]]
+command = "git"
+args = ["status", "--short"]
+timeout_seconds = 120
+shell = false
 ```
 
 ## Phase 14 limitations

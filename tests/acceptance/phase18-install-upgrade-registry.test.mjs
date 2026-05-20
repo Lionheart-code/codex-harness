@@ -68,6 +68,8 @@ test("phase 18 exposes upgrade help and doctor help", () => {
   const doctorHelp = runCli(["doctor", "--help"], { cwd: productRoot });
   assertSuccess(doctorHelp, "doctor help");
   assert.match(doctorHelp.stdout, /node bin\/ch doctor --all/);
+  assert.match(doctorHelp.stdout, /node bin\/ch doctor platform/);
+  assert.match(doctorHelp.stdout, /node bin\/ch doctor commands/);
 });
 
 test("phase 18 install writes the real optional registry and doctor --all reads that installed project", () => {

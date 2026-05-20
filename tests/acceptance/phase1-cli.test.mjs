@@ -44,6 +44,8 @@ test("phase 1 help output includes the supported commands", () => {
   assert.match(result.stdout, /node bin\/ch decisions list/);
   assert.match(result.stdout, /node bin\/ch doctor --help/);
   assert.match(result.stdout, /node bin\/ch doctor --all/);
+  assert.match(result.stdout, /node bin\/ch doctor platform/);
+  assert.match(result.stdout, /node bin\/ch doctor commands/);
   assert.match(result.stdout, /node bin\/ch security --help/);
   assert.match(result.stdout, /node bin\/ch security doctor/);
   assert.match(result.stdout, /node bin\/ch context --help/);

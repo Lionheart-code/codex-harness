@@ -13,7 +13,7 @@ import {
   getImplementationDisciplineSection,
   getTaskTargetPaths
 } from "./paths";
-import { inspectCheckConfig } from "./checks";
+import { inspectCheckConfig, type CheckCommandSpec } from "./checks";
 import { listTasks, getTaskDirectory, TaskState } from "./tasks";
 
 export type PromptMode = "plan" | "work" | "review";
@@ -41,7 +41,7 @@ interface PromptContext {
   branchRecordPath: string;
   worktreeRecordPath: string;
   worktreePath: string;
-  checksCommands: string[];
+  checksCommands: CheckCommandSpec[];
 }
 
 export interface PromptInspectionContext {
@@ -218,7 +218,7 @@ export function getPromptInspectionContext(cwd: string): PromptInspectionContext
     statePath: context.statePath,
     branchRecordPath: context.branchRecordPath,
     worktreeRecordPath: context.worktreeRecordPath,
-    checksCommands: [...context.checksCommands]
+    checksCommands: context.checksCommands.map((command) => command.displayCommand)
   };
 }
 
@@ -237,7 +237,7 @@ function buildVerificationLines(context: PromptContext): string[] {
   }
 
   lines.push("- Run the project-specific commands listed in `.harness/config.toml`:");
-  lines.push(...context.checksCommands.map((command) => `- \`${command}\``));
+  lines.push(...context.checksCommands.map((command) => `- \`${command.displayCommand}\``));
 
   return lines;
 }

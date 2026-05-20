@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_21_PLATFORM_COMPATIBILITY.md
+Implement only: tasks/PHASE_22_RELEASE_SUPPLY_CHAIN_SECURITY.md
 
-Do not implement Phase 21 or later.
+Do not implement Phase 23 or later.

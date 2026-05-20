@@ -1,6 +1,6 @@
-import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { formatCommandForDisplay, runStructuredCommand, type StructuredCommandSpec } from "./command-runner";
 import { getGitDiffPatch, getGitStatusLines, getGitStatusPaths } from "./git";
 import { CONFIG_PATH, TASK_CHECK_LOG_FILE, TASK_DIFF_FILE, TASK_LOGS_DIR, TASK_VERIFIER_FILE } from "./paths";
 import { CURRENT_SCHEMA_VERSION, buildSchemaMetadata, validateOptionalSchemaMetadata } from "./schema-migrations";
@@ -45,8 +45,13 @@ export interface CheckResult extends CaptureResult {
   logPath: string;
 }
 
+export interface CheckCommandSpec extends StructuredCommandSpec {
+  source: "legacy" | "structured";
+  displayCommand: string;
+}
+
 export interface CheckConfig {
-  commands: string[];
+  commands: CheckCommandSpec[];
   protectedPaths: string[];
 }
 
@@ -54,10 +59,11 @@ interface CommandExecutionResult extends CheckCommandRecord {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  shell: boolean;
 }
 
 export const DEFAULT_PROTECTED_PATHS = ["AGENTS.md", ".harness/config.toml"];
-const COMMAND_TIMEOUT_MS = 120000;
+export const DEFAULT_CHECK_TIMEOUT_SECONDS = 120;
 
 function toPortablePath(targetPath: string): string {
   return targetPath.replace(/\\/g, "/");
@@ -127,17 +133,180 @@ function parseStringArray(value: string): string[] | undefined {
   }
 }
 
-function validateCheckCommands(commands: string[]): string[] {
-  for (const command of commands) {
-    if (command.trim().length === 0) {
-      throw new Error("The `[checks].commands` entries must not be empty or whitespace-only.");
+function parseBoolean(value: string): boolean | undefined {
+  if (value === "true") {
+    return true;
+  }
+
+  if (value === "false") {
+    return false;
+  }
+
+  return undefined;
+}
+
+function parseInteger(value: string): number | undefined {
+  if (!/^\d+$/.test(value)) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function containsLegacyShellSyntax(command: string): boolean {
+  let quote: "'" | '"' | undefined;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+    const next = command[index + 1] ?? "";
+
+    if (quote) {
+      if (character === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+
+    if (
+      character === "|" ||
+      character === ";" ||
+      character === "<" ||
+      character === ">" ||
+      character === "`" ||
+      (character === "&" && next === "&") ||
+      (character === "|" && next === "|") ||
+      (character === "$" && next === "(")
+    ) {
+      return true;
     }
   }
 
-  return commands;
+  return false;
+}
+
+function tokenizeLegacyCommand(command: string): string[] {
+  if (containsLegacyShellSyntax(command)) {
+    throw new Error(
+      "Legacy `[checks].commands` entries must not use shell syntax. Use structured `[[checks.commands]]` with `shell = true` when shell behavior is required."
+    );
+  }
+
+  const tokens: string[] = [];
+  let quote: "'" | '"' | undefined;
+  let current = "";
+  let tokenStarted = false;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+
+    if (quote) {
+      if (character === quote) {
+        quote = undefined;
+      } else {
+        current += character;
+      }
+      tokenStarted = true;
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      tokenStarted = true;
+      continue;
+    }
+
+    if (/\s/.test(character)) {
+      if (tokenStarted) {
+        tokens.push(current);
+        current = "";
+        tokenStarted = false;
+      }
+      continue;
+    }
+
+    current += character;
+    tokenStarted = true;
+  }
+
+  if (quote) {
+    throw new Error("Legacy `[checks].commands` contains an unterminated quoted string.");
+  }
+
+  if (tokenStarted) {
+    tokens.push(current);
+  }
+
+  return tokens;
+}
+
+function normalizeLegacyCheckCommands(commands: string[]): CheckCommandSpec[] {
+  return commands.map((rawCommand) => {
+    if (rawCommand.trim().length === 0) {
+      throw new Error("The `[checks].commands` entries must not be empty or whitespace-only.");
+    }
+
+    const tokens = tokenizeLegacyCommand(rawCommand);
+
+    if (tokens.length === 0) {
+      throw new Error("The `[checks].commands` entries must not be empty or whitespace-only.");
+    }
+
+    return {
+      source: "legacy",
+      command: tokens[0],
+      args: tokens.slice(1),
+      cwd: "",
+      timeout_seconds: DEFAULT_CHECK_TIMEOUT_SECONDS,
+      shell: false,
+      capture_stdout: true,
+      capture_stderr: true,
+      displayCommand: rawCommand
+    };
+  });
+}
+
+function buildStructuredCheckCommand(raw: Record<string, unknown>, index: number): CheckCommandSpec {
+  if (raw.cwd !== undefined) {
+    throw new Error("The `[[checks.commands]]` entries must not set `cwd`; the harness derives it from the task worktree.");
+  }
+
+  if (typeof raw.command !== "string" || raw.command.trim().length === 0) {
+    throw new Error(`The \`[[checks.commands]]\` entry #${index} is missing command.`);
+  }
+
+  if (!Array.isArray(raw.args) || !raw.args.every((entry) => typeof entry === "string")) {
+    throw new Error(`The \`[[checks.commands]]\` entry #${index} must define args as a string array.`);
+  }
+
+  if (typeof raw.timeout_seconds !== "number" || raw.timeout_seconds <= 0) {
+    throw new Error(`The \`[[checks.commands]]\` entry #${index} must define a positive timeout_seconds.`);
+  }
+
+  if (raw.shell !== undefined && typeof raw.shell !== "boolean") {
+    throw new Error(`The \`[[checks.commands]]\` entry #${index} has an invalid shell value.`);
+  }
+
+  return {
+    source: "structured",
+    command: raw.command,
+    args: [...(raw.args as string[])],
+    cwd: "",
+    timeout_seconds: raw.timeout_seconds,
+    shell: raw.shell ?? false,
+    capture_stdout: true,
+    capture_stderr: true,
+    displayCommand: formatCommandForDisplay(raw.command, raw.args as string[])
+  };
 }
 
 export interface CheckConfigInspection extends CheckConfig {
+  commandsFormat: "empty" | "legacy" | "structured";
   protectedPathsSource: "default" | "configured";
 }
 
@@ -145,8 +314,10 @@ export function inspectCheckConfig(targetRoot: string): CheckConfigInspection {
   const configPath = path.join(targetRoot, CONFIG_PATH);
   const lines = fs.readFileSync(configPath, "utf8").split(/\r?\n/);
   let currentSection = "";
-  let commands: string[] | undefined;
+  let legacyCommands: string[] | undefined;
+  const structuredCommands: Array<Record<string, unknown>> = [];
   let protectedPaths: string[] | undefined;
+  let currentStructuredCommand: Record<string, unknown> | undefined;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -155,14 +326,24 @@ export function inspectCheckConfig(targetRoot: string): CheckConfigInspection {
       continue;
     }
 
+    const arraySectionMatch = /^\[\[([^\]]+)\]\]$/.exec(trimmed);
+
+    if (arraySectionMatch) {
+      currentSection = arraySectionMatch[1];
+      if (currentSection === "checks.commands") {
+        currentStructuredCommand = {};
+        structuredCommands.push(currentStructuredCommand);
+      } else {
+        currentStructuredCommand = undefined;
+      }
+      continue;
+    }
+
     const sectionMatch = /^\[([^\]]+)\]$/.exec(trimmed);
 
     if (sectionMatch) {
       currentSection = sectionMatch[1];
-      continue;
-    }
-
-    if (currentSection !== "checks") {
+      currentStructuredCommand = undefined;
       continue;
     }
 
@@ -174,27 +355,74 @@ export function inspectCheckConfig(targetRoot: string): CheckConfigInspection {
 
     const [, key, rawValue] = keyValueMatch;
 
-    if (key === "commands") {
-      commands = parseStringArray(rawValue);
-      if (!commands) {
-        throw new Error("The `[checks].commands` value must be a string array.");
+    if (currentSection === "checks") {
+      if (key === "commands") {
+        legacyCommands = parseStringArray(rawValue);
+        if (!legacyCommands) {
+          throw new Error("The `[checks].commands` value must be a string array.");
+        }
       }
-      commands = validateCheckCommands(commands);
+
+      if (key === "protected_paths") {
+        protectedPaths = parseStringArray(rawValue);
+        if (!protectedPaths) {
+          throw new Error("The `[checks].protected_paths` value must be a string array.");
+        }
+      }
+
+      continue;
     }
 
-    if (key === "protected_paths") {
-      protectedPaths = parseStringArray(rawValue);
-      if (!protectedPaths) {
-        throw new Error("The `[checks].protected_paths` value must be a string array.");
+    if (currentSection === "checks.commands" && currentStructuredCommand) {
+      switch (key) {
+        case "command":
+          currentStructuredCommand.command = parseQuotedString(rawValue);
+          break;
+        case "args":
+          currentStructuredCommand.args = parseStringArray(rawValue);
+          break;
+        case "timeout_seconds":
+          currentStructuredCommand.timeout_seconds = parseInteger(rawValue);
+          break;
+        case "shell":
+          currentStructuredCommand.shell = parseBoolean(rawValue);
+          break;
+        case "cwd":
+          currentStructuredCommand.cwd = parseQuotedString(rawValue);
+          break;
+        default:
+          throw new Error(`Unsupported key in [[checks.commands]]: ${key}`);
       }
     }
   }
 
+  if (legacyCommands && structuredCommands.length > 0) {
+    throw new Error(
+      "Use either legacy `[checks].commands` or structured `[[checks.commands]]`, not both in the same config."
+    );
+  }
+
+  const normalizedCommands =
+    legacyCommands !== undefined
+      ? normalizeLegacyCheckCommands(legacyCommands)
+      : structuredCommands.map((entry, index) => buildStructuredCheckCommand(entry, index + 1));
+
   return {
-    commands: commands ?? [],
+    commands: normalizedCommands,
+    commandsFormat:
+      legacyCommands !== undefined ? "legacy" : structuredCommands.length > 0 ? "structured" : "empty",
     protectedPaths: protectedPaths ?? DEFAULT_PROTECTED_PATHS,
     protectedPathsSource: protectedPaths ? "configured" : "default"
   };
+}
+
+function parseQuotedString(value: string): string | undefined {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "string" ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function collectProtectedPathViolations(statusLines: string[], protectedPaths: string[]): string[] {
@@ -321,6 +549,7 @@ function formatCommandLogSection(execution: CommandExecutionResult, cwd: string)
   return [
     `command: ${execution.command}`,
     `cwd: ${cwd}`,
+    `shell: ${execution.shell ? "true" : "false"}`,
     `result: ${execution.result}`,
     `exit_code: ${execution.exit_code}`,
     `duration_ms: ${execution.duration_ms}`,
@@ -333,27 +562,20 @@ function formatCommandLogSection(execution: CommandExecutionResult, cwd: string)
   ].join("\n");
 }
 
-function executeCheckCommand(command: string, cwd: string): CommandExecutionResult {
-  const startedAt = Date.now();
-  const result = spawnSync(command, {
-    cwd,
-    encoding: "utf8",
-    shell: true,
-    timeout: COMMAND_TIMEOUT_MS
+function executeCheckCommand(command: CheckCommandSpec, cwd: string): CommandExecutionResult {
+  const result = runStructuredCommand({
+    ...command,
+    cwd
   });
-  const durationMs = Date.now() - startedAt;
-  const timedOut =
-    (result.error instanceof Error && "code" in result.error && result.error.code === "ETIMEDOUT") ||
-    (typeof result.signal === "string" && result.signal.length > 0 && result.status === null);
-
   return {
-    command,
-    exit_code: result.status ?? 1,
-    duration_ms: durationMs,
-    result: timedOut || result.status !== 0 || Boolean(result.error) ? "fail" : "pass",
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? (result.error ? result.error.message : ""),
-    timedOut
+    command: command.displayCommand,
+    exit_code: result.exitCode,
+    duration_ms: result.durationMs,
+    result: result.timedOut || result.exitCode !== 0 || Boolean(result.spawnError) ? "fail" : "pass",
+    stdout: result.stdout,
+    stderr: result.stderr,
+    timedOut: result.timedOut,
+    shell: command.shell
   };
 }
 
