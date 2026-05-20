@@ -199,26 +199,14 @@ Define and implement package dry-run verification, CI/PR release gates, provenan
 ## Phase 22.5 — core runtime normalization
 
 Task:
-Planning-only after Phase 22 closeout. Define a task file before implementation.
+`tasks/PHASE_22_5_CORE_RUNTIME_NORMALIZATION.md`
 
 Goal:
 Normalize current CLI, phase, check, review, and report behavior into a shared
 runtime model before Memory/Evidence Core work begins.
 
-Minimal primitives to introduce later:
-
-```text
-Run
-PhaseRun
-Step
-ArtifactRef
-EvidenceRef
-Finding
-Decision
-Approval
-CommandResult
-PolicyDecision
-```
+Status:
+Planned. Blocked until Phase 22 release/package/CI baseline is closed and verified.
 
 This is an architectural normalization step only. Do not implement it during
 Phase 22.
@@ -226,11 +214,71 @@ Phase 22.
 ## Phase 23 — memory/evidence core
 
 Task:
-To be defined after Phase 22.5 planning and closeout.
+`tasks/PHASE_23_MEMORY_EVIDENCE_CORE.md`
 
 Goal:
-Build Memory/Evidence Core on top of the normalized runtime model introduced by
-the Phase 22.5 plan.
+Build durable local Memory/Evidence Core on top of the normalized runtime model
+introduced by Phase 22.5.
+
+Status:
+Planned. Blocked until Phase 22.5 is complete and reviewed.
+
+## Phase 24 — reports and LLM-ready evidence packets
+
+Task:
+`tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`
+
+Goal:
+Turn stored evidence into deterministic reports and bounded evidence packets.
+
+Status:
+Planned. Blocked until Phase 23 is complete and reviewed.
+
+## Phase 25 — agent access layer
+
+Task:
+`tasks/PHASE_25_AGENT_ACCESS_LAYER.md`
+
+Goal:
+Expose governed access to runtime, memory, reports, and packets through shared
+core services, with CLI/Direct API first and MCP optional.
+
+Status:
+Planned. Blocked until Phase 24 is complete and reviewed.
+
+## Phase 26 — domain pack / skills architecture
+
+Task:
+`tasks/PHASE_26_DOMAIN_PACK_SKILLS_ARCHITECTURE.md`
+
+Goal:
+Introduce local, validated domain packs without putting domain logic into core.
+
+Status:
+Planned. Blocked until Phase 25 is complete and reviewed.
+
+## Pilot — Research Ops pack
+
+Task:
+`tasks/PILOT_RESEARCH_OPS_PACK.md`
+
+Goal:
+Validate a read-mostly, provenance-oriented non-code domain pack.
+
+Status:
+Planned. Blocked until Phase 26 is complete and reviewed.
+
+## Experimental — Marketing Ops pack
+
+Task:
+`tasks/EXPERIMENTAL_MARKETING_OPS_PACK.md`
+
+Goal:
+Stress-test domain packs against higher-risk marketing workflows while staying
+draft/report/recommend-only.
+
+Status:
+Planned experimental. Blocked until the Research Ops pilot is complete and reviewed.
 
 ## Stop rule
 
