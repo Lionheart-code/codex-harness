@@ -194,7 +194,7 @@ Task:
 `tasks/PHASE_22_RELEASE_SUPPLY_CHAIN_SECURITY.md`
 
 Goal:
-Define and implement release hardening for npm/package distribution, provenance, dependency policy, and safe upgrades.
+Define and implement package dry-run verification, CI/PR release gates, provenance/trusted-publishing preparation, dependency policy, and safe upgrade release notes without publishing.
 
 ## Stop rule
 
