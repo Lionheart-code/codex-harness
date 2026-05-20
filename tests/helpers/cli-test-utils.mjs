@@ -80,6 +80,14 @@ export function createTempDirectory(prefix = "codex-harness-acceptance-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
+export function configureLocalGitIdentity(cwd) {
+  assertSuccess(runCommand("git", ["config", "user.name", "codex-harness-test"], { cwd }), `git config user.name in ${cwd}`);
+  assertSuccess(
+    runCommand("git", ["config", "user.email", "codex-harness-test@example.invalid"], { cwd }),
+    `git config user.email in ${cwd}`
+  );
+}
+
 export function removeDirectory(targetPath) {
   if (fs.existsSync(targetPath)) {
     fs.rmSync(targetPath, { recursive: true, force: true });

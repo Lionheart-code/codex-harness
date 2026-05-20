@@ -6,6 +6,7 @@ import {
   assertProductRepoBoundaryState,
   assertFailure,
   assertSuccess,
+  configureLocalGitIdentity,
   createTempDirectory,
   ensureBuiltCli,
   productRoot,
@@ -30,8 +31,7 @@ function createGovernanceReadyRepo() {
   tempDirectories.push(tempRepo);
 
   assertSuccess(runCommand("git", ["init"], { cwd: tempRepo }), `git init in ${tempRepo}`);
-  assertSuccess(runCommand("git", ["config", "user.email", "test@example.com"], { cwd: tempRepo }), "git config user.email");
-  assertSuccess(runCommand("git", ["config", "user.name", "Test User"], { cwd: tempRepo }), "git config user.name");
+  configureLocalGitIdentity(tempRepo);
 
   writeText(path.join(tempRepo, "README.md"), "# test\n");
   assertSuccess(runCommand("git", ["add", "README.md"], { cwd: tempRepo }), "git add README.md");
@@ -48,6 +48,7 @@ function createUninstalledRepo() {
   tempDirectories.push(tempRepo);
 
   assertSuccess(runCommand("git", ["init"], { cwd: tempRepo }), `git init in ${tempRepo}`);
+  configureLocalGitIdentity(tempRepo);
   writeText(path.join(tempRepo, "README.md"), "# test\n");
   assertSuccess(runCommand("git", ["add", "README.md"], { cwd: tempRepo }), "git add README.md");
   assertSuccess(runCommand("git", ["commit", "-m", "init"], { cwd: tempRepo }), "git commit init");

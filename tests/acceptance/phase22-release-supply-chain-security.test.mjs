@@ -184,7 +184,19 @@ test("phase 22 acceptance runner times out with clear diagnostics for hanging ac
   tempDirectories.push(hangingAcceptanceDir);
   writeText(
     path.join(hangingAcceptanceDir, "hang.test.mjs"),
-    'import { test } from "node:test";\n\ntest("hangs", async () => {\n  await new Promise(() => {});\n});\n'
+    [
+      'import { test } from "node:test";',
+      "",
+      'test("hangs", async () => {',
+      "  const interval = setInterval(() => {}, 1000);",
+      "  try {",
+      "    await new Promise(() => {});",
+      "  } finally {",
+      "    clearInterval(interval);",
+      "  }",
+      "});",
+      ""
+    ].join("\n")
   );
 
   const result = runCommand(process.execPath, [path.join(productRoot, "scripts", "run-acceptance.mjs")], {
