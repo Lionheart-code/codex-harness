@@ -75,6 +75,32 @@ This is called self-hosting or dogfooding.
 
 Self-hosting does not mean merging the product repository and target projects into one mega-repo.
 
+Phase 22.5 adds a minimal self-hosted runtime path through:
+
+```bash
+node bin/ch run start --task TASK.md
+node bin/ch run status
+node bin/ch run verify
+node bin/ch run closeout
+node bin/ch run remote-status
+```
+
+This path uses the current source CLI/runtime. It must not install a persistent second harness inside the `codex-harness` product repository.
+
+## Runtime State Boundary
+
+Phase 22.5 separates three classes of state:
+
+```text
+Product source is committed.
+Runtime state is local/private and ignored.
+Portable exports are explicit, redacted, versioned, and importable later.
+```
+
+Runtime run state may be written under `.harness/runs/` when `ch run` is used without `--dry-run`. That state is private local state, not product source. The product repository must not commit `.harness/`, `.codex/`, `.agents/`, generated package tarballs, logs, caches, or temporary runtime output.
+
+Future portable exports must be deliberate sanitized artifacts. Raw `.harness/` sync is not a supported product/source boundary.
+
 ## Governance split
 
 ### Product governance

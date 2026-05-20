@@ -67,6 +67,28 @@ Check:
 - bare `eval` runs deterministic local regression checks only;
 - `eval playground ...` remains the separate disposable playground workflow.
 
+## Phase 22.5 runtime checks
+
+Before creating local runtime state in the harness product repository:
+
+```bash
+node bin/ch run --help
+node bin/ch run start --task TASK.md --dry-run
+node bin/ch run status --dry-run
+node bin/ch run verify --dry-run
+node bin/ch run closeout --dry-run
+node bin/ch run remote-status --dry-run
+```
+
+Check:
+
+- dry-run output says no files were written;
+- no `.harness/`, `.codex/`, or `.agents/` directory appears in the product repository;
+- closeout is `BLOCKED` when required verification, review, or remote gate status is missing;
+- provider-specific remote details remain optional metadata, not required runtime fields.
+
+When using non-dry-run runtime commands, treat `.harness/runs/` as local private state. Do not commit it.
+
 ## Install and upgrade safety
 
 Before applying an installed-layer update in a target project:

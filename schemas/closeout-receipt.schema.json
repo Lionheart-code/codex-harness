@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-harness closeout receipt",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer_command",
+    "receipt_id",
+    "run_id",
+    "task_path",
+    "status",
+    "created_at",
+    "repository",
+    "change_set",
+    "verification_result",
+    "review_result",
+    "findings",
+    "decisions",
+    "approvals",
+    "required_gates",
+    "remote_checks",
+    "blockers"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_command": { "type": "string", "minLength": 1 },
+    "receipt_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "task_path": { "type": "string", "minLength": 1 },
+    "active_task_path": { "type": "string", "minLength": 1 },
+    "phase_id": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["READY", "BLOCKED"] },
+    "created_at": { "type": "string", "minLength": 1 },
+    "repository": {
+      "type": "object",
+      "required": ["root_path", "dirty"],
+      "properties": {
+        "root_path": { "type": "string", "minLength": 1 },
+        "branch": { "type": "string" },
+        "head_sha": { "type": "string" },
+        "dirty": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "change_set": {
+      "type": "object",
+      "required": ["git_status_lines", "changed_paths", "is_dirty"],
+      "properties": {
+        "git_status_lines": { "type": "array", "items": { "type": "string" } },
+        "changed_paths": { "type": "array", "items": { "type": "string" } },
+        "is_dirty": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "verification_result": { "type": "object" },
+    "review_result": { "type": "object" },
+    "findings": { "type": "array", "items": { "type": "object" } },
+    "decisions": { "type": "array", "items": { "type": "object" } },
+    "approvals": { "type": "array", "items": { "type": "object" } },
+    "required_gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["gate_id", "name", "required", "status"],
+        "properties": {
+          "gate_id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "required": { "type": "boolean" },
+          "status": { "enum": ["pass", "failed", "skipped", "missing", "unknown"] },
+          "explanation": { "type": "string" },
+          "check_result_id": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "remote_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["check_result_id", "gate_id", "name", "status", "required", "recorded_at", "ci_run"],
+        "properties": {
+          "check_result_id": { "type": "string", "minLength": 1 },
+          "gate_id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["pass", "failed", "skipped", "missing", "unknown"] },
+          "required": { "type": "boolean" },
+          "recorded_at": { "type": "string", "minLength": 1 },
+          "ci_run": {
+            "type": "object",
+            "required": ["provider"],
+            "properties": {
+              "provider": { "type": "string", "minLength": 1 },
+              "run_id": { "type": "string" },
+              "url": { "type": "string" },
+              "metadata": { "type": "object" }
+            },
+            "additionalProperties": true
+          },
+          "explanation": { "type": "string" },
+          "metadata": { "type": "object" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "blockers": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

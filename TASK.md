@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_22_5_CORE_RUNTIME_NORMALIZATION.md
+Implement only: tasks/PHASE_23_MEMORY_EVIDENCE_CORE.md
 
-Do not implement Phase 23 or later.
+Do not implement Phase 24 or later.

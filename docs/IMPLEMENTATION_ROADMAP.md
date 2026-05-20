@@ -223,6 +223,11 @@ introduced by Phase 22.5.
 Status:
 Planned. Blocked until Phase 22.5 is complete and reviewed.
 
+Phase 23 must preserve Phase 22.5 verification-reuse design as evidence-backed
+exact-match replay using `VerifiedSnapshot` / `ChangeSetFingerprint`, with
+SQLite as indexed projection, JSONL as append-only trace, and large raw
+artifacts referenced from ArtifactStore by hash or id.
+
 ## Phase 24 — reports and LLM-ready evidence packets
 
 Task:
