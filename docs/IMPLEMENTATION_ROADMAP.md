@@ -237,16 +237,41 @@ Implemented scope:
 - runtime commands record evidence while preserving Phase 22.5 run vocabulary;
 - local verification reuse is exact input-set evidence reuse and never replaces remote CI.
 
+## Phase 23.5 — DB-first Memory, Lifecycle Core, and Hooks Reconciliation
+
+Task:
+`tasks/PHASE_23_5_DB_FIRST_MEMORY_LIFECYCLE_HOOKS_RECONCILIATION.md`
+
+Goal:
+Make project memory and self-hosting lifecycle safe enough for later reports,
+packets, plan-review workflow, and agent access.
+
+Status:
+Planned. Blocked until Phase 23 is complete and reviewed.
+
+## Phase 23.6 — Self-hosting Skills and Plan-Review Workflow Bootstrap
+
+Task:
+`tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md`
+
+Goal:
+Make codex-harness development less manual by adding repo-owned self-hosting
+procedures and a basic plan-review workflow.
+
+Status:
+Planned. Blocked until Phase 23.5 is complete and reviewed.
+
 ## Phase 24 — reports and LLM-ready evidence packets
 
 Task:
 `tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`
 
 Goal:
-Turn stored evidence into deterministic reports and bounded evidence packets.
+Turn accepted project memory into deterministic reports and bounded evidence
+packets.
 
 Status:
-Planned. Blocked until Phase 23 is complete and reviewed.
+Planned. Blocked until Phase 23.6 is complete and reviewed.
 
 ## Phase 25 — agent access layer
 
