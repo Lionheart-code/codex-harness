@@ -49,6 +49,13 @@ schemas/
   decision.schema.json
   adapter-profile.schema.json
   governance-proposal.schema.json
+  runtime-run.schema.json
+  closeout-receipt.schema.json
+  evidence-event.schema.json
+  evidence-artifact-ref.schema.json
+  verified-snapshot.schema.json
+  change-set-fingerprint.schema.json
+  evidence-projection.schema.json
 ```
 
 Installed project:
@@ -74,6 +81,13 @@ schemas/
   decision.schema.json
   adapter-profile.schema.json
   governance-proposal.schema.json
+  runtime-run.schema.json
+  closeout-receipt.schema.json
+  evidence-event.schema.json
+  evidence-artifact-ref.schema.json
+  verified-snapshot.schema.json
+  change-set-fingerprint.schema.json
+  evidence-projection.schema.json
 
 migrations/
   0001-legacy-unversioned-to-v1.json
@@ -139,3 +153,17 @@ Any later phase that creates a new machine-readable artifact must either:
 
 - create or update its schema, or
 - explicitly state why schema work is deferred.
+
+## Phase 23 evidence schema contract
+
+Phase 23 adds schemas for evidence event envelopes, artifact refs, verified snapshots, change-set fingerprints, and projection metadata. Runtime evidence state remains local/private:
+
+```text
+.harness/evidence/events.jsonl
+.harness/evidence/projection.sqlite
+.harness/artifacts/sha256/<prefix>/<hash>
+```
+
+Only the schema files under product-source `schemas/` are packaged. The ledger, projection database, artifacts, logs, and package tarballs must not be committed or packaged as source.
+
+The append-only ledger uses versioned event envelopes and is the rebuild source for the SQLite projection. The projection has its own schema version and may be deleted/rebuilt from the ledger. Missing/corrupt evidence, unsupported event versions, unsupported projection schema, or missing/corrupt artifacts must fail clearly instead of being guessed.

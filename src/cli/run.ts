@@ -3,6 +3,7 @@ import { error, lines } from "../core/logger";
 import {
   type RecordRemoteStatusOptions,
   type RemoteGateStatus,
+  type RuntimeServiceResult,
   closeoutRuntimeRun,
   getRuntimeStatus,
   recordRuntimeRemoteStatus,
@@ -104,7 +105,7 @@ function dryRunOption(options: ParsedOptions): boolean {
   return options["dry-run"] === true;
 }
 
-function renderRunLines(title: string, result: ReturnType<typeof startRuntimeRun>): string[] {
+function renderRunLines(title: string, result: RuntimeServiceResult): string[] {
   const run = result.run;
   const output = [
     title,
@@ -127,7 +128,7 @@ function renderRunLines(title: string, result: ReturnType<typeof startRuntimeRun
 
 async function runStart(args: string[]): Promise<number> {
   const options = parseOptions(args, new Set(["task"]));
-  const result = startRuntimeRun(process.cwd(), {
+  const result = await startRuntimeRun(process.cwd(), {
     taskPath: stringOption(options, "task") ?? "TASK.md",
     dryRun: dryRunOption(options)
   });
@@ -152,7 +153,7 @@ async function runStatusCommand(args: string[]): Promise<number> {
 
 async function runVerify(args: string[]): Promise<number> {
   const options = parseOptions(args, new Set());
-  const result = verifyRuntimeRun(process.cwd(), {
+  const result = await verifyRuntimeRun(process.cwd(), {
     dryRun: dryRunOption(options)
   });
   const output = renderRunLines("codex-harness run verify", result);
@@ -164,7 +165,7 @@ async function runVerify(args: string[]): Promise<number> {
 
 async function runCloseout(args: string[]): Promise<number> {
   const options = parseOptions(args, new Set());
-  const result = closeoutRuntimeRun(process.cwd(), {
+  const result = await closeoutRuntimeRun(process.cwd(), {
     dryRun: dryRunOption(options)
   });
   const output = renderRunLines("codex-harness run closeout", result);
@@ -196,7 +197,7 @@ async function runRemoteStatus(args: string[]): Promise<number> {
     required: parseRequired(options.required),
     explanation: stringOption(options, "explanation")
   };
-  const result = recordRuntimeRemoteStatus(process.cwd(), remoteOptions);
+  const result = await recordRuntimeRemoteStatus(process.cwd(), remoteOptions);
   const output = renderRunLines("codex-harness run remote-status", result);
   output.push(`remote gate: ${result.remoteCheck.gate_id}`);
   output.push(`remote name: ${result.remoteCheck.name}`);

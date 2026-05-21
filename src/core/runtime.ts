@@ -1,6 +1,26 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { type VerifierRecord, validateVerifierRecord } from "./checks";
+import { ArtifactStore as EvidenceArtifactStore } from "./artifact-store";
+import { formatCommandForDisplay, runStructuredCommand } from "./command-runner";
+import { MemoryEvidenceStore } from "./evidence-store";
+import {
+  DEFAULT_EVIDENCE_NAMESPACE,
+  type ArtifactEvidenceRef,
+  type EvidenceEventEnvelope,
+  type EvidenceScope,
+  type VerificationCommandResultEvidence,
+  type VerificationCommandSpec,
+  type VerificationReuseDecision,
+  type VerifiedSnapshot,
+  buildTargetProjectId
+} from "./evidence-types";
+import {
+  buildVerificationReuseDecisionPayload,
+  buildVerificationSnapshotPayload,
+  captureVerifiedSnapshot,
+  decideLocalVerificationReuse
+} from "./verification-evidence";
 import { detectGitRepository, getGitStatusLines, getGitStatusPaths, runGitCommand } from "./git";
 import { detectInstalledLayer } from "./install";
 import {
@@ -344,6 +364,20 @@ export interface RecordApprovalInput {
   reason?: string;
 }
 
+interface RuntimeVerificationCommand {
+  command: string;
+  args: string[];
+  shell: boolean;
+  timeoutSeconds: number;
+}
+
+interface VerificationResolution {
+  verification: VerificationResult;
+  snapshot: VerifiedSnapshot;
+  reuseDecision: VerificationReuseDecision;
+  commandEvidence: VerificationCommandResultEvidence[];
+}
+
 const RUNTIME_RUNS_DIR = path.join(HARNESS_DIR, "runs");
 const CURRENT_RUN_FILE = "current.json";
 const RUN_FILE = "run.json";
@@ -409,6 +443,7 @@ function isPrivateRuntimePath(relativePath: string): boolean {
     ".codex/",
     ".agents/",
     ".harness/runs/",
+    ".harness/evidence/",
     ".harness/tmp/",
     ".harness/artifacts/",
     ".harness/packets/"
@@ -418,6 +453,7 @@ function isPrivateRuntimePath(relativePath: string): boolean {
     normalized === ".codex" ||
     normalized === ".agents" ||
     normalized === ".harness/runs" ||
+    normalized === ".harness/evidence" ||
     normalized === ".harness/tmp" ||
     normalized === ".harness/artifacts" ||
     normalized === ".harness/packets" ||
@@ -1038,6 +1074,186 @@ function buildPreviewRun(targetRoot: string, taskPath: string, producerCommand: 
   });
 }
 
+function buildEvidenceScopeForRun(targetRoot: string, run: Run): EvidenceScope {
+  return {
+    target_project_id: buildTargetProjectId(targetRoot),
+    target_root: targetRoot,
+    namespace: DEFAULT_EVIDENCE_NAMESPACE,
+    run_id: run.run_id,
+    ...(run.phase_id ? { phase_id: run.phase_id } : {}),
+    ...(run.active_task_path ?? run.task_path ? { task_path: run.active_task_path ?? run.task_path } : {}),
+    ...(run.active_task_path ?? run.task_path
+      ? { task_id: path.basename(run.active_task_path ?? run.task_path).replace(/\.[^.]+$/, "") }
+      : {})
+  };
+}
+
+function toRuntimeArtifactRef(ref: ArtifactEvidenceRef, description?: string): ArtifactRef {
+  return {
+    artifact_id: ref.artifact_id,
+    path: ref.path,
+    kind: ref.kind,
+    ...(ref.producer_command ? { producer_command: ref.producer_command } : {}),
+    ...(description ? { description } : {})
+  };
+}
+
+async function appendRuntimeEvidence(
+  targetRoot: string,
+  run: Run,
+  evidenceType: EvidenceEventEnvelope["evidence_type"],
+  payload: Record<string, unknown>,
+  producerCommand: string,
+  options: {
+    artifactRefs?: ArtifactEvidenceRef[];
+    reusable?: boolean;
+    stale?: boolean;
+    inputFingerprint?: string;
+  } = {}
+): Promise<EvidenceEventEnvelope> {
+  const store = new MemoryEvidenceStore(targetRoot);
+  const result = await store.append({
+    evidenceType,
+    scope: buildEvidenceScopeForRun(targetRoot, run),
+    producerCommand,
+    provenance: {
+      producer: { type: "runtime", command: producerCommand },
+      produced_at: nowIso(),
+      ...(options.inputFingerprint ? { input_fingerprint: options.inputFingerprint } : {}),
+      reusable: options.reusable ?? evidenceType === "verified_snapshot",
+      stale: options.stale ?? false,
+      sensitivity: "local",
+      redaction_status: "not_applicable",
+      exportable: false,
+      artifact_refs: options.artifactRefs ?? []
+    },
+    payload
+  });
+  return result.event;
+}
+
+function dedupeRuntimeArtifactRefs(artifacts: ArtifactRef[]): ArtifactRef[] {
+  const seen = new Set<string>();
+  return artifacts.filter((artifact) => {
+    const key = `${artifact.artifact_id}:${artifact.path}:${artifact.kind}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function buildSelfHostingVerificationCommands(targetRoot: string): RuntimeVerificationCommand[] | undefined {
+  const packageJsonPath = path.join(targetRoot, "package.json");
+
+  if (!fs.existsSync(packageJsonPath) || !fs.statSync(packageJsonPath).isFile()) {
+    return undefined;
+  }
+
+  try {
+    const packageJson = assertObject(readJsonFile(packageJsonPath), "package.json");
+    const name = typeof packageJson.name === "string" ? packageJson.name.trim() : "";
+    const scripts = packageJson.scripts && typeof packageJson.scripts === "object"
+      ? (packageJson.scripts as Record<string, unknown>)
+      : {};
+
+    if (name !== "codex-harness") {
+      return undefined;
+    }
+
+    const commands: RuntimeVerificationCommand[] = [];
+    if (typeof scripts.build === "string") {
+      commands.push({ command: "npm", args: ["run", "build"], shell: false, timeoutSeconds: 600 });
+    }
+    if (typeof scripts.test === "string") {
+      commands.push({ command: "npm", args: ["test"], shell: false, timeoutSeconds: 1800 });
+    }
+
+    return commands.length > 0 ? commands : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function commandSpecsToEvidence(commands: RuntimeVerificationCommand[]): VerificationCommandSpec[] {
+  return commands.map((command) => ({
+    command: formatCommandForDisplay(command.command, command.args)
+  }));
+}
+
+function commandEvidenceFromVerification(verification: VerificationResult): VerificationCommandResultEvidence[] {
+  return verification.command_results.map((result) => {
+    const stdoutArtifact = result.artifact_refs.find((artifact) => artifact.kind === "stdout");
+    const stderrArtifact = result.artifact_refs.find((artifact) => artifact.kind === "stderr");
+
+    return {
+      command: result.command,
+      exit_code: result.exit_code ?? (result.status === "pass" ? 0 : 1),
+      duration_ms: result.duration_ms ?? 0,
+      ...(stdoutArtifact
+        ? {
+            stdout_artifact: {
+              artifact_id: stdoutArtifact.artifact_id,
+              sha256: stdoutArtifact.artifact_id.replace(/^sha256:/, ""),
+              path: stdoutArtifact.path,
+              kind: stdoutArtifact.kind,
+              media_type: "text/plain",
+              size_bytes: 0,
+              sensitivity: "local",
+              redaction_status: "not_applicable",
+              exportable: false
+            }
+          }
+        : {}),
+      ...(stderrArtifact
+        ? {
+            stderr_artifact: {
+              artifact_id: stderrArtifact.artifact_id,
+              sha256: stderrArtifact.artifact_id.replace(/^sha256:/, ""),
+              path: stderrArtifact.path,
+              kind: stderrArtifact.kind,
+              media_type: "text/plain",
+              size_bytes: 0,
+              sensitivity: "local",
+              redaction_status: "not_applicable",
+              exportable: false
+            }
+          }
+        : {})
+    };
+  });
+}
+
+function buildRuntimeVerificationFromSnapshot(run: Run, snapshot: VerifiedSnapshot, summary: string, source: string): VerificationResult {
+  const commandResults = snapshot.command_results.map((result, index) => {
+    const artifactRefs = [
+      ...(result.stdout_artifact ? [toRuntimeArtifactRef(result.stdout_artifact)] : []),
+      ...(result.stderr_artifact ? [toRuntimeArtifactRef(result.stderr_artifact)] : [])
+    ];
+
+    return {
+      command_result_id: `${source === "evidence-reuse" ? "reused" : "verification"}-command-${index + 1}`,
+      command: result.command,
+      exit_code: result.exit_code,
+      status: result.exit_code === 0 ? "pass" : "fail",
+      completed_at: snapshot.timestamp,
+      duration_ms: result.duration_ms,
+      artifact_refs: artifactRefs
+    } satisfies CommandResult;
+  });
+
+  return {
+    verification_result_id: nextId("verification", run.verification_results.length),
+    status: snapshot.command_results.length > 0 && snapshot.command_results.every((result) => result.exit_code === 0) ? "pass" : "fail",
+    created_at: snapshot.timestamp,
+    summary,
+    source,
+    artifact_refs: dedupeRuntimeArtifactRefs(commandResults.flatMap((result) => result.artifact_refs)),
+    command_results: commandResults
+  };
+}
+
 function loadRunForMutation(targetRoot: string, dryRun: boolean): { run: Run; runPath?: string; state: "loaded" | "preview" } {
   const current = readCurrentRuntimeRun(targetRoot);
 
@@ -1059,7 +1275,7 @@ function loadRunForMutation(targetRoot: string, dryRun: boolean): { run: Run; ru
   throw new Error("No current runtime run found. Run `node bin/ch run start --task TASK.md` first.");
 }
 
-export function startRuntimeRun(cwd: string, options: StartRuntimeRunOptions): RuntimeServiceResult {
+export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptions): Promise<RuntimeServiceResult> {
   const targetRoot = requireGitTargetRoot(cwd);
   const dryRun = options.dryRun ?? false;
   const task = resolveTaskReference(targetRoot, options.taskPath);
@@ -1081,11 +1297,27 @@ export function startRuntimeRun(cwd: string, options: StartRuntimeRunOptions): R
     };
   }
 
+  const runPath = writeRuntimeRun(targetRoot, run);
+  await appendRuntimeEvidence(
+    targetRoot,
+    run,
+    "run",
+    {
+      summary: `Started runtime run ${run.run_id}.`,
+      run_id: run.run_id,
+      task_path: run.task_path,
+      active_task_path: run.active_task_path,
+      phase_id: run.phase_id,
+      status: run.status
+    },
+    "node bin/ch run start"
+  );
+
   return {
     targetRoot,
     dryRun,
     run,
-    runPath: writeRuntimeRun(targetRoot, run),
+    runPath,
     state: "created"
   };
 }
@@ -1210,6 +1442,125 @@ function readInstalledVerifier(run: Run, targetRoot: string): VerificationResult
   }
 }
 
+async function executeSelfHostingVerification(
+  targetRoot: string,
+  run: Run,
+  commands: RuntimeVerificationCommand[]
+): Promise<{ verification: VerificationResult; snapshot: VerifiedSnapshot }> {
+  const store = new MemoryEvidenceStore(targetRoot);
+  const artifactStore = new EvidenceArtifactStore(targetRoot);
+  const commandEvidence: VerificationCommandResultEvidence[] = [];
+  const runtimeCommandResults: CommandResult[] = [];
+
+  for (let index = 0; index < commands.length; index += 1) {
+    const command = commands[index];
+    const display = formatCommandForDisplay(command.command, command.args);
+    const startedAt = nowIso();
+    const result = runStructuredCommand({
+      command: command.command,
+      args: command.args,
+      cwd: targetRoot,
+      timeout_seconds: command.timeoutSeconds,
+      shell: command.shell,
+      capture_stdout: true,
+      capture_stderr: true
+    });
+    const completedAt = nowIso();
+    const stdoutArtifact =
+      result.stdout.length > 0
+        ? artifactStore.write({
+            content: result.stdout,
+            kind: "stdout",
+            mediaType: "text/plain",
+            producerCommand: display
+          })
+        : undefined;
+    const stderrArtifact =
+      result.stderr.length > 0
+        ? artifactStore.write({
+            content: result.stderr,
+            kind: "stderr",
+            mediaType: "text/plain",
+            producerCommand: display
+          })
+        : undefined;
+    const artifactRefs = [
+      ...(stdoutArtifact ? [toRuntimeArtifactRef(stdoutArtifact)] : []),
+      ...(stderrArtifact ? [toRuntimeArtifactRef(stderrArtifact)] : [])
+    ];
+
+    commandEvidence.push({
+      command: display,
+      exit_code: result.exitCode,
+      duration_ms: result.durationMs,
+      ...(stdoutArtifact ? { stdout_artifact: stdoutArtifact } : {}),
+      ...(stderrArtifact ? { stderr_artifact: stderrArtifact } : {})
+    });
+    runtimeCommandResults.push({
+      command_result_id: `verification-command-${index + 1}`,
+      command: display,
+      exit_code: result.exitCode,
+      status: result.exitCode === 0 ? "pass" : "fail",
+      started_at: startedAt,
+      completed_at: completedAt,
+      duration_ms: result.durationMs,
+      artifact_refs: artifactRefs
+    });
+
+    await store.append({
+      evidenceType: "command_result",
+      scope: buildEvidenceScopeForRun(targetRoot, run),
+      producerCommand: "node bin/ch run verify",
+      provenance: {
+        producer: { type: "runtime", command: "node bin/ch run verify" },
+        produced_at: completedAt,
+        reusable: false,
+        stale: false,
+        sensitivity: "local",
+        redaction_status: "not_applicable",
+        exportable: false,
+        artifact_refs: [stdoutArtifact, stderrArtifact].filter((artifact) => artifact !== undefined)
+      },
+      payload: {
+        summary: `${display} exited ${result.exitCode}.`,
+        command: display,
+        exit_code: result.exitCode,
+        duration_ms: result.durationMs,
+        timed_out: result.timedOut
+      }
+    });
+
+    if (result.exitCode !== 0) {
+      break;
+    }
+  }
+
+  const snapshotTimestamp = nowIso();
+  const snapshot = captureVerifiedSnapshot({
+    targetRoot,
+    commands: commandSpecsToEvidence(commands),
+    commandResults: commandEvidence,
+    timestamp: snapshotTimestamp
+  });
+  const passed = commandEvidence.length === commands.length && commandEvidence.every((result) => result.exit_code === 0);
+  const summary = passed
+    ? "Self-hosting verification commands passed."
+    : `Self-hosting verification failed at ${commandEvidence[commandEvidence.length - 1]?.command ?? "unknown command"}.`;
+
+  return {
+    verification: {
+      verification_result_id: nextId("verification", run.verification_results.length),
+      status: passed ? "pass" : "fail",
+      created_at: snapshotTimestamp,
+      summary,
+      source: "self-hosting",
+      artifact_refs: dedupeRuntimeArtifactRefs(runtimeCommandResults.flatMap((result) => result.artifact_refs)),
+      command_results: runtimeCommandResults
+    },
+    snapshot
+  };
+}
+
 function buildReviewArtifact(taskId: string): ArtifactRef {
   return {
     artifact_id: "review-json",
@@ -1292,13 +1643,170 @@ function readInstalledReview(run: Run, targetRoot: string): ReviewResult {
   }
 }
 
-export function verifyRuntimeRun(cwd: string, options: RuntimeDryRunOptions = {}): RuntimeVerificationResult {
+async function resolveVerification(
+  targetRoot: string,
+  run: Run,
+  dryRun: boolean
+): Promise<VerificationResolution> {
+  const selfHostingCommands = !detectInstalledLayer(targetRoot) ? buildSelfHostingVerificationCommands(targetRoot) : undefined;
+
+  if (!selfHostingCommands || selfHostingCommands.length === 0) {
+    const detectedVerification = readInstalledVerifier(run, targetRoot);
+    const snapshot = captureVerifiedSnapshot({
+      targetRoot,
+      commands: commandEvidenceFromVerification(detectedVerification).length > 0
+        ? detectedVerification.command_results.map((result) => ({ command: result.command }))
+        : [{ command: "node bin/ch run verify" }],
+      commandResults: commandEvidenceFromVerification(detectedVerification)
+    });
+
+    return {
+      verification: detectedVerification,
+      snapshot,
+      reuseDecision: {
+        status:
+          detectedVerification.status === "pass"
+            ? "RUN"
+            : detectedVerification.status === "missing"
+              ? "MISSING"
+              : "FAILED",
+        reason:
+          detectedVerification.status === "pass"
+            ? "Verification was recorded from the installed verifier artifact."
+            : detectedVerification.summary,
+        current_fingerprint: snapshot.fingerprint.fingerprint_id,
+        invalidated_by: []
+      },
+      commandEvidence: snapshot.command_results
+    };
+  }
+
+  const store = new MemoryEvidenceStore(targetRoot);
+  const preRunSnapshot = captureVerifiedSnapshot({
+    targetRoot,
+    commands: commandSpecsToEvidence(selfHostingCommands)
+  });
+
+  if (dryRun) {
+    return {
+      verification: {
+        verification_result_id: nextId("verification", run.verification_results.length),
+        status: "missing",
+        created_at: nowIso(),
+        summary: "Dry-run does not execute self-hosting verification commands.",
+        source: "runtime",
+        artifact_refs: [],
+        command_results: []
+      },
+      snapshot: preRunSnapshot,
+      reuseDecision: {
+        status: "MISSING",
+        reason: "Dry-run does not query or execute reusable local verification evidence.",
+        current_fingerprint: preRunSnapshot.fingerprint.fingerprint_id,
+        invalidated_by: []
+      },
+      commandEvidence: []
+    };
+  }
+
+  const reuse = await decideLocalVerificationReuse(store, preRunSnapshot);
+
+  if (reuse.decision.status === "REUSED" && reuse.reusableSnapshot) {
+    return {
+      verification: buildRuntimeVerificationFromSnapshot(
+        run,
+        reuse.reusableSnapshot,
+        `Local verification evidence reused from ${reuse.reusableSnapshot.snapshot_id}.`,
+        "evidence-reuse"
+      ),
+      snapshot: reuse.reusableSnapshot,
+      reuseDecision: reuse.decision,
+      commandEvidence: reuse.reusableSnapshot.command_results
+    };
+  }
+
+  const executed = await executeSelfHostingVerification(targetRoot, run, selfHostingCommands);
+  return {
+    verification: executed.verification,
+    snapshot: executed.snapshot,
+    reuseDecision: {
+      status: executed.verification.status === "pass" ? "RUN" : "FAILED",
+      reason:
+        reuse.decision.status === "STALE" || reuse.decision.status === "FAILED"
+          ? `Executed self-hosting verification because prior evidence was ${reuse.decision.status.toLowerCase()}.`
+          : "Executed self-hosting verification for this input set.",
+      current_fingerprint: executed.snapshot.fingerprint.fingerprint_id,
+      invalidated_by: reuse.decision.invalidated_by,
+      ...(reuse.decision.snapshot_id ? { snapshot_id: reuse.decision.snapshot_id } : {}),
+      ...(reuse.decision.matched_event_id ? { matched_event_id: reuse.decision.matched_event_id } : {})
+    },
+    commandEvidence: executed.snapshot.command_results
+  };
+}
+
+export async function verifyRuntimeRun(cwd: string, options: RuntimeDryRunOptions = {}): Promise<RuntimeVerificationResult> {
   const targetRoot = requireGitTargetRoot(cwd);
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun);
-  const verification = readInstalledVerifier(current.run, targetRoot);
+  const resolved = await resolveVerification(targetRoot, current.run, dryRun);
+  const verification = resolved.verification;
   const run = recordVerificationResult(current.run, verification);
   const runPath = dryRun ? current.runPath : writeRuntimeRun(targetRoot, run);
+
+  if (!dryRun) {
+    await appendRuntimeEvidence(
+      targetRoot,
+      run,
+      "verification_reuse_decision",
+      buildVerificationReuseDecisionPayload(resolved.reuseDecision),
+      "node bin/ch run verify",
+      {
+        reusable: false,
+        stale: resolved.reuseDecision.status === "STALE",
+        inputFingerprint: resolved.snapshot.fingerprint.fingerprint_id
+      }
+    );
+
+    if (resolved.reuseDecision.status !== "REUSED") {
+      await appendRuntimeEvidence(
+        targetRoot,
+        run,
+        "verified_snapshot",
+        buildVerificationSnapshotPayload(resolved.snapshot),
+        "node bin/ch run verify",
+        {
+          artifactRefs: resolved.commandEvidence.flatMap((result) =>
+            [result.stdout_artifact, result.stderr_artifact].filter((artifact) => artifact !== undefined)
+          ),
+          reusable: true,
+          stale: resolved.reuseDecision.status === "FAILED",
+          inputFingerprint: resolved.snapshot.fingerprint.fingerprint_id
+        }
+      );
+    }
+
+    await appendRuntimeEvidence(
+      targetRoot,
+      run,
+      "verification_result",
+      {
+        summary: verification.summary,
+        status: verification.status,
+        source: verification.source,
+        verification_result_id: verification.verification_result_id,
+        local_verification: resolved.reuseDecision.status
+      },
+      "node bin/ch run verify",
+      {
+        artifactRefs: resolved.commandEvidence.flatMap((result) =>
+          [result.stdout_artifact, result.stderr_artifact].filter((artifact) => artifact !== undefined)
+        ),
+        reusable: false,
+        stale: resolved.reuseDecision.status === "FAILED",
+        inputFingerprint: resolved.snapshot.fingerprint.fingerprint_id
+      }
+    );
+  }
 
   return {
     targetRoot,
@@ -1310,10 +1818,10 @@ export function verifyRuntimeRun(cwd: string, options: RuntimeDryRunOptions = {}
   };
 }
 
-export function recordRuntimeRemoteStatus(
+export async function recordRuntimeRemoteStatus(
   cwd: string,
   options: RecordRemoteStatusOptions = {}
-): RuntimeRemoteStatusResult {
+): Promise<RuntimeRemoteStatusResult> {
   const targetRoot = requireGitTargetRoot(cwd);
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun);
@@ -1325,6 +1833,25 @@ export function recordRuntimeRemoteStatus(
   }
 
   const runPath = dryRun ? current.runPath : writeRuntimeRun(targetRoot, run);
+
+  if (!dryRun) {
+    await appendRuntimeEvidence(
+      targetRoot,
+      run,
+      "remote_ci",
+      {
+        summary: `Recorded remote gate ${remoteCheck.gate_id} as ${remoteCheck.status}.`,
+        gate_id: remoteCheck.gate_id,
+        name: remoteCheck.name,
+        status: remoteCheck.status,
+        required: remoteCheck.required,
+        provider: remoteCheck.ci_run.provider,
+        run_id: remoteCheck.ci_run.run_id,
+        url: remoteCheck.ci_run.url
+      },
+      "node bin/ch run remote-status"
+    );
+  }
 
   return {
     targetRoot,
@@ -1350,7 +1877,7 @@ function ensureRunHasVerificationAndReview(run: Run, targetRoot: string): Run {
   return next;
 }
 
-export function closeoutRuntimeRun(cwd: string, options: RuntimeDryRunOptions = {}): RuntimeCloseoutResult {
+export async function closeoutRuntimeRun(cwd: string, options: RuntimeDryRunOptions = {}): Promise<RuntimeCloseoutResult> {
   const targetRoot = requireGitTargetRoot(cwd);
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun);
@@ -1377,6 +1904,19 @@ export function closeoutRuntimeRun(cwd: string, options: RuntimeDryRunOptions = 
   const runPath = writeRuntimeRun(targetRoot, run);
   const closeoutPath = closeoutFilePath(targetRoot, run.run_id);
   writeJsonFile(closeoutPath, receipt);
+  await appendRuntimeEvidence(
+    targetRoot,
+    run,
+    "closeout_receipt",
+    {
+      summary: `Closeout receipt is ${receipt.status}.`,
+      receipt_id: receipt.receipt_id,
+      status: receipt.status,
+      blockers: receipt.blockers,
+      closeout_path: toRepoRelative(targetRoot, closeoutPath)
+    },
+    "node bin/ch run closeout"
+  );
 
   return {
     targetRoot,

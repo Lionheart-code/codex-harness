@@ -221,12 +221,21 @@ Build durable local Memory/Evidence Core on top of the normalized runtime model
 introduced by Phase 22.5.
 
 Status:
-Planned. Blocked until Phase 22.5 is complete and reviewed.
+Implemented in the Phase 23 Memory/Evidence Core slice after Phase 22.5.
 
 Phase 23 must preserve Phase 22.5 verification-reuse design as evidence-backed
 exact-match replay using `VerifiedSnapshot` / `ChangeSetFingerprint`, with
 SQLite as indexed projection, JSONL as append-only trace, and large raw
 artifacts referenced from ArtifactStore by hash or id.
+
+Implemented scope:
+
+- `.harness/evidence/events.jsonl` is the local append-only source-of-trace;
+- `.harness/evidence/projection.sqlite` is a rebuildable projection behind a typed adapter and runtime `node:sqlite` probe;
+- `.harness/artifacts/sha256/<prefix>/<hash>` stores large raw artifacts by content hash;
+- `ch memory` exposes minimal init/status/rebuild/runs/show/export dry-run commands without raw SQL;
+- runtime commands record evidence while preserving Phase 22.5 run vocabulary;
+- local verification reuse is exact input-set evidence reuse and never replaces remote CI.
 
 ## Phase 24 — reports and LLM-ready evidence packets
 

@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/codex-harness/evidence-event.schema.json",
+  "title": "codex-harness Evidence Event",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "producer_command",
+    "event_version",
+    "event_id",
+    "sequence",
+    "evidence_type",
+    "scope",
+    "provenance",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_command": { "type": "string" },
+    "event_version": { "const": 1 },
+    "event_id": { "type": "string" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "evidence_type": {
+      "enum": [
+        "run",
+        "phase_run",
+        "step",
+        "command_result",
+        "verification_result",
+        "review_result",
+        "finding",
+        "decision",
+        "approval",
+        "closeout_receipt",
+        "remote_ci",
+        "artifact_ref",
+        "schema_metadata",
+        "projection_metadata",
+        "verified_snapshot",
+        "verification_reuse_decision"
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["target_project_id", "target_root", "namespace"],
+      "properties": {
+        "target_project_id": { "type": "string" },
+        "target_root": { "type": "string" },
+        "namespace": { "type": "string" },
+        "run_id": { "type": "string" },
+        "phase_id": { "type": "string" },
+        "task_id": { "type": "string" },
+        "task_path": { "type": "string" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "producer",
+        "produced_at",
+        "reusable",
+        "stale",
+        "sensitivity",
+        "redaction_status",
+        "exportable",
+        "artifact_refs"
+      ],
+      "properties": {
+        "producer": { "type": "object" },
+        "produced_at": { "type": "string" },
+        "input_fingerprint": { "type": "string" },
+        "reusable": { "type": "boolean" },
+        "stale": { "type": "boolean" },
+        "sensitivity": { "enum": ["public", "local", "sensitive"] },
+        "redaction_status": { "enum": ["not_redacted", "redacted", "not_applicable"] },
+        "exportable": { "type": "boolean" },
+        "artifact_refs": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "payload": { "type": "object" }
+  }
+}

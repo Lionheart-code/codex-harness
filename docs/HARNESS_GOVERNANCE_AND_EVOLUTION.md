@@ -132,6 +132,8 @@ The maintainer needs structured evidence:
 - review blockers;
 - phase where failure occurred.
 
+Phase 23 stores this evidence locally as versioned events, projection rows, and artifact refs. Governance should consume scoped evidence records instead of scraping raw logs or trusting chat memory. Future governance additions may add review freshness and packet/report fingerprints, but core Memory/Evidence must remain domain-neutral and must not add automatic fix, merge, watcher, semantic-search, or summarization behavior by default.
+
 ## Phase 17 command surface
 
 ```bash

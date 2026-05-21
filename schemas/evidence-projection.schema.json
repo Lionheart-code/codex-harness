@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/codex-harness/evidence-projection.schema.json",
+  "title": "codex-harness Evidence Projection Metadata",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "producer_command",
+    "projection_schema_version",
+    "updated_at",
+    "ledger_path",
+    "adapter"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_command": { "type": "string" },
+    "projection_schema_version": { "const": 1 },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" },
+    "ledger_path": { "type": "string" },
+    "adapter": { "type": "string" }
+  }
+}

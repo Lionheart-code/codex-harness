@@ -1,8 +1,8 @@
 # codex-harness
 
-`codex-harness` is a Codex-first programming harness. Phase 22 adds machine-checked npm package contents, a packed-install smoke gate, and a least-privilege GitHub Actions verify workflow on top of the Phase 21 cross-platform command-runner hardening, the Phase 20 security/eval/context hardening, the Phase 19 artifact schemas and migrations, the Phase 18 install/upgrade lifecycle, the Phase 17 governance loop, the Phase 16 parallel worktree scaffold, the Phase 15 eval playground, Phase 14 review, and earlier harness flow.
+`codex-harness` is a Codex-first programming harness. Phase 23 adds a local Memory/Evidence Core with an append-only JSONL ledger, rebuildable SQLite projection, content-addressed artifacts, and exact input-set local verification reuse on top of the Phase 22.5 runtime model, Phase 22 release hardening, Phase 21 cross-platform command-runner hardening, the Phase 20 security/eval/context hardening, the Phase 19 artifact schemas and migrations, and earlier harness flow.
 
-## Phase 22 commands
+## Phase 23 commands
 
 Run the local CLI through `node bin/ch`:
 
@@ -20,7 +20,13 @@ node bin/ch review --exec
 node bin/ch report
 node bin/ch hooks --help
 node bin/ch hooks install
+node bin/ch memory --help
+node bin/ch memory init --dry-run
 node bin/ch memory status
+node bin/ch memory rebuild --dry-run
+node bin/ch memory runs --last 5
+node bin/ch memory show run-0001
+node bin/ch memory export --dry-run
 node bin/ch debt add --title "test debt" --type technical --severity low --reason "test"
 node bin/ch debt list
 node bin/ch debt resolve --id DEBT-0001
@@ -69,6 +75,17 @@ node bin/ch prompt work
 node bin/ch prompt review
 node bin/ch prompt scout --role tests
 ```
+
+## Phase 23 memory/evidence behavior
+
+- Generated evidence state is local/private and must stay under `.harness/**`: `.harness/evidence/events.jsonl`, `.harness/evidence/projection.sqlite`, `.harness/artifacts/sha256/<prefix>/<hash>`, and `.harness/runs/**`.
+- The JSONL ledger is the append-only source-of-trace. The SQLite database is a rebuildable projection used through typed code, not a public raw-SQL API.
+- Large command output, diffs, logs, and long reports belong in the ArtifactStore and are referenced by hash/id instead of embedded in evidence events.
+- Evidence is scoped by target project id, target root, namespace, run id, and task/phase where available, so harness self-hosting evidence and ordinary project evidence do not mix by default.
+- Local verification reuse is exact input-set reuse only. Changed tracked files, changed or removed untracked files, changed command sets, different roots, different base commits, failed prior verification, unsupported schemas, and missing/corrupt artifacts invalidate reuse.
+- Docs/task-only changes can be classified distinctly, but reuse is still conservative: source/schema/test/package/CI input sets must not be treated as verified when they changed.
+- Local evidence reuse never satisfies remote CI. Remote gate evidence remains separate and linked to pushed commit/provider-neutral status where available.
+- `ch run closeout --dry-run` is a smoke check during implementation. Do not run non-dry-run `ch run closeout` until review, final verification, commit/push/PR, and remote CI validation are complete.
 
 ## Local setup
 

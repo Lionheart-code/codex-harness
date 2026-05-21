@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/codex-harness/verified-snapshot.schema.json",
+  "title": "codex-harness VerifiedSnapshot",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "snapshot_id",
+    "target_project_id",
+    "target_root",
+    "namespace",
+    "git_status_lines",
+    "changed_tracked_files",
+    "untracked_files",
+    "tracked_diff_fingerprint",
+    "untracked_file_hashes",
+    "verification_commands",
+    "command_set_hash",
+    "command_results",
+    "timestamp",
+    "change_classification",
+    "fingerprint"
+  ],
+  "properties": {
+    "snapshot_id": { "type": "string" },
+    "target_project_id": { "type": "string" },
+    "target_root": { "type": "string" },
+    "namespace": { "type": "string" },
+    "base_commit": { "type": "string" },
+    "current_commit": { "type": "string" },
+    "git_status_lines": { "type": "array", "items": { "type": "string" } },
+    "changed_tracked_files": { "type": "array", "items": { "type": "string" } },
+    "untracked_files": { "type": "array", "items": { "type": "string" } },
+    "tracked_diff_fingerprint": { "type": "string" },
+    "untracked_file_hashes": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "verification_commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["command"],
+        "properties": {
+          "command": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "command_set_hash": { "type": "string" },
+    "command_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["command", "exit_code", "duration_ms"],
+        "properties": {
+          "command": { "type": "string" },
+          "exit_code": { "type": "integer" },
+          "duration_ms": { "type": "integer", "minimum": 0 },
+          "stdout_artifact": { "type": "object" },
+          "stderr_artifact": { "type": "object" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "timestamp": { "type": "string" },
+    "change_classification": {
+      "enum": ["source", "schema", "test", "package", "ci", "docs_task_only", "mixed", "none"]
+    },
+    "fingerprint": { "type": "object" }
+  }
+}

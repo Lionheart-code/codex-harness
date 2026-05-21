@@ -13,6 +13,11 @@ export const MEMORY_DIR = path.join(HARNESS_DIR, "memory");
 export const MEMORY_DECISIONS_DIR = path.join(MEMORY_DIR, "decisions");
 export const MEMORY_DEBT_DIR = path.join(MEMORY_DIR, "debt");
 export const MEMORY_SUMMARIES_DIR = path.join(MEMORY_DIR, "summaries");
+export const EVIDENCE_DIR = path.join(HARNESS_DIR, "evidence");
+export const EVIDENCE_LEDGER_PATH = path.join(EVIDENCE_DIR, "events.jsonl");
+export const EVIDENCE_PROJECTION_PATH = path.join(EVIDENCE_DIR, "projection.sqlite");
+export const ARTIFACTS_DIR = path.join(HARNESS_DIR, "artifacts");
+export const SHA256_ARTIFACTS_DIR = path.join(ARTIFACTS_DIR, "sha256");
 export const GOVERNANCE_DIR = path.join(HARNESS_DIR, "governance");
 export const GOVERNANCE_REVIEWS_DIR = path.join(GOVERNANCE_DIR, "reviews");
 export const GOVERNANCE_PROPOSALS_DIR = path.join(GOVERNANCE_DIR, "proposals");
@@ -105,6 +110,9 @@ export function getInstallTargetPaths(): string[] {
     MEMORY_DECISIONS_DIR,
     MEMORY_DEBT_DIR,
     MEMORY_SUMMARIES_DIR,
+    EVIDENCE_DIR,
+    ARTIFACTS_DIR,
+    SHA256_ARTIFACTS_DIR,
     GOVERNANCE_DIR,
     GOVERNANCE_REVIEWS_DIR,
     GOVERNANCE_PROPOSALS_DIR,
