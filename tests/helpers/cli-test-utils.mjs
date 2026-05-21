@@ -133,12 +133,17 @@ export function readPackageVersion() {
 }
 
 export function assertProductRepoBoundaryState() {
-  for (const relativePath of [".harness", ".codex", ".agents"]) {
+  for (const relativePath of [".codex", ".agents"]) {
     assert.equal(
       fs.existsSync(path.join(productRoot, relativePath)),
       false,
       `forbidden generated path exists in product repo: ${relativePath}`
     );
+  }
+
+  if (fs.existsSync(path.join(productRoot, ".harness"))) {
+    const status = getGitStatus(productRoot);
+    assert.equal(status.includes(".harness/"), false, "ignored .harness runtime state must not appear in git status");
   }
 
   for (const relativePath of ["schemas", "migrations"]) {

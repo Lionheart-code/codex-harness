@@ -178,7 +178,34 @@ It should summarize:
 
 This file is the compact context entrypoint for future agents.
 
-### 7. Memory compaction
+### 7. Memory/Evidence Core
+
+Phase 23 adds a durable evidence backend under local/private runtime paths:
+
+```text
+.harness/evidence/events.jsonl
+.harness/evidence/projection.sqlite
+.harness/artifacts/sha256/<prefix>/<hash>
+```
+
+The JSONL ledger is the append-only source-of-trace. SQLite is only a rebuildable projection/query cache behind typed repository interfaces. Raw SQL is not a public CLI/API. Large stdout/stderr, diffs, logs, review reports, and raw outputs belong in the ArtifactStore and are referenced by hash/id.
+
+Evidence records are scoped by:
+
+```text
+target_project_id
+target_root
+namespace
+run_id
+phase_id/task_id where applicable
+evidence_type
+```
+
+This lets one local backend serve harness self-hosting, ordinary project work, and future pack/domain workflows without becoming a global dump. Memory is evidence storage and retrieval. It is not an autonomous agent brain, semantic memory, or automatic summarizer.
+
+Reusable evidence must match its exact declared input set and producer command set. For local verification, `VerifiedSnapshot` / `ChangeSetFingerprint` includes root, project id, namespace, commits, git status with untracked files, tracked diff fingerprint, untracked content hashes, command-set hash, command results, artifact refs, timestamp, and change classification. Docs/task-only changes may be classified separately, but local reuse never satisfies remote CI.
+
+### 8. Memory compaction
 
 Stored under:
 

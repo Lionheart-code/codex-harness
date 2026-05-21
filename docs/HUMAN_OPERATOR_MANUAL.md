@@ -89,6 +89,45 @@ Check:
 
 When using non-dry-run runtime commands, treat `.harness/runs/` as local private state. Do not commit it.
 
+## Phase 23 memory/evidence checks
+
+Phase 23 uses the active Phase 22.5 runtime run as context, but all generated memory/evidence state remains local and private:
+
+```text
+.harness/runs/**
+.harness/evidence/events.jsonl
+.harness/evidence/projection.sqlite
+.harness/artifacts/sha256/<prefix>/<hash>
+```
+
+Before relying on evidence storage:
+
+```bash
+node bin/ch memory --help
+node bin/ch memory init --dry-run
+node bin/ch memory status
+node bin/ch memory rebuild --dry-run
+```
+
+Check:
+
+- dry-run commands say no files were written;
+- SQLite adapter status is explicit, and unsupported runtimes fail with an actionable message;
+- `.harness/evidence/projection.sqlite` is treated as a rebuildable cache, not source of truth;
+- `.harness/evidence/events.jsonl` is the append-only source-of-trace;
+- `.harness/artifacts/sha256/` contains only local/private content-addressed artifacts.
+
+Local verification reuse is allowed only for exact input-set matches. If source, schema, test, package, CI, command-set, root, base commit, untracked file content, or artifact integrity changes, reuse is stale or missing. Docs/task-only changes may avoid rerunning a source suite only when the declared input set proves the source/schema/test/package/CI inputs did not change.
+
+Local reuse never satisfies remote CI. During implementation, use:
+
+```bash
+node bin/ch run closeout --dry-run
+node bin/ch run remote-status --dry-run
+```
+
+If dry-run closeout is `BLOCKED` because review results, remote CI, or other closeout prerequisites are missing before review, that is expected and not an implementation failure. Do not run non-dry-run `ch run closeout` until review, final verification, commit/push/PR, and remote CI validation are complete.
+
 ## Install and upgrade safety
 
 Before applying an installed-layer update in a target project:

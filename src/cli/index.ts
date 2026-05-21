@@ -27,7 +27,7 @@ type CommandHandler = (args: string[]) => Promise<number>;
 
 function printHelp(): void {
   lines([
-    "codex-harness Phase 21 CLI",
+    "codex-harness Phase 23 CLI",
     "",
     "Usage:",
     "  node bin/ch --help",
@@ -52,7 +52,10 @@ function printHelp(): void {
     "  node bin/ch schema migrate",
     "  node bin/ch hooks --help",
     "  node bin/ch hooks install",
+    "  node bin/ch memory --help",
+    "  node bin/ch memory init --dry-run",
     "  node bin/ch memory status",
+    "  node bin/ch memory rebuild --dry-run",
     "  node bin/ch debt add --title \"test debt\" --type technical --severity low --reason \"test\"",
     "  node bin/ch debt list",
     "  node bin/ch debt resolve --id DEBT-0001",
@@ -101,7 +104,7 @@ function printHelp(): void {
     "  hooks    Install minimal Codex sidecar hooks and templates.",
     "  security Audit the current implemented security and permission posture.",
     "  context  Inspect the current prompt context inputs without writing files.",
-    "  memory   Show Phase 9 memory, debt, decision, and agent-output status.",
+    "  memory   Show Phase 9 memory and manage local Phase 23 evidence storage.",
     "  debt     Add, list, and resolve Phase 9 debt ledger items.",
     "  decisions Add and list Phase 9 decision records.",
     "  doctor   Report repository, platform, command-runner, and registry state.",

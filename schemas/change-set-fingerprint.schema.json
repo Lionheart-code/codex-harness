@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/codex-harness/change-set-fingerprint.schema.json",
+  "title": "codex-harness ChangeSetFingerprint",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "fingerprint_id",
+    "target_project_id",
+    "target_root",
+    "namespace",
+    "git_status_lines",
+    "changed_tracked_files",
+    "untracked_files",
+    "tracked_diff_fingerprint",
+    "untracked_file_hashes",
+    "command_set_hash",
+    "change_classification"
+  ],
+  "properties": {
+    "fingerprint_id": { "type": "string" },
+    "target_project_id": { "type": "string" },
+    "target_root": { "type": "string" },
+    "namespace": { "type": "string" },
+    "base_commit": { "type": "string" },
+    "current_commit": { "type": "string" },
+    "git_status_lines": { "type": "array", "items": { "type": "string" } },
+    "changed_tracked_files": { "type": "array", "items": { "type": "string" } },
+    "untracked_files": { "type": "array", "items": { "type": "string" } },
+    "removed_untracked_files": { "type": "array", "items": { "type": "string" } },
+    "tracked_diff_fingerprint": { "type": "string" },
+    "untracked_file_hashes": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "command_set_hash": { "type": "string" },
+    "change_classification": {
+      "enum": ["source", "schema", "test", "package", "ci", "docs_task_only", "mixed", "none"]
+    }
+  }
+}
