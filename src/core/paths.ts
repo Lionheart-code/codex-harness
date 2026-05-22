@@ -10,6 +10,8 @@ export const MANAGED_CONFIG_PATH = path.join(MANAGED_TEMPLATES_DIR, "config.toml
 export const INSTALLED_SCHEMAS_DIR = path.join(HARNESS_DIR, "schemas");
 export const HOOK_TEMPLATES_DIR = path.join(TEMPLATES_DIR, "hooks");
 export const MEMORY_DIR = path.join(HARNESS_DIR, "memory");
+export const MEMORY_EXPORTS_DIR = path.join(MEMORY_DIR, "exports");
+export const PROJECT_MEMORY_DB_PATH = path.join(MEMORY_DIR, "project.sqlite");
 export const MEMORY_DECISIONS_DIR = path.join(MEMORY_DIR, "decisions");
 export const MEMORY_DEBT_DIR = path.join(MEMORY_DIR, "debt");
 export const MEMORY_SUMMARIES_DIR = path.join(MEMORY_DIR, "summaries");
@@ -128,6 +130,22 @@ export function getMemorySeedPaths(): string[] {
     DEBT_JSONL_PATH,
     DEBT_MARKDOWN_PATH
   ];
+}
+
+export function getRunDirectoryRelativePath(runId: string): string {
+  return path.join(HARNESS_DIR, "runs", runId);
+}
+
+export function getRunJsonRelativePath(runId: string): string {
+  return path.join(getRunDirectoryRelativePath(runId), "run.json");
+}
+
+export function getRunCloseoutRelativePath(runId: string): string {
+  return path.join(getRunDirectoryRelativePath(runId), "closeout.json");
+}
+
+export function getRunStagingDbRelativePath(runId: string): string {
+  return path.join(getRunDirectoryRelativePath(runId), "staging.sqlite");
 }
 
 export function getManagedAgentsBlock(): string {

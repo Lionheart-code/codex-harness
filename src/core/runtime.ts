@@ -22,7 +22,14 @@ import {
   decideLocalVerificationReuse
 } from "./verification-evidence";
 import { detectGitRepository, getGitStatusLines, getGitStatusPaths, runGitCommand } from "./git";
+import { harvestRun } from "./harvest";
 import { detectInstalledLayer } from "./install";
+import {
+  type DeliveryFactRecord,
+  type LifecycleStatus,
+  type RunMode
+} from "./lifecycle-types";
+import { ProjectMemoryDatabase } from "./project-memory-db";
 import {
   HARNESS_DIR,
   TASK_REVIEW_FILE,
@@ -30,6 +37,14 @@ import {
   TASKS_DIR
 } from "./paths";
 import { type ReviewRecord as HarnessReviewRecord, loadTaskReviewRecord } from "./review";
+import {
+  RunStagingDatabase,
+  formatDatabasePath,
+  isSelfHostingRunMode,
+  resolveHarnessRoots,
+  resolveMemoryDbPaths,
+  writeCompatibilityRunArtifacts
+} from "./run-staging-db";
 import { CURRENT_SCHEMA_VERSION, buildSchemaMetadata, validateOptionalSchemaMetadata } from "./schema-migrations";
 import { listTasks } from "./tasks";
 
@@ -54,7 +69,6 @@ export const RUNTIME_CONTRACT_NAMES = [
   "RequiredGate"
 ] as const;
 
-export type RunStatus = "running" | "ready" | "blocked" | "closed";
 export type StepStatus = "pending" | "running" | "passed" | "failed" | "skipped";
 export type CommandResultStatus = "pass" | "fail" | "unknown";
 export type VerificationResultStatus = "pass" | "fail" | "captured" | "missing" | "unknown";
@@ -64,11 +78,14 @@ export type FindingStatus = "open" | "resolved";
 export type ApprovalStatus = "approved" | "rejected" | "pending";
 export type RemoteGateStatus = "pass" | "failed" | "skipped" | "missing" | "unknown";
 export type CloseoutStatus = "READY" | "BLOCKED";
+type LegacyRunStatus = "running" | "ready" | "blocked" | "closed";
 
 export interface RepositoryRef {
   root_path: string;
+  project_root: string;
   branch?: string;
   head_sha?: string;
+  task_worktree_path?: string;
   dirty: boolean;
 }
 
@@ -224,6 +241,7 @@ export interface CloseoutReceipt {
   required_gates: RequiredGate[];
   remote_checks: RemoteCheckResult[];
   blockers: string[];
+  delivery_facts?: DeliveryFactRecord[];
 }
 
 export interface Run {
@@ -233,7 +251,8 @@ export interface Run {
   task_path: string;
   active_task_path?: string;
   phase_id?: string;
-  status: RunStatus;
+  run_mode: RunMode;
+  lifecycle_status: LifecycleStatus;
   created_at: string;
   updated_at: string;
   repository: RepositoryRef;
@@ -249,7 +268,13 @@ export interface Run {
   review_results: ReviewResult[];
   required_gates: RequiredGate[];
   remote_checks: RemoteCheckResult[];
+  delivery_facts: DeliveryFactRecord[];
   closeout_receipts: CloseoutReceipt[];
+  discard_reason?: string;
+  manual_override_reason?: string;
+  harvested_at?: string;
+  source_snapshot?: string;
+  source_staging_db_path?: string;
 }
 
 export interface BuildRuntimeRunInput {
@@ -265,9 +290,12 @@ export interface BuildRuntimeRunInput {
 
 export interface RuntimeServiceResult {
   targetRoot: string;
+  projectRoot: string;
   dryRun: boolean;
   run: Run;
   runPath?: string;
+  projectDbPath?: string;
+  stagingDbPath?: string;
   state: "created" | "loaded" | "preview" | "updated";
 }
 
@@ -284,6 +312,10 @@ export interface RuntimeCloseoutResult extends RuntimeServiceResult {
   closeoutPath?: string;
 }
 
+export interface RuntimeHarvestResult extends RuntimeServiceResult {
+  harvest: import("./lifecycle-types").HarvestRecord;
+}
+
 export interface StartRuntimeRunOptions {
   taskPath: string;
   dryRun?: boolean;
@@ -291,6 +323,7 @@ export interface StartRuntimeRunOptions {
 
 export interface RuntimeDryRunOptions {
   dryRun?: boolean;
+  runId?: string;
 }
 
 export interface RecordRemoteStatusOptions extends RuntimeDryRunOptions {
@@ -303,6 +336,10 @@ export interface RecordRemoteStatusOptions extends RuntimeDryRunOptions {
   required?: boolean;
   explanation?: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface MarkDiscardableOptions extends RuntimeDryRunOptions {
+  reason: string;
 }
 
 export interface RecordPhaseRunInput {
@@ -480,14 +517,19 @@ function buildChangeSet(targetRoot: string): ChangeSet {
 }
 
 function buildRepositoryRef(targetRoot: string): RepositoryRef {
+  const roots = resolveHarnessRoots(targetRoot);
   const changeSet = buildChangeSet(targetRoot);
   const branch = readGitValue(targetRoot, ["branch", "--show-current"]);
   const headSha = readGitValue(targetRoot, ["rev-parse", "--verify", "HEAD"]);
+  const taskList = detectInstalledLayer(roots.projectRoot) ? listTasks(roots.projectRoot) : undefined;
+  const taskWorktree = taskList && taskList.tasks.length === 1 ? taskList.tasks[0].worktree : undefined;
 
   return {
     root_path: targetRoot,
+    project_root: roots.projectRoot,
     ...(branch ? { branch } : {}),
     ...(headSha ? { head_sha: headSha } : {}),
+    ...(taskWorktree ? { task_worktree_path: taskWorktree } : {}),
     dirty: changeSet.is_dirty
   };
 }
@@ -528,6 +570,10 @@ function assertStatus(value: unknown, allowed: readonly string[], field: string,
   if (typeof value !== "string" || !allowed.includes(value)) {
     throw new Error(`${label} has invalid ${field}.`);
   }
+}
+
+function isAllowedStatus(value: unknown, allowed: readonly string[]): value is string {
+  return typeof value === "string" && allowed.includes(value);
 }
 
 function assertRuntimeMetadata(record: Record<string, unknown>, label: string): void {
@@ -619,6 +665,10 @@ function resolveTaskReference(targetRoot: string, taskPath: string): {
 
 export function buildRuntimeRun(input: BuildRuntimeRunInput): Run {
   const timestamp = input.timestamp ?? nowIso();
+  const repository: RepositoryRef = {
+    ...input.repository,
+    project_root: input.repository.project_root ?? input.repository.root_path
+  };
 
   return {
     ...buildSchemaMetadata(input.producerCommand ?? "node bin/ch run start"),
@@ -626,10 +676,11 @@ export function buildRuntimeRun(input: BuildRuntimeRunInput): Run {
     task_path: input.taskPath,
     ...(input.activeTaskPath ? { active_task_path: input.activeTaskPath } : {}),
     ...(input.phaseId ? { phase_id: input.phaseId } : {}),
-    status: "running",
+    run_mode: isSelfHostingRunMode(repository.project_root),
+    lifecycle_status: "active",
     created_at: timestamp,
     updated_at: timestamp,
-    repository: input.repository,
+    repository,
     phase_runs: [],
     steps: [],
     artifacts: [],
@@ -642,6 +693,7 @@ export function buildRuntimeRun(input: BuildRuntimeRunInput): Run {
     review_results: [],
     required_gates: input.requiredGates ? [...input.requiredGates] : defaultRequiredGates(),
     remote_checks: [],
+    delivery_facts: [],
     closeout_receipts: []
   };
 }
@@ -653,10 +705,46 @@ export function validateRuntimeRun(value: unknown): Run {
   assertRequiredString(record, "task_path", "runtime run");
   assertRequiredString(record, "created_at", "runtime run");
   assertRequiredString(record, "updated_at", "runtime run");
-  assertStatus(record.status, ["running", "ready", "blocked", "closed"], "status", "runtime run");
-  assertObject(record.repository, "runtime run repository");
+  const repositoryRecord = assertObject(record.repository, "runtime run repository");
+  assertRequiredString(repositoryRecord, "root_path", "runtime run repository");
 
-  for (const field of [
+  const repository: RepositoryRef = {
+    root_path: String(repositoryRecord.root_path),
+    project_root: typeof repositoryRecord.project_root === "string" && repositoryRecord.project_root.trim().length > 0
+      ? repositoryRecord.project_root
+      : String(repositoryRecord.root_path),
+    ...(typeof repositoryRecord.branch === "string" ? { branch: repositoryRecord.branch } : {}),
+    ...(typeof repositoryRecord.head_sha === "string" ? { head_sha: repositoryRecord.head_sha } : {}),
+    ...(typeof repositoryRecord.task_worktree_path === "string" ? { task_worktree_path: repositoryRecord.task_worktree_path } : {}),
+    dirty: repositoryRecord.dirty === true
+  };
+  const legacyStatus = isAllowedStatus(record.status, ["running", "ready", "blocked", "closed"])
+    ? (record.status as LegacyRunStatus)
+    : undefined;
+  const runMode = isAllowedStatus(record.run_mode, ["normal", "bootstrap"])
+    ? (record.run_mode as RunMode)
+    : legacyStatus
+      ? isSelfHostingRunMode(repository.project_root)
+      : undefined;
+  const lifecycleStatus = isAllowedStatus(record.lifecycle_status, ["active", "blocked", "closed", "harvested", "discarded"])
+    ? (record.lifecycle_status as LifecycleStatus)
+    : legacyStatus
+      ? legacyStatus === "running"
+        ? "active"
+        : legacyStatus === "blocked"
+          ? "blocked"
+          : "closed"
+      : undefined;
+
+  if (!runMode) {
+    throw new Error("runtime run has invalid run_mode.");
+  }
+
+  if (!lifecycleStatus) {
+    throw new Error("runtime run has invalid lifecycle_status.");
+  }
+
+  const requiredArrays = [
     "phase_runs",
     "steps",
     "artifacts",
@@ -670,11 +758,52 @@ export function validateRuntimeRun(value: unknown): Run {
     "required_gates",
     "remote_checks",
     "closeout_receipts"
-  ]) {
+  ] as const;
+
+  for (const field of requiredArrays) {
     assertRequiredArray(record, field, "runtime run");
   }
 
-  return record as unknown as Run;
+  const deliveryFacts = record.delivery_facts === undefined
+    ? []
+    : Array.isArray(record.delivery_facts)
+      ? (record.delivery_facts as DeliveryFactRecord[])
+      : (() => {
+          throw new Error("runtime run is missing required array field: delivery_facts.");
+        })();
+
+  return {
+    schema_version: CURRENT_SCHEMA_VERSION,
+    producer_command: String(record.producer_command),
+    run_id: String(record.run_id),
+    task_path: String(record.task_path),
+    ...(typeof record.active_task_path === "string" ? { active_task_path: record.active_task_path } : {}),
+    ...(typeof record.phase_id === "string" ? { phase_id: record.phase_id } : {}),
+    run_mode: runMode,
+    lifecycle_status: lifecycleStatus,
+    created_at: String(record.created_at),
+    updated_at: String(record.updated_at),
+    repository,
+    phase_runs: record.phase_runs as PhaseRun[],
+    steps: record.steps as Step[],
+    artifacts: record.artifacts as ArtifactRef[],
+    evidence: record.evidence as EvidenceRef[],
+    findings: record.findings as Finding[],
+    decisions: record.decisions as Decision[],
+    approvals: record.approvals as Approval[],
+    command_results: record.command_results as CommandResult[],
+    verification_results: record.verification_results as VerificationResult[],
+    review_results: record.review_results as ReviewResult[],
+    required_gates: record.required_gates as RequiredGate[],
+    remote_checks: record.remote_checks as RemoteCheckResult[],
+    delivery_facts: deliveryFacts,
+    closeout_receipts: record.closeout_receipts as CloseoutReceipt[],
+    ...(typeof record.discard_reason === "string" ? { discard_reason: record.discard_reason } : {}),
+    ...(typeof record.manual_override_reason === "string" ? { manual_override_reason: record.manual_override_reason } : {}),
+    ...(typeof record.harvested_at === "string" ? { harvested_at: record.harvested_at } : {}),
+    ...(typeof record.source_snapshot === "string" ? { source_snapshot: record.source_snapshot } : {}),
+    ...(typeof record.source_staging_db_path === "string" ? { source_staging_db_path: record.source_staging_db_path } : {})
+  };
 }
 
 export function validateCloseoutReceipt(value: unknown): CloseoutReceipt {
@@ -970,7 +1099,8 @@ export function createCloseoutReceipt(run: Run): CloseoutReceipt {
     approvals: run.approvals,
     required_gates: run.required_gates,
     remote_checks: run.remote_checks,
-    blockers
+    blockers,
+    delivery_facts: run.delivery_facts
   };
 }
 
@@ -1023,14 +1153,12 @@ function writeJsonFile(filePath: string, value: unknown): void {
 }
 
 function writeRuntimeRun(targetRoot: string, run: Run): string {
-  const runPath = runFilePath(targetRoot, run.run_id);
-  writeJsonFile(runPath, run);
-  writeJsonFile(currentRunPointerPath(targetRoot), {
-    run_id: run.run_id,
-    run_path: path.join(run.run_id, RUN_FILE),
-    updated_at: run.updated_at
-  });
-  return runPath;
+  const roots = resolveHarnessRoots(targetRoot);
+  const staging = new RunStagingDatabase(targetRoot, roots.projectRoot, run.run_id);
+  staging.ensureInitialized();
+  staging.saveRun(run);
+  writeCompatibilityRunArtifacts(targetRoot, run);
+  return runFilePath(targetRoot, run.run_id);
 }
 
 function readCurrentRuntimeRun(targetRoot: string): { run: Run; runPath: string } | undefined {
@@ -1051,8 +1179,19 @@ function readCurrentRuntimeRun(targetRoot: string): { run: Run; runPath: string 
     throw new Error("Runtime current pointer resolves outside .harness/runs.");
   }
 
+  const roots = resolveHarnessRoots(targetRoot);
+  const staging = new RunStagingDatabase(targetRoot, roots.projectRoot, String(pointer.run_id));
+  const stagedRun = staging.loadRun(String(pointer.run_id));
+
+  if (stagedRun) {
+    return {
+      run: stagedRun,
+      runPath
+    };
+  }
+
   if (!fs.existsSync(runPath) || !fs.statSync(runPath).isFile()) {
-    throw new Error(`Runtime current run is missing: ${toRepoRelative(targetRoot, runPath)}`);
+    throw new Error(`Runtime current run is missing from staging DB and compatibility JSON: ${toRepoRelative(targetRoot, runPath)}`);
   }
 
   return {
@@ -1254,8 +1393,31 @@ function buildRuntimeVerificationFromSnapshot(run: Run, snapshot: VerifiedSnapsh
   };
 }
 
-function loadRunForMutation(targetRoot: string, dryRun: boolean): { run: Run; runPath?: string; state: "loaded" | "preview" } {
-  const current = readCurrentRuntimeRun(targetRoot);
+function loadRunForMutation(
+  targetRoot: string,
+  dryRun: boolean,
+  runId?: string
+): { run: Run; runPath?: string; state: "loaded" | "preview" } {
+  const roots = resolveHarnessRoots(targetRoot);
+  const current = runId
+    ? (() => {
+        const staging = new RunStagingDatabase(targetRoot, roots.projectRoot, runId);
+        const run = staging.loadRun(runId);
+        if (run) {
+          return { run, runPath: runFilePath(targetRoot, runId) };
+        }
+
+        const compatibilityRunPath = runFilePath(targetRoot, runId);
+        if (fs.existsSync(compatibilityRunPath) && fs.statSync(compatibilityRunPath).isFile()) {
+          return {
+            run: validateRuntimeRun(readJsonFile(compatibilityRunPath)),
+            runPath: compatibilityRunPath
+          };
+        }
+
+        return undefined;
+      })()
+    : readCurrentRuntimeRun(targetRoot);
 
   if (current) {
     return {
@@ -1276,10 +1438,11 @@ function loadRunForMutation(targetRoot: string, dryRun: boolean): { run: Run; ru
 }
 
 export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptions): Promise<RuntimeServiceResult> {
-  const targetRoot = requireGitTargetRoot(cwd);
+  const roots = resolveHarnessRoots(cwd);
+  const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
   const task = resolveTaskReference(targetRoot, options.taskPath);
-  const run = buildRuntimeRun({
+  const seedRun = buildRuntimeRun({
     runId: dryRun ? "run-dry-run" : buildNextRunId(targetRoot),
     taskPath: task.taskPath,
     activeTaskPath: task.activeTaskPath,
@@ -1287,16 +1450,27 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
     repository: buildRepositoryRef(targetRoot),
     timestamp: nowIso()
   });
+  const seededPaths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, seedRun.run_id);
+  const run: Run = {
+    ...seedRun,
+    source_staging_db_path: seededPaths.stagingDbPath,
+    source_snapshot: seedRun.repository.head_sha
+  };
 
   if (dryRun) {
     return {
       targetRoot,
+      projectRoot: roots.projectRoot,
       dryRun,
       run,
+      projectDbPath: seededPaths.projectDbPath,
+      stagingDbPath: seededPaths.stagingDbPath,
       state: "preview"
     };
   }
 
+  const projectDb = new ProjectMemoryDatabase(targetRoot, roots.projectRoot);
+  projectDb.ensureInitialized();
   const runPath = writeRuntimeRun(targetRoot, run);
   await appendRuntimeEvidence(
     targetRoot,
@@ -1308,45 +1482,41 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
       task_path: run.task_path,
       active_task_path: run.active_task_path,
       phase_id: run.phase_id,
-      status: run.status
+      run_mode: run.run_mode,
+      lifecycle_status: run.lifecycle_status
     },
     "node bin/ch run start"
   );
 
   return {
     targetRoot,
+    projectRoot: roots.projectRoot,
     dryRun,
     run,
     runPath,
+    projectDbPath: seededPaths.projectDbPath,
+    stagingDbPath: seededPaths.stagingDbPath,
     state: "created"
   };
 }
 
 export function getRuntimeStatus(cwd: string, options: RuntimeDryRunOptions = {}): RuntimeServiceResult {
-  const targetRoot = requireGitTargetRoot(cwd);
+  const roots = resolveHarnessRoots(cwd);
+  const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
-  const current = readCurrentRuntimeRun(targetRoot);
+  const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, current.run.run_id);
 
-  if (current) {
-    return {
-      targetRoot,
-      dryRun,
-      run: current.run,
-      runPath: current.runPath,
-      state: "loaded"
-    };
-  }
-
-  if (dryRun) {
-    return {
-      targetRoot,
-      dryRun,
-      run: buildPreviewRun(targetRoot, "TASK.md", "node bin/ch run status --dry-run"),
-      state: "preview"
-    };
-  }
-
-  throw new Error("No current runtime run found. Run `node bin/ch run start --task TASK.md` first.");
+  return {
+    targetRoot,
+    projectRoot: roots.projectRoot,
+    dryRun,
+    run: current.run,
+    runPath: current.runPath,
+    projectDbPath: paths.projectDbPath,
+    stagingDbPath: paths.stagingDbPath,
+    state: current.state
+  };
 }
 
 function buildVerifierArtifact(targetRoot: string, taskId: string): ArtifactRef {
@@ -1449,6 +1619,9 @@ async function executeSelfHostingVerification(
 ): Promise<{ verification: VerificationResult; snapshot: VerifiedSnapshot }> {
   const store = new MemoryEvidenceStore(targetRoot);
   const artifactStore = new EvidenceArtifactStore(targetRoot);
+  const roots = resolveHarnessRoots(targetRoot);
+  const staging = new RunStagingDatabase(targetRoot, roots.projectRoot, run.run_id);
+  staging.ensureInitialized();
   const commandEvidence: VerificationCommandResultEvidence[] = [];
   const runtimeCommandResults: CommandResult[] = [];
 
@@ -1488,6 +1661,37 @@ async function executeSelfHostingVerification(
       ...(stdoutArtifact ? [toRuntimeArtifactRef(stdoutArtifact)] : []),
       ...(stderrArtifact ? [toRuntimeArtifactRef(stderrArtifact)] : [])
     ];
+    const parentRecordId = `command-result:verification-command-${index + 1}`;
+
+    if (stdoutArtifact) {
+      staging.storePayload({
+        parentRecordId,
+        sourceRunId: run.run_id,
+        sourcePhaseId: run.phase_id,
+        kind: "stdout",
+        mediaType: "text/plain",
+        summary: `${display} stdout`,
+        content: result.stdout,
+        searchableText: result.stdout.slice(0, 4000),
+        boundedExcerpt: result.stdout.slice(0, 500),
+        retentionClass: "audit"
+      });
+    }
+
+    if (stderrArtifact) {
+      staging.storePayload({
+        parentRecordId,
+        sourceRunId: run.run_id,
+        sourcePhaseId: run.phase_id,
+        kind: "stderr",
+        mediaType: "text/plain",
+        summary: `${display} stderr`,
+        content: result.stderr,
+        searchableText: result.stderr.slice(0, 4000),
+        boundedExcerpt: result.stderr.slice(0, 500),
+        retentionClass: "audit"
+      });
+    }
 
     commandEvidence.push({
       command: display,
@@ -1745,9 +1949,10 @@ async function resolveVerification(
 }
 
 export async function verifyRuntimeRun(cwd: string, options: RuntimeDryRunOptions = {}): Promise<RuntimeVerificationResult> {
-  const targetRoot = requireGitTargetRoot(cwd);
+  const roots = resolveHarnessRoots(cwd);
+  const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
-  const current = loadRunForMutation(targetRoot, dryRun);
+  const current = loadRunForMutation(targetRoot, dryRun, options.runId);
   const resolved = await resolveVerification(targetRoot, current.run, dryRun);
   const verification = resolved.verification;
   const run = recordVerificationResult(current.run, verification);
@@ -1808,11 +2013,15 @@ export async function verifyRuntimeRun(cwd: string, options: RuntimeDryRunOption
     );
   }
 
+  const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id);
   return {
     targetRoot,
+    projectRoot: roots.projectRoot,
     dryRun,
     run,
     runPath,
+    projectDbPath: paths.projectDbPath,
+    stagingDbPath: paths.stagingDbPath,
     verification,
     state: dryRun && current.state === "preview" ? "preview" : "updated"
   };
@@ -1822,9 +2031,10 @@ export async function recordRuntimeRemoteStatus(
   cwd: string,
   options: RecordRemoteStatusOptions = {}
 ): Promise<RuntimeRemoteStatusResult> {
-  const targetRoot = requireGitTargetRoot(cwd);
+  const roots = resolveHarnessRoots(cwd);
+  const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
-  const current = loadRunForMutation(targetRoot, dryRun);
+  const current = loadRunForMutation(targetRoot, dryRun, options.runId);
   const run = recordRemoteCheckResult(current.run, options);
   const remoteCheck = run.remote_checks[run.remote_checks.length - 1];
 
@@ -1853,12 +2063,61 @@ export async function recordRuntimeRemoteStatus(
     );
   }
 
+  const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id);
   return {
     targetRoot,
+    projectRoot: roots.projectRoot,
     dryRun,
     run,
     runPath,
+    projectDbPath: paths.projectDbPath,
+    stagingDbPath: paths.stagingDbPath,
     remoteCheck,
+    state: dryRun && current.state === "preview" ? "preview" : "updated"
+  };
+}
+
+export async function markRuntimeRunDiscardable(
+  cwd: string,
+  options: MarkDiscardableOptions
+): Promise<RuntimeServiceResult> {
+  const roots = resolveHarnessRoots(cwd);
+  const targetRoot = roots.targetRoot;
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  const run: Run = {
+    ...current.run,
+    lifecycle_status: "discarded",
+    discard_reason: options.reason,
+    updated_at: nowIso()
+  };
+
+  const runPath = dryRun ? current.runPath : writeRuntimeRun(targetRoot, run);
+
+  if (!dryRun) {
+    await appendRuntimeEvidence(
+      targetRoot,
+      run,
+      "decision",
+      {
+        summary: `Marked run ${run.run_id} discardable.`,
+        run_id: run.run_id,
+        lifecycle_status: run.lifecycle_status,
+        discard_reason: options.reason
+      },
+      "node bin/ch run mark-discardable"
+    );
+  }
+
+  const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id);
+  return {
+    targetRoot,
+    projectRoot: roots.projectRoot,
+    dryRun,
+    run,
+    runPath,
+    projectDbPath: paths.projectDbPath,
+    stagingDbPath: paths.stagingDbPath,
     state: dryRun && current.state === "preview" ? "preview" : "updated"
   };
 }
@@ -1878,14 +2137,15 @@ function ensureRunHasVerificationAndReview(run: Run, targetRoot: string): Run {
 }
 
 export async function closeoutRuntimeRun(cwd: string, options: RuntimeDryRunOptions = {}): Promise<RuntimeCloseoutResult> {
-  const targetRoot = requireGitTargetRoot(cwd);
+  const roots = resolveHarnessRoots(cwd);
+  const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
-  const current = loadRunForMutation(targetRoot, dryRun);
+  const current = loadRunForMutation(targetRoot, dryRun, options.runId);
   const preparedRun = ensureRunHasVerificationAndReview(current.run, targetRoot);
   const receipt = createCloseoutReceipt(preparedRun);
   const run: Run = {
     ...preparedRun,
-    status: receipt.status === "READY" ? "ready" : "blocked",
+    lifecycle_status: receipt.status === "READY" ? "closed" : "blocked",
     updated_at: receipt.created_at,
     closeout_receipts: [...preparedRun.closeout_receipts, receipt]
   };
@@ -1893,9 +2153,12 @@ export async function closeoutRuntimeRun(cwd: string, options: RuntimeDryRunOpti
   if (dryRun) {
     return {
       targetRoot,
+      projectRoot: roots.projectRoot,
       dryRun,
       run,
       runPath: current.runPath,
+      projectDbPath: resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id).projectDbPath,
+      stagingDbPath: resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id).stagingDbPath,
       receipt,
       state: current.state === "preview" ? "preview" : "updated"
     };
@@ -1920,9 +2183,12 @@ export async function closeoutRuntimeRun(cwd: string, options: RuntimeDryRunOpti
 
   return {
     targetRoot,
+    projectRoot: roots.projectRoot,
     dryRun,
     run,
     runPath,
+    projectDbPath: resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id).projectDbPath,
+    stagingDbPath: resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id).stagingDbPath,
     closeoutPath,
     receipt,
     state: "updated"

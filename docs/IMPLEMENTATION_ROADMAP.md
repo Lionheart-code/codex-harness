@@ -228,6 +228,10 @@ exact-match replay using `VerifiedSnapshot` / `ChangeSetFingerprint`, with
 SQLite as indexed projection, JSONL as append-only trace, and large raw
 artifacts referenced from ArtifactStore by hash or id.
 
+Phase 23 remains the historical/bootstrap memory/evidence slice. Phase 23.5
+reconciles the authority model before later reports or self-hosting workflow
+layers are trusted.
+
 Implemented scope:
 
 - `.harness/evidence/events.jsonl` is the local append-only source-of-trace;
@@ -247,7 +251,18 @@ Make project memory and self-hosting lifecycle safe enough for later reports,
 packets, plan-review workflow, and agent access.
 
 Status:
-Planned. Blocked until Phase 23 is complete and reviewed.
+Implemented after Phase 23 as the DB-first memory/lifecycle correction slice.
+
+Implemented scope:
+
+- `.harness/memory/project.sqlite` is the accepted Project Memory authority;
+- `.harness/runs/<run-id>/staging.sqlite` is the active run/worktree write target;
+- `.harness/evidence/events.jsonl` and `projection.sqlite` remain audit and compatibility layers, not primary operational memory authority;
+- large decision-useful payloads are chunked into SQLite payload tables with retention/redaction metadata;
+- delivery facts can be imported into staging memory and used for closeout;
+- `run_mode` is distinct from `lifecycle_status`;
+- closed runs are not deletable until harvest, explicit discard, or manual override;
+- hooks remain guardrails and write only local/runtime-side state, not accepted Project Memory authority.
 
 ## Phase 23.6 — Self-hosting Skills and Plan-Review Workflow Bootstrap
 

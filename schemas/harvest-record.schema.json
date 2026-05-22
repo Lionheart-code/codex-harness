@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-harness harvest record",
+  "type": "object",
+  "required": [
+    "harvest_id",
+    "run_id",
+    "project_run_id",
+    "status",
+    "promoted_at",
+    "accepted_count",
+    "discarded_count",
+    "quarantined_count",
+    "redacted_count",
+    "unresolved_count",
+    "source_task_path",
+    "source_snapshot",
+    "details"
+  ],
+  "properties": {
+    "harvest_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "project_run_id": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["promoted", "discarded", "quarantined"] },
+    "promoted_at": { "type": "string", "minLength": 1 },
+    "accepted_count": { "type": "integer", "minimum": 0 },
+    "discarded_count": { "type": "integer", "minimum": 0 },
+    "quarantined_count": { "type": "integer", "minimum": 0 },
+    "redacted_count": { "type": "integer", "minimum": 0 },
+    "unresolved_count": { "type": "integer", "minimum": 0 },
+    "source_task_path": { "type": "string", "minLength": 1 },
+    "source_snapshot": { "type": "string", "minLength": 1 },
+    "details": { "type": "object" }
+  },
+  "additionalProperties": true
+}

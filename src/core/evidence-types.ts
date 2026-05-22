@@ -15,6 +15,8 @@ export type EvidenceType =
   | "finding"
   | "decision"
   | "approval"
+  | "delivery_fact"
+  | "harvest_record"
   | "closeout_receipt"
   | "remote_ci"
   | "artifact_ref"

@@ -44,20 +44,41 @@ function toRelativePath(targetRoot: string, absolutePath: string): string {
 
 function buildHooksConfig(): string {
   return `${JSON.stringify({
-    hooks: [
-      {
-        event: "UserPromptSubmit",
-        command: ["node", ".codex/hooks/user-prompt-submit.cjs"]
-      },
-      {
-        event: "PreToolUse",
-        command: ["node", ".codex/hooks/pre-tool-use.cjs"]
-      },
-      {
-        event: "Stop",
-        command: ["node", ".codex/hooks/stop.cjs"]
-      }
-    ]
+    hooks: {
+      UserPromptSubmit: [
+        {
+          matcher: "*",
+          hooks: [
+            {
+              type: "command",
+              command: ["node", ".codex/hooks/user-prompt-submit.cjs"]
+            }
+          ]
+        }
+      ],
+      PreToolUse: [
+        {
+          matcher: "*",
+          hooks: [
+            {
+              type: "command",
+              command: ["node", ".codex/hooks/pre-tool-use.cjs"]
+            }
+          ]
+        }
+      ],
+      Stop: [
+        {
+          matcher: "*",
+          hooks: [
+            {
+              type: "command",
+              command: ["node", ".codex/hooks/stop.cjs"]
+            }
+          ]
+        }
+      ]
+    }
   }, null, 2)}\n`;
 }
 
@@ -84,16 +105,20 @@ function buildUserPromptSubmitHook(): string {
     "    });",
     "}",
     "",
+    "function emit(output) {",
+    "  process.stdout.write(`${JSON.stringify(output)}\\n`);",
+    "}",
+    "",
     "const repoRoot = process.cwd();",
     "const tasksDir = path.join(repoRoot, '.harness', 'tasks');",
     "const tasks = listTaskStates(tasksDir).filter((task) => typeof task.worktree === 'string' && task.worktree.length > 0);",
     "",
     "if (tasks.length !== 1) {",
-    "  process.stderr.write('codex-harness hook: active task context is required before coding work. Run node bin/ch init and node bin/ch worktree.\\n');",
-    "  process.exit(1);",
+    "  emit({ decision: 'deny', reason: 'codex-harness hook: active task context is required before coding work. Run node bin/ch init and node bin/ch worktree.' });",
+    "  process.exit(0);",
     "}",
     "",
-    "process.stdout.write(`codex-harness hook: task context active for ${tasks[0].task_id}.\\n`);",
+    "emit({ decision: 'allow', reason: `codex-harness hook: task context active for ${tasks[0].task_id}.` });",
     ""
   ].join("\n");
 }
@@ -175,6 +200,10 @@ function buildPreToolUseHook(): string {
     "  ].some((pattern) => value.includes(pattern));",
     "}",
     "",
+    "function emit(output) {",
+    "  process.stdout.write(`${JSON.stringify(output)}\\n`);",
+    "}",
+    "",
     "const repoRoot = process.cwd();",
     "const tasks = listTaskStates(path.join(repoRoot, '.harness', 'tasks')).filter((task) => typeof task.worktree === 'string' && task.worktree.length > 0);",
     "const rawInput = readInput();",
@@ -190,8 +219,8 @@ function buildPreToolUseHook(): string {
     "const dangerous = stringValues.find((value) => looksLikeDangerousCommand(value));",
     "",
     "if (dangerous) {",
-    "  process.stderr.write(`codex-harness hook: blocked dangerous shell/git command: ${dangerous}\\n`);",
-    "  process.exit(1);",
+    "  emit({ permissionDecision: 'deny', permissionDecisionReason: `codex-harness hook: blocked dangerous shell/git command: ${dangerous}` });",
+    "  process.exit(0);",
     "}",
     "",
     "if (tasks.length === 1) {",
@@ -206,20 +235,20 @@ function buildPreToolUseHook(): string {
     "    }",
     "",
     "    if (!isInside(worktreePath, candidatePath)) {",
-    "      process.stderr.write(`codex-harness hook: blocked edit/write outside the current task worktree where detectable: ${candidatePath}\\n`);",
-    "      process.exit(1);",
+    "      emit({ permissionDecision: 'deny', permissionDecisionReason: `codex-harness hook: blocked edit/write outside the current task worktree where detectable: ${candidatePath}` });",
+    "      process.exit(0);",
     "    }",
     "  }",
     "}",
     "",
-    "process.stdout.write('codex-harness hook: pre-tool guard passed. Boundary enforcement applies only where detectable.\\n');",
+    "emit({ permissionDecision: 'allow', permissionDecisionReason: 'codex-harness hook: pre-tool guard passed. Boundary enforcement applies only where detectable.' });",
     ""
   ].join("\n");
 }
 
 function buildStopHook(): string {
   return [
-    "process.stdout.write('codex-harness hook: before stopping, run node bin/ch check and node bin/ch report.\\n');",
+    "process.stdout.write(`${JSON.stringify({ decision: 'allow', reason: 'codex-harness hook: before stopping, run node bin/ch check and node bin/ch report.' })}\\n`);",
     ""
   ].join("\n");
 }

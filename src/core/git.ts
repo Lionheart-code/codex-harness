@@ -1,9 +1,12 @@
+import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 
 export interface GitRepositoryStatus {
   available: boolean;
   insideWorkTree: boolean;
   rootPath?: string;
+  commonDir?: string;
+  canonicalRootPath?: string;
   error?: string;
 }
 
@@ -99,13 +102,34 @@ export function detectGitRepository(cwd: string): GitRepositoryStatus {
   }
 
   const rootProbe = runGitCommand(cwd, ["rev-parse", "--show-toplevel"]);
+  const commonDirProbe = runGitCommand(cwd, ["rev-parse", "--git-common-dir"]);
+  const commonDir = commonDirProbe.status === 0 ? commonDirProbe.stdout.trim() : undefined;
+  const rootPath = rootProbe.status === 0 ? rootProbe.stdout.trim() : undefined;
+  const canonicalRootPath = commonDir && rootPath
+    ? resolveCanonicalRootPath(rootPath, commonDir)
+    : rootPath;
 
   return {
     available: true,
     insideWorkTree: true,
-    rootPath: rootProbe.status === 0 ? rootProbe.stdout.trim() : undefined,
+    rootPath,
+    commonDir,
+    canonicalRootPath,
     error: rootProbe.status === 0 ? undefined : rootProbe.stderr.trim() || undefined
   };
+}
+
+function resolveCanonicalRootPath(rootPath: string, commonDir: string): string {
+  const absoluteCommonDir = commonDir.startsWith(".")
+    ? path.resolve(rootPath, commonDir)
+    : commonDir;
+  const normalized = absoluteCommonDir.replace(/[\\/]+$/, "");
+
+  if (normalized.endsWith("/.git") || normalized.endsWith("\\.git")) {
+    return path.dirname(normalized);
+  }
+
+  return rootPath;
 }
 
 export function hasValidHead(cwd: string): boolean {

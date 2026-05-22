@@ -120,21 +120,24 @@ test("phase 23 memory CLI initializes local evidence storage under .harness only
 
   const init = runCli(["memory", "init"], { cwd: tempRepo });
   assertSuccess(init, "memory init");
+  assert.match(init.stdout, /\.harness[\\/]memory[\\/]project\.sqlite/);
   assert.match(init.stdout, /\.harness[\\/]evidence[\\/]events\.jsonl/);
   assert.match(init.stdout, /\.harness[\\/]evidence[\\/]projection\.sqlite/);
-  assert.match(init.stdout, /\.harness[\\/]artifacts[\\/]sha256/);
 
   const ledgerPath = path.join(tempRepo, ".harness", "evidence", "events.jsonl");
   const projectionPath = path.join(tempRepo, ".harness", "evidence", "projection.sqlite");
   const artifactRoot = path.join(tempRepo, ".harness", "artifacts", "sha256");
+  const projectDbPath = path.join(tempRepo, ".harness", "memory", "project.sqlite");
   assert.ok(fs.existsSync(ledgerPath), "ledger was not written");
   assert.ok(fs.existsSync(projectionPath), "projection was not written");
   assert.ok(fs.existsSync(artifactRoot), "artifact root was not created");
+  assert.ok(fs.existsSync(projectDbPath), "project DB was not written");
   assert.equal(readText(ledgerPath).trim().split(/\r?\n/).length, 1);
 
   const status = runCli(["memory", "status"], { cwd: tempRepo });
   assertSuccess(status, "memory status");
-  assert.match(status.stdout, /evidence ledger:/);
+  assert.match(status.stdout, /project db exists: true/);
+  assert.match(status.stdout, /audit ledger:/);
   assert.match(status.stdout, /sqlite adapter: available/);
 
   const rebuild = runCli(["memory", "rebuild", "--dry-run"], { cwd: tempRepo });
@@ -393,8 +396,9 @@ test("phase 23 runtime commands update the projection and self-hosting verificat
 
   const statusAfterStart = runCli(["memory", "status"], { cwd: tempRepo });
   assertSuccess(statusAfterStart, "memory status after run start");
-  assert.match(statusAfterStart.stdout, /projection exists: true/);
-  assert.match(statusAfterStart.stdout, /events: 1/);
+  assert.match(statusAfterStart.stdout, /project db exists: true/);
+  assert.match(statusAfterStart.stdout, /current run: run-0001/);
+  assert.match(statusAfterStart.stdout, /audit events: 1/);
 
   const verifyFirst = runCli(["run", "verify"], { cwd: tempRepo });
   assertSuccess(verifyFirst, "first run verify in self-hosting repo");
@@ -403,8 +407,8 @@ test("phase 23 runtime commands update the projection and self-hosting verificat
 
   const statusAfterVerify = runCli(["memory", "status"], { cwd: tempRepo });
   assertSuccess(statusAfterVerify, "memory status after self-hosting verify");
-  assert.match(statusAfterVerify.stdout, /projection exists: true/);
-  assert.match(statusAfterVerify.stdout, /artifact root exists: true/);
+  assert.match(statusAfterVerify.stdout, /audit projection exists: true/);
+  assert.match(statusAfterVerify.stdout, /artifact root: \.harness[\\/]artifacts[\\/]sha256/);
 
   const runs = runCli(["memory", "runs", "--last", "5"], { cwd: tempRepo });
   assertSuccess(runs, "memory runs after self-hosting verify");

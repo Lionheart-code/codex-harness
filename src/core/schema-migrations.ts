@@ -17,6 +17,8 @@ export const PRODUCT_SCHEMA_FILE_NAMES = [
   "closeout-receipt.schema.json",
   "evidence-event.schema.json",
   "evidence-artifact-ref.schema.json",
+  "delivery-fact.schema.json",
+  "harvest-record.schema.json",
   "verified-snapshot.schema.json",
   "change-set-fingerprint.schema.json",
   "evidence-projection.schema.json"

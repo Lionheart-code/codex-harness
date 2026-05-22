@@ -183,12 +183,23 @@ This file is the compact context entrypoint for future agents.
 Phase 23 adds a durable evidence backend under local/private runtime paths:
 
 ```text
+.harness/memory/project.sqlite
+.harness/runs/<run-id>/staging.sqlite
 .harness/evidence/events.jsonl
 .harness/evidence/projection.sqlite
 .harness/artifacts/sha256/<prefix>/<hash>
 ```
 
-The JSONL ledger is the append-only source-of-trace. SQLite is only a rebuildable projection/query cache behind typed repository interfaces. Raw SQL is not a public CLI/API. Large stdout/stderr, diffs, logs, review reports, and raw outputs belong in the ArtifactStore and are referenced by hash/id.
+Phase 23.5 makes the authority split explicit:
+
+- `.harness/memory/project.sqlite` is the accepted Project Memory authority;
+- `.harness/runs/<run-id>/staging.sqlite` is the active run/worktree write target;
+- `.harness/evidence/events.jsonl` and `.harness/evidence/projection.sqlite` are audit, replay, export, and compatibility layers for the historical Phase 23 model;
+- raw SQL is not a public CLI/API;
+- large decision-useful payloads are stored in SQLite payload tables with chunking, compression, retention, and redaction metadata;
+- loose artifact files remain compatibility/audit storage, not the normal durable memory authority.
+
+Harvest promotes accepted records from staging into Project Memory. A run may be `closed` before it is `harvested`. Only harvested, explicitly discarded, or manually overridden runs are safe to delete at the worktree layer.
 
 Evidence records are scoped by:
 
