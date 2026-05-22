@@ -1,7 +1,18 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
-import { error, lines } from "../core/logger";
+import { importDeliveryFacts } from "../core/delivery-facts";
 import { getMemoryEvidenceStore } from "../core/evidence-store";
+import { harvestRun } from "../core/harvest";
+import { error, lines } from "../core/logger";
 import { getMemoryStatus } from "../core/memory";
+import { ProjectMemoryDatabase } from "../core/project-memory-db";
+import {
+  RunStagingDatabase,
+  formatDatabasePath,
+  resolveHarnessRoots,
+  resolveMemoryDbPaths
+} from "../core/run-staging-db";
+import { getRuntimeStatus } from "../core/runtime";
 
 type ParsedOptions = Record<string, string | boolean>;
 
@@ -11,10 +22,50 @@ function printMemoryHelp(): void {
     "  node bin/ch memory --help",
     "  node bin/ch memory init [--dry-run]",
     "  node bin/ch memory status",
+    "  node bin/ch memory project --help",
+    "  node bin/ch memory project status",
+    "  node bin/ch memory run --help",
+    "  node bin/ch memory run status --run <run-id>",
+    "  node bin/ch memory harvest --help",
+    "  node bin/ch memory harvest --run <run-id> [--dry-run]",
+    "  node bin/ch memory delivery-facts --help",
+    "  node bin/ch memory delivery-facts import --run <run-id> --file <path> [--dry-run]",
     "  node bin/ch memory rebuild [--dry-run]",
     "  node bin/ch memory runs --last N",
     "  node bin/ch memory show <run-id>",
     "  node bin/ch memory export --dry-run"
+  ]);
+}
+
+function printProjectHelp(): void {
+  lines([
+    "Usage:",
+    "  node bin/ch memory project --help",
+    "  node bin/ch memory project status"
+  ]);
+}
+
+function printRunHelp(): void {
+  lines([
+    "Usage:",
+    "  node bin/ch memory run --help",
+    "  node bin/ch memory run status --run <run-id>"
+  ]);
+}
+
+function printHarvestHelp(): void {
+  lines([
+    "Usage:",
+    "  node bin/ch memory harvest --help",
+    "  node bin/ch memory harvest --run <run-id> [--dry-run]"
+  ]);
+}
+
+function printDeliveryFactsHelp(): void {
+  lines([
+    "Usage:",
+    "  node bin/ch memory delivery-facts --help",
+    "  node bin/ch memory delivery-facts import --run <run-id> --file <path> [--dry-run]"
   ]);
 }
 
@@ -61,73 +112,226 @@ function stringOption(options: ParsedOptions, name: string): string | undefined 
   return typeof value === "string" ? value : undefined;
 }
 
+function requireRunId(options: ParsedOptions): string {
+  const runId = stringOption(options, "run");
+  if (!runId) {
+    throw new Error("--run is required.");
+  }
+
+  return runId;
+}
+
+function buildDatabasePolicyLines(status: {
+  sizeWarningThresholdBytes: number;
+  payloadWarningThresholdBytes: number;
+  oversizedPayloadCount: number;
+  redactedPayloadCount: number;
+  quarantinedPayloadCount: number;
+  discardedPayloadCount: number;
+  warnings: string[];
+}): string[] {
+  return [
+    `db size warning threshold: ${status.sizeWarningThresholdBytes}`,
+    `payload warning threshold: ${status.payloadWarningThresholdBytes}`,
+    `payload policy: oversized=${status.oversizedPayloadCount} | redacted=${status.redactedPayloadCount} | quarantine=${status.quarantinedPayloadCount} | discarded=${status.discardedPayloadCount}`,
+    ...(status.warnings.length > 0 ? ["warnings:", ...status.warnings.map((warning) => `- ${warning}`)] : [])
+  ];
+}
+
 async function runStatus(): Promise<number> {
+  const roots = resolveHarnessRoots(process.cwd());
+  const projectDb = new ProjectMemoryDatabase(roots.targetRoot, roots.projectRoot);
+  const projectStatus = projectDb.status();
+  const store = getMemoryEvidenceStore(process.cwd());
+  const evidenceStatus = await store.status();
+  const output = [
+    "codex-harness memory status",
+    `target root: ${roots.targetRoot}`,
+    `project root: ${roots.projectRoot}`,
+    `project db: ${formatDatabasePath(roots.projectRoot, projectStatus.path)}`,
+    `project db exists: ${projectStatus.exists ? "true" : "false"}`,
+    `project db journal: ${projectStatus.journalMode}`,
+    `project db integrity: ${projectStatus.integrity}`,
+    ...buildDatabasePolicyLines(projectStatus)
+  ];
+
   try {
-    const store = getMemoryEvidenceStore(process.cwd());
-    const evidenceStatus = await store.status();
-    const output = [
-      "codex-harness memory status",
-      `target root: ${evidenceStatus.targetRoot}`
-    ];
-
-    try {
-      const result = getMemoryStatus(process.cwd());
-      const warningLines =
-        result.warnings.length > 0
-          ? ["warnings:", ...result.warnings.map((warning) => `- ${warning}`)]
-          : [];
-
-      output.push(
-        `memory root: ${result.memoryRoot}`,
-        `debt: open=${result.debtCounts.open} | in_progress=${result.debtCounts.in_progress} | resolved=${result.debtCounts.resolved} | accepted=${result.debtCounts.accepted} | obsolete=${result.debtCounts.obsolete}`,
-        `decisions: active=${result.decisionCounts.active} | superseded=${result.decisionCounts.superseded} | rejected=${result.decisionCounts.rejected}`,
-        `agent outputs: raw=${result.agentCounts.raw} | accepted=${result.agentCounts.accepted} | stale=${result.agentCounts.stale} | rejected=${result.agentCounts.rejected}`,
-        `project index: ${path.relative(result.targetRoot, result.projectIndexPath)}`,
-        `debt markdown: ${path.relative(result.targetRoot, result.debtMarkdownPath)}`,
-        ...warningLines
-      );
-    } catch (phase9Error) {
-      const message = phase9Error instanceof Error ? phase9Error.message : String(phase9Error);
-      output.push(`phase9 memory: unavailable (${message})`);
-    }
+    const result = getMemoryStatus(process.cwd());
+    const warningLines =
+      result.warnings.length > 0
+        ? ["warnings:", ...result.warnings.map((warning) => `- ${warning}`)]
+        : [];
 
     output.push(
-      `evidence ledger: ${path.relative(evidenceStatus.targetRoot, evidenceStatus.ledgerPath)}`,
-      `projection: ${path.relative(evidenceStatus.targetRoot, evidenceStatus.projectionPath)}`,
-      `artifact root: ${path.relative(evidenceStatus.targetRoot, evidenceStatus.artifactRoot)}`,
-      `namespace: ${evidenceStatus.namespace}`,
-      `target project id: ${evidenceStatus.targetProjectId}`,
-      `events: ${evidenceStatus.eventCount}`,
-      `ledger exists: ${evidenceStatus.ledgerExists ? "true" : "false"}`,
-      `projection exists: ${evidenceStatus.projectionExists ? "true" : "false"}`,
-      `artifact root exists: ${evidenceStatus.artifactRootExists ? "true" : "false"}`,
-      `sqlite adapter: ${evidenceStatus.projection.available ? "available" : "unavailable"} (${evidenceStatus.projection.message})`
+      `memory root: ${result.memoryRoot}`,
+      `debt: open=${result.debtCounts.open} | in_progress=${result.debtCounts.in_progress} | resolved=${result.debtCounts.resolved} | accepted=${result.debtCounts.accepted} | obsolete=${result.debtCounts.obsolete}`,
+      `decisions: active=${result.decisionCounts.active} | superseded=${result.decisionCounts.superseded} | rejected=${result.decisionCounts.rejected}`,
+      `agent outputs: raw=${result.agentCounts.raw} | accepted=${result.agentCounts.accepted} | stale=${result.agentCounts.stale} | rejected=${result.agentCounts.rejected}`,
+      `project index: ${path.relative(result.targetRoot, result.projectIndexPath)}`,
+      `debt markdown: ${path.relative(result.targetRoot, result.debtMarkdownPath)}`,
+      ...warningLines
     );
-
-    lines(output);
-
-    return 0;
-  } catch (memoryError) {
-    const message = memoryError instanceof Error ? memoryError.message : String(memoryError);
-    error(message);
-    return 1;
+  } catch (phase9Error) {
+    const message = phase9Error instanceof Error ? phase9Error.message : String(phase9Error);
+    output.push(`phase9 memory: unavailable (${message})`);
   }
+
+  output.push(
+    `audit ledger: ${path.relative(evidenceStatus.targetRoot, evidenceStatus.ledgerPath)}`,
+    `audit projection: ${path.relative(evidenceStatus.targetRoot, evidenceStatus.projectionPath)}`,
+    `artifact root: ${path.relative(evidenceStatus.targetRoot, evidenceStatus.artifactRoot)}`,
+    `audit events: ${evidenceStatus.eventCount}`,
+    `audit ledger exists: ${evidenceStatus.ledgerExists ? "true" : "false"}`,
+    `audit projection exists: ${evidenceStatus.projectionExists ? "true" : "false"}`,
+    `sqlite adapter: ${evidenceStatus.projection.available ? "available" : "unavailable"} (${evidenceStatus.projection.message})`
+  );
+
+  try {
+    const runtime = getRuntimeStatus(process.cwd(), {});
+    output.push(
+      `current run: ${runtime.run.run_id}`,
+      `current staging db: ${runtime.stagingDbPath ? path.relative(runtime.targetRoot, runtime.stagingDbPath) : "(unavailable)"}`,
+      `current lifecycle: ${runtime.run.lifecycle_status}`
+    );
+  } catch {
+    output.push("current run: unavailable");
+  }
+
+  lines(output);
+  return 0;
 }
 
 async function runInit(args: string[]): Promise<number> {
   const options = parseOptions(args, new Set());
   const dryRun = dryRunOption(options);
+  const roots = resolveHarnessRoots(process.cwd());
+  const paths = resolveMemoryDbPaths(roots.targetRoot, roots.projectRoot);
   const store = getMemoryEvidenceStore(process.cwd());
-  const result = await store.init(dryRun);
+  const projectDb = new ProjectMemoryDatabase(roots.targetRoot, roots.projectRoot);
+
+  if (!dryRun) {
+    fs.mkdirSync(paths.exportsRoot, { recursive: true });
+    projectDb.ensureInitialized();
+    await store.init(false);
+  }
 
   lines([
     `codex-harness memory init${dryRun ? " (dry-run)" : ""}`,
-    `target root: ${result.targetRoot}`,
-    `evidence ledger: ${path.relative(result.targetRoot, result.status.ledgerPath)}`,
-    `projection: ${path.relative(result.targetRoot, result.status.projectionPath)}`,
-    `artifact root: ${path.relative(result.targetRoot, result.status.artifactRoot)}`,
-    `sqlite adapter: ${result.status.projection.available ? "available" : "unavailable"} (${result.status.projection.message})`,
+    `target root: ${roots.targetRoot}`,
+    `project root: ${roots.projectRoot}`,
+    `project db: ${formatDatabasePath(roots.projectRoot, paths.projectDbPath)}`,
+    `exports root: ${formatDatabasePath(roots.projectRoot, paths.exportsRoot)}`,
+    `audit ledger: ${path.relative(roots.targetRoot, path.join(roots.targetRoot, ".harness", "evidence", "events.jsonl"))}`,
+    `audit projection: ${path.relative(roots.targetRoot, path.join(roots.targetRoot, ".harness", "evidence", "projection.sqlite"))}`,
     ...(dryRun ? ["dry-run: no files were written"] : ["status: initialized"])
+  ]);
+  return 0;
+}
+
+async function runProjectStatus(): Promise<number> {
+  const roots = resolveHarnessRoots(process.cwd());
+  const projectDb = new ProjectMemoryDatabase(roots.targetRoot, roots.projectRoot);
+  const status = projectDb.status();
+  lines([
+    "codex-harness memory project status",
+    `target root: ${roots.targetRoot}`,
+    `project root: ${roots.projectRoot}`,
+    `project db: ${formatDatabasePath(roots.projectRoot, status.path)}`,
+    `exists: ${status.exists ? "true" : "false"}`,
+    `size bytes: ${status.sizeBytes}`,
+    `journal mode: ${status.journalMode}`,
+    `integrity: ${status.integrity}`,
+    ...buildDatabasePolicyLines(status)
+  ]);
+  return 0;
+}
+
+async function runStagingStatus(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run"]));
+  const runId = requireRunId(options);
+  const roots = resolveHarnessRoots(process.cwd());
+  const staging = new RunStagingDatabase(roots.targetRoot, roots.projectRoot, runId);
+  const status = staging.status();
+  const run = staging.loadRun(runId);
+  lines([
+    "codex-harness memory run status",
+    `target root: ${roots.targetRoot}`,
+    `project root: ${roots.projectRoot}`,
+    `run id: ${runId}`,
+    `staging db: ${formatDatabasePath(roots.targetRoot, status.path)}`,
+    `exists: ${status.exists ? "true" : "false"}`,
+    `size bytes: ${status.sizeBytes}`,
+    `journal mode: ${status.journalMode}`,
+    `integrity: ${status.integrity}`,
+    `lifecycle status: ${run?.lifecycle_status ?? "(missing)"}`,
+    `run mode: ${run?.run_mode ?? "(missing)"}`,
+    `delivery facts: ${run?.delivery_facts.length ?? 0}`,
+    ...buildDatabasePolicyLines(status)
+  ]);
+  return 0;
+}
+
+async function runHarvest(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run"]));
+  const runId = requireRunId(options);
+  const dryRun = dryRunOption(options);
+  const roots = resolveHarnessRoots(process.cwd());
+
+  if (dryRun) {
+    const staging = new RunStagingDatabase(roots.targetRoot, roots.projectRoot, runId);
+    const run = staging.loadRun(runId);
+
+    if (!run) {
+      throw new Error(`Run not found in staging DB: ${runId}`);
+    }
+
+    lines([
+      "codex-harness memory harvest (dry-run)",
+      `target root: ${roots.targetRoot}`,
+      `project root: ${roots.projectRoot}`,
+      `run id: ${runId}`,
+      `lifecycle status: ${run.lifecycle_status}`,
+      `project db: ${path.relative(roots.projectRoot, resolveMemoryDbPaths(roots.targetRoot, roots.projectRoot, runId).projectDbPath)}`,
+      `staging db: ${path.relative(roots.targetRoot, resolveMemoryDbPaths(roots.targetRoot, roots.projectRoot, runId).stagingDbPath ?? "")}`,
+      "dry-run: no files were written"
+    ]);
+    return 0;
+  }
+
+  const result = harvestRun(roots.targetRoot, roots.projectRoot, runId);
+  lines([
+    "codex-harness memory harvest",
+    `target root: ${roots.targetRoot}`,
+    `project root: ${roots.projectRoot}`,
+    `run id: ${runId}`,
+    `already harvested: ${result.alreadyHarvested ? "true" : "false"}`,
+    `harvest status: ${result.harvest.status}`,
+    `accepted count: ${result.harvest.accepted_count}`,
+    `discarded count: ${result.harvest.discarded_count}`,
+    `quarantined count: ${result.harvest.quarantined_count}`,
+    `redacted count: ${result.harvest.redacted_count}`,
+    `unresolved count: ${result.harvest.unresolved_count}`,
+    `delivery facts: ${result.run.delivery_facts.length}`
+  ]);
+  return 0;
+}
+
+async function runDeliveryFactsImport(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run", "file"]));
+  const runId = requireRunId(options);
+  const filePath = stringOption(options, "file");
+  if (!filePath) {
+    throw new Error("--file is required.");
+  }
+
+  const result = importDeliveryFacts(process.cwd(), runId, filePath, dryRunOption(options));
+  lines([
+    `codex-harness memory delivery-facts import${dryRunOption(options) ? " (dry-run)" : ""}`,
+    `run id: ${runId}`,
+    `file: ${filePath}`,
+    `imported facts: ${result.imported.length}`,
+    `run lifecycle: ${result.run.lifecycle_status}`,
+    ...(dryRunOption(options) ? ["dry-run: no files were written"] : [])
   ]);
   return 0;
 }
@@ -155,7 +359,7 @@ async function runRebuild(args: string[]): Promise<number> {
     return 1;
   }
 
-  output.push("status: projection is rebuildable");
+  output.push("status: audit projection is rebuildable");
   lines(output);
   return 0;
 }
@@ -205,7 +409,7 @@ async function runExport(args: string[]): Promise<number> {
   const options = parseOptions(args, new Set());
 
   if (!dryRunOption(options)) {
-    throw new Error("Phase 23 only supports `node bin/ch memory export --dry-run`.");
+    throw new Error("Phase 23.5 only supports `node bin/ch memory export --dry-run`.");
   }
 
   const store = getMemoryEvidenceStore(process.cwd());
@@ -222,6 +426,51 @@ async function runExport(args: string[]): Promise<number> {
     "dry-run: no files were written"
   ]);
   return 0;
+}
+
+async function runProject(args: string[]): Promise<number> {
+  const [subcommand, ...subcommandArgs] = args;
+
+  if (!subcommand || subcommand === "--help" || subcommand === "-h" || subcommand === "help") {
+    printProjectHelp();
+    return 0;
+  }
+
+  if (subcommand !== "status" || subcommandArgs.length > 0) {
+    throw new Error(`Unknown memory project subcommand: ${[subcommand, ...subcommandArgs].join(" ")}`);
+  }
+
+  return runProjectStatus();
+}
+
+async function runStaging(args: string[]): Promise<number> {
+  const [subcommand, ...subcommandArgs] = args;
+
+  if (!subcommand || subcommand === "--help" || subcommand === "-h" || subcommand === "help") {
+    printRunHelp();
+    return 0;
+  }
+
+  if (subcommand !== "status") {
+    throw new Error(`Unknown memory run subcommand: ${subcommand}`);
+  }
+
+  return runStagingStatus(subcommandArgs);
+}
+
+async function runDeliveryFacts(args: string[]): Promise<number> {
+  const [subcommand, ...subcommandArgs] = args;
+
+  if (!subcommand || subcommand === "--help" || subcommand === "-h" || subcommand === "help") {
+    printDeliveryFactsHelp();
+    return 0;
+  }
+
+  if (subcommand !== "import") {
+    throw new Error(`Unknown memory delivery-facts subcommand: ${subcommand}`);
+  }
+
+  return runDeliveryFactsImport(subcommandArgs);
 }
 
 export async function runMemory(args: string[]): Promise<number> {
@@ -241,6 +490,18 @@ export async function runMemory(args: string[]): Promise<number> {
           throw new Error(`Unknown memory status argument(s): ${subcommandArgs.join(", ")}`);
         }
         return await runStatus();
+      case "project":
+        return await runProject(subcommandArgs);
+      case "run":
+        return await runStaging(subcommandArgs);
+      case "harvest":
+        if (subcommandArgs[0] === "--help" || subcommandArgs[0] === "-h" || subcommandArgs[0] === "help") {
+          printHarvestHelp();
+          return 0;
+        }
+        return await runHarvest(subcommandArgs);
+      case "delivery-facts":
+        return await runDeliveryFacts(subcommandArgs);
       case "rebuild":
         return await runRebuild(subcommandArgs);
       case "runs":

@@ -9,6 +9,7 @@ import {
   createTempDirectory,
   ensureBuiltCli,
   getGitStatus,
+  normalizePathForComparison,
   productRoot,
   readJson,
   removeDirectory,
@@ -118,6 +119,9 @@ test("phase 22.5 runtime contracts cover the shared lifecycle and closeout gates
     },
     timestamp: "2026-05-20T00:00:00.000Z"
   });
+  assert.equal(run.repository.project_root, productRoot);
+  assert.equal(run.run_mode, "bootstrap");
+  assert.equal(run.lifecycle_status, "active");
 
   run = runtime.recordPhaseRun(run, {
     phaseRunId: "phase-run-test",
@@ -197,6 +201,43 @@ test("phase 22.5 runtime contracts cover the shared lifecycle and closeout gates
   assert.equal(readyReceipt.remote_checks[0].ci_run.run_id, "provider-run-123");
 });
 
+test("phase 22.5 runtime reader normalizes legacy status-based run records", () => {
+  ensureBuiltCli();
+  const runtime = require(path.join(productRoot, "dist", "core", "runtime.js"));
+  const legacyRun = {
+    schema_version: 1,
+    producer_command: "node bin/ch run start",
+    run_id: "run-legacy",
+    task_path: "TASK.md",
+    status: "blocked",
+    created_at: "2026-05-20T00:00:00.000Z",
+    updated_at: "2026-05-20T00:00:00.000Z",
+    repository: {
+      root_path: productRoot,
+      dirty: false
+    },
+    phase_runs: [],
+    steps: [],
+    artifacts: [],
+    evidence: [],
+    findings: [],
+    decisions: [],
+    approvals: [],
+    command_results: [],
+    verification_results: [],
+    review_results: [],
+    required_gates: [],
+    remote_checks: [],
+    closeout_receipts: []
+  };
+
+  const normalized = runtime.validateRuntimeRun(legacyRun);
+  assert.equal(normalized.run_mode, "bootstrap");
+  assert.equal(normalized.lifecycle_status, "blocked");
+  assert.equal(normalized.delivery_facts.length, 0);
+  assert.equal(normalized.repository.project_root, productRoot);
+});
+
 test("phase 22.5 runtime schemas are provider-neutral and package-visible", () => {
   ensureBuiltCli();
 
@@ -254,8 +295,12 @@ test("phase 22.5 run commands can write local runtime state in a target repo", (
 
   const runPath = path.join(tempRepo, ".harness", "runs", "run-0001", "run.json");
   const pointerPath = path.join(tempRepo, ".harness", "runs", "current.json");
+  const stagingDbPath = path.join(tempRepo, ".harness", "runs", "run-0001", "staging.sqlite");
+  const projectDbPath = path.join(tempRepo, ".harness", "memory", "project.sqlite");
   assert.ok(fs.existsSync(runPath), "runtime run was not written");
   assert.ok(fs.existsSync(pointerPath), "runtime current pointer was not written");
+  assert.ok(fs.existsSync(stagingDbPath), "runtime staging DB was not written");
+  assert.ok(fs.existsSync(projectDbPath), "project memory DB was not written");
 
   const remoteStatus = runCli(
     [
@@ -280,6 +325,9 @@ test("phase 22.5 run commands can write local runtime state in a target repo", (
 
   const run = readJson(runPath);
   const receipt = readJson(path.join(tempRepo, ".harness", "runs", "run-0001", "closeout.json"));
+  assert.equal(run.run_mode, "normal");
+  assert.equal(run.lifecycle_status, "blocked");
+  assert.equal(normalizePathForComparison(run.repository.project_root), normalizePathForComparison(tempRepo));
   assert.equal(run.remote_checks[0].ci_run.provider, "local-ci");
   assert.equal(run.remote_checks[0].ci_run.run_id, "provider-run-123");
   assert.equal(receipt.status, "BLOCKED");

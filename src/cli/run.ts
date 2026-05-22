@@ -1,11 +1,13 @@
 import * as path from "node:path";
 import { error, lines } from "../core/logger";
 import {
+  type MarkDiscardableOptions,
   type RecordRemoteStatusOptions,
   type RemoteGateStatus,
   type RuntimeServiceResult,
   closeoutRuntimeRun,
   getRuntimeStatus,
+  markRuntimeRunDiscardable,
   recordRuntimeRemoteStatus,
   startRuntimeRun,
   verifyRuntimeRun
@@ -20,16 +22,18 @@ function printRunHelp(): void {
     "Usage:",
     "  node bin/ch run --help",
     "  node bin/ch run start --task TASK.md [--dry-run]",
-    "  node bin/ch run status [--dry-run]",
-    "  node bin/ch run verify [--dry-run]",
-    "  node bin/ch run closeout [--dry-run]",
-    "  node bin/ch run remote-status [--provider <provider>] [--run <run-id>] [--gate <gate-id>] [--name <name>] [--status pass|failed|skipped|missing|unknown] [--required true|false] [--explanation <text>] [--dry-run]",
+    "  node bin/ch run status [--run <run-id>] [--dry-run]",
+    "  node bin/ch run verify [--run <run-id>] [--dry-run]",
+    "  node bin/ch run closeout [--run <run-id>] [--dry-run]",
+    "  node bin/ch run mark-discardable --run <run-id> --reason <reason> [--dry-run]",
+    "  node bin/ch run remote-status [--run <provider-run-id>] [--provider <provider>] [--gate <gate-id>] [--name <name>] [--status pass|failed|skipped|missing|unknown] [--required true|false] [--explanation <text>] [--dry-run]",
     "",
     "Commands:",
     "  start         Start a local runtime run for a task file.",
     "  status        Read the current runtime run or preview one in dry-run mode.",
     "  verify        Record the current verifier artifact as a runtime verification result.",
     "  closeout      Create a structured closeout receipt for the current runtime run.",
+    "  mark-discardable Record an explicit discard reason for a run.",
     "  remote-status Record provider-neutral remote gate status for the current run."
   ]);
 }
@@ -110,13 +114,17 @@ function renderRunLines(title: string, result: RuntimeServiceResult): string[] {
   const output = [
     title,
     `target root: ${result.targetRoot}`,
+    `project root: ${result.projectRoot}`,
     `run id: ${run.run_id}`,
     `task path: ${run.task_path}`,
     `active task path: ${run.active_task_path ?? "(none)"}`,
     `phase: ${run.phase_id ?? "(unknown)"}`,
-    `status: ${run.status}`,
+    `run mode: ${run.run_mode}`,
+    `lifecycle status: ${run.lifecycle_status}`,
     `state: ${result.state}`,
-    `state path: ${result.runPath ? path.relative(result.targetRoot, result.runPath) : "(dry-run preview)"}`
+    `state path: ${result.runPath ? path.relative(result.targetRoot, result.runPath) : "(dry-run preview)"}`,
+    `project db: ${result.projectDbPath ? path.relative(result.projectRoot, result.projectDbPath) : "(unavailable)"}`,
+    `staging db: ${result.stagingDbPath ? path.relative(result.targetRoot, result.stagingDbPath) : "(unavailable)"}`
   ];
 
   if (result.dryRun) {
@@ -138,23 +146,26 @@ async function runStart(args: string[]): Promise<number> {
 }
 
 async function runStatusCommand(args: string[]): Promise<number> {
-  const options = parseOptions(args, new Set());
+  const options = parseOptions(args, new Set(["run"]));
   const result = getRuntimeStatus(process.cwd(), {
-    dryRun: dryRunOption(options)
+    dryRun: dryRunOption(options),
+    runId: stringOption(options, "run")
   });
   const output = renderRunLines("codex-harness run status", result);
   output.push(`steps: ${result.run.steps.length}`);
   output.push(`verification results: ${result.run.verification_results.length}`);
   output.push(`review results: ${result.run.review_results.length}`);
   output.push(`remote checks: ${result.run.remote_checks.length}`);
+  output.push(`delivery facts: ${result.run.delivery_facts.length}`);
   lines(output);
   return 0;
 }
 
 async function runVerify(args: string[]): Promise<number> {
-  const options = parseOptions(args, new Set());
+  const options = parseOptions(args, new Set(["run"]));
   const result = await verifyRuntimeRun(process.cwd(), {
-    dryRun: dryRunOption(options)
+    dryRun: dryRunOption(options),
+    runId: stringOption(options, "run")
   });
   const output = renderRunLines("codex-harness run verify", result);
   output.push(`verification: ${result.verification.status}`);
@@ -164,9 +175,10 @@ async function runVerify(args: string[]): Promise<number> {
 }
 
 async function runCloseout(args: string[]): Promise<number> {
-  const options = parseOptions(args, new Set());
+  const options = parseOptions(args, new Set(["run"]));
   const result = await closeoutRuntimeRun(process.cwd(), {
-    dryRun: dryRunOption(options)
+    dryRun: dryRunOption(options),
+    runId: stringOption(options, "run")
   });
   const output = renderRunLines("codex-harness run closeout", result);
   output.push(`closeout: ${result.receipt.status}`);
@@ -177,6 +189,30 @@ async function runCloseout(args: string[]): Promise<number> {
     output.push(...result.receipt.blockers.map((blocker) => `- ${blocker}`));
   }
 
+  lines(output);
+  return 0;
+}
+
+async function runMarkDiscardable(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run", "reason"]));
+  const runId = stringOption(options, "run");
+  const reason = stringOption(options, "reason");
+
+  if (!runId) {
+    throw new Error("--run is required.");
+  }
+
+  if (!reason) {
+    throw new Error("--reason is required.");
+  }
+
+  const result = await markRuntimeRunDiscardable(process.cwd(), {
+    dryRun: dryRunOption(options),
+    runId,
+    reason
+  } satisfies MarkDiscardableOptions);
+  const output = renderRunLines("codex-harness run mark-discardable", result);
+  output.push(`discard reason: ${reason}`);
   lines(output);
   return 0;
 }
@@ -231,6 +267,8 @@ export async function runRuntime(args: string[]): Promise<number> {
         return runVerify(commandArgs);
       case "closeout":
         return runCloseout(commandArgs);
+      case "mark-discardable":
+        return runMarkDiscardable(commandArgs);
       case "remote-status":
         return runRemoteStatus(commandArgs);
       default:

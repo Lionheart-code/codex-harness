@@ -128,6 +128,28 @@ function writeText(filePath: string, content: string): void {
   fs.writeFileSync(filePath, content, "utf8");
 }
 
+function isHookDenyResult(result: CommandExecution): boolean {
+  const stdout = result.stdout.trim();
+  if (stdout.length > 0) {
+    try {
+      const parsed = JSON.parse(stdout) as {
+        decision?: string;
+        reason?: string;
+        permissionDecision?: string;
+        permissionDecisionReason?: string;
+      };
+      return (
+        parsed.permissionDecision === "deny" &&
+        /blocked dangerous shell\/git command/i.test(parsed.permissionDecisionReason ?? parsed.reason ?? "")
+      );
+    } catch {
+      // Fall through to the legacy stderr/status contract.
+    }
+  }
+
+  return (result.status ?? 1) !== 0 && /blocked dangerous shell\/git command/i.test(result.stderr ?? "");
+}
+
 function replaceChecksSection(content: string, commands: string[]): string {
   const nextSection = [
     "[checks]",
@@ -323,7 +345,11 @@ function runSafetyLifecycleScenario(productRoot: string, rootPath: string): Scen
       shell: false
     });
 
-    if ((dangerousResult.status ?? 1) === 0 || !/blocked dangerous shell\/git command/i.test(dangerousResult.stderr ?? "")) {
+    if (!isHookDenyResult({
+      status: dangerousResult.status ?? 1,
+      stdout: dangerousResult.stdout ?? "",
+      stderr: dangerousResult.stderr ?? ""
+    })) {
       throw new Error("Expected the installed pre-tool hook to block a dangerous command.");
     }
 

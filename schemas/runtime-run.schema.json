@@ -7,7 +7,6 @@
     "producer_command",
     "run_id",
     "task_path",
-    "status",
     "created_at",
     "updated_at",
     "repository",
@@ -33,15 +32,24 @@
     "active_task_path": { "type": "string", "minLength": 1 },
     "phase_id": { "type": "string", "minLength": 1 },
     "status": { "enum": ["running", "ready", "blocked", "closed"] },
+    "run_mode": { "enum": ["normal", "bootstrap"] },
+    "lifecycle_status": { "enum": ["active", "blocked", "closed", "harvested", "discarded"] },
     "created_at": { "type": "string", "minLength": 1 },
     "updated_at": { "type": "string", "minLength": 1 },
+    "discard_reason": { "type": "string" },
+    "manual_override_reason": { "type": "string" },
+    "harvested_at": { "type": "string" },
+    "source_snapshot": { "type": "string" },
+    "source_staging_db_path": { "type": "string" },
     "repository": {
       "type": "object",
       "required": ["root_path", "dirty"],
       "properties": {
         "root_path": { "type": "string", "minLength": 1 },
+        "project_root": { "type": "string", "minLength": 1 },
         "branch": { "type": "string" },
         "head_sha": { "type": "string" },
+        "task_worktree_path": { "type": "string" },
         "dirty": { "type": "boolean" }
       },
       "additionalProperties": true
@@ -101,7 +109,21 @@
         "additionalProperties": true
       }
     },
+    "delivery_facts": { "type": "array", "items": { "$ref": "./delivery-fact.schema.json" } },
     "closeout_receipts": { "type": "array", "items": { "type": "object" } }
   },
+  "anyOf": [
+    {
+      "required": ["status"]
+    },
+    {
+      "required": ["run_mode", "lifecycle_status", "delivery_facts"],
+      "properties": {
+        "repository": {
+          "required": ["root_path", "project_root", "dirty"]
+        }
+      }
+    }
+  ],
   "additionalProperties": true
 }

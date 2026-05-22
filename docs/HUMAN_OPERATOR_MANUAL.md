@@ -89,11 +89,13 @@ Check:
 
 When using non-dry-run runtime commands, treat `.harness/runs/` as local private state. Do not commit it.
 
-## Phase 23 memory/evidence checks
+## Phase 23.5 memory/lifecycle checks
 
-Phase 23 uses the active Phase 22.5 runtime run as context, but all generated memory/evidence state remains local and private:
+Phase 23.5 keeps all generated memory/evidence state local and private, but the authority model changes:
 
 ```text
+.harness/memory/project.sqlite
+.harness/runs/<run-id>/staging.sqlite
 .harness/runs/**
 .harness/evidence/events.jsonl
 .harness/evidence/projection.sqlite
@@ -106,6 +108,9 @@ Before relying on evidence storage:
 node bin/ch memory --help
 node bin/ch memory init --dry-run
 node bin/ch memory status
+node bin/ch memory project status
+node bin/ch memory run status --run <run-id>
+node bin/ch memory harvest --help
 node bin/ch memory rebuild --dry-run
 ```
 
@@ -113,9 +118,10 @@ Check:
 
 - dry-run commands say no files were written;
 - SQLite adapter status is explicit, and unsupported runtimes fail with an actionable message;
-- `.harness/evidence/projection.sqlite` is treated as a rebuildable cache, not source of truth;
-- `.harness/evidence/events.jsonl` is the append-only source-of-trace;
-- `.harness/artifacts/sha256/` contains only local/private content-addressed artifacts.
+- `.harness/memory/project.sqlite` is the accepted Project Memory authority;
+- `.harness/runs/<run-id>/staging.sqlite` is the active run/worktree write target;
+- `.harness/evidence/projection.sqlite` and `.harness/evidence/events.jsonl` are audit/replay/compatibility layers, not primary working-memory authority;
+- `.harness/artifacts/sha256/` contains only local/private compatibility artifacts.
 
 Local verification reuse is allowed only for exact input-set matches. If source, schema, test, package, CI, command-set, root, base commit, untracked file content, or artifact integrity changes, reuse is stale or missing. Docs/task-only changes may avoid rerunning a source suite only when the declared input set proves the source/schema/test/package/CI inputs did not change.
 
@@ -127,6 +133,16 @@ node bin/ch run remote-status --dry-run
 ```
 
 If dry-run closeout is `BLOCKED` because review results, remote CI, or other closeout prerequisites are missing before review, that is expected and not an implementation failure. Do not run non-dry-run `ch run closeout` until review, final verification, commit/push/PR, and remote CI validation are complete.
+
+After closeout, treat `closed` and `harvested` separately. A closed run is not yet safe to delete. Worktree deletion is allowed only after successful harvest, explicit discard with reason, or manual override with recorded reason:
+
+```bash
+node bin/ch run mark-discardable --run <run-id> --reason "..."
+node bin/ch worktree delete --run <run-id>
+node bin/ch worktree delete --run <run-id> --manual-override "..."
+```
+
+Local `.codex/**` and `.agents/**` files remain operator/runtime state unless a future reviewed task deliberately promotes a repo-level file there into product source.
 
 ## Install and upgrade safety
 

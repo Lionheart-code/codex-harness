@@ -45,3 +45,18 @@ Phase 23 acceptance must also fail if:
 - non-dry-run `ch run closeout` is run during implementation verification.
 
 During implementation verification, `node bin/ch run closeout --dry-run` may report `BLOCKED` before review or remote CI. That expected pre-review block is not an implementation failure.
+
+## Phase 23.5 DB-first memory/lifecycle acceptance additions
+
+Phase 23.5 acceptance must also fail if:
+
+- `.harness/memory/project.sqlite` is missing or resolved only inside a disposable task worktree;
+- active run writes go directly into accepted Project Memory instead of the run/staging DB;
+- JSONL or loose artifacts remain the primary operational memory authority for new behavior;
+- large decision-useful payloads bypass SQLite payload storage without explicit compatibility reasoning;
+- harvest is not idempotent or cannot safely retry after a partial failure;
+- `closed` is treated as equivalent to `harvested`;
+- worktree deletion is allowed before harvest, explicit discard, or recorded manual override;
+- delivery facts cannot be imported into staging state and used during closeout;
+- hooks write accepted Project Memory records directly or are treated as the primary authority boundary;
+- local `.codex/**` or `.agents/**` state becomes hidden product source-of-truth.

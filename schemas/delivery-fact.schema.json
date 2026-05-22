@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-harness delivery fact",
+  "type": "object",
+  "required": [
+    "delivery_fact_id",
+    "run_id",
+    "fact_kind",
+    "source",
+    "status",
+    "recorded_at",
+    "summary"
+  ],
+  "properties": {
+    "delivery_fact_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "fact_kind": { "enum": ["pr", "remote_ci", "review", "merge", "closeout_approval"] },
+    "source": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": ["created", "updated", "pass", "failed", "approved", "rejected", "merged", "closed", "unknown"]
+    },
+    "recorded_at": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "url": { "type": "string" },
+    "external_run_id": { "type": "string" },
+    "commit_sha": { "type": "string" },
+    "excerpt_payload_id": { "type": "string" },
+    "metadata": { "type": "object" }
+  },
+  "additionalProperties": true
+}

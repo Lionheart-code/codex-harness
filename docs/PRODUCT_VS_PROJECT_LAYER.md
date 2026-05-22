@@ -43,11 +43,18 @@ This repository receives an installed harness layer:
 ```text
 AGENTS.md
 .harness/
+```
+
+Its purpose is to build the application/product using the harness.
+
+Local operator/runtime state may also exist under:
+
+```text
 .codex/
 .agents/
 ```
 
-Its purpose is to build the application/product using the harness.
+Those paths are local Codex/operator state by default, not product source-of-truth, unless a future reviewed task deliberately promotes some repo-level file there into versioned product behavior.
 
 ### 3. Playground repository
 
@@ -99,16 +106,18 @@ Portable exports are explicit, redacted, versioned, and importable later.
 
 Runtime run state may be written under `.harness/runs/` when `ch run` is used without `--dry-run`. Phase 23 evidence state may also be written under `.harness/evidence/` and `.harness/artifacts/sha256/`. That state is private local state, not product source. The product repository must not commit `.harness/`, `.codex/`, `.agents/`, generated package tarballs, logs, caches, runtime databases, or temporary runtime output.
 
-Phase 23 has a deterministic runtime path contract:
+Phase 23.5 keeps the deterministic runtime path contract but changes memory authority:
 
 ```text
-.harness/runs/**                         # runtime runs
-.harness/evidence/events.jsonl           # append-only evidence ledger
-.harness/evidence/projection.sqlite      # rebuildable SQLite projection
-.harness/artifacts/sha256/<prefix>/<hash> # content-addressed artifacts
+.harness/memory/project.sqlite             # accepted Project Memory authority
+.harness/runs/<run-id>/staging.sqlite      # active run/worktree write target
+.harness/runs/**                           # compatibility/runtime JSON and receipts
+.harness/evidence/events.jsonl             # audit/export/replay/debug stream
+.harness/evidence/projection.sqlite        # rebuildable audit/query projection
+.harness/artifacts/sha256/<prefix>/<hash>  # compatibility/content-addressed artifacts
 ```
 
-The evidence backend is shared by harness self-hosting and ordinary project work, but every evidence item is scoped by target project id, target root, namespace, run id, and task/phase where available. Queries default to the active project/root/namespace. Memory is an evidence backend, not an agent brain.
+The memory backend is shared by harness self-hosting and ordinary project work, but every run and accepted record is still scoped by target project id, target root, namespace, run id, and task/phase where available. Hooks installed under `.codex/` are local guardrails only. They do not replace the typed lifecycle/storage boundary and must not be treated as the durable authority.
 
 Future portable exports must be deliberate sanitized artifacts. Raw `.harness/` sync is not a supported product/source boundary.
 

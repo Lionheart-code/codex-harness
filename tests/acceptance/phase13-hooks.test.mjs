@@ -52,6 +52,13 @@ function getInstalledHookPath(tempRepo, hookFile) {
   return path.join(tempRepo, ".codex", "hooks", hookFile);
 }
 
+function parseHookJson(result, context) {
+  assertSuccess(result, context);
+  const trimmed = result.stdout.trim();
+  assert.notEqual(trimmed, "", `${context} produced empty stdout`);
+  return JSON.parse(trimmed);
+}
+
 test("phase 13 hooks help succeeds and prints install usage", () => {
   ensureBuiltCli();
 
@@ -103,11 +110,13 @@ test("phase 13 hooks install creates sidecar hooks and is idempotent", () => {
   assert.ok(fs.existsSync(templatesDir), ".harness/templates/hooks was not created");
 
   const hooksConfig = readJson(hooksConfigPath);
-  assert.equal(Array.isArray(hooksConfig.hooks), true);
-  assert.equal(hooksConfig.hooks.length, 3);
-  assert.equal(hooksConfig.hooks[0].event, "UserPromptSubmit");
-  assert.equal(hooksConfig.hooks[1].event, "PreToolUse");
-  assert.equal(hooksConfig.hooks[2].event, "Stop");
+  assert.deepEqual(Object.keys(hooksConfig.hooks), ["UserPromptSubmit", "PreToolUse", "Stop"]);
+  assert.equal(hooksConfig.hooks.UserPromptSubmit[0].matcher, "*");
+  assert.equal(hooksConfig.hooks.PreToolUse[0].matcher, "*");
+  assert.equal(hooksConfig.hooks.Stop[0].matcher, "*");
+  assert.deepEqual(hooksConfig.hooks.UserPromptSubmit[0].hooks[0].command, ["node", ".codex/hooks/user-prompt-submit.cjs"]);
+  assert.deepEqual(hooksConfig.hooks.PreToolUse[0].hooks[0].command, ["node", ".codex/hooks/pre-tool-use.cjs"]);
+  assert.deepEqual(hooksConfig.hooks.Stop[0].hooks[0].command, ["node", ".codex/hooks/stop.cjs"]);
 
   const userPromptContent = readText(userPromptPath);
   const preToolContent = readText(preToolPath);
@@ -134,8 +143,9 @@ test("phase 13 generated hooks enforce the documented runtime behavior", () => {
     [getInstalledHookPath(missingTaskRepo, "user-prompt-submit.cjs")],
     { cwd: missingTaskRepo }
   );
-  assertFailure(userPromptFail, "user prompt hook missing task context");
-  assert.match(userPromptFail.stderr, /active task context is required before coding work/i);
+  const deniedPrompt = parseHookJson(userPromptFail, "user prompt hook missing task context");
+  assert.equal(deniedPrompt.decision, "deny");
+  assert.match(deniedPrompt.reason, /active task context is required before coding work/i);
 
   const tempRepo = createHookRuntimeRepo();
   const userPromptPath = getInstalledHookPath(tempRepo, "user-prompt-submit.cjs");
@@ -143,36 +153,41 @@ test("phase 13 generated hooks enforce the documented runtime behavior", () => {
   const stopPath = getInstalledHookPath(tempRepo, "stop.cjs");
 
   const userPromptPass = runCommand(process.execPath, [userPromptPath], { cwd: tempRepo });
-  assertSuccess(userPromptPass, "user prompt hook active task context");
-  assert.match(userPromptPass.stdout, /task context active for task-test-task/);
+  const allowedPrompt = parseHookJson(userPromptPass, "user prompt hook active task context");
+  assert.equal(allowedPrompt.decision, "allow");
+  assert.match(allowedPrompt.reason, /task context active for task-test-task/);
 
   const dangerousPayload = JSON.stringify({ command: "git reset --hard HEAD" });
   const dangerousResult = runCommand(process.execPath, [preToolPath], {
     cwd: tempRepo,
     input: dangerousPayload
   });
-  assertFailure(dangerousResult, "pre-tool hook dangerous command");
-  assert.match(dangerousResult.stderr, /blocked dangerous shell\/git command/i);
+  const dangerousDecision = parseHookJson(dangerousResult, "pre-tool hook dangerous command");
+  assert.equal(dangerousDecision.permissionDecision, "deny");
+  assert.match(dangerousDecision.permissionDecisionReason, /blocked dangerous shell\/git command/i);
 
   const offBoundaryPayload = JSON.stringify({ file_path: "../outside.md" });
   const offBoundaryResult = runCommand(process.execPath, [preToolPath], {
     cwd: tempRepo,
     input: offBoundaryPayload
   });
-  assertFailure(offBoundaryResult, "pre-tool hook off-boundary path");
-  assert.match(offBoundaryResult.stderr, /blocked edit\/write outside the current task worktree where detectable/i);
+  const offBoundaryDecision = parseHookJson(offBoundaryResult, "pre-tool hook off-boundary path");
+  assert.equal(offBoundaryDecision.permissionDecision, "deny");
+  assert.match(offBoundaryDecision.permissionDecisionReason, /blocked edit\/write outside the current task worktree where detectable/i);
 
   const safePayload = JSON.stringify({ tool: "read", note: "no path here" });
   const safeResult = runCommand(process.execPath, [preToolPath], {
     cwd: tempRepo,
     input: safePayload
   });
-  assertSuccess(safeResult, "pre-tool hook safe payload");
-  assert.match(safeResult.stdout, /pre-tool guard passed/i);
+  const safeDecision = parseHookJson(safeResult, "pre-tool hook safe payload");
+  assert.equal(safeDecision.permissionDecision, "allow");
+  assert.match(safeDecision.permissionDecisionReason, /pre-tool guard passed/i);
 
   const stopResult = runCommand(process.execPath, [stopPath], { cwd: tempRepo });
-  assertSuccess(stopResult, "stop hook reminder");
-  assert.match(stopResult.stdout, /node bin\/ch check and node bin\/ch report/i);
+  const stopDecision = parseHookJson(stopResult, "stop hook reminder");
+  assert.equal(stopDecision.decision, "allow");
+  assert.match(stopDecision.reason, /node bin\/ch check and node bin\/ch report/i);
 });
 
 test("phase 13 hooks install fails closed on conflicting managed files", () => {
