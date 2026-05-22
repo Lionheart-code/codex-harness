@@ -227,6 +227,7 @@ Prompt wrappers are derived invocation templates, not source-of-truth.
 
 Add lightweight procedure files for at least:
 
+- `feature-decomposition`;
 - `task-intake`;
 - `task-prompt-writer`;
 - `draft-plan`;
@@ -257,6 +258,30 @@ Each procedure must include:
 ### 4. Plan-review workflow bootstrap
 
 Define a repeatable plan-review workflow for implementation tasks.
+
+If a request is too broad for one implementation pass, run `feature-decomposition` before selecting the active task.
+
+Required decomposition flow:
+
+```text
+large goal / app idea / major module request
+→ clarify requirements
+→ goals and non-goals
+→ assumptions and open questions
+→ product/feature spec
+→ architecture/dependency plan
+→ executable task contracts
+→ task order by dependency/risk/value
+→ first active task recommendation
+→ normal TASK.md-driven workflow
+```
+
+Boundary:
+
+```text
+`feature-decomposition` produces reviewable task-contract proposals.
+It does not approve scope automatically and does not start implementation.
+```
 
 Minimum workflow:
 
@@ -310,7 +335,7 @@ extra-high:
   architecture-review + db-storage-review + delivery-facts-review + harness-audit
 ```
 
-### 6. Harness self-hosting policy
+### 6. Self-hosting agent operating policy
 
 Document how the harness should be used to develop itself after Phase 23.6.
 
@@ -324,6 +349,24 @@ Required policy points:
 - closeout must use delivery facts and harvest rules from Phase 23.5;
 - generated/local skill install targets must not become hidden source-of-truth;
 - prompts are invocation wrappers, while procedures/skills are the repo-owned operating contracts.
+- role-based autonomy must remain explicit:
+  - planner/architect produces decomposition, plans, and risks without implementing;
+  - reviewer/verifier remains read-only and analytical;
+  - implementation agents work only inside approved task scope;
+  - maintainer/operator actions such as commit/push/PR remain gated by later workflow steps;
+- protected deterministic harness-owned workflows include build, tests, verification, delivery-facts import, closeout, harvest, and worktree lifecycle;
+- agents must not casually interrupt, bypass, rewrite, or “fix” protected deterministic workflows without explicit task reason and approval path;
+- command/process behavior is policy-bound:
+  - agents must not inspect, kill, or restart unrelated processes as a recovery strategy;
+  - an agent may terminate only a process it started in the current command context and only under explicit timeout/stop policy;
+  - if a protected command appears stuck, the agent must report command, cwd, branch/worktree, elapsed time, last output, suspected reason, and recommended next action;
+  - process termination is not a substitute for verification or test repair;
+- initiative must be captured as reviewable outputs such as follow-up recommendations, proposed tasks, open questions, debt, or risk notes;
+- hooks remain guardrails/reminders only and do not become lifecycle, process, or memory authority;
+- Phase 24 owns later packet/report materialization for initiative and review context;
+- Phase 25 owns provider/model-specific adapter and profile behavior;
+- Phase 26 owns domain-specific autonomy through packs and must keep domain logic out of core;
+- this policy defines contract-level operating rules only; it does not introduce runtime enforcement, process supervision, or autonomous orchestration.
 
 ### 7. Optional hook-assisted reminders
 
@@ -363,6 +406,7 @@ Required mapping:
 
 ```text
 planner packet:
+  feature-decomposition when the request is too broad for one implementation pass
   task-intake
   task-prompt-writer
   draft-plan
@@ -405,11 +449,17 @@ A Phase 24 packet must identify the procedure contract/rubric used to select and
 - no compatibility resolver;
 - no marketplace/plugin system;
 - no MCP adapter;
+- no MCP/A2A implementation;
 - no vector search;
 - no autonomous agent daemon;
+- no process manager;
+- no local message bus;
 - no provider-specific Codex API integration;
+- no provider-specific core logic;
+- no domain logic in core;
 - no auto-commit;
 - no auto-merge;
+- no autonomous product management;
 - no bulk installation of ECC, Anthropic packs, or community skill packs.
 
 ## CLI / operator surface
@@ -474,8 +524,10 @@ plus a deterministic validation, script, fixture, or documented check proving re
 - official Codex skill discovery locations are stated accurately;
 - Codex discovery/install/sync path is documented if source path is not `.agents/skills/**`;
 - required self-hosting procedures exist;
+- `feature-decomposition` exists as a required self-hosting procedure;
 - every procedure has source adaptation notes;
 - every procedure states what was adopted, adapted, and rejected;
+- the self-hosting agent operating policy exists and distinguishes role autonomy, protected deterministic workflows, command/process behavior, and initiative capture from runtime implementation;
 - procedures clearly distinguish Phase 23.6 lightweight skills from Phase 26 product pack architecture;
 - prompts, if added, are wrappers derived from procedures and not source-of-truth;
 - plan-review workflow is explicit;
@@ -495,11 +547,15 @@ plus a deterministic validation, script, fixture, or documented check proving re
 Reviewers must check especially for:
 
 - missing source map for procedure/prompt origins;
+- missing `feature-decomposition` or an incomplete large-work decomposition flow;
 - procedure files becoming vague prose with no inputs/outputs/checklists;
 - procedure files lacking source adaptation notes;
 - Phase 26 pack architecture leaking into Phase 23.6;
 - plan review being optional or undocumented;
 - implementation flow starting before plan approval;
+- missing or weak self-hosting agent operating policy boundaries;
+- agents being allowed to kill/restart unrelated processes as a recovery strategy;
+- initiative capture being omitted or treated as permission for adjacent implementation;
 - hooks being treated as authority;
 - `.agents/skills/**` becoming canonical source unintentionally if repo treats it as generated/local;
 - missing Codex discovery/install path when source is outside `.agents/skills/**`;

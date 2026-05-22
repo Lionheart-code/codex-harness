@@ -83,6 +83,14 @@ Packs own:
 - workflow templates;
 - domain prompts/instructions.
 
+Packs inherit core harness boundaries:
+
+- core role boundaries and autonomy rules;
+- approval and review gates;
+- access-service and redaction boundaries;
+- evidence and packet provenance requirements;
+- security and policy enforcement owned by core.
+
 ### Reference pack
 
 Extract or define the software-engineering reference pack without breaking existing workflows.
@@ -130,6 +138,7 @@ Do not freeze a broad ABI too early. Stage the ABI:
 - domain acceptance/report/prompt logic lives in pack files;
 - pack loading does not execute remote code;
 - packs cannot bypass core policy/redaction/approval boundaries.
+- packs inherit core role, access, evidence, and policy boundaries rather than redefining them locally.
 
 ## Suggested file areas
 
@@ -174,6 +183,7 @@ Reviewers must check especially for:
 - marketplace/registry creep;
 - connector catalog creep;
 - packs bypassing redaction/approval policy;
+- packs redefining core role, approval, access, or evidence boundaries locally;
 - Research/Marketing logic added directly to core.
 
 ## Suggested implementation order

@@ -86,6 +86,7 @@ Packet requirements:
 - explicit provenance;
 - Project Memory record ids;
 - payload references/chunk references where needed;
+- initiative outputs when present in accepted records, including proposed tasks, risks, open questions, command-safety notes, and handoff context;
 - remote check provenance, including provider, run id or URL, commit SHA, job/step conclusions, and bounded/redacted failed-step excerpts when failed;
 - redaction before export;
 - token/size budget awareness;
@@ -113,6 +114,7 @@ Each self-hosting packet must reference the Phase 23.6 procedure contract/rubric
 
 ```text
 planner packet:
+  feature-decomposition when the request is too broad for one implementation pass
   task-intake
   task-prompt-writer
   draft-plan
@@ -156,6 +158,8 @@ Project Memory evidence
 ```
 
 In this phase, proposal draft generation must remain non-mutating unless explicitly writing to a draft/output path.
+
+Agent initiative outputs may inform reports, packets, and proposal drafts, but they remain reviewable material only until explicitly promoted through the normal task/doc workflow.
 
 ### 5. Packet manifest
 
@@ -259,6 +263,7 @@ If command grouping differs, implement equivalent behavior and document the mapp
 - deterministic reports do not require LLM/API calls;
 - proposal drafts remain drafts until human promotion;
 - self-hosting workflow packets support Phase 23.6 procedures;
+- self-hosting workflow packets may include initiative outputs such as proposed tasks, risks, open questions, command-safety notes, and handoff context when those exist in accepted evidence;
 - domain-specific formatting can be added later through packs, not core.
 
 ## Suggested file areas
@@ -291,6 +296,7 @@ node bin/ch memory packet --help
 - acceptance evidence report includes verification commands and outcomes;
 - remote CI/check report includes provider, run id or URL, commit SHA, job/step conclusions, and failed-step excerpts when failed;
 - planner packet includes relevant task, prior decisions, unresolved risks, and applicable procedures;
+- planner and plan-review packet material may include bounded initiative outputs such as proposed tasks, open questions, command-safety notes, and handoff context when present in accepted records;
 - plan-review packet includes task contract, architectural constraints, prior decisions, and review rubric references;
 - implementation-review packet includes diff/evidence context without unbounded raw logs;
 - unresolved-risk and repeated-failure reports are deterministic;
@@ -313,6 +319,7 @@ Reviewers must check especially for:
 - packet generation relying on private raw logs by default;
 - remote CI failure logs being omitted from closeout/handoff evidence;
 - proposal drafts being treated as approved tasks;
+- initiative outputs being auto-promoted instead of remaining reviewable packet/report material;
 - domain-specific report logic entering core;
 - accidental Agent Access Layer work;
 - accidental Phase 26 pack runtime work.

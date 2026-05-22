@@ -126,6 +126,7 @@ These are useful but not authoritative.
 DenisSergeevitch/agents-best-practices
 selected prior architecture audits
 selected prior deep-research outputs after correction
+/Users/lionheart/Downloads/reviewed_deep_research_phase_23_6_agent_operating_mechanics.md
 ```
 
 Authority level:
@@ -138,6 +139,13 @@ Use:
 
 ```text
 Review harness architecture, check agentic workflow discipline, identify missing safety/evidence/review boundaries.
+```
+
+Reviewed Deep Research rule:
+
+```text
+The reviewed Deep Research file is advisory evidence only.
+It may inform procedure and policy design, but it does not override repo task/docs contracts or official Codex behavior.
 ```
 
 ### D. Community pattern sources
@@ -264,6 +272,7 @@ Prompt files are invocation templates, not source-of-truth.
 
 | Procedure | Main purpose | Internal binding sources | Official Codex sources | External/advisory sources | What to adopt | What to adapt | What to reject |
 |---|---|---|---|---|---|---|---|
+| `feature-decomposition` | Convert a too-broad request into reviewable task-contract proposals | TASK.md; roadmap; governance docs; agent-role docs; Phase 23.5 lifecycle rules | Best practices; AGENTS.md docs; Skills docs | agents-best-practices; reviewed Deep Research | decomposition before implementation; explicit goals/non-goals; ordered task contracts | codex-harness task/phase boundaries and approval flow | broad request turning directly into implementation or autonomous roadmap ownership |
 | `task-intake` | Normalize a task before planning | TASK.md; roadmap; governance docs; Phase 23.5 lifecycle rules | AGENTS.md docs; Best practices | prior audits | Task contract extraction | codex-harness fields: scope, non-goals, evidence expectations | vague task summaries without acceptance |
 | `task-prompt-writer` | Produce implementation prompts from approved task/procedure | task files; operator manual; security docs | Best practices; AGENTS.md docs; Skills docs | prior prompt audits | explicit context/read-before-editing/non-goals/checks | prompts must point to repo files and lifecycle state | chat-only mega prompts with no artifact contract |
 | `draft-plan` | Create an implementation plan without editing | task file; Phase 23.5 lifecycle; roadmap | Codex Plan mode; Best practices | agents-best-practices | plan-first discipline | approved_plan_hash/evidence requirements | implementation during planning |
@@ -281,12 +290,46 @@ Prompt files are invocation templates, not source-of-truth.
 
 ---
 
+## 5.1 Policy source map entries
+
+| Policy or contract | Main purpose | Internal binding sources | Official Codex sources | External/advisory sources | What to adopt | What to adapt | What to reject |
+|---|---|---|---|---|---|---|---|
+| `self-hosting-agent-operating-policy` | Define role autonomy, protected deterministic workflows, command/process behavior, initiative capture, and future-phase ownership boundaries for self-hosting work | Phase 23.5 lifecycle/storage authority; Phase 23.6 workflow contract; roadmap; agent boundaries; security; governance; operator manual | Best practices; AGENTS.md docs; Hooks docs; Skills docs | agents-best-practices; reviewed Deep Research | role-based autonomy; hooks as guardrails; initiative capture; provider-neutral layering; bounded command/process policy | codex-harness protected-flow list, approval path, and Phase 24/25/26 ownership boundaries | process manager; daemon; local message bus; provider-specific core logic; MCP/A2A implementation in Phase 23.6; domain logic in core; auto-commit; auto-merge |
+
+Reviewed Deep Research disposition for this policy:
+
+```text
+Adopted:
+  prompt-only governance is insufficient
+  hooks are guardrails, not durable authority
+  initiative should be captured as reviewable outputs
+  provider/model differences belong behind later adapters
+  domain autonomy belongs in later domain packs
+
+Adapted:
+  command/process safety is a lightweight Phase 23.6 contract, not runtime supervision
+  decomposition becomes a self-hosting procedure, not autonomous product planning
+
+Rejected for Phase 23.6:
+  process manager
+  daemon
+  message bus
+  provider-specific core logic
+  MCP/A2A implementation
+  domain logic in core
+  auto-commit
+  auto-merge
+```
+
+---
+
 ## 6. Procedure-to-packet linkage for Phase 24
 
 Phase 24 evidence packets must reference these procedure ids.
 
 ```text
 planner packet:
+  feature-decomposition when the request is too broad for one implementation pass
   task-intake
   task-prompt-writer
   draft-plan
@@ -374,6 +417,8 @@ Phase 23.6 is not complete unless:
 
 ```text
 docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md exists.
+`feature-decomposition` is source-mapped.
+`self-hosting-agent-operating-policy` is source-mapped.
 Every required procedure has source_adaptation_notes.
 Each procedure states adopted/adapted/rejected source material.
 Canonical source path is documented.

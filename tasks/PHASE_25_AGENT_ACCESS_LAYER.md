@@ -34,6 +34,8 @@ After Phase 23/24, the harness has runtime evidence and bounded packets. Phase 2
 
 The purpose is not to make MCP the architecture. The purpose is to ensure every access surface calls the same core logic.
 
+Provider/model-specific behavior belongs behind Agent Access Layer adapters, profiles, and capability handling. It must not be embedded into core runtime, memory, report, packet, redaction, or approval logic.
+
 ## Scope
 
 ### Core access service
@@ -99,6 +101,7 @@ Add golden parity tests for supported read-only operations across:
 - MCP is optional; if it weakens parity, redaction, or approval guarantees, defer it.
 - Do not add write-capable external connectors in this phase.
 - Do not introduce background polling or autonomous tool loops.
+- Keep provider/model-specific behavior in adapters and profiles rather than in shared core business logic.
 - Query limits must be enforced in the shared service, not only in CLI output formatting.
 - Read-only operations should be implemented first; mutation requests should be explicit, approval-gated, and test-covered.
 
@@ -138,6 +141,7 @@ Optional MCP commands/configuration may be added only if they use the same acces
 - no adapter contains its own business logic or SQL query path;
 - agent-facing output is bounded and provenance-aware.
 - remote check status is exposed through the same redaction-aware access service, not through provider-specific adapter logic.
+- provider/model-specific differences are normalized through adapters/profiles instead of leaking into shared core logic.
 
 ## Suggested file areas
 
@@ -187,6 +191,7 @@ Reviewers must check especially for:
 - unbounded queries;
 - mutation paths without approvals;
 - hidden background agent behavior;
+- provider/model-specific logic leaking into core services instead of staying in adapters/profiles;
 - adapters polling CI or external services outside the approved access/service boundary;
 - external connector creep.
 
