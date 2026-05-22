@@ -1,18 +1,16 @@
 # Self-hosting Procedure Source Map
 
-Status: proposed Phase 23.6 deliverable  
+Status: active Phase 23.6 deliverable
 Target repo path: `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`  
 Related phase: `tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md`  
-Purpose: define where each self-hosting procedure/prompt comes from, how it is adapted for `codex-harness`, and what authority it has.
-
----
+Purpose: define where each self-hosting procedure comes from, how it is adapted for `codex-harness`, and what authority it has.
 
 ## 1. Core decision
 
-### Historical Phase 23 closeout note
-
-Phase 23 remains historical/bootstrap evidence. This source map is for Phase 23.6 and later self-hosting procedures; it must not retroactively require the old Phase 23 run to satisfy future Phase 23.5/23.6 lifecycle rules.
-
+Phase 23 remains historical/bootstrap evidence. This source map applies to Phase
+23.6 and later self-hosting procedures only. It must not retroactively require
+the historical Phase 23 run to satisfy later Phase 23.5 or Phase 23.6 lifecycle
+rules.
 
 Phase 23.6 must not invent self-hosting prompts ad hoc in chat.
 
@@ -20,21 +18,17 @@ Every self-hosting procedure must have a traceable source map:
 
 ```text
 source material
-→ adaptation decision
-→ repo-owned procedure
-→ optional Codex-discoverable skill/install target
-→ evidence/packet integration
+-> adaptation decision
+-> repo-owned procedure
+-> optional Codex-discoverable sync/install target
+-> later evidence/packet linkage
 ```
-
-This source map is required because Phase 23.6 is supposed to make future harness work less manual and less dependent on long pasted prompts.
-
----
 
 ## 2. Source classes
 
 ### A. Internal authoritative sources
 
-These are binding for codex-harness.
+These are binding for `codex-harness`.
 
 ```text
 TASK.md
@@ -46,9 +40,8 @@ docs/HARNESS_GOVERNANCE_AND_EVOLUTION.md
 docs/HUMAN_OPERATOR_MANUAL.md
 docs/PRODUCT_VS_PROJECT_LAYER.md
 docs/SECURITY_AND_PERMISSION_MODEL.md
-docs/ARTIFACT_SCHEMAS_AND_MIGRATIONS.md
-existing run/review/verify/closeout source code
-existing tests/acceptance/**
+docs/PHASE_ACCEPTANCE.md
+existing run/review/verify/closeout docs and tests
 ```
 
 Authority level:
@@ -60,20 +53,21 @@ binding
 Use:
 
 ```text
-Define project-specific lifecycle, storage, evidence, harvest, delivery facts, closeout, and acceptance rules.
+Define codex-harness-specific lifecycle, storage, evidence, review, delivery
+facts, closeout, and acceptance rules.
 ```
 
 ### B. Official Codex sources
 
-These define Codex-native behavior and must override community assumptions.
+These define Codex-native behavior and override community assumptions.
 
 ```text
-OpenAI Codex Skills documentation
-OpenAI Codex Best practices
-OpenAI Codex AGENTS.md documentation
-OpenAI Codex Hooks documentation
-OpenAI Codex config/reference documentation where needed
-OpenAI Codex Subagents documentation where needed
+Codex Skills documentation
+Codex best practices
+Codex AGENTS.md documentation
+Codex Hooks documentation
+Codex config/reference documentation where needed
+Codex Subagents documentation only if later used
 ```
 
 Authority level:
@@ -85,13 +79,11 @@ binding for Codex behavior
 Use:
 
 ```text
-Define SKILL.md format, skill discovery/install behavior, plan-mode expectations, AGENTS.md role, hook limitations, and Codex-native surfaces.
+Define SKILL.md metadata, skill discovery/install behavior, plan-first
+guidance, AGENTS.md discovery, and hook limitations.
 ```
 
-
-## 2.1 Official reference URLs to verify during implementation
-
-Implementation agents must verify the current official Codex documentation before relying on Codex-specific behavior:
+### Official reference URLs verified during Phase 23.6
 
 ```text
 Codex Skills:
@@ -100,14 +92,11 @@ Codex Skills:
 Codex Hooks:
   https://developers.openai.com/codex/hooks
 
-Codex Best practices / plan-first guidance:
+Codex Best practices:
   https://developers.openai.com/codex/learn/best-practices
 
 Codex AGENTS.md:
   https://developers.openai.com/codex/guides/agents-md
-
-Codex Subagents, only if used:
-  https://developers.openai.com/codex/subagents
 ```
 
 Rules:
@@ -115,7 +104,8 @@ Rules:
 ```text
 Official docs define Codex-native behavior.
 Community packs and external audits do not override official Codex docs.
-If official docs changed, update this source map and the affected procedure source-notes before creating procedures.
+If official docs change, update this source map and the affected
+procedure source-notes before changing procedure contracts.
 ```
 
 ### C. External advisory sources
@@ -125,8 +115,7 @@ These are useful but not authoritative.
 ```text
 DenisSergeevitch/agents-best-practices
 selected prior architecture audits
-selected prior deep-research outputs after correction
-/Users/lionheart/Downloads/reviewed_deep_research_phase_23_6_agent_operating_mechanics.md
+reviewed Deep Research outputs, only if explicitly supplied
 ```
 
 Authority level:
@@ -138,26 +127,29 @@ advisory only
 Use:
 
 ```text
-Review harness architecture, check agentic workflow discipline, identify missing safety/evidence/review boundaries.
+Review harness architecture, workflow discipline, and missing safety or
+evidence boundaries.
 ```
 
 Reviewed Deep Research rule:
 
 ```text
-The reviewed Deep Research file is advisory evidence only.
-It may inform procedure and policy design, but it does not override repo task/docs contracts or official Codex behavior.
+If a reviewed Deep Research report is explicitly supplied as implementation
+input, it is advisory evidence only. It does not override repo task/docs
+contracts or official Codex behavior. Its absence must not block Phase 23.6.
 ```
 
 ### D. Community pattern sources
 
-These are pattern libraries only. They must not be bulk-installed in this phase.
+These are pattern libraries only. They must not be bulk-installed in this
+phase.
 
 ```text
 affaan-m/ECC
 Anthropic skills repository
 Agent Skills specification
 meta-harness repositories
-other community skill/agent packs
+other community skill or agent packs
 ```
 
 Authority level:
@@ -169,7 +161,8 @@ pattern source only
 Use:
 
 ```text
-Study structure, naming, rubrics, and workflow patterns. Adapt only after compatibility review.
+Study structure, naming, rubrics, and workflow patterns. Adapt only after
+compatibility review.
 ```
 
 Forbidden:
@@ -177,49 +170,43 @@ Forbidden:
 ```text
 No bulk install.
 No direct runtime authority.
-No unreviewed hooks/rules/commands.
+No unreviewed hooks, rules, or commands.
 No copying provider-specific behavior as Codex-native fact.
 ```
 
----
-
 ## 3. Canonical source and install targets
 
-Default Phase 23.6 decision:
+Phase 23.6 source-of-truth decision:
 
 ```text
 Canonical source-of-truth:
   skills/self-hosting/**
 
-Optional Codex discovery/sync target:
+Optional Codex discovery or sync target:
   .agents/skills/**
 
-User-level optional install target:
+Optional user-level install target:
   $HOME/.agents/skills/**
 ```
 
-Official Codex discovery rule to preserve:
+Official discovery rule preserved by this phase:
 
 ```text
-Codex discovers repo/user skills from Codex-recognized skill locations such as .agents/skills/** and $HOME/.agents/skills/**.
-Codex must not be assumed to auto-discover arbitrary skills/self-hosting/** without an explicit sync/install path.
+Codex discovers repo and user skills from Codex-recognized locations such as
+.agents/skills/** and $HOME/.agents/skills/**.
+Codex must not be assumed to auto-discover arbitrary skills/self-hosting/**
+without an explicit sync/install path.
 ```
 
-Rule:
+Rules:
 
 ```text
-Generated/local install targets must not become hidden source-of-truth.
+Generated or local discovery targets must not become hidden source-of-truth.
+.agents/** remains ignored or local installed state in this repo unless a
+future reviewed boundary change says otherwise.
+Prompt wrappers, if ever added later, are invocation helpers and not
+source-of-truth.
 ```
-
-Current repo boundary assumption:
-
-```text
-.agents/** is ignored/local installed state unless a later reviewed product/source boundary change explicitly says otherwise.
-```
-
-If the repository deliberately chooses `.agents/skills/**` as versioned source, it must explicitly update product/source boundary docs and acceptance behavior.
-
----
 
 ## 4. Procedure contract
 
@@ -234,7 +221,7 @@ required_inputs: string[]
 preconditions: string[]
 forbidden_scope: string[]
 checklist: string[]
-output_format: string
+expected_output_format: string
 blocker_conditions: string[]
 evidence_to_record: string[]
 phase_23_5_dependencies: string[]
@@ -258,78 +245,474 @@ skills/self-hosting/<procedure-id>/references/source-notes.md
 skills/self-hosting/<procedure-id>/references/output-format.md
 ```
 
-Optional manual prompt shape:
+## 5. Procedure source map entries
 
-```text
-prompts/self-hosting/<procedure-id>.md
-```
+### feature-decomposition
 
-Prompt files are invocation templates, not source-of-truth.
+- `procedure_id`: `feature-decomposition`
+- `purpose`: Convert a broad request into reviewable task-contract proposals
+  without starting implementation.
+- `primary internal sources`: `TASK.md`;
+  `tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md`;
+  `docs/IMPLEMENTATION_ROADMAP.md`; `docs/AGENT_ORCHESTRATION.md`;
+  `docs/AGENT_BOUNDARIES_AND_ADAPTERS.md`
+- `official Codex sources`: Codex Skills; Codex best practices;
+  Codex AGENTS.md
+- `external/advisory sources`: `agents-best-practices`; prior architecture
+  audits; reviewed Deep Research only if explicitly supplied
+- `community pattern sources`: Agent Skills specification; meta-harness
+  pattern references
+- `what was adopted`: Plan-first decomposition; goals and non-goals; ordered
+  task proposals; explicit stop before implementation
+- `what was adapted`: Convert broad requests into codex-harness phase/task
+  contracts with repo-specific boundaries and approval flow
+- `what was rejected`: Autonomous roadmap ownership; direct implementation from
+  a broad request
+- `canonical source path`: `skills/self-hosting/feature-decomposition/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No approval of scope; no implementation; no mutation of
+  `TASK.md`
+- `related Phase 23.5 rules`: Hooks are guardrails only; accepted memory
+  authority remains DB-first; closeout and harvest stay separate
+- `related Phase 24 packet types`: `planner packet`
 
----
+### task-intake
 
-## 5. Required procedure source map
+- `procedure_id`: `task-intake`
+- `purpose`: Normalize an active task into a stable implementation contract
+  before planning.
+- `primary internal sources`: `TASK.md`;
+  `tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md`;
+  `docs/PHASE_ACCEPTANCE.md`; `docs/HUMAN_OPERATOR_MANUAL.md`
+- `official Codex sources`: Codex AGENTS.md; Codex best practices
+- `external/advisory sources`: `agents-best-practices`; prior prompt or plan
+  audits
+- `community pattern sources`: Agent Skills specification
+- `what was adopted`: Extract scope, non-goals, required reading, and
+  validation expectations before planning
+- `what was adapted`: Use codex-harness task files as the binding contract and
+  normalize review, evidence, and verification expectations
+- `what was rejected`: Vague task summaries with no acceptance or boundary map
+- `canonical source path`: `skills/self-hosting/task-intake/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No plan approval; no implementation; no scope expansion
+- `related Phase 23.5 rules`: Approved plan must later map to evidence,
+  verification, delivery facts, and closeout gates
+- `related Phase 24 packet types`: `planner packet`
 
-| Procedure | Main purpose | Internal binding sources | Official Codex sources | External/advisory sources | What to adopt | What to adapt | What to reject |
-|---|---|---|---|---|---|---|---|
-| `feature-decomposition` | Convert a too-broad request into reviewable task-contract proposals | TASK.md; roadmap; governance docs; agent-role docs; Phase 23.5 lifecycle rules | Best practices; AGENTS.md docs; Skills docs | agents-best-practices; reviewed Deep Research | decomposition before implementation; explicit goals/non-goals; ordered task contracts | codex-harness task/phase boundaries and approval flow | broad request turning directly into implementation or autonomous roadmap ownership |
-| `task-intake` | Normalize a task before planning | TASK.md; roadmap; governance docs; Phase 23.5 lifecycle rules | AGENTS.md docs; Best practices | prior audits | Task contract extraction | codex-harness fields: scope, non-goals, evidence expectations | vague task summaries without acceptance |
-| `task-prompt-writer` | Produce implementation prompts from approved task/procedure | task files; operator manual; security docs | Best practices; AGENTS.md docs; Skills docs | prior prompt audits | explicit context/read-before-editing/non-goals/checks | prompts must point to repo files and lifecycle state | chat-only mega prompts with no artifact contract |
-| `draft-plan` | Create an implementation plan without editing | task file; Phase 23.5 lifecycle; roadmap | Codex Plan mode; Best practices | agents-best-practices | plan-first discipline | approved_plan_hash/evidence requirements | implementation during planning |
-| `plan-review` | Independently review a plan before implementation | task file; roadmap; governance/security docs | Best practices; Subagents if used | agents-best-practices | separate reviewer pass | review intensity tiers | reviewer as executor |
-| `plan-amend` | Convert review findings into amended plan | plan-review output; task file; Phase 23.5 evidence rules | Best practices | agents-best-practices | amendment traceability | stable output with accepted/rejected review items | silent plan rewriting |
-| `architecture-review` | Check cross-phase and core-boundary impact | roadmap; product-vs-project; governance docs | AGENTS.md docs; Skills docs | agents-best-practices; architecture audits | boundary review | codex-harness specific phase/dependency map | generic architecture advice with no repo facts |
-| `db-storage-review` | Review DB-first memory/storage changes | Phase 23.5; schema/migration docs; security docs | Hooks docs only where hooks write evidence | agents-best-practices | storage authority checks | Project DB vs Run/Staging DB; harvest/idempotency | JSONL-as-primary for new behavior |
-| `implementation-review` | Review diff against task and approved plan | task file; approved plan; Phase 23.5 evidence rules | Best practices; review surfaces | agents-best-practices | diff-vs-plan review | codex-harness non-goals and boundary checks | review that only checks style |
-| `fix-pass-review` | Verify fixes address findings without scope expansion | implementation review; task; approved plan | Best practices | agents-best-practices | finding-driven fix pass | no new scope without new task/plan | opportunistic refactors |
-| `verification-review` | Check build/test/acceptance evidence | task acceptance; package scripts; Phase 23.5 delivery facts | Best practices | prior audits | deterministic verification | local/remote evidence separation | “tests probably passed” claims |
-| `delivery-facts-review` | Confirm PR/CI/review/merge evidence import | Phase 23.5 delivery facts import; closeout rules | Hooks docs where hook-assisted reminders exist | prior closeout audit | PR/CI/review/merge facts | provider-neutral facts model | closeout based on human memory |
-| `phase-closeout-review` | Verify final closeout/harvest readiness | Phase 23.5 harvest/closed!=harvested; Phase 24 packets | Best practices | agents-best-practices | closeout checklist | harvest/discard/manual override rules | deleting worktree after closed-only |
-| `docs-consistency-review` | Check docs/tasks/roadmap do not contradict implementation | roadmap; task files; governance docs | AGENTS.md docs | prior audits | consistency review | phase dependency map | broad doc rewrite outside task |
-| `harness-audit` | Holistic external-style harness audit | all current task/docs/source | Skills docs; Best practices; Hooks docs | Denis agents-best-practices | model proposes / harness validates discipline | local-first codex-harness constraints | external skill as authority |
+### task-prompt-writer
 
----
+- `procedure_id`: `task-prompt-writer`
+- `purpose`: Produce or review invocation-ready implementation guidance derived
+  from approved repo contracts.
+- `primary internal sources`:
+  `tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md`;
+  `docs/HUMAN_OPERATOR_MANUAL.md`; `docs/SECURITY_AND_PERMISSION_MODEL.md`;
+  `prompts/00-slash-plan-master.md`; `prompts/99-review-current-task.md`
+- `official Codex sources`: Codex AGENTS.md; Codex Skills; Codex best
+  practices
+- `external/advisory sources`: Prior prompt audits; `agents-best-practices`
+- `community pattern sources`: Agent Skills specification
+- `what was adopted`: Prompt wrappers point at repo artifacts, boundaries,
+  required checks, and non-goals
+- `what was adapted`: Prompt writing becomes a derived helper from procedures
+  rather than source-of-truth
+- `what was rejected`: Chat-only mega prompts with no artifact contract
+- `canonical source path`: `skills/self-hosting/task-prompt-writer/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No direct implementation; no prompt invented without task
+  and procedure inputs
+- `related Phase 23.5 rules`: Prompt output must respect delivery facts,
+  verification, and harvest boundaries already defined elsewhere
+- `related Phase 24 packet types`: `planner packet`
 
-## 5.1 Policy source map entries
+### draft-plan
 
-| Policy or contract | Main purpose | Internal binding sources | Official Codex sources | External/advisory sources | What to adopt | What to adapt | What to reject |
-|---|---|---|---|---|---|---|---|
-| `self-hosting-agent-operating-policy` | Define role autonomy, protected deterministic workflows, command/process behavior, initiative capture, and future-phase ownership boundaries for self-hosting work | Phase 23.5 lifecycle/storage authority; Phase 23.6 workflow contract; roadmap; agent boundaries; security; governance; operator manual | Best practices; AGENTS.md docs; Hooks docs; Skills docs | agents-best-practices; reviewed Deep Research | role-based autonomy; hooks as guardrails; initiative capture; provider-neutral layering; bounded command/process policy | codex-harness protected-flow list, approval path, and Phase 24/25/26 ownership boundaries | process manager; daemon; local message bus; provider-specific core logic; MCP/A2A implementation in Phase 23.6; domain logic in core; auto-commit; auto-merge |
+- `procedure_id`: `draft-plan`
+- `purpose`: Produce an implementation plan without editing files or starting
+  execution.
+- `primary internal sources`: `TASK.md`;
+  `tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md`;
+  `docs/IMPLEMENTATION_ROADMAP.md`; `docs/PHASE_ACCEPTANCE.md`
+- `official Codex sources`: Codex best practices; Codex AGENTS.md
+- `external/advisory sources`: `agents-best-practices`
+- `community pattern sources`: Agent Skills specification
+- `what was adopted`: Plan-first discipline; explicit assumptions, risks,
+  validation, and done conditions
+- `what was adapted`: Planning gates around codex-harness phase/task boundaries
+  and evidence expectations
+- `what was rejected`: Implementation during planning; hidden scope decisions
+- `canonical source path`: `skills/self-hosting/draft-plan/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No writes; no plan approval; no runtime changes
+- `related Phase 23.5 rules`: Approved plan should later be recordable as
+  evidence and reviewed against closeout gates
+- `related Phase 24 packet types`: `planner packet`
 
-Reviewed Deep Research disposition for this policy:
+### plan-review
 
-```text
-Adopted:
-  prompt-only governance is insufficient
-  hooks are guardrails, not durable authority
-  initiative should be captured as reviewable outputs
-  provider/model differences belong behind later adapters
-  domain autonomy belongs in later domain packs
+- `procedure_id`: `plan-review`
+- `purpose`: Independently review a plan before implementation begins.
+- `primary internal sources`:
+  `tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md`;
+  `docs/IMPLEMENTATION_ROADMAP.md`; `docs/SECURITY_AND_PERMISSION_MODEL.md`;
+  `docs/PHASE_ACCEPTANCE.md`
+- `official Codex sources`: Codex best practices; Codex AGENTS.md
+- `external/advisory sources`: `agents-best-practices`
+- `community pattern sources`: Agent Skills specification
+- `what was adopted`: Separate reviewer pass; explicit findings; review
+  intensity tiers
+- `what was adapted`: Review against codex-harness task, plan, and phase
+  boundaries before implementation
+- `what was rejected`: Reviewer as implementer; optional plan review
+- `canonical source path`: `skills/self-hosting/plan-review/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No implementation; no silent plan rewrite
+- `related Phase 23.5 rules`: Review must preserve lifecycle, verification, and
+  delivery-facts boundaries
+- `related Phase 24 packet types`: `plan-review packet`
 
-Adapted:
-  command/process safety is a lightweight Phase 23.6 contract, not runtime supervision
-  decomposition becomes a self-hosting procedure, not autonomous product planning
+### plan-amend
 
-Rejected for Phase 23.6:
-  process manager
-  daemon
-  message bus
-  provider-specific core logic
-  MCP/A2A implementation
-  domain logic in core
-  auto-commit
-  auto-merge
-```
+- `procedure_id`: `plan-amend`
+- `purpose`: Amend a plan in response to explicit review findings while keeping
+  the change history visible.
+- `primary internal sources`:
+  `tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md`;
+  `docs/PHASE_ACCEPTANCE.md`; `docs/HUMAN_OPERATOR_MANUAL.md`
+- `official Codex sources`: Codex best practices
+- `external/advisory sources`: `agents-best-practices`
+- `community pattern sources`: Agent Skills specification
+- `what was adopted`: Amendment traceability; accepted/rejected review items;
+  stable revised output
+- `what was adapted`: Codex-harness review findings become explicit plan deltas
+  before approval
+- `what was rejected`: Silent plan rewriting; scope growth hidden in revisions
+- `canonical source path`: `skills/self-hosting/plan-amend/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No implementation; no suppression of unresolved review
+  findings
+- `related Phase 23.5 rules`: Revised plan should remain compatible with
+  verification, delivery facts, and harvest gates
+- `related Phase 24 packet types`: `plan-review packet`
 
----
+### architecture-review
 
-## 6. Procedure-to-packet linkage for Phase 24
+- `procedure_id`: `architecture-review`
+- `purpose`: Check whether a task or plan crosses core boundaries or drags
+  future phases forward.
+- `primary internal sources`: `docs/IMPLEMENTATION_ROADMAP.md`;
+  `docs/PRODUCT_VS_PROJECT_LAYER.md`;
+  `docs/HARNESS_GOVERNANCE_AND_EVOLUTION.md`;
+  `docs/AGENT_BOUNDARIES_AND_ADAPTERS.md`
+- `official Codex sources`: Codex AGENTS.md; Codex Skills
+- `external/advisory sources`: `agents-best-practices`; prior architecture
+  audits
+- `community pattern sources`: Meta-harness references; Agent Skills
+  specification
+- `what was adopted`: Boundary review before implementation for high-risk tasks
+- `what was adapted`: Map architecture review to codex-harness phase boundaries
+  and solo-maintainable core goals
+- `what was rejected`: Generic architecture advice disconnected from repo facts
+- `canonical source path`: `skills/self-hosting/architecture-review/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No future-phase implementation; no provider-specific core
+  logic; no runtime orchestration creep
+- `related Phase 23.5 rules`: Preserve DB-first lifecycle, hook guardrail
+  model, and runtime boundary separation
+- `related Phase 24 packet types`: `plan-review packet` when `high` or
+  `extra-high`
 
-Phase 24 evidence packets must reference these procedure ids.
+### db-storage-review
+
+- `procedure_id`: `db-storage-review`
+- `purpose`: Review storage, lifecycle, and authority changes against the
+  Phase 23.5 model.
+- `primary internal sources`:
+  `tasks/PHASE_23_5_DB_FIRST_MEMORY_LIFECYCLE_HOOKS_RECONCILIATION.md`;
+  `docs/SECURITY_AND_PERMISSION_MODEL.md`;
+  `docs/ARTIFACT_SCHEMAS_AND_MIGRATIONS.md`
+- `official Codex sources`: Codex Hooks documentation only where hook behavior
+  intersects evidence handling
+- `external/advisory sources`: `agents-best-practices`
+- `community pattern sources`: Storage review patterns from community packs,
+  pattern-only
+- `what was adopted`: Storage authority checks; harvest and idempotency review;
+  audit versus authority distinction
+- `what was adapted`: Compare new work against codex-harness Project Memory DB,
+  Run/Staging DB, delivery facts, and harvest rules
+- `what was rejected`: JSONL or loose files as primary new operational memory
+- `canonical source path`: `skills/self-hosting/db-storage-review/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No redefinition of DB authority; no hooks as accepted
+  memory writers
+- `related Phase 23.5 rules`: Project DB authority; staging writes only;
+  harvest/idempotency; delivery facts import; closeout and harvest separation
+- `related Phase 24 packet types`: `DB/storage-review packet`
+
+### implementation-review
+
+- `procedure_id`: `implementation-review`
+- `purpose`: Review a diff against the approved task and plan rather than style
+  alone.
+- `primary internal sources`: `TASK.md`; approved plan; `docs/PHASE_ACCEPTANCE.md`;
+  `docs/HUMAN_OPERATOR_MANUAL.md`
+- `official Codex sources`: Codex best practices
+- `external/advisory sources`: `agents-best-practices`
+- `community pattern sources`: Review-output patterns from community skills
+- `what was adopted`: Findings-first review; diff-versus-plan comparison;
+  boundary and non-goal checks
+- `what was adapted`: Focus review on codex-harness acceptance criteria,
+  lifecycle evidence, and phase creep risks
+- `what was rejected`: Style-only review with no task or plan comparison
+- `canonical source path`: `skills/self-hosting/implementation-review/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No new implementation work; no scope expansion hidden as
+  review feedback
+- `related Phase 23.5 rules`: Review evidence must remain compatible with local
+  verification, delivery facts, and closeout gates
+- `related Phase 24 packet types`: `implementation-review packet`
+
+### fix-pass-review
+
+- `procedure_id`: `fix-pass-review`
+- `purpose`: Verify that a follow-up fix addresses review findings without
+  widening scope.
+- `primary internal sources`: Review findings; approved plan; `TASK.md`;
+  `docs/PHASE_ACCEPTANCE.md`
+- `official Codex sources`: Codex best practices
+- `external/advisory sources`: `agents-best-practices`
+- `community pattern sources`: Review-fix workflow patterns
+- `what was adopted`: Finding-driven fix verification; explicit residual risk
+  handling
+- `what was adapted`: Keep fix passes tightly scoped to the accepted
+  codex-harness task and plan
+- `what was rejected`: Opportunistic refactors and adjacent improvements during
+  the fix pass
+- `canonical source path`: `skills/self-hosting/fix-pass-review/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No new feature work; no policy changes unrelated to the
+  reviewed findings
+- `related Phase 23.5 rules`: Fix verification must not bypass lifecycle,
+  delivery-facts, or harvest boundaries
+- `related Phase 24 packet types`: `implementation-review packet`
+
+### verification-review
+
+- `procedure_id`: `verification-review`
+- `purpose`: Check local build, test, and acceptance evidence deterministically.
+- `primary internal sources`: Task acceptance commands; `package.json`;
+  `.github/workflows/ci.yml`; `docs/PHASE_ACCEPTANCE.md`
+- `official Codex sources`: Codex best practices
+- `external/advisory sources`: Prior acceptance or regression audits
+- `community pattern sources`: Deterministic verification patterns
+- `what was adopted`: Exact command-based verification; local versus remote
+  distinction; evidence-first interpretation
+- `what was adapted`: Map verification review to codex-harness build, test,
+  acceptance, and release dry-run commands
+- `what was rejected`: "Tests probably passed" claims; remote CI inferred from
+  local success
+- `canonical source path`: `skills/self-hosting/verification-review/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No fabrication of results; no substitution of review prose
+  for command evidence
+- `related Phase 23.5 rules`: Local verification reuse rules; local success is
+  not remote CI; closeout can remain blocked before remote gates complete
+- `related Phase 24 packet types`: `implementation-review packet`
+
+### delivery-facts-review
+
+- `procedure_id`: `delivery-facts-review`
+- `purpose`: Confirm PR, CI, review, and merge evidence is present or explicitly
+  missing before closeout.
+- `primary internal sources`:
+  `tasks/PHASE_23_5_DB_FIRST_MEMORY_LIFECYCLE_HOOKS_RECONCILIATION.md`;
+  `docs/HUMAN_OPERATOR_MANUAL.md`; `docs/PHASE_ACCEPTANCE.md`
+- `official Codex sources`: Codex Hooks documentation where reminder hooks are
+  relevant
+- `external/advisory sources`: Prior closeout audits
+- `community pattern sources`: Delivery-facts review patterns
+- `what was adopted`: Provider-neutral delivery fact review before closeout and
+  harvest
+- `what was adapted`: Use codex-harness delivery-facts terminology and import
+  model without introducing Phase 24 packet generation
+- `what was rejected`: Closeout based only on human memory or implied remote
+  state
+- `canonical source path`: `skills/self-hosting/delivery-facts-review/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No remote-state fabrication; no hooks as primary delivery
+  facts authority
+- `related Phase 23.5 rules`: Delivery facts import; closeout prerequisites;
+  local versus remote evidence separation
+- `related Phase 24 packet types`: `closeout-review packet`
+
+### phase-closeout-review
+
+- `procedure_id`: `phase-closeout-review`
+- `purpose`: Verify that a run or phase is ready for closeout and harvest under
+  Phase 23.5 rules.
+- `primary internal sources`:
+  `tasks/PHASE_23_5_DB_FIRST_MEMORY_LIFECYCLE_HOOKS_RECONCILIATION.md`;
+  `docs/HUMAN_OPERATOR_MANUAL.md`; `docs/PHASE_ACCEPTANCE.md`
+- `official Codex sources`: Codex best practices
+- `external/advisory sources`: `agents-best-practices`
+- `community pattern sources`: Closeout-checklist patterns
+- `what was adopted`: Explicit readiness checklist; unresolved blockers stay
+  visible; harvest remains distinct from closeout
+- `what was adapted`: Use codex-harness run status, delivery facts, discard,
+  manual override, and harvest terms
+- `what was rejected`: Treating `closed` as equivalent to `harvested`
+- `canonical source path`: `skills/self-hosting/phase-closeout-review/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No worktree deletion approval before harvest, discard, or
+  manual override
+- `related Phase 23.5 rules`: `closed != harvested`; harvest and discard rules;
+  delivery facts required for closeout
+- `related Phase 24 packet types`: `closeout-review packet`
+
+### docs-consistency-review
+
+- `procedure_id`: `docs-consistency-review`
+- `purpose`: Check that docs, roadmap, tasks, and contracts do not contradict an
+  implementation.
+- `primary internal sources`: `docs/IMPLEMENTATION_ROADMAP.md`; task files;
+  `docs/HARNESS_GOVERNANCE_AND_EVOLUTION.md`;
+  `docs/PRODUCT_VS_PROJECT_LAYER.md`; `docs/PHASE_ACCEPTANCE.md`
+- `official Codex sources`: Codex AGENTS.md
+- `external/advisory sources`: Prior documentation audits
+- `community pattern sources`: Documentation review patterns
+- `what was adopted`: Cross-document consistency review before closeout
+- `what was adapted`: Limit the review to contradictions that affect the active
+  codex-harness task or future phase boundaries
+- `what was rejected`: Broad documentation rewrites outside task scope
+- `canonical source path`: `skills/self-hosting/docs-consistency-review/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No speculative roadmap edits; no future-phase rewrites
+- `related Phase 23.5 rules`: Keep lifecycle, authority, and local-state
+  boundary rules consistent across docs
+- `related Phase 24 packet types`: `docs-consistency packet`
+
+### harness-audit
+
+- `procedure_id`: `harness-audit`
+- `purpose`: Run a holistic self-hosting audit against the current repo,
+  workflow, and guardrails.
+- `primary internal sources`: Current task; current docs; current tests;
+  current acceptance rules
+- `official Codex sources`: Codex Skills; Codex best practices; Codex Hooks
+- `external/advisory sources`: `agents-best-practices`; prior architecture or
+  governance audits
+- `community pattern sources`: Meta-harness pattern references
+- `what was adopted`: Model proposes and harness validates; legible procedures;
+  bounded autonomy
+- `what was adapted`: Local-first codex-harness constraints and solo-maintainer
+  product boundary
+- `what was rejected`: Treating external skill guidance as runtime authority
+- `canonical source path`: `skills/self-hosting/harness-audit/`
+- `Codex discovery/install path`: Sync or install from
+  `skills/self-hosting/**` into `.agents/skills/**` or
+  `$HOME/.agents/skills/**` when needed
+- `authority level`: `binding`
+- `forbidden scope`: No future runtime architecture; no provider-specific or
+  domain-pack implementation
+- `related Phase 23.5 rules`: Preserve DB-first memory authority, guardrail
+  hook role, and closeout/harvest separation
+- `related Phase 24 packet types`: `extra-high` architecture or closeout work,
+  as referenced by later packet selection
+
+## 6. Policy source map entry
+
+### self-hosting-agent-operating-policy
+
+- `procedure_id`: `self-hosting-agent-operating-policy`
+- `purpose`: Define role autonomy, protected deterministic workflows,
+  command/process behavior, initiative capture, and future-phase ownership
+  boundaries for self-hosting work.
+- `primary internal sources`:
+  `tasks/PHASE_23_5_DB_FIRST_MEMORY_LIFECYCLE_HOOKS_RECONCILIATION.md`;
+  `tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md`;
+  `docs/IMPLEMENTATION_ROADMAP.md`;
+  `docs/AGENT_BOUNDARIES_AND_ADAPTERS.md`;
+  `docs/SECURITY_AND_PERMISSION_MODEL.md`;
+  `docs/HARNESS_GOVERNANCE_AND_EVOLUTION.md`;
+  `docs/HUMAN_OPERATOR_MANUAL.md`
+- `official Codex sources`: Codex best practices; Codex AGENTS.md;
+  Codex Hooks; Codex Skills
+- `external/advisory sources`: `agents-best-practices`; reviewed Deep Research
+  only if explicitly supplied
+- `community pattern sources`: Meta-harness and community workflow patterns,
+  pattern-only
+- `what was adopted`: Role-based autonomy; hooks as guardrails; initiative
+  captured as reviewable outputs; provider-neutral layering; bounded
+  command/process policy
+- `what was adapted`: Convert high-level harness advice into a Phase 23.6
+  contract that keeps later phase ownership explicit and preserves the current
+  product boundary
+- `what was rejected`: Process manager; daemon; local message bus;
+  provider-specific core logic; MCP or A2A implementation in Phase 23.6;
+  domain logic in core; auto-commit; auto-merge
+- `canonical source path`: `docs/SELF_HOSTING_AGENT_OPERATING_POLICY.md`
+- `Codex discovery/install path`: Referenced from repo docs and procedure
+  skills; not a separately installed runtime policy target in Phase 23.6
+- `authority level`: `binding`
+- `forbidden scope`: No runtime supervision; no autonomous product management;
+  no protected-workflow bypass without explicit task reason
+- `related Phase 23.5 rules`: Hooks are guardrails only; Project Memory DB is
+  accepted authority; delivery facts and harvest remain explicit lifecycle
+  gates
+- `related Phase 24 packet types`: Referenced by planner, plan-review,
+  implementation-review, and closeout-review packet interpretation
+
+## 7. Procedure-to-packet linkage for Phase 24
+
+Phase 24 packet manifests must reference these procedure ids:
 
 ```text
 planner packet:
-  feature-decomposition when the request is too broad for one implementation pass
+  feature-decomposition when the request is too broad for one implementation
+  pass
   task-intake
   task-prompt-writer
   draft-plan
@@ -337,7 +720,7 @@ planner packet:
 plan-review packet:
   plan-review
   plan-amend
-  architecture-review if high/extra-high
+  architecture-review if high or extra-high
 
 implementation-review packet:
   implementation-review
@@ -358,12 +741,11 @@ docs-consistency packet:
 Rule:
 
 ```text
-A packet must identify the procedure contract/rubric used to select and interpret evidence.
+A Phase 24 packet must identify the procedure contract or rubric used to select
+and interpret evidence.
 ```
 
----
-
-## 7. Review intensity mapping
+## 8. Review intensity mapping
 
 ```text
 standard:
@@ -381,70 +763,48 @@ high:
   docs-consistency-review
 
 extra-high:
-  architecture-review + db-storage-review + delivery-facts-review + harness-audit
+  architecture-review
+  db-storage-review
+  delivery-facts-review
+  harness-audit
 ```
 
-High and extra-high tasks may recommend stronger models/reviewers, but must not hardcode provider-specific behavior into core runtime.
+High and extra-high work may recommend stronger reviewers or models, but Phase
+23.6 must not hardcode provider-specific behavior into core runtime.
 
----
-
-## 8. Installation and discovery policy
-
-Phase 23.6 should not require bulk external skill installation.
+## 9. Installation and discovery policy
 
 Allowed:
 
 ```text
-Use DenisSergeevitch/agents-best-practices as user-level advisory skill for audits.
 Create repo-owned self-hosting procedures.
-Document how to sync/install them for Codex discovery.
+Document how to sync or install them into Codex-recognized discovery paths.
+Use external advisory skills only as optional review inputs.
 ```
 
 Not allowed:
 
 ```text
-Install ECC.
-Install broad Anthropic packs.
-Vendor community skill packs into core.
+Bulk install ECC.
+Bulk install Anthropic or other community packs.
+Vendor broad external skill packs into core.
 Treat external skill instructions as runtime authority.
+Treat .agents/skills/** as versioned product source in this repo.
 ```
 
----
-
-## 9. Acceptance additions for Phase 23.6
+## 10. Phase 23.6 acceptance additions
 
 Phase 23.6 is not complete unless:
 
 ```text
 docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md exists.
-`feature-decomposition` is source-mapped.
-`self-hosting-agent-operating-policy` is source-mapped.
+All 15 required procedures are source-mapped.
+self-hosting-agent-operating-policy is source-mapped.
 Every required procedure has source_adaptation_notes.
-Each procedure states adopted/adapted/rejected source material.
-Canonical source path is documented.
-Official Codex skill discovery locations are stated accurately.
-Codex discovery/install/sync path is documented.
-Procedure-to-packet linkage for Phase 24 is documented.
-Generated .agents/skills targets are not hidden source-of-truth.
-```
-
----
-
-## 10. Implementation note for Codex
-
-When implementing Phase 23.6, Codex should first build the source map and procedure contract, then create procedure files.
-
-Do not start by writing generic prompt templates.
-
-Correct order:
-
-```text
-1. Inspect repo conventions.
-2. Write/update SELF_HOSTING_PROCEDURE_SOURCE_MAP.
-3. Choose canonical source path.
-4. Create procedure contract.
-5. Create procedure files.
-6. Create optional prompt wrappers derived from procedures.
-7. Document Codex discovery/sync path.
-8. Add validation tests/fixtures where appropriate.
+Each procedure states what was adopted, adapted, and rejected.
+Canonical source path is documented as skills/self-hosting/**.
+Codex discovery/install paths are documented.
+Generated or local discovery targets are not hidden source-of-truth.
+Plan-review workflow, review intensity tiers, and Phase 24 packet linkage are
+documented.
 ```
