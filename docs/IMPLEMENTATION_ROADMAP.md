@@ -275,7 +275,7 @@ procedures, large-work decomposition, a lightweight self-hosting agent
 operating policy, and a basic plan-review workflow.
 
 Status:
-Planned. Blocked until Phase 23.5 is complete and reviewed.
+Current implementation target after Phase 23.5 integration. Not complete.
 
 ## Phase 24 — reports and LLM-ready evidence packets
 

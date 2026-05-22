@@ -30,6 +30,12 @@ This repository contains:
 - tests;
 - release notes.
 
+Phase 23.6 adds `skills/self-hosting/**` as repo-owned product-source
+procedure material for self-hosting workflow guidance. This does not promote
+`.agents/skills/**` into versioned product source. Repo-local `.agents/**`
+remains discovery/install state unless a future reviewed task changes that
+boundary explicitly.
+
 Its purpose is to build and improve the harness itself.
 
 ### 2. Target project repository

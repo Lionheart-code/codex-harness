@@ -144,6 +144,30 @@ node bin/ch worktree delete --run <run-id> --manual-override "..."
 
 Local `.codex/**` and `.agents/**` files remain operator/runtime state unless a future reviewed task deliberately promotes a repo-level file there into product source.
 
+## Phase 23.6 self-hosting procedure checks
+
+Phase 23.6 adds repo-owned self-hosting procedures without adding new runtime
+commands. Treat these files as product-source operating contracts:
+
+```text
+docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md
+docs/SELF_HOSTING_PLAN_REVIEW_WORKFLOW.md
+docs/SELF_HOSTING_AGENT_OPERATING_POLICY.md
+docs/SELF_HOSTING_SKILL_DISCOVERY.md
+skills/self-hosting/**
+```
+
+Check:
+
+- `skills/self-hosting/**` is the canonical source-of-truth;
+- `.agents/skills/**` and `$HOME/.agents/skills/**` are discovery or install
+  targets only;
+- the source map, workflow, policy, and discovery docs agree with the active
+  task and current repo boundary;
+- prompts remain optional helpers and not the authority source;
+- implementation does not introduce Phase 24, Phase 25, or Phase 26 runtime
+  behavior.
+
 ## Install and upgrade safety
 
 Before applying an installed-layer update in a target project:

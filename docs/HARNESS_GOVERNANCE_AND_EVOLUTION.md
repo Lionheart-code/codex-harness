@@ -132,7 +132,15 @@ The maintainer needs structured evidence:
 - review blockers;
 - phase where failure occurred.
 
-Phase 23 stores this evidence locally as versioned events, projection rows, and artifact refs. Governance should consume scoped evidence records instead of scraping raw logs or trusting chat memory. Future governance additions may add review freshness and packet/report fingerprints, but core Memory/Evidence must remain domain-neutral and must not add automatic fix, merge, watcher, semantic-search, or summarization behavior by default.
+Phase 23 introduced versioned events, projection rows, and artifact refs.
+Phase 23.5 corrects the operational authority model: accepted Project Memory DB
+records are the working authority for new behavior, while JSONL, projection,
+and artifact refs remain audit and compatibility layers. Governance should
+consume scoped evidence records instead of scraping raw logs or trusting chat
+memory. Future governance additions may add review freshness and
+packet/report fingerprints, but core Memory/Evidence must remain domain-neutral
+and must not add automatic fix, merge, watcher, semantic-search, or
+summarization behavior by default.
 
 ## Phase 17 command surface
 

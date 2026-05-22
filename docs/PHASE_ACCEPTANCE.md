@@ -60,3 +60,24 @@ Phase 23.5 acceptance must also fail if:
 - delivery facts cannot be imported into staging state and used during closeout;
 - hooks write accepted Project Memory records directly or are treated as the primary authority boundary;
 - local `.codex/**` or `.agents/**` state becomes hidden product source-of-truth.
+
+## Phase 23.6 self-hosting workflow acceptance additions
+
+Phase 23.6 acceptance must also fail if:
+
+- `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md` is missing;
+- any required self-hosting procedure is missing;
+- `feature-decomposition` is missing;
+- any required procedure is missing `SKILL.md`, `references/source-notes.md`,
+  or `references/output-format.md`;
+- any required procedure is missing Codex-compatible `SKILL.md` metadata;
+- any required procedure is missing source adaptation notes or stable output
+  format markers;
+- review intensity tiers are undocumented;
+- Phase 23.5 lifecycle, delivery-facts, or harvest linkage is missing;
+- Phase 24 packet linkage is missing;
+- `.agents/**` or other generated discovery targets become hidden
+  source-of-truth;
+- hooks are treated as lifecycle or memory authority;
+- implementation introduces Phase 24, Phase 25, or Phase 26 CLI or runtime
+  surface.
