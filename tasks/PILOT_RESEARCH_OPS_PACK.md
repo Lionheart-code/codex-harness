@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Blocked until Phase 26 Domain Pack / Skills Architecture is complete and reviewed.
+Planned. Blocked until Phase 27 Domain Pack / Skills Architecture is complete and reviewed.
 
 ## Review status
 
@@ -10,7 +10,7 @@ Reviewed v2. The main correction is to keep this as a provenance/citation pilot,
 
 ## Read before editing
 
-- Phase 26 pack contract
+- Phase 27 pack contract
 - Phase 24 packet/report constraints
 - `docs/CONTEXT_BUDGET_POLICY.md`
 - `docs/SECURITY_AND_PERMISSION_MODEL.md`
@@ -112,10 +112,10 @@ A cited-looking output without traceable source evidence should fail review.
 
 Likely implementation areas, subject to actual repo inspection:
 
-- Research Ops pack files under the Phase 26 pack layout;
+- Research Ops pack files under the Phase 27 pack layout;
 - pack-local schemas, templates, workflows, and fixtures;
 - acceptance tests for cited evidence packets and contradiction findings;
-- no core source changes except through generic pack interfaces already introduced by Phase 26.
+- no core source changes except through generic pack interfaces already introduced by Phase 27.
 
 ## Acceptance commands
 
@@ -126,7 +126,7 @@ npm run test:acceptance
 node bin/ch pack validate packs/research-ops
 ```
 
-Exact path/command may change according to Phase 26 pack structure.
+Exact path/command may change according to Phase 27 pack structure.
 
 ## Acceptance behavior
 

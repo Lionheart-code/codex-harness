@@ -2,16 +2,27 @@
 
 ## Status
 
-Planned. Blocked until Phase 24 Reports and LLM-ready Evidence Packets is complete and reviewed.
+Planned amended phase. Blocked until amended Phase 24 Reports and LLM-ready
+Evidence Packets is complete and reviewed.
 
 ## Review status
 
-Reviewed v2. The main correction is to keep Direct API as an internal/local service boundary, not a hosted API product. MCP remains optional and may be deferred if parity/redaction are not mature enough.
+Reviewed v2 and updated after the Gate 2 operator-first roadmap import. The
+main correction is to keep Direct API as an internal/local service boundary, not
+a hosted API product. MCP remains optional and may be deferred if
+parity/redaction are not mature enough.
+
+Provider/host adapters and independent review orchestration build on the
+operator/procedure/proof foundation. They must not bypass deterministic evidence
+or shared core services.
 
 ## Read before editing
 
 - Phase 22.5 runtime services
 - Phase 23 Memory/Evidence services
+- Phase 23.7 operator routing contracts
+- Phase 23.8 procedure registry contracts
+- Phase 23.9 proof/review policy contracts
 - Phase 24 report/packet builders
 - `docs/AGENT_BOUNDARIES_AND_ADAPTERS.md`
 - `docs/SECURITY_AND_PERMISSION_MODEL.md`
@@ -30,11 +41,17 @@ Direct API and CLI are primary. MCP is optional adapter only.
 
 ## Why this phase exists
 
-After Phase 23/24, the harness has runtime evidence and bounded packets. Phase 25 makes this accessible to agents and tools without allowing any access surface to bypass policy, redaction, approvals, or core services.
+After Phase 23.7-23.9 and Phase 24, the harness has runtime evidence,
+operator/procedure/proof state, and bounded packets. Phase 25 makes this
+accessible to agents and tools without allowing any access surface to bypass
+policy, redaction, approvals, or core services.
 
 The purpose is not to make MCP the architecture. The purpose is to ensure every access surface calls the same core logic.
 
 Provider/model-specific behavior belongs behind Agent Access Layer adapters, profiles, and capability handling. It must not be embedded into core runtime, memory, report, packet, redaction, or approval logic.
+
+Model opinion cannot override missing evidence, failing tests, source/runtime
+boundary violations, or explicit approval requirements.
 
 ## Scope
 
@@ -67,6 +84,22 @@ Add golden parity tests for supported read-only operations across:
 - core service;
 - CLI;
 - optional MCP adapter, if implemented in this phase.
+
+### Provider/host adapter amendments
+
+Add provider/host behavior only behind the Agent Access Layer boundary:
+
+- focused research checkpoint for Codex, Claude, GitHub, and local agent host
+  behavior;
+- provider/host profiles and capability probes;
+- timeout, stderr, and non-zero exit surfacing;
+- filesystem and diff boundary scoping;
+- builder/reviewer separation policy;
+- high-risk second-review policy;
+- review conflict state.
+
+These amendments do not make provider/model-specific behavior part of shared
+core runtime, memory, report, packet, redaction, or approval logic.
 
 ## Hard constraints
 

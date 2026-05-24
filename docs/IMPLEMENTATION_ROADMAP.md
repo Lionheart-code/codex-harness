@@ -275,7 +275,52 @@ procedures, large-work decomposition, a lightweight self-hosting agent
 operating policy, and a basic plan-review workflow.
 
 Status:
-Current implementation target after Phase 23.5 integration. Not complete.
+Closed by owner decision. Do not reopen unless repository evidence proves a
+blocking defect that invalidates the closure.
+
+## Phase 23.7 — Minimum Self-Hosting Operator Interpreter
+
+Task:
+`tasks/PHASE_23_7_MINIMUM_SELF_HOSTING_OPERATOR_INTERPRETER.md`
+
+Goal:
+Make the Phase 23.6 self-hosting workflow machine-visible by reporting current
+stage, next procedure, missing evidence, blockers, review tier, and next allowed
+action.
+
+Status:
+Next active implementation phase. Thin projection/status/routing layer over
+Phase 23.6 procedures. Must not create a new workflow, implement packets,
+provider routing, domain packs, proof framework, or DB schema migration unless
+projection proves insufficient.
+
+## Phase 23.8 — Agent-native Procedure Registry and Skill Surface
+
+Task:
+`tasks/PHASE_23_8_AGENT_NATIVE_PROCEDURE_REGISTRY_AND_SKILL_SURFACE.md`
+
+Goal:
+Materialize and validate the existing Phase 23.6 procedure surface so agents can
+discover procedure metadata without treating generated discovery targets as
+canonical source.
+
+Status:
+Planned. Blocked until Phase 23.7 is complete and reviewed.
+`skills/self-hosting/**` remains canonical.
+
+## Phase 23.9 — Minimal Proof-Carrying Work and Review Policy
+
+Task:
+`tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md`
+
+Goal:
+Add a minimal proof/evidence/assumption/review mapping over existing
+review/evidence/closeout flow.
+
+Status:
+Planned. Blocked until Phase 23.8 is complete and reviewed. This phase must not
+become a separate lifecycle authority. Operator/proof schemas remain provisional
+sketches unless tightened during implementation.
 
 ## Phase 24 — reports and LLM-ready evidence packets
 
@@ -287,7 +332,9 @@ Turn accepted project memory into deterministic reports and bounded evidence
 packets.
 
 Status:
-Planned. Blocked until Phase 23.6 is complete and reviewed.
+Planned amended phase. Delayed until Phase 23.7-23.9
+operator/procedure/proof foundations are complete and reviewed. Phase 24 must
+consume operator/procedure/proof state and must not decide lifecycle status.
 
 ## Phase 25 — agent access layer
 
@@ -299,18 +346,78 @@ Expose governed access to runtime, memory, reports, and packets through shared
 core services, with CLI/Direct API first and MCP optional.
 
 Status:
-Planned. Blocked until Phase 24 is complete and reviewed.
+Planned amended phase. Blocked until amended Phase 24 is complete and reviewed.
+Must preserve Direct API/CLI first, optional MCP only, read-only defaults,
+redaction, query limits, no raw SQL by default, approval-gated mutations, no
+autonomous agent, and no external write connector.
 
-## Phase 26 — domain pack / skills architecture
+## Phase 26 — Big Task Decomposer and Architect Planner
 
 Task:
-`tasks/PHASE_26_DOMAIN_PACK_SKILLS_ARCHITECTURE.md`
+`tasks/PHASE_26_BIG_TASK_DECOMPOSER_AND_ARCHITECT_PLANNER.md`
+
+Goal:
+Extend the existing `feature-decomposition` procedure into a stronger
+architect/planner layer for large tasks.
+
+Status:
+Planned. Blocked until Phase 25 is complete and reviewed. Produces reviewable
+task graph proposals and first-task recommendations. Does not execute generated
+tasks and does not approve its own scope.
+
+## Phase 27 — domain pack / skills architecture
+
+Task:
+`tasks/PHASE_27_DOMAIN_PACK_SKILLS_ARCHITECTURE.md`
 
 Goal:
 Introduce local, validated domain packs without putting domain logic into core.
 
 Status:
-Planned. Blocked until Phase 25 is complete and reviewed.
+Planned re-slotted phase. Blocked until Phase 26 is complete and reviewed.
+Preserves the existing domain-pack ABI/safety design: local/static/non-executing
+pack loading, manifest and compatibility policy, fail-closed validation,
+domain-neutral core, no operational Ozon/CRM/marketing logic in core, and no
+domain runtime data committed to the core repo by default.
+
+## Phase 28 — Domain Ingestion and Schema Evolution Safety
+
+Task:
+`tasks/PHASE_28_DOMAIN_INGESTION_AND_SCHEMA_EVOLUTION_SAFETY.md`
+
+Goal:
+Define safe ingestion and schema-evolution primitives for future domain packs.
+
+Status:
+Planned. Blocked until Phase 27 is complete and reviewed. No production
+Ozon/CRM/marketing system and no automatic schema mutation from new data points.
+
+## Phase 29 — Prior-Art Discovery Gate
+
+Task:
+`tasks/PHASE_29_PRIOR_ART_DISCOVERY_GATE.md`
+
+Goal:
+Turn the Gate 0 research protocol into a reusable, operator-aware discovery
+module.
+
+Status:
+Planned. Blocked until Phase 28 is complete and reviewed. Focused research
+checkpoints remain available earlier where task risk requires them.
+
+## Phase 30 — Bounded Agent Experimentation Loop
+
+Task:
+`tasks/PHASE_30_BOUNDED_AGENT_EXPERIMENTATION_LOOP.md`
+
+Goal:
+Add a bounded experimentation primitive after operator/procedure/proof/evaluator
+fixtures exist.
+
+Status:
+Planned experimental. Blocked until Phase 29 is complete and reviewed. Not
+uncontrolled self-improvement, not autonomous product development, and not a
+replacement for architecture review.
 
 ## Pilot — Research Ops pack
 
@@ -321,7 +428,8 @@ Goal:
 Validate a read-mostly, provenance-oriented non-code domain pack.
 
 Status:
-Planned. Blocked until Phase 26 is complete and reviewed.
+Planned. Blocked until Phase 27 domain-pack architecture is complete and
+reviewed.
 
 ## Experimental — Marketing Ops pack
 
@@ -333,7 +441,8 @@ Stress-test domain packs against higher-risk marketing workflows while staying
 draft/report/recommend-only.
 
 Status:
-Planned experimental. Blocked until the Research Ops pilot is complete and reviewed.
+Planned experimental. Blocked until the Research Ops pilot is complete and
+reviewed.
 
 ## Stop rule
 

@@ -22,7 +22,7 @@ Every procedure must document what it adopted, adapted, and rejected from intern
 
 - `tasks/PHASE_23_5_DB_FIRST_MEMORY_LIFECYCLE_HOOKS_RECONCILIATION.md`
 - `tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`
-- `tasks/PHASE_26_DOMAIN_PACK_SKILLS_ARCHITECTURE.md`
+- `tasks/PHASE_27_DOMAIN_PACK_SKILLS_ARCHITECTURE.md`
 - `docs/IMPLEMENTATION_ROADMAP.md`
 - `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`, if present
 - `docs/AGENT_ORCHESTRATION.md`

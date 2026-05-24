@@ -2,18 +2,29 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.6 Self-hosting Skills and Plan-Review Workflow Bootstrap is complete, reviewed, and accepted.
+Planned amended phase. Starts only after Phase 23.7, Phase 23.8, and Phase
+23.9 operator/procedure/proof foundations are complete, reviewed, and accepted.
 
 ## Review status
 
-Reviewed and updated after the Phase 23.5 / Phase 23.6 split.
+Reviewed and updated after the Phase 23.5 / Phase 23.6 split and the Gate 2
+operator-first roadmap import.
 
-The main correction is that Phase 24 must build reports and packets on top of accepted Project Memory DB records and Phase 23.6 workflow contracts, not directly on older Phase 23 JSONL/projection assumptions.
+The main correction is that Phase 24 must build reports and packets on top of
+accepted Project Memory DB records, Phase 23.6 workflow contracts, and the
+Phase 23.7-23.9 operator/procedure/proof foundations, not directly on older
+Phase 23 JSONL/projection assumptions.
+
+Phase 24 reports and packets consume operator/procedure/proof state. They do
+not decide lifecycle status independently.
 
 ## Read before editing
 
 - `tasks/PHASE_23_5_DB_FIRST_MEMORY_LIFECYCLE_HOOKS_RECONCILIATION.md`
 - `tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md`
+- `tasks/PHASE_23_7_MINIMUM_SELF_HOSTING_OPERATOR_INTERPRETER.md`
+- `tasks/PHASE_23_8_AGENT_NATIVE_PROCEDURE_REGISTRY_AND_SKILL_SURFACE.md`
+- `tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md`
 - `docs/IMPLEMENTATION_ROADMAP.md`
 - `docs/PROJECT_MEMORY_AND_DEBT.md`
 - `docs/ARTIFACT_SCHEMAS_AND_MIGRATIONS.md`
@@ -25,6 +36,9 @@ The main correction is that Phase 24 must build reports and packets on top of ac
 - Project Memory DB APIs introduced by Phase 23.5
 - self-hosting procedure contracts introduced by Phase 23.6
 - `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md` introduced by Phase 23.6
+- `docs/SELF_HOSTING_OPERATOR_ROUTING_POLICY.md`
+- `docs/SELF_HOSTING_OPERATOR_STAGE_MAP.md`
+- `docs/SELF_HOSTING_REVIEW_TIER_POLICY.md`
 - `schemas/**`
 - `tests/acceptance/**`
 
@@ -41,6 +55,9 @@ This phase makes Project Memory useful for review, closeout, handoff, risk analy
 Phase 23.5 makes memory authority durable and DB-first.
 
 Phase 23.6 defines the self-hosting plan-review workflow.
+
+Phase 23.7-23.9 add operator status, procedure registry, and minimal proof
+records that reports and packets should consume when present.
 
 Phase 24 packages accepted Project Memory records into inspectable outputs.
 
@@ -87,6 +104,8 @@ Packet requirements:
 - Project Memory record ids;
 - payload references/chunk references where needed;
 - initiative outputs when present in accepted records, including proposed tasks, risks, open questions, command-safety notes, and handoff context;
+- operator status, next allowed action, blockers, review tier, and proof-record
+  references when present in accepted records;
 - remote check provenance, including provider, run id or URL, commit SHA, job/step conclusions, and bounded/redacted failed-step excerpts when failed;
 - redaction before export;
 - token/size budget awareness;
@@ -226,6 +245,7 @@ Required behavior:
 - no external LLM requirement for deterministic reports;
 - no MCP;
 - no full agent access layer;
+- no lifecycle authority independent of runtime/closeout/harvest rules;
 - no full domain pack runtime;
 - no pack manifest/loader/marketplace;
 - no domain prompt logic in core;

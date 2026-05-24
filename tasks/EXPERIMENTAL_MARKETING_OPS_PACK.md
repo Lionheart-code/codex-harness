@@ -10,7 +10,7 @@ Reviewed v2. The main correction is to treat Marketing Ops as a risk stress test
 
 ## Read before editing
 
-- Phase 26 pack contract
+- Phase 27 pack contract
 - Research Ops pilot review results
 - Phase 24 packet/report constraints
 - `docs/SECURITY_AND_PERMISSION_MODEL.md`
@@ -93,10 +93,10 @@ Marketing outputs must make risk visible. Regulated, factual, comparative, perfo
 
 Likely implementation areas, subject to actual repo inspection:
 
-- Marketing Ops experimental pack files under the Phase 26 pack layout;
+- Marketing Ops experimental pack files under the Phase 27 pack layout;
 - pack-local schemas, templates, workflows, and read-only fixtures;
 - acceptance tests for draft/report/recommend-only behavior;
-- no core source changes except through generic pack interfaces already introduced by Phase 26.
+- no core source changes except through generic pack interfaces already introduced by Phase 27.
 
 ## Acceptance commands
 
@@ -107,7 +107,7 @@ npm run test:acceptance
 node bin/ch pack validate packs/marketing-ops-experimental
 ```
 
-Exact path/command may change according to Phase 26 pack structure.
+Exact path/command may change according to Phase 27 pack structure.
 
 ## Acceptance behavior
 
