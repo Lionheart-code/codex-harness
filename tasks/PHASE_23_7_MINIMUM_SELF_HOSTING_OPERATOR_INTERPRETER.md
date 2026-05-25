@@ -13,6 +13,15 @@ evidence, blockers, review tier, and next allowed action.
 
 Implementation task, but minimal.
 
+Phase 23.7 first delivers the global self-hosting review-policy hardening
+before runtime/operator implementation begins:
+
+- the global policy applies to self-hosting `draft-plan`, `plan-review`, and
+  `implementation-review` flows generally;
+- Phase 23.7 uses that global policy before runtime/operator work;
+- runtime/operator implementation remains a separate Phase 23.7 step after this
+  policy hardening is reviewed.
+
 Allowed:
 
 - add an operator/status surface or equivalent CLI behavior;
@@ -31,6 +40,13 @@ Forbidden:
 - do not implement provider/model routing;
 - do not implement domain packs;
 - do not implement full proof-carrying framework;
+- do not implement CodeGraph, graph indexing, or tree-sitter indexing;
+- do not implement a local project memory engine, graph memory, vector search,
+  or embeddings;
+- do not implement an MCP server;
+- do not implement Architect Planner behavior;
+- do not implement schema evolution beyond the existing repo/runtime model;
+- do not implement an anti-slop analyzer or other review automation engine;
 - do not implement bounded experimentation;
 - do not mutate runtime DB schema unless unavoidable and justified.
 
@@ -139,3 +155,25 @@ Add deterministic fixtures/tests for:
 - The operator exposes review tier without implementing full provider/model
   routing.
 - Tests/fixtures cover normal and blocked routing paths.
+
+## Acceptance commands
+
+```bash
+npm run build
+node --test tests/acceptance/phase23-6-self-hosting-skills-plan-review-bootstrap.test.mjs tests/acceptance/self-hosting-review-policy-hardening.test.mjs
+```
+
+## Acceptance behavior
+
+- The global self-hosting review policy is aligned across the active task
+  contract, authoritative docs, prompt wrappers, canonical self-hosting
+  skills, and output-format references.
+- The global self-hosting review policy explicitly covers anti-slop,
+  design-invariant, scope-legality, evidence-gap, docs-consistency,
+  future-phase leakage, and review-tier-control checks.
+- Phase 23.7 uses that global policy before runtime/operator work begins.
+- No new Phase 23.6 procedure ids or workflow stages are introduced.
+- Runtime/operator implementation remains separate and is not done by this
+  policy-hardening delivery.
+- High/extra-high review controls are surfaced as wording/contract guidance
+  only and not as a new runtime policy engine.

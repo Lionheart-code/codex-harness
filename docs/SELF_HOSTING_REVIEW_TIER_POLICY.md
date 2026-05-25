@@ -8,6 +8,19 @@ storage, memory, provider, and domain-ingestion work.
 The policy is used by Phase 23.7 operator status, Phase 23.9 proof/review
 records, and later provider/review orchestration.
 
+These controls apply to self-hosting `draft-plan`, `plan-review`, and
+`implementation-review` flows generally, not only to Phase 23.7.
+
+Canonical control labels:
+
+- `anti_slop`
+- `design_invariant`
+- `scope_legality`
+- `evidence_gap`
+- `docs_consistency`
+- `future_phase_leakage`
+- `review_tier_controls`
+
 ## Tiers
 
 ### `standard`
@@ -25,6 +38,7 @@ Required controls:
 - basic evidence;
 - single review;
 - no external research unless the claim depends on current external facts.
+- keep the implementation at the smallest correct size.
 
 ### `high`
 
@@ -46,6 +60,27 @@ Required controls:
 - acceptance criteria;
 - review findings recorded;
 - no domain operation leakage into core.
+- `anti_slop` checks:
+  - no unnecessary abstraction;
+  - no one-use generic helper/framework;
+  - no duplicate logic hidden by renaming.
+- `design_invariant` checks:
+  - preserve authority boundaries and canonical sources;
+  - avoid hidden generated state becoming source-of-truth;
+  - preserve deterministic workflow and repo-level invariants.
+- `scope_legality` checks:
+  - keep required changes only;
+  - capture adjacent work as follow-up instead of silent implementation.
+- `evidence_gap` checks:
+  - reject claims that outrun available tests or deterministic evidence.
+- `docs_consistency` checks:
+  - reconcile task/docs/prompt/skill wording when one surface changes
+    authoritative behavior.
+- `future_phase_leakage` checks:
+  - reject future-phase systems or scope that are not required by the active
+    self-hosting task.
+- `review_tier_controls` discipline:
+  - name the tier-required controls explicitly in the review output.
 
 ### `extra-high`
 
@@ -69,6 +104,29 @@ Required controls:
 - explicit stop conditions;
 - human approval boundary for irreversible or authority-changing changes;
 - deterministic fixtures where possible.
+- `anti_slop` checks:
+  - no framework-like broadening beyond the approved task;
+  - no helper layers introduced without repeated need;
+  - no confident docs/report claims without evidence.
+- `design_invariant` checks:
+  - preserve lifecycle/storage/product-source boundaries;
+  - preserve projection/status-first behavior when the task requires it;
+  - avoid stable-identity mistakes where durable IDs are required.
+- `scope_legality` checks:
+  - keep the diff within the approved task and reviewed plan;
+  - block opportunistic expansion disguised as cleanup.
+- `evidence_gap` checks:
+  - classify missing proofs as blockers, not polish items;
+  - reject reviewer approval based on prose alone.
+- `docs_consistency` checks:
+  - update authoritative task/docs/prompt/skill surfaces together when the
+    approved contract changes.
+- `future_phase_leakage` checks:
+  - block future-phase implementation leakage;
+  - block future-phase subsystem work disguised as harmless groundwork.
+- `review_tier_controls` discipline:
+  - list the required controls used;
+  - record what must remain postponed to avoid overbuilding the current phase.
 
 ## Routing responsibility
 

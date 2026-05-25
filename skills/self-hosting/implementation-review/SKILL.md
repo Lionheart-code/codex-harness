@@ -38,7 +38,12 @@ style alone.
 ## checklist
 - Compare the diff against the task and approved plan.
 - Check for missing acceptance coverage and later-phase creep.
+- Check `anti_slop`, `design_invariant`, `scope_legality`, `evidence_gap`,
+  `docs_consistency`, and `future_phase_leakage` explicitly.
+- Confirm `review_tier_controls` are named when the task is `high` or
+  `extra-high`.
 - Check whether evidence and validation are adequate for the claimed result.
+- Reject confident claims that are not backed by deterministic evidence.
 - Return findings clearly enough for a scoped fix pass.
 
 ## expected_output_format
@@ -49,9 +54,15 @@ Return the exact section order documented in
 - There is no stable approved plan to compare against.
 - The diff is incomplete or mixed with unrelated work.
 - Review cannot determine whether claimed behavior is covered by evidence.
+- Review finds unresolved policy issues in anti-slop, design invariants, scope
+  legality, evidence discipline, docs consistency, future-phase leakage, or
+  review-tier control use.
 
 ## evidence_to_record
 - Findings
+- Policy findings covering `anti_slop`, `design_invariant`,
+  `scope_legality`, `evidence_gap`, `docs_consistency`,
+  `future_phase_leakage`, and `review_tier_controls` when applicable
 - Scope compliance result
 - Missing test or validation notes
 - Fix-pass recommendation

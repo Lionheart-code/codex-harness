@@ -39,6 +39,13 @@ starting execution.
 ## checklist
 - State the intended outcome and success criteria.
 - Define the smallest safe implementation steps.
+- Explain how the plan avoids unnecessary abstraction or one-use generic
+  helpers.
+- Preserve design invariants and source-of-truth boundaries explicitly.
+- Check task/docs/prompt/skill consistency when authoritative behavior
+  changes.
+- Keep required changes only, reject future-phase leakage, and capture
+  adjacent work as follow-up.
 - Record assumptions, risks, and validation commands.
 - Keep later phases out of scope.
 
@@ -54,6 +61,9 @@ Return the exact section order documented in
 ## evidence_to_record
 - Draft plan
 - Assumptions and risks
+- Reviewer policy checks for `anti_slop`, `design_invariant`,
+  `scope_legality`, `evidence_gap`, `docs_consistency`,
+  `future_phase_leakage`, and `review_tier_controls` when applicable
 - Validation commands
 - Explicit out-of-scope items
 
