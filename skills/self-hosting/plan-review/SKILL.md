@@ -38,6 +38,10 @@ Independently review a draft plan before implementation begins.
 ## checklist
 - Compare the plan against the task and non-goals.
 - Check for later-phase creep and authority-boundary violations.
+- Check `anti_slop`, `design_invariant`, `scope_legality`, `evidence_gap`,
+  `docs_consistency`, and `future_phase_leakage` explicitly.
+- Confirm `review_tier_controls` are named when the work is `high` or
+  `extra-high`.
 - Confirm validation commands and evidence expectations are adequate.
 - Return findings clearly enough for `plan-amend` to act on them.
 
@@ -48,11 +52,17 @@ Return the exact section order documented in
 ## blocker_conditions
 - The plan is missing key implementation or validation details.
 - The review intensity tier is unknown for a high-risk task.
+- The plan omits required `anti_slop`, `design_invariant`,
+  `scope_legality`, `evidence_gap`, `docs_consistency`,
+  `future_phase_leakage`, or `review_tier_controls` checks for the task.
 - Repo-owned docs contradict the plan materially.
 
 ## evidence_to_record
 - Review findings
 - Review tier used
+- Policy control check covering `anti_slop`, `design_invariant`,
+  `scope_legality`, `evidence_gap`, `docs_consistency`,
+  `future_phase_leakage`, and `review_tier_controls`
 - Blockers and residual risks
 - Pass or amend recommendation
 

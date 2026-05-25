@@ -7,7 +7,18 @@ Return Markdown with these sections in this order:
 3. `## Excluded`
 4. `## Assumptions`
 5. `## Risks`
-6. `## Ordered Implementation Steps`
-7. `## Validation`
+6. `## Reviewer Policy Checks`
+7. `## Ordered Implementation Steps`
+8. `## Validation`
 
-If blocked, replace sections 6 and 7 with `## Blockers`.
+`## Reviewer Policy Checks` must include these labels in order:
+
+- `anti_slop:`
+- `design_invariant:`
+- `scope_legality:`
+- `evidence_gap:`
+- `docs_consistency:`
+- `future_phase_leakage:`
+- `review_tier_controls:`
+
+If blocked, replace sections 7 and 8 with `## Blockers`.

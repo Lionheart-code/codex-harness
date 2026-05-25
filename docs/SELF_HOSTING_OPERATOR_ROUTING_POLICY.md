@@ -87,6 +87,11 @@ Classifies the current step as `standard`, `high`, or `extra-high` using
 existing Phase 23.6 review intensity concepts and
 `docs/SELF_HOSTING_REVIEW_TIER_POLICY.md`.
 
+For `high` and `extra-high` work, the operator may surface the globally defined
+`review_tier_controls` and related policy notes through `notes`. Phase 23.7
+reports those controls; it does not define them. This is guidance only and is
+not a new policy engine, workflow stage, or provider-routing layer.
+
 ### 4. Provider/model routing
 
 Provider/model routing is **not owned by Phase 23.7** beyond recording needed

@@ -39,6 +39,11 @@ Your job in `/plan` mode:
 6. If documents conflict, identify the conflict and propose the smallest document fix.
 7. Do not add new product features.
 8. Do not propose database, dashboard, swarm, or auto-merge.
+9. Explain how the plan avoids unnecessary abstraction, invariant violations,
+   scope creep, docs/task/prompt/skill inconsistency, future-phase leakage,
+   and evidence-free claims.
+10. If the current task is `high` or `extra-high` tier, name the required
+    review controls explicitly.
 
 Output format:
 
@@ -56,6 +61,22 @@ IMPLEMENTATION_PLAN:
 
 FILES_TO_CREATE_OR_CHANGE:
 - ...
+
+REVIEWER_POLICY_CHECKS:
+- anti_slop:
+  - ...
+- design_invariant:
+  - ...
+- scope_legality:
+  - ...
+- evidence_gap:
+  - ...
+- docs_consistency:
+  - ...
+- future_phase_leakage:
+  - ...
+- review_tier_controls:
+  - ...
 
 ACCEPTANCE_COMMANDS:
 - ...

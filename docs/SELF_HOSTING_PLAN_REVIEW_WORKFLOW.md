@@ -53,6 +53,13 @@ Mandatory rules:
 
 - Implementation must not start before human approval of the reviewed plan.
 - Reviewers compare work against both the task contract and the approved plan.
+- `draft-plan`, `plan-review`, and `implementation-review` must explicitly
+  check `anti_slop`, `design_invariant`, `scope_legality`, `evidence_gap`,
+  `docs_consistency`, `future_phase_leakage`, and `review_tier_controls` when
+  they apply.
+- If the active task contract, authoritative docs, prompt wrappers, and
+  canonical skill contracts diverge, reconcile those surfaces before
+  implementation or review continues when authoritative behavior changed.
 - `delivery-facts-review` and `phase-closeout-review` do not replace Phase 23.5
   lifecycle authority. They prepare evidence for it.
 - Hooks can remind or block within their documented limits, but they are not
@@ -91,6 +98,16 @@ Tier guidance:
 - `high`: storage, lifecycle, security, release, hooks, or architecture tasks
 - `extra-high`: authority-model changes, deletion or retention changes,
   release/security boundary changes, or work likely to affect later phases
+
+Global reviewer posture:
+
+- planning and review must prefer the smallest correct implementation over
+  generic abstraction;
+- reviewers must reject evidence-free confidence and future-phase leakage;
+- authoritative docs/prompt/skill/task consistency is part of workflow
+  readiness, not optional cleanup.
+- high/extra-high review work must name the applicable tier controls in the
+  review output.
 
 ## Procedure-to-packet linkage
 
