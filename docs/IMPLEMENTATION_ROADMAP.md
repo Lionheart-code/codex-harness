@@ -289,10 +289,20 @@ stage, next procedure, missing evidence, blockers, review tier, and next allowed
 action.
 
 Status:
-Next active implementation phase. Thin projection/status/routing layer over
-Phase 23.6 procedures. Must not create a new workflow, implement packets,
-provider routing, domain packs, proof framework, or DB schema migration unless
-projection proves insufficient.
+Complete and closed.
+Delivered:
+- `node bin/ch run status --operator [--run <run-id>] [--dry-run]`
+- thin projection/status/routing layer over Phase 23.6 procedures
+- no new parallel workflow and no out-of-scope provider/domain/proof
+  implementation
+Lifecycle notes:
+- PR #6 merged to `main`
+- post-merge local verification passed:
+  `npm run build`,
+  `node --test tests/acceptance/phase23-7-operator-status.test.mjs`,
+  `node --test tests/acceptance/phase23-6-self-hosting-skills-plan-review-bootstrap.test.mjs tests/acceptance/self-hosting-review-policy-hardening.test.mjs`,
+  `git diff --check`,
+  clean `git status`
 
 ## Phase 23.8 — Agent-native Procedure Registry and Skill Surface
 
@@ -305,7 +315,7 @@ discover procedure metadata without treating generated discovery targets as
 canonical source.
 
 Status:
-Planned. Blocked until Phase 23.7 is complete and reviewed.
+Active implementation phase.
 `skills/self-hosting/**` remains canonical.
 
 ## Phase 23.9 — Minimal Proof-Carrying Work and Review Policy
@@ -332,9 +342,9 @@ Turn accepted project memory into deterministic reports and bounded evidence
 packets.
 
 Status:
-Planned amended phase. Delayed until Phase 23.7-23.9
-operator/procedure/proof foundations are complete and reviewed. Phase 24 must
-consume operator/procedure/proof state and must not decide lifecycle status.
+Planned amended phase. Blocked until Phase 23.8 is complete and reviewed.
+Delayed until Phase 23.9 is complete and reviewed. Phase 24 must consume
+operator/procedure/proof state and must not decide lifecycle status.
 
 ## Phase 25 — agent access layer
 
@@ -346,7 +356,8 @@ Expose governed access to runtime, memory, reports, and packets through shared
 core services, with CLI/Direct API first and MCP optional.
 
 Status:
-Planned amended phase. Blocked until amended Phase 24 is complete and reviewed.
+Planned amended phase. Blocked until Phase 23.8 is complete and reviewed.
+Blocked until amended Phase 24 is complete and reviewed.
 Must preserve Direct API/CLI first, optional MCP only, read-only defaults,
 redaction, query limits, no raw SQL by default, approval-gated mutations, no
 autonomous agent, and no external write connector.
@@ -361,7 +372,8 @@ Extend the existing `feature-decomposition` procedure into a stronger
 architect/planner layer for large tasks.
 
 Status:
-Planned. Blocked until Phase 25 is complete and reviewed. Produces reviewable
+Planned. Blocked until Phase 23.8 is complete and reviewed.
+Blocked until Phase 25 is complete and reviewed. Produces reviewable
 task graph proposals and first-task recommendations. Does not execute generated
 tasks and does not approve its own scope.
 
@@ -374,7 +386,8 @@ Goal:
 Introduce local, validated domain packs without putting domain logic into core.
 
 Status:
-Planned re-slotted phase. Blocked until Phase 26 is complete and reviewed.
+Planned re-slotted phase. Blocked until Phase 23.8 is complete and reviewed.
+Blocked until Phase 26 is complete and reviewed.
 Preserves the existing domain-pack ABI/safety design: local/static/non-executing
 pack loading, manifest and compatibility policy, fail-closed validation,
 domain-neutral core, no operational Ozon/CRM/marketing logic in core, and no
@@ -389,7 +402,8 @@ Goal:
 Define safe ingestion and schema-evolution primitives for future domain packs.
 
 Status:
-Planned. Blocked until Phase 27 is complete and reviewed. No production
+Planned. Blocked until Phase 23.8 is complete and reviewed.
+Blocked until Phase 27 is complete and reviewed. No production
 Ozon/CRM/marketing system and no automatic schema mutation from new data points.
 
 ## Phase 29 — Prior-Art Discovery Gate
@@ -402,7 +416,8 @@ Turn the Gate 0 research protocol into a reusable, operator-aware discovery
 module.
 
 Status:
-Planned. Blocked until Phase 28 is complete and reviewed. Focused research
+Planned. Blocked until Phase 23.8 is complete and reviewed.
+Blocked until Phase 28 is complete and reviewed. Focused research
 checkpoints remain available earlier where task risk requires them.
 
 ## Phase 30 — Bounded Agent Experimentation Loop
@@ -415,7 +430,8 @@ Add a bounded experimentation primitive after operator/procedure/proof/evaluator
 fixtures exist.
 
 Status:
-Planned experimental. Blocked until Phase 29 is complete and reviewed. Not
+Planned experimental. Blocked until Phase 23.8 is complete and reviewed.
+Blocked until Phase 29 is complete and reviewed. Not
 uncontrolled self-improvement, not autonomous product development, and not a
 replacement for architecture review.
 
@@ -428,8 +444,8 @@ Goal:
 Validate a read-mostly, provenance-oriented non-code domain pack.
 
 Status:
-Planned. Blocked until Phase 27 domain-pack architecture is complete and
-reviewed.
+Planned. Blocked until Phase 23.8 is complete and reviewed.
+Blocked until Phase 27 domain-pack architecture is complete and reviewed.
 
 ## Experimental — Marketing Ops pack
 
@@ -441,8 +457,8 @@ Stress-test domain packs against higher-risk marketing workflows while staying
 draft/report/recommend-only.
 
 Status:
-Planned experimental. Blocked until the Research Ops pilot is complete and
-reviewed.
+Planned experimental. Blocked until Phase 23.8 is complete and reviewed.
+Blocked until the Research Ops pilot is complete and reviewed.
 
 ## Stop rule
 

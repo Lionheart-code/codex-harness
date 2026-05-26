@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_23_7_MINIMUM_SELF_HOSTING_OPERATOR_INTERPRETER.md
+Implement only: tasks/PHASE_23_8_AGENT_NATIVE_PROCEDURE_REGISTRY_AND_SKILL_SURFACE.md
 
-Do not implement Phase 23.8 or later.
+Do not implement Phase 23.9 or later.
