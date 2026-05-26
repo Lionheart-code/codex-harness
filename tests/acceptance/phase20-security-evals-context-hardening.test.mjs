@@ -308,5 +308,18 @@ test("phase 20 bare eval fails outside the product repo root", () => {
 
 test("phase 20 product repo generated-path boundary remains intact", () => {
   ensureBuiltCli();
+
+  const codexDir = path.join(productRoot, ".codex");
+  if (fs.existsSync(codexDir)) {
+    const visibleStatus = getGitStatus(productRoot);
+    assert.equal(visibleStatus.includes(".codex"), false, "ignored local .codex state must stay out of normal git status");
+
+    const ignoredStatus = runCommand("git", ["status", "--ignored", "--short", "--untracked-files=all", "--", ".codex"], {
+      cwd: productRoot
+    });
+    assertSuccess(ignoredStatus, "git status --ignored for .codex");
+    assert.match(ignoredStatus.stdout, /^!! /m);
+  }
+
   assertProductRepoBoundaryState();
 });

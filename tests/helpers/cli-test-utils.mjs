@@ -76,6 +76,32 @@ export function getGitStatus(cwd) {
   return result.stdout;
 }
 
+function getGitTrackedFiles(cwd, relativePath) {
+  const result = runCommand("git", ["ls-files", "--", relativePath], { cwd });
+  assertSuccess(result, `git ls-files for ${relativePath} in ${cwd}`);
+  return result.stdout
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function getIgnoredGitStatus(cwd, relativePath) {
+  const result = runCommand("git", ["status", "--ignored", "--short", "--untracked-files=all", "--", relativePath], { cwd });
+  assertSuccess(result, `git status --ignored for ${relativePath} in ${cwd}`);
+  return result.stdout
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function gitStatusMentionsPath(statusText, relativePath) {
+  return statusText
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .some((line) => line.endsWith(relativePath) || line.includes(`${relativePath}/`));
+}
+
 export function createTempDirectory(prefix = "codex-harness-acceptance-") {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
@@ -133,17 +159,26 @@ export function readPackageVersion() {
 }
 
 export function assertProductRepoBoundaryState() {
-  for (const relativePath of [".codex", ".agents"]) {
-    assert.equal(
-      fs.existsSync(path.join(productRoot, relativePath)),
-      false,
-      `forbidden generated path exists in product repo: ${relativePath}`
-    );
-  }
+  const visibleStatus = getGitStatus(productRoot);
 
-  if (fs.existsSync(path.join(productRoot, ".harness"))) {
-    const status = getGitStatus(productRoot);
-    assert.equal(status.includes(".harness/"), false, "ignored .harness runtime state must not appear in git status");
+  for (const relativePath of [".codex", ".agents", ".harness"]) {
+    const trackedFiles = getGitTrackedFiles(productRoot, relativePath);
+    assert.deepEqual(trackedFiles, [], `forbidden generated path is tracked in product repo: ${relativePath}`);
+    assert.equal(
+      gitStatusMentionsPath(visibleStatus, relativePath),
+      false,
+      `forbidden generated path appears in git status: ${relativePath}`
+    );
+
+    if (fs.existsSync(path.join(productRoot, relativePath))) {
+      const ignoredStatus = getIgnoredGitStatus(productRoot, relativePath);
+      assert.notEqual(ignoredStatus.length, 0, `generated path exists locally but is not ignored: ${relativePath}`);
+      assert.equal(
+        ignoredStatus.every((line) => line.startsWith("!! ")),
+        true,
+        `generated path must remain ignored local state: ${relativePath}`
+      );
+    }
   }
 
   for (const relativePath of ["schemas", "migrations"]) {
