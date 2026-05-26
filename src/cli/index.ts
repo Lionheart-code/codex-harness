@@ -42,6 +42,7 @@ function printHelp(): void {
     "  node bin/ch report",
     "  node bin/ch run --help",
     "  node bin/ch run start --task TASK.md --dry-run",
+    "  node bin/ch run status --operator --dry-run",
     "  node bin/ch run status --dry-run",
     "  node bin/ch run verify --dry-run",
     "  node bin/ch run closeout --dry-run",

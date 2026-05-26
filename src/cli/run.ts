@@ -4,8 +4,10 @@ import {
   type MarkDiscardableOptions,
   type RecordRemoteStatusOptions,
   type RemoteGateStatus,
+  type RuntimeOperatorStatusResult,
   type RuntimeServiceResult,
   closeoutRuntimeRun,
+  getRuntimeOperatorStatus,
   getRuntimeStatus,
   markRuntimeRunDiscardable,
   recordRuntimeRemoteStatus,
@@ -22,7 +24,7 @@ function printRunHelp(): void {
     "Usage:",
     "  node bin/ch run --help",
     "  node bin/ch run start --task TASK.md [--dry-run]",
-    "  node bin/ch run status [--run <run-id>] [--dry-run]",
+    "  node bin/ch run status [--operator] [--run <run-id>] [--dry-run]",
     "  node bin/ch run verify [--run <run-id>] [--dry-run]",
     "  node bin/ch run closeout [--run <run-id>] [--dry-run]",
     "  node bin/ch run mark-discardable --run <run-id> --reason <reason> [--dry-run]",
@@ -38,7 +40,7 @@ function printRunHelp(): void {
   ]);
 }
 
-function parseOptions(args: string[], valueFlags: Set<string>): ParsedOptions {
+function parseOptions(args: string[], valueFlags: Set<string>, booleanFlags = new Set(["dry-run"])): ParsedOptions {
   const parsed: ParsedOptions = {};
 
   for (let index = 0; index < args.length; index += 1) {
@@ -50,7 +52,7 @@ function parseOptions(args: string[], valueFlags: Set<string>): ParsedOptions {
 
     const name = arg.slice(2);
 
-    if (name === "dry-run") {
+    if (booleanFlags.has(name)) {
       parsed[name] = true;
       continue;
     }
@@ -109,6 +111,10 @@ function dryRunOption(options: ParsedOptions): boolean {
   return options["dry-run"] === true;
 }
 
+function operatorOption(options: ParsedOptions): boolean {
+  return options.operator === true;
+}
+
 function renderRunLines(title: string, result: RuntimeServiceResult): string[] {
   const run = result.run;
   const output = [
@@ -134,6 +140,32 @@ function renderRunLines(title: string, result: RuntimeServiceResult): string[] {
   return output;
 }
 
+function renderOperatorLines(result: RuntimeOperatorStatusResult): string[] {
+  const output = [
+    "codex-harness run status --operator",
+    `current_stage: ${result.operator.current_stage}`,
+    `next_procedure_id: ${result.operator.next_procedure_id}`,
+    `required_inputs: ${JSON.stringify(result.operator.required_inputs)}`,
+    `missing_inputs: ${JSON.stringify(result.operator.missing_inputs)}`,
+    `required_evidence: ${JSON.stringify(result.operator.required_evidence)}`,
+    `missing_evidence: ${JSON.stringify(result.operator.missing_evidence)}`,
+    `stop_reason: ${result.operator.stop_reason}`,
+    `next_allowed_action: ${result.operator.next_allowed_action}`,
+    `forbidden_actions: ${JSON.stringify(result.operator.forbidden_actions)}`,
+    `review_tier: ${result.operator.review_tier}`
+  ];
+
+  if (result.operator.notes && result.operator.notes.length > 0) {
+    output.push(`notes: ${JSON.stringify(result.operator.notes)}`);
+  }
+
+  if (result.dryRun) {
+    output.push("dry-run: no files were written");
+  }
+
+  return output;
+}
+
 async function runStart(args: string[]): Promise<number> {
   const options = parseOptions(args, new Set(["task"]));
   const result = await startRuntimeRun(process.cwd(), {
@@ -146,7 +178,20 @@ async function runStart(args: string[]): Promise<number> {
 }
 
 async function runStatusCommand(args: string[]): Promise<number> {
-  const options = parseOptions(args, new Set(["run"]));
+  const options = parseOptions(args, new Set(["run"]), new Set(["dry-run", "operator"]));
+
+  if (operatorOption(options)) {
+    lines(
+      renderOperatorLines(
+        getRuntimeOperatorStatus(process.cwd(), {
+          dryRun: dryRunOption(options),
+          runId: stringOption(options, "run")
+        })
+      )
+    );
+    return 0;
+  }
+
   const result = getRuntimeStatus(process.cwd(), {
     dryRun: dryRunOption(options),
     runId: stringOption(options, "run")

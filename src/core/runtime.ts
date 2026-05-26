@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { type VerifierRecord, validateVerifierRecord } from "./checks";
 import { ArtifactStore as EvidenceArtifactStore } from "./artifact-store";
 import { formatCommandForDisplay, runStructuredCommand } from "./command-runner";
@@ -316,6 +317,32 @@ export interface RuntimeHarvestResult extends RuntimeServiceResult {
   harvest: import("./lifecycle-types").HarvestRecord;
 }
 
+export type OperatorReviewTier = "standard" | "high" | "extra-high";
+
+export interface RuntimeOperatorStatus {
+  current_stage: string;
+  next_procedure_id: string;
+  required_inputs: string[];
+  missing_inputs: string[];
+  required_evidence: string[];
+  missing_evidence: string[];
+  stop_reason: string;
+  next_allowed_action: string;
+  forbidden_actions: string[];
+  review_tier: OperatorReviewTier;
+  notes?: string[];
+}
+
+export interface RuntimeOperatorStatusResult {
+  targetRoot: string;
+  projectRoot: string;
+  dryRun: boolean;
+  operator: RuntimeOperatorStatus;
+  run?: Run;
+  runPath?: string;
+  closeoutPath?: string;
+}
+
 export interface StartRuntimeRunOptions {
   taskPath: string;
   dryRun?: boolean;
@@ -414,6 +441,42 @@ interface VerificationResolution {
   reuseDecision: VerificationReuseDecision;
   commandEvidence: VerificationCommandResultEvidence[];
 }
+
+interface OperatorTaskContext {
+  taskPath: string;
+  activeTaskPath: string;
+  phaseId: string;
+  taskMarkdown: string;
+  activeTaskMarkdown: string;
+}
+
+interface OperatorRunContext {
+  run: Run;
+  runPath: string;
+  closeoutReceipt?: CloseoutReceipt;
+  closeoutPath?: string;
+  quarantinedPayloadCount: number;
+  notes: string[];
+}
+
+interface OperatorEvaluationContext {
+  procedureIds: Set<string>;
+  taskContext: OperatorTaskContext;
+  reviewTier: OperatorReviewTier;
+  baseNotes: string[];
+  runContext?: OperatorRunContext;
+  taggedProcedures?: Set<string>;
+  latestReviewResult?: ReviewResult;
+  latestVerification?: VerificationResult;
+  latestCloseoutReceipt?: CloseoutReceipt;
+  blockingFindings?: boolean;
+  planApproved?: boolean;
+  implementationEvidence?: boolean;
+}
+
+type OperatorStageDraft = Omit<RuntimeOperatorStatus, "review_tier" | "next_procedure_id"> & {
+  next_procedure_id: string;
+};
 
 const RUNTIME_RUNS_DIR = path.join(HARNESS_DIR, "runs");
 const CURRENT_RUN_FILE = "current.json";
@@ -1516,6 +1579,1006 @@ export function getRuntimeStatus(cwd: string, options: RuntimeDryRunOptions = {}
     projectDbPath: paths.projectDbPath,
     stagingDbPath: paths.stagingDbPath,
     state: current.state
+  };
+}
+
+function readUtf8FileIfExists(targetPath: string): string | undefined {
+  if (!fs.existsSync(targetPath) || !fs.statSync(targetPath).isFile()) {
+    return undefined;
+  }
+
+  return fs.readFileSync(targetPath, "utf8");
+}
+
+function resolveOperatorTaskContext(targetRoot: string): OperatorTaskContext | undefined {
+  const taskPath = path.join(targetRoot, "TASK.md");
+  const taskMarkdown = readUtf8FileIfExists(taskPath);
+
+  if (!taskMarkdown) {
+    return undefined;
+  }
+
+  const referencedTaskPath = extractActiveTaskPath(taskMarkdown);
+
+  if (!referencedTaskPath) {
+    return undefined;
+  }
+
+  const absoluteActiveTaskPath = path.resolve(targetRoot, referencedTaskPath);
+  const relative = path.relative(targetRoot, absoluteActiveTaskPath);
+
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return undefined;
+  }
+
+  const activeTaskMarkdown = readUtf8FileIfExists(absoluteActiveTaskPath);
+
+  if (!activeTaskMarkdown) {
+    return undefined;
+  }
+
+  const activeTaskPath = toRepoRelative(targetRoot, absoluteActiveTaskPath);
+  const phaseId = inferPhaseIdFromText(activeTaskMarkdown) ?? inferPhaseIdFromPath(activeTaskPath);
+
+  if (!phaseId) {
+    return undefined;
+  }
+
+  return {
+    taskPath: "TASK.md",
+    activeTaskPath,
+    phaseId,
+    taskMarkdown,
+    activeTaskMarkdown
+  };
+}
+
+function readRoadmapTaskPathForPhase(targetRoot: string, phaseId: string): string | undefined {
+  const roadmapPath = path.join(targetRoot, "docs", "IMPLEMENTATION_ROADMAP.md");
+  const roadmap = readUtf8FileIfExists(roadmapPath);
+
+  if (!roadmap) {
+    return undefined;
+  }
+
+  const headingPattern = /^##\s+Phase\s+([0-9.]+)\b.*$/gm;
+  const headings = [...roadmap.matchAll(headingPattern)];
+  const currentHeadingIndex = headings.findIndex((match) => match[1] === phaseId);
+
+  if (currentHeadingIndex === -1) {
+    return undefined;
+  }
+
+  const sectionStart = headings[currentHeadingIndex]?.index;
+
+  if (sectionStart === undefined) {
+    return undefined;
+  }
+
+  const sectionEnd = headings[currentHeadingIndex + 1]?.index ?? roadmap.length;
+  const section = roadmap.slice(sectionStart, sectionEnd);
+
+  if (!section) {
+    return undefined;
+  }
+
+  const taskPath = /Task:\s*`([^`]+)`/m.exec(section)?.[1]?.trim();
+  return taskPath && taskPath.length > 0 ? taskPath : undefined;
+}
+
+function readCurrentRunPointer(targetRoot: string): { runId: string; runPath: string } | undefined {
+  const pointerPath = path.join(targetRoot, RUNTIME_RUNS_DIR, CURRENT_RUN_FILE);
+  const raw = readUtf8FileIfExists(pointerPath);
+
+  if (!raw) {
+    return undefined;
+  }
+
+  const pointer = assertObject(JSON.parse(raw) as unknown, "runtime current pointer");
+  assertRequiredString(pointer, "run_id", "runtime current pointer");
+  assertRequiredString(pointer, "run_path", "runtime current pointer");
+
+  const runPath = path.resolve(path.join(targetRoot, RUNTIME_RUNS_DIR), String(pointer.run_path));
+  const relative = path.relative(path.join(targetRoot, RUNTIME_RUNS_DIR), runPath);
+
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Runtime current pointer resolves outside .harness/runs.");
+  }
+
+  return {
+    runId: String(pointer.run_id),
+    runPath
+  };
+}
+
+function readRunJsonForOperator(targetRoot: string, runId: string, explicitPath?: string): { run: Run; runPath: string } | undefined {
+  const runPath = explicitPath ?? path.join(targetRoot, RUNTIME_RUNS_DIR, runId, RUN_FILE);
+  const raw = readUtf8FileIfExists(runPath);
+
+  if (!raw) {
+    return undefined;
+  }
+
+  return {
+    run: validateRuntimeRun(JSON.parse(raw) as unknown),
+    runPath
+  };
+}
+
+function readCloseoutReceiptForOperator(targetRoot: string, runId: string): { receipt: CloseoutReceipt; closeoutPath: string } | undefined {
+  const closeoutPath = path.join(targetRoot, RUNTIME_RUNS_DIR, runId, CLOSEOUT_FILE);
+  const raw = readUtf8FileIfExists(closeoutPath);
+
+  if (!raw) {
+    return undefined;
+  }
+
+  return {
+    receipt: validateCloseoutReceipt(JSON.parse(raw) as unknown),
+    closeoutPath
+  };
+}
+
+function readQuarantinedPayloadCountReadOnly(databasePath: string): { count: number; note?: string } {
+  if (!fs.existsSync(databasePath) || !fs.statSync(databasePath).isFile()) {
+    return { count: 0 };
+  }
+
+  try {
+    const sqlite = require("node:sqlite") as { DatabaseSync?: new (database: string, options?: Record<string, unknown>) => {
+      prepare(sql: string): { get(...params: unknown[]): unknown };
+      close(): void;
+    } };
+
+    if (typeof sqlite.DatabaseSync !== "function") {
+      return {
+        count: 0,
+        note: `notes: unable to inspect quarantine state because node:sqlite DatabaseSync is unavailable for ${formatDatabasePath(path.dirname(path.dirname(databasePath)), databasePath)}`
+      };
+    }
+
+    const databaseUri = pathToFileURL(databasePath);
+    databaseUri.searchParams.set("mode", "ro");
+    databaseUri.searchParams.set("immutable", "1");
+    const database = new sqlite.DatabaseSync(databaseUri.href, { readOnly: true });
+
+    try {
+      const hasPayloadIndex = Number(
+        ((database.prepare(
+          "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'payload_index';"
+        ).get() as { count?: number } | undefined)?.count ?? 0)
+      );
+
+      if (hasPayloadIndex === 0) {
+        return { count: 0 };
+      }
+
+      return {
+        count: Number(
+          ((database.prepare(
+            "SELECT COUNT(*) AS count FROM payload_index WHERE retention_class = ?;"
+          ).get("quarantine") as { count?: number } | undefined)?.count ?? 0)
+        )
+      };
+    } finally {
+      database.close();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      count: 0,
+      note: `quarantine probe unavailable: ${message}`
+    };
+  }
+}
+
+function loadOperatorRunContext(targetRoot: string, projectRoot: string, runId?: string): OperatorRunContext | undefined {
+  const resolvedRun = runId
+    ? readRunJsonForOperator(targetRoot, runId)
+    : (() => {
+        const current = readCurrentRunPointer(targetRoot);
+        return current ? readRunJsonForOperator(targetRoot, current.runId, current.runPath) : undefined;
+      })();
+
+  if (!resolvedRun) {
+    return undefined;
+  }
+
+  const closeout = readCloseoutReceiptForOperator(targetRoot, resolvedRun.run.run_id);
+  const paths = resolveMemoryDbPaths(targetRoot, projectRoot, resolvedRun.run.run_id);
+  const quarantine = paths.stagingDbPath
+    ? readQuarantinedPayloadCountReadOnly(paths.stagingDbPath)
+    : { count: 0 };
+
+  return {
+    run: resolvedRun.run,
+    runPath: resolvedRun.runPath,
+    ...(closeout ? { closeoutReceipt: closeout.receipt, closeoutPath: closeout.closeoutPath } : {}),
+    quarantinedPayloadCount: quarantine.count,
+    notes: quarantine.note ? [quarantine.note] : []
+  };
+}
+
+function readPhase236ProcedureIds(targetRoot: string): Set<string> {
+  const skillsRoot = path.join(targetRoot, "skills", "self-hosting");
+
+  if (!fs.existsSync(skillsRoot) || !fs.statSync(skillsRoot).isDirectory()) {
+    return new Set();
+  }
+
+  const procedureIds = new Set<string>();
+
+  for (const entry of fs.readdirSync(skillsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const skillPath = path.join(skillsRoot, entry.name, "SKILL.md");
+    const content = readUtf8FileIfExists(skillPath);
+    const procedureId = content ? /## procedure_id\s+`([^`]+)`/m.exec(content)?.[1]?.trim() : undefined;
+
+    if (procedureId) {
+      procedureIds.add(procedureId);
+    }
+  }
+
+  return procedureIds;
+}
+
+function readTaggedProcedureId(value: string | undefined, procedureIds: Set<string>): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+
+  for (const procedureId of procedureIds) {
+    if (
+      normalized === procedureId ||
+      normalized === `procedure:${procedureId}` ||
+      normalized === `procedure_id:${procedureId}`
+    ) {
+      return procedureId;
+    }
+  }
+
+  return undefined;
+}
+
+function collectTaggedProcedureEvidence(run: Run, procedureIds: Set<string>): Set<string> {
+  const tagged = new Set<string>();
+
+  for (const artifact of run.artifacts) {
+    const procedureId = readTaggedProcedureId(artifact.kind, procedureIds) ?? readTaggedProcedureId(artifact.description, procedureIds);
+
+    if (procedureId) {
+      tagged.add(procedureId);
+    }
+  }
+
+  for (const evidence of run.evidence) {
+    const procedureId = readTaggedProcedureId(evidence.kind, procedureIds) ?? readTaggedProcedureId(evidence.summary, procedureIds);
+
+    if (procedureId) {
+      tagged.add(procedureId);
+    }
+  }
+
+  return tagged;
+}
+
+function hasBlockingFindings(run: Run): boolean {
+  return run.findings.some((finding) => finding.blocking && finding.status !== "resolved");
+}
+
+function isPlanApproval(approval: Approval): boolean {
+  if (approval.status !== "approved") {
+    return false;
+  }
+
+  const text = `${approval.title} ${approval.reason ?? ""} ${approval.approver ?? ""}`.toLowerCase();
+  const hasPlan = /\bplan\b/.test(text);
+  const hasReviewedPlanSignal = /\b(reviewed|implementation)\b/.test(text);
+  const hasApprovalBoundary = /\b(owner|human|approved|approval)\b/.test(text);
+  return hasPlan && hasReviewedPlanSignal && hasApprovalBoundary;
+}
+
+function hasApprovedPlan(run: Run): boolean {
+  return run.approvals.some((approval) => isPlanApproval(approval));
+}
+
+function isReadOnlyActivityText(value: string): boolean {
+  return /\b(review|reviewer|status|policy|delivery[- ]facts|closeout|verification|plan|prompt|intake|decomposition|harvest)\b/i.test(value);
+}
+
+function isImplementationActivityText(value: string): boolean {
+  return /\b(implement|implementation|apply|source|runtime|code|edit|fix|patch|change)\b/i.test(value);
+}
+
+function isImplementationStep(step: Step): boolean {
+  return isImplementationActivityText(step.name) && !isReadOnlyActivityText(step.name);
+}
+
+function isReadOnlyArtifactPath(value: string): boolean {
+  return /(^|\/)\.harness\/|review\.json$|verifier\.json$|closeout\.json$|current\.json$|install\.json$|context[-_]inspect|prompt|plan|review|verification|delivery|closeout|policy|status/i.test(value);
+}
+
+function isImplementationCommandResult(result: CommandResult, implementationStepIds: Set<string>): boolean {
+  if (!result.step_id || !implementationStepIds.has(result.step_id)) {
+    return false;
+  }
+
+  return !isReadOnlyActivityText(result.command);
+}
+
+function isImplementationArtifact(
+  artifact: Pick<ArtifactRef, "kind" | "description" | "path"> | Pick<EvidenceRef, "kind" | "summary" | "path">,
+  procedureIds: Set<string>
+): boolean {
+  const kindValue = artifact.kind.trim();
+  const secondary = "description" in artifact
+    ? artifact.description ?? ""
+    : ("summary" in artifact ? artifact.summary ?? "" : "");
+  const combined = `${kindValue} ${secondary} ${artifact.path ?? ""}`.trim();
+
+  if (kindValue.length === 0 || readTaggedProcedureId(kindValue, procedureIds)) {
+    return false;
+  }
+
+  if (!isImplementationActivityText(combined) || isReadOnlyActivityText(combined)) {
+    return false;
+  }
+
+  return !artifact.path || !isReadOnlyArtifactPath(artifact.path);
+}
+
+function hasImplementationEvidence(run: Run, procedureIds: Set<string>): boolean {
+  const implementationStepIds = new Set(run.steps.filter((step) => isImplementationStep(step)).map((step) => step.step_id));
+
+  if (implementationStepIds.size > 0) {
+    return true;
+  }
+
+  if (run.command_results.some((result) => isImplementationCommandResult(result, implementationStepIds))) {
+    return true;
+  }
+
+  if (run.artifacts.some((artifact) => isImplementationArtifact(artifact, procedureIds))) {
+    return true;
+  }
+
+  if (run.evidence.some((evidence) => isImplementationArtifact(evidence, procedureIds))) {
+    return true;
+  }
+
+  return false;
+}
+
+function classifyOperatorReviewTier(taskMarkdown: string): { tier: OperatorReviewTier; notes: string[] } {
+  const normalized = taskMarkdown.toLowerCase();
+  const extraHighReasons: string[] = [];
+  const highReasons: string[] = [];
+
+  const extraHighPatterns: Array<[RegExp, string]> = [
+    [/\boperator\b/, "operator"],
+    [/\bstage routing\b/, "stage routing"],
+    [/\bauthority\b/, "authority"],
+    [/\blifecycle\b/, "lifecycle"],
+    [/\bstorage\b/, "storage"],
+    [/\bharvest\b/, "harvest"],
+    [/\bprovider\b/, "provider"],
+    [/\badapter\b/, "adapter"],
+    [/\bschema migration\b/, "schema migration"],
+    [/\bquarantine\b/, "quarantine"],
+    [/\bdiscard\b/, "discard"],
+    [/\bretention\b/, "retention"]
+  ];
+  const highPatterns: Array<[RegExp, string]> = [
+    [/\bworkflow\b/, "workflow"],
+    [/\bprocedure\b/, "procedure"],
+    [/\barchitecture\b/, "architecture"],
+    [/\bsecurity\b/, "security"],
+    [/\bhooks\b/, "hooks"],
+    [/\brelease\b/, "release"]
+  ];
+
+  for (const [pattern, reason] of extraHighPatterns) {
+    if (pattern.test(normalized)) {
+      extraHighReasons.push(reason);
+    }
+  }
+
+  if (extraHighReasons.length > 0) {
+    return {
+      tier: "extra-high",
+      notes: [
+        `review_tier_reason: matched extra-high task signals (${[...new Set(extraHighReasons)].join(", ")})`,
+        "review_tier_controls: anti_slop, design_invariant, scope_legality, evidence_gap, docs_consistency, future_phase_leakage"
+      ]
+    };
+  }
+
+  for (const [pattern, reason] of highPatterns) {
+    if (pattern.test(normalized)) {
+      highReasons.push(reason);
+    }
+  }
+
+  if (highReasons.length > 0) {
+    return {
+      tier: "high",
+      notes: [
+        `review_tier_reason: matched high-risk task signals (${[...new Set(highReasons)].join(", ")})`,
+        "review_tier_controls: anti_slop, design_invariant, scope_legality, evidence_gap, docs_consistency, future_phase_leakage"
+      ]
+    };
+  }
+
+  return {
+    tier: "standard",
+    notes: []
+  };
+}
+
+function normalizeNextProcedureId(nextProcedureId: string, procedureIds: Set<string>): string {
+  if (nextProcedureId === "none" || procedureIds.has(nextProcedureId)) {
+    return nextProcedureId;
+  }
+
+  throw new Error(`Operator status resolved unsupported next_procedure_id: ${nextProcedureId}`);
+}
+
+function buildOperatorStatus(
+  procedureIds: Set<string>,
+  reviewTier: OperatorReviewTier,
+  status: OperatorStageDraft
+): RuntimeOperatorStatus {
+  return {
+    ...status,
+    next_procedure_id: normalizeNextProcedureId(status.next_procedure_id, procedureIds),
+    review_tier: reviewTier,
+    ...(status.notes && status.notes.length > 0 ? { notes: status.notes } : {})
+  };
+}
+
+function buildReviewStageAction(procedureId: string): string {
+  return `open a separate read-only reviewer session and run ${procedureId}`;
+}
+
+function isBroadTaskForDirectPlan(taskMarkdown: string): boolean {
+  const normalized = taskMarkdown.toLowerCase();
+  return /\b(broad request|too broad|large goal|major module request|multiple modules|multi-module|spans multiple|future phases|one implementation pass|feature decomposition)\b/.test(normalized);
+}
+
+function needsTaskIntake(taskMarkdown: string): boolean {
+  const normalized = taskMarkdown.toLowerCase();
+
+  if (/\b(raw request|owner request|tbd|todo:|\?\?)\b/.test(normalized)) {
+    return true;
+  }
+
+  return ![/^##?\s*goal\b/m, /^##?\s*purpose\b/m, /^##?\s*constraints?\b/m, /^##?\s*acceptance\b/m, /^##?\s*required behavior\b/m]
+    .some((pattern) => pattern.test(taskMarkdown));
+}
+
+function buildOperatorStageDraft(stage: OperatorStageDraft): OperatorStageDraft {
+  return stage;
+}
+
+function resolveTaskMissingStage(procedureIds: Set<string>): OperatorStageDraft {
+  return buildOperatorStageDraft({
+    current_stage: "NO_ACTIVE_TASK",
+    next_procedure_id: "none",
+    required_inputs: ["TASK.md", "active task file"],
+    missing_inputs: ["active task pointer"],
+    required_evidence: [],
+    missing_evidence: [],
+    stop_reason: "missing_active_task",
+    next_allowed_action: "create or reconcile the active task pointer in TASK.md",
+    forbidden_actions: ["planning", "implementation", "closeout"]
+  });
+}
+
+function resolveRoadmapConflictStage(context: OperatorEvaluationContext, roadmapTaskPath?: string): OperatorStageDraft {
+  return buildOperatorStageDraft({
+    current_stage: "STALE_TASK_ROADMAP_CONFLICT",
+    next_procedure_id: "none",
+    required_inputs: ["TASK.md", "docs/IMPLEMENTATION_ROADMAP.md"],
+    missing_inputs: !roadmapTaskPath ? ["roadmap phase entry"] : [],
+    required_evidence: [],
+    missing_evidence: [],
+    stop_reason: "stale_task_roadmap_conflict",
+    next_allowed_action: "reconcile TASK.md and the roadmap before implementation continues",
+    forbidden_actions: ["implementation", "closeout", "import"],
+    notes: !roadmapTaskPath
+      ? [...context.baseNotes, `roadmap_phase_entry_missing: ${context.taskContext.phaseId}`]
+      : [...context.baseNotes, `roadmap_task_path: ${roadmapTaskPath}`]
+  });
+}
+
+function resolveNoActiveRunStage(context: OperatorEvaluationContext, explicitRunId?: string): OperatorStageDraft {
+  return buildOperatorStageDraft({
+    current_stage: "NO_ACTIVE_RUN",
+    next_procedure_id: "none",
+    required_inputs: ["TASK.md", "docs/IMPLEMENTATION_ROADMAP.md"],
+    missing_inputs: [explicitRunId ? `explicit run context: ${explicitRunId}` : "active run context"],
+    required_evidence: [],
+    missing_evidence: [],
+    stop_reason: "missing_active_run",
+    next_allowed_action: "start or open the current runtime run before routing later workflow steps",
+    forbidden_actions: ["implementation review", "closeout"],
+    notes: explicitRunId
+      ? [...context.baseNotes, `explicit_run_not_found: ${explicitRunId}`]
+      : context.baseNotes
+  });
+}
+
+function resolveTerminalRunStage(context: OperatorEvaluationContext): OperatorStageDraft | undefined {
+  const runContext = context.runContext;
+
+  if (!runContext) {
+    return undefined;
+  }
+
+  if (runContext.run.lifecycle_status === "harvested" || runContext.run.harvested_at) {
+    return buildOperatorStageDraft({
+      current_stage: "RUN_HARVESTED",
+      next_procedure_id: "none",
+      required_inputs: [],
+      missing_inputs: [],
+      required_evidence: ["closeout receipt"],
+      missing_evidence: [],
+      stop_reason: "run_already_harvested",
+      next_allowed_action: "start a new run or task for additional work",
+      forbidden_actions: ["new work in the same run"],
+      notes: context.baseNotes
+    });
+  }
+
+  if (runContext.run.lifecycle_status === "discarded" || runContext.run.discard_reason) {
+    return buildOperatorStageDraft({
+      current_stage: "RUN_DISCARDED",
+      next_procedure_id: "none",
+      required_inputs: [],
+      missing_inputs: [],
+      required_evidence: ["discard reason"],
+      missing_evidence: [],
+      stop_reason: "run_discarded",
+      next_allowed_action: "make an explicit recovery or reopen decision before resuming",
+      forbidden_actions: ["resume without explicit recovery or reopen decision"],
+      notes: context.baseNotes
+    });
+  }
+
+  if (runContext.quarantinedPayloadCount > 0) {
+    return buildOperatorStageDraft({
+      current_stage: "RUN_QUARANTINED",
+      next_procedure_id: "none",
+      required_inputs: [],
+      missing_inputs: [],
+      required_evidence: ["quarantine review decision"],
+      missing_evidence: ["quarantine resolution"],
+      stop_reason: "run_quarantined",
+      next_allowed_action: "make a manual review decision before implementation or harvest continues",
+      forbidden_actions: ["implementation", "harvest", "accepted-memory writes"],
+      notes: [...context.baseNotes, `quarantined_payloads: ${runContext.quarantinedPayloadCount}`]
+    });
+  }
+
+  return undefined;
+}
+
+function resolvePreImplementationStage(context: OperatorEvaluationContext): OperatorStageDraft | undefined {
+  if (!context.runContext || !context.taggedProcedures) {
+    return undefined;
+  }
+
+  const taskMarkdown = context.taskContext.activeTaskMarkdown;
+
+  if (!context.taggedProcedures.has("task-intake") && needsTaskIntake(taskMarkdown)) {
+    return buildOperatorStageDraft({
+      current_stage: "TASK_INTAKE_REQUIRED",
+      next_procedure_id: "task-intake",
+      required_inputs: ["current TASK.md", "active task file", "relevant acceptance and boundary docs"],
+      missing_inputs: [],
+      required_evidence: ["task-intake"],
+      missing_evidence: ["task-intake"],
+      stop_reason: "missing_task_input",
+      next_allowed_action: "run task-intake to normalize the active task contract",
+      forbidden_actions: ["draft plan", "implementation", "closeout"],
+      notes: context.baseNotes
+    });
+  }
+
+  if (!context.taggedProcedures.has("feature-decomposition") && isBroadTaskForDirectPlan(taskMarkdown)) {
+    return buildOperatorStageDraft({
+      current_stage: "FEATURE_DECOMPOSITION_REQUIRED",
+      next_procedure_id: "feature-decomposition",
+      required_inputs: ["broad request", "roadmap and boundary docs", "constraints and non-goals"],
+      missing_inputs: [],
+      required_evidence: ["feature-decomposition"],
+      missing_evidence: ["feature-decomposition"],
+      stop_reason: "task_too_broad_for_direct_plan",
+      next_allowed_action: "run feature-decomposition before direct planning or implementation",
+      forbidden_actions: ["implementation"],
+      notes: context.baseNotes
+    });
+  }
+
+  if (!context.taggedProcedures.has("task-prompt-writer")) {
+    return buildOperatorStageDraft({
+      current_stage: "TASK_PROMPT_REQUIRED",
+      next_procedure_id: "task-prompt-writer",
+      required_inputs: ["active task contract", "Phase 23.6 procedure contract", "validation commands", "repo boundaries"],
+      missing_inputs: [],
+      required_evidence: ["task-prompt-writer"],
+      missing_evidence: ["task-prompt-writer"],
+      stop_reason: "missing_task_contract",
+      next_allowed_action: "run task-prompt-writer to produce bounded invocation guidance",
+      forbidden_actions: ["implementation", "verification", "closeout"],
+      notes: context.baseNotes
+    });
+  }
+
+  if (!context.taggedProcedures.has("draft-plan") && !context.taggedProcedures.has("plan-amend")) {
+    return buildOperatorStageDraft({
+      current_stage: "PLAN_DRAFT_REQUIRED",
+      next_procedure_id: "draft-plan",
+      required_inputs: ["task prompt guidance", "repo context", "active constraints"],
+      missing_inputs: [],
+      required_evidence: ["draft-plan"],
+      missing_evidence: ["draft-plan"],
+      stop_reason: "missing_plan",
+      next_allowed_action: "run draft-plan before implementation begins",
+      forbidden_actions: ["implementation", "closeout"],
+      notes: context.baseNotes
+    });
+  }
+
+  if (!context.taggedProcedures.has("plan-review")) {
+    return buildOperatorStageDraft({
+      current_stage: "PLAN_REVIEW_REQUIRED",
+      next_procedure_id: "plan-review",
+      required_inputs: ["draft plan", "task contract", "review tier"],
+      missing_inputs: [],
+      required_evidence: ["plan-review"],
+      missing_evidence: ["plan-review"],
+      stop_reason: "missing_plan_review",
+      next_allowed_action: buildReviewStageAction("plan-review"),
+      forbidden_actions: ["implementation", "source edits", "closeout"],
+      notes: context.baseNotes
+    });
+  }
+
+  if (!context.planApproved && context.blockingFindings) {
+    return buildOperatorStageDraft({
+      current_stage: "PLAN_AMEND_REQUIRED",
+      next_procedure_id: "plan-amend",
+      required_inputs: ["plan review findings"],
+      missing_inputs: [],
+      required_evidence: ["plan-amend"],
+      missing_evidence: ["plan-amend"],
+      stop_reason: "plan_review_requires_amendment",
+      next_allowed_action: "run plan-amend to address blocking review findings",
+      forbidden_actions: ["implementation", "closeout"],
+      notes: context.baseNotes
+    });
+  }
+
+  if (!context.planApproved) {
+    return buildOperatorStageDraft({
+      current_stage: "PLAN_APPROVAL_REQUIRED",
+      next_procedure_id: "none",
+      required_inputs: ["reviewed plan"],
+      missing_inputs: [],
+      required_evidence: ["explicit reviewed-plan owner approval"],
+      missing_evidence: ["explicit reviewed-plan owner approval"],
+      stop_reason: "missing_plan_approval",
+      next_allowed_action: "obtain explicit human approval of the reviewed plan",
+      forbidden_actions: ["implementation", "closeout"],
+      notes: context.baseNotes
+    });
+  }
+
+  if (!context.implementationEvidence) {
+    return buildOperatorStageDraft({
+      current_stage: "IMPLEMENTATION_READY",
+      next_procedure_id: "none",
+      required_inputs: ["approved plan", "task contract", "allowed scope"],
+      missing_inputs: [],
+      required_evidence: ["implementation/source/runtime change evidence"],
+      missing_evidence: ["implementation/source/runtime change evidence"],
+      stop_reason: "missing_builder_handoff",
+      next_allowed_action: "perform the approved implementation work inside task scope",
+      forbidden_actions: ["closeout"],
+      notes: context.baseNotes
+    });
+  }
+
+  return undefined;
+}
+
+function resolveImplementationReviewStage(context: OperatorEvaluationContext): OperatorStageDraft | undefined {
+  const taggedProcedures = context.taggedProcedures ?? new Set<string>();
+
+  if (!taggedProcedures.has("implementation-review") && !taggedProcedures.has("fix-pass-review")) {
+    return buildOperatorStageDraft({
+      current_stage: "IMPLEMENTATION_REVIEW_REQUIRED",
+      next_procedure_id: "implementation-review",
+      required_inputs: ["implementation report", "changed files", "test output"],
+      missing_inputs: [],
+      required_evidence: ["implementation-review"],
+      missing_evidence: ["implementation-review"],
+      stop_reason: "missing_implementation_evidence",
+      next_allowed_action: buildReviewStageAction("implementation-review"),
+      forbidden_actions: ["implementation", "source edits", "closeout"],
+      notes: context.baseNotes
+    });
+  }
+
+  if ((context.latestReviewResult?.status === "FIX_REQUIRED" || context.blockingFindings) && taggedProcedures.has("implementation-review")) {
+    return buildOperatorStageDraft({
+      current_stage: "FIX_PASS_REQUIRED",
+      next_procedure_id: "fix-pass-review",
+      required_inputs: ["implementation review findings", "fix-pass diff", "fix-pass tests"],
+      missing_inputs: [],
+      required_evidence: ["fix-pass-review"],
+      missing_evidence: ["fix-pass-review"],
+      stop_reason: "unresolved_review_findings",
+      next_allowed_action: buildReviewStageAction("fix-pass-review"),
+      forbidden_actions: ["closeout", "phase closeout review", "harvest"],
+      notes: context.baseNotes
+    });
+  }
+
+  return undefined;
+}
+
+function resolveVerificationStage(context: OperatorEvaluationContext): OperatorStageDraft | undefined {
+  const taggedProcedures = context.taggedProcedures ?? new Set<string>();
+  const hasVerificationReview = taggedProcedures.has("verification-review");
+
+  if (!context.latestVerification || context.latestVerification.status !== "pass" || !hasVerificationReview) {
+    return buildOperatorStageDraft({
+      current_stage: "VERIFICATION_REVIEW_REQUIRED",
+      next_procedure_id: "verification-review",
+      required_inputs: ["verification command results", "build/test evidence"],
+      missing_inputs: [],
+      required_evidence: ["passing verification evidence", "verification-review"],
+      missing_evidence: [
+        ...(!context.latestVerification || context.latestVerification.status !== "pass" ? ["passing verification evidence"] : []),
+        ...(!hasVerificationReview ? ["verification-review"] : [])
+      ],
+      stop_reason: "missing_verification_evidence",
+      next_allowed_action: buildReviewStageAction("verification-review"),
+      forbidden_actions: ["implementation", "source edits", "closeout", "phase closeout review", "harvest"],
+      notes: context.latestVerification
+        ? [...context.baseNotes, `latest_verification_status: ${context.latestVerification.status}`]
+        : context.baseNotes
+    });
+  }
+
+  if ((context.runContext?.run.delivery_facts.length ?? 0) === 0 || !taggedProcedures.has("delivery-facts-review")) {
+    return buildOperatorStageDraft({
+      current_stage: "DELIVERY_FACTS_REVIEW_REQUIRED",
+      next_procedure_id: "delivery-facts-review",
+      required_inputs: ["delivery facts record/import"],
+      missing_inputs: [],
+      required_evidence: ["delivery facts", "delivery-facts-review"],
+      missing_evidence: [
+        ...((context.runContext?.run.delivery_facts.length ?? 0) === 0 ? ["delivery facts"] : []),
+        ...(!taggedProcedures.has("delivery-facts-review") ? ["delivery-facts-review"] : [])
+      ],
+      stop_reason: "missing_delivery_facts",
+      next_allowed_action: buildReviewStageAction("delivery-facts-review"),
+      forbidden_actions: ["implementation", "source edits", "closeout", "harvest"],
+      notes: context.baseNotes
+    });
+  }
+
+  return undefined;
+}
+
+function isHarvestReady(context: OperatorEvaluationContext): boolean {
+  return context.latestCloseoutReceipt?.status === "READY" &&
+    context.runContext?.run.lifecycle_status === "closed" &&
+    !context.runContext.run.harvested_at &&
+    !context.runContext.run.discard_reason;
+}
+
+function resolveCloseoutLifecycleStage(context: OperatorEvaluationContext): OperatorStageDraft {
+  const taggedProcedures = context.taggedProcedures ?? new Set<string>();
+  const latestCloseoutReceipt = context.latestCloseoutReceipt;
+
+  if ((context.runContext?.run.delivery_facts.length ?? 0) === 0 || !taggedProcedures.has("delivery-facts-review")) {
+    throw new Error("resolveCloseoutLifecycleStage requires delivery facts to be satisfied first.");
+  }
+
+  if (!taggedProcedures.has("phase-closeout-review") || !latestCloseoutReceipt || latestCloseoutReceipt.status === "BLOCKED") {
+    return buildOperatorStageDraft({
+      current_stage: "CLOSEOUT_REVIEW_REQUIRED",
+      next_procedure_id: taggedProcedures.has("phase-closeout-review") ? "none" : "phase-closeout-review",
+      required_inputs: ["implementation review", "verification evidence", "delivery facts"],
+      missing_inputs: [],
+      required_evidence: ["phase-closeout-review", "ready closeout receipt"],
+      missing_evidence: [
+        ...(!taggedProcedures.has("phase-closeout-review") ? ["phase-closeout-review"] : []),
+        ...(!latestCloseoutReceipt || latestCloseoutReceipt.status === "BLOCKED" ? ["ready closeout receipt"] : [])
+      ],
+      stop_reason: !latestCloseoutReceipt
+        ? "missing_closeout_receipt"
+        : "missing_closeout_review",
+      next_allowed_action: taggedProcedures.has("phase-closeout-review")
+        ? "run the closeout lifecycle command under Phase 23.5 rules to produce a ready closeout receipt"
+        : buildReviewStageAction("phase-closeout-review"),
+      forbidden_actions: ["implementation", "source edits", "harvest"],
+      notes: latestCloseoutReceipt?.status === "BLOCKED"
+        ? [...context.baseNotes, ...latestCloseoutReceipt.blockers.map((blocker) => `closeout_blocker: ${blocker}`)]
+        : context.baseNotes
+    });
+  }
+
+  if (isHarvestReady(context)) {
+    return buildOperatorStageDraft({
+      current_stage: "HARVEST_READY",
+      next_procedure_id: "none",
+      required_inputs: ["closeout receipt", "closed lifecycle status", "harvest candidates"],
+      missing_inputs: [],
+      required_evidence: ["closeout receipt", "closed lifecycle status"],
+      missing_evidence: [],
+      stop_reason: "harvest_ready",
+      next_allowed_action: "perform the harvest lifecycle command under Phase 23.5 rules",
+      forbidden_actions: ["direct accepted-memory writes without harvest"],
+      notes: context.baseNotes
+    });
+  }
+
+  return buildOperatorStageDraft({
+    current_stage: "CLOSEOUT_READY",
+    next_procedure_id: "none",
+    required_inputs: ["accepted closeout review", "ready closeout receipt"],
+    missing_inputs: [],
+    required_evidence: ["ready closeout receipt"],
+    missing_evidence: [],
+    stop_reason: "closeout_ready",
+    next_allowed_action: "run the closeout lifecycle command under Phase 23.5 rules",
+    forbidden_actions: ["new implementation in the same run"],
+    notes: context.baseNotes
+  });
+}
+
+function resolvePostImplementationStage(context: OperatorEvaluationContext): OperatorStageDraft {
+  return resolveImplementationReviewStage(context)
+    ?? resolveVerificationStage(context)
+    ?? resolveCloseoutLifecycleStage(context);
+}
+
+function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string, options: RuntimeDryRunOptions): {
+  targetRoot: string;
+  projectRoot: string;
+  dryRun: boolean;
+  procedureIds: Set<string>;
+  reviewTier: OperatorReviewTier;
+  taskContext?: OperatorTaskContext;
+  roadmapTaskPath?: string;
+  context?: OperatorEvaluationContext;
+} {
+  const dryRun = options.dryRun ?? false;
+  const procedureIds = readPhase236ProcedureIds(targetRoot);
+  const taskContext = resolveOperatorTaskContext(targetRoot);
+
+  if (!taskContext) {
+    return {
+      targetRoot,
+      projectRoot,
+      dryRun,
+      procedureIds,
+      reviewTier: "standard"
+    };
+  }
+
+  const { tier, notes } = classifyOperatorReviewTier(taskContext.activeTaskMarkdown);
+  const roadmapTaskPath = readRoadmapTaskPathForPhase(targetRoot, taskContext.phaseId);
+  const runContext = loadOperatorRunContext(targetRoot, projectRoot, options.runId);
+  const taggedProcedures = runContext ? collectTaggedProcedureEvidence(runContext.run, procedureIds) : undefined;
+  const latestCloseoutReceipt = runContext?.closeoutReceipt
+    ?? (runContext && runContext.run.closeout_receipts.length > 0
+      ? runContext.run.closeout_receipts[runContext.run.closeout_receipts.length - 1]
+      : undefined);
+
+  return {
+    targetRoot,
+    projectRoot,
+    dryRun,
+    procedureIds,
+    reviewTier: tier,
+    taskContext,
+    roadmapTaskPath,
+    context: {
+      procedureIds,
+      taskContext,
+      reviewTier: tier,
+      baseNotes: [...notes, ...(runContext?.notes ?? [])],
+      runContext,
+      taggedProcedures,
+      latestReviewResult: runContext && runContext.run.review_results.length > 0
+        ? runContext.run.review_results[runContext.run.review_results.length - 1]
+        : undefined,
+      latestVerification: runContext && runContext.run.verification_results.length > 0
+        ? runContext.run.verification_results[runContext.run.verification_results.length - 1]
+        : undefined,
+      latestCloseoutReceipt,
+      blockingFindings: runContext ? hasBlockingFindings(runContext.run) : undefined,
+      planApproved: runContext ? hasApprovedPlan(runContext.run) : undefined,
+      implementationEvidence: runContext ? hasImplementationEvidence(runContext.run, procedureIds) : undefined
+    }
+  };
+}
+
+export function getRuntimeOperatorStatus(cwd: string, options: RuntimeDryRunOptions = {}): RuntimeOperatorStatusResult {
+  const roots = resolveHarnessRoots(cwd);
+  const evaluation = buildOperatorEvaluationContext(roots.targetRoot, roots.projectRoot, options);
+
+  if (!evaluation.taskContext || !evaluation.context) {
+    return {
+      targetRoot: evaluation.targetRoot,
+      projectRoot: evaluation.projectRoot,
+      dryRun: evaluation.dryRun,
+      operator: buildOperatorStatus(evaluation.procedureIds, evaluation.reviewTier, resolveTaskMissingStage(evaluation.procedureIds))
+    };
+  }
+
+  if (!evaluation.roadmapTaskPath || evaluation.roadmapTaskPath !== evaluation.taskContext.activeTaskPath) {
+    return {
+      targetRoot: evaluation.targetRoot,
+      projectRoot: evaluation.projectRoot,
+      dryRun: evaluation.dryRun,
+      operator: buildOperatorStatus(
+        evaluation.procedureIds,
+        evaluation.reviewTier,
+        resolveRoadmapConflictStage(evaluation.context, evaluation.roadmapTaskPath)
+      )
+    };
+  }
+
+  if (!evaluation.context.runContext) {
+    return {
+      targetRoot: evaluation.targetRoot,
+      projectRoot: evaluation.projectRoot,
+      dryRun: evaluation.dryRun,
+      operator: buildOperatorStatus(
+        evaluation.procedureIds,
+        evaluation.reviewTier,
+        resolveNoActiveRunStage(evaluation.context, options.runId)
+      )
+    };
+  }
+
+  const terminalStage = resolveTerminalRunStage(evaluation.context);
+
+  if (terminalStage) {
+    return {
+      targetRoot: evaluation.targetRoot,
+      projectRoot: evaluation.projectRoot,
+      dryRun: evaluation.dryRun,
+      run: evaluation.context.runContext.run,
+      runPath: evaluation.context.runContext.runPath,
+      closeoutPath: evaluation.context.runContext.closeoutPath,
+      operator: buildOperatorStatus(evaluation.procedureIds, evaluation.reviewTier, terminalStage)
+    };
+  }
+
+  const preImplementationStage = resolvePreImplementationStage(evaluation.context);
+  const stage = preImplementationStage ?? resolvePostImplementationStage(evaluation.context);
+
+  return {
+    targetRoot: evaluation.targetRoot,
+    projectRoot: evaluation.projectRoot,
+    dryRun: evaluation.dryRun,
+    run: evaluation.context.runContext.run,
+    runPath: evaluation.context.runContext.runPath,
+    closeoutPath: evaluation.context.runContext.closeoutPath,
+    operator: buildOperatorStatus(evaluation.procedureIds, evaluation.reviewTier, stage)
   };
 }
 
