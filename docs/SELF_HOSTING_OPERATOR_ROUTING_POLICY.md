@@ -98,6 +98,13 @@ Provider/model routing is **not owned by Phase 23.7** beyond recording needed
 metadata or escalation hints. Full provider/host adapter and independent model
 review routing belong to the later provider/host adapter phase.
 
+### 5. Registry/access boundary
+
+Phase 23.8 may materialize procedure metadata and source trace, but it must
+not execute roles or choose models. CLI remains the current baseline access
+surface. App Server may be recorded as a future candidate only. Phase 25 owns
+access/profile/role-execution boundaries.
+
 ## Forbidden actions for Phase 23.7
 
 Phase 23.7 must not:
@@ -105,6 +112,8 @@ Phase 23.7 must not:
 - create a new self-hosting workflow;
 - rename Phase 23.6 procedures without explicit reviewed approval;
 - implement provider/model routing;
+- implement role execution;
+- implement App Server integration;
 - implement reports/evidence packets;
 - implement domain packs;
 - implement full proof-carrying framework;
@@ -124,4 +133,6 @@ Phase 23.7 must verify:
 - whether current repo runtime already provides equivalent behavior;
 - whether the operator can be implemented first as projection/status logic
   before DB schema changes;
-- whether the routing policy reduces manual dispatcher work for the owner.
+- whether the routing policy reduces manual dispatcher work for the owner;
+- whether registry metadata remains guidance-only until the Phase 25 access
+  boundary is implemented.

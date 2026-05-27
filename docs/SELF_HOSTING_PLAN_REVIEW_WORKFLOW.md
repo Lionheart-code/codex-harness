@@ -46,7 +46,8 @@ not approve scope and does not start implementation.
 11. verification-review
 12. delivery-facts-review
 13. phase-closeout-review
-14. closeout and harvest under Phase 23.5 lifecycle rules
+14. Source-of-Truth Refresh / Documentation Garbage Collection
+15. closeout and harvest under Phase 23.5 lifecycle rules
 ```
 
 Mandatory rules:
@@ -65,6 +66,74 @@ Mandatory rules:
 - Hooks can remind or block within their documented limits, but they are not
   the authority boundary for plan approval, delivery facts, closeout, or
   harvest.
+
+## Review surface discovery
+
+Reviewers must derive the review surface from:
+
+```text
+active task
+current diff
+changed file domains
+affected procedures
+stage/routing/review policies
+required evidence
+forbidden scope
+authority boundaries
+```
+
+If the review surface cannot be determined safely, do not guess. Return:
+
+```text
+BLOCKED_REVIEW_SURFACE_UNCLEAR
+```
+
+## Fix-pass and re-review protocol
+
+After `FIX_REQUIRED`, `ACCEPT_WITH_FIXES`, or any blocking implementation
+review, the next pass is a bounded fix-pass, not a new implementation pass.
+
+Allowed:
+
+- close explicit blockers;
+- add tests or evidence required to prove blocker closure;
+- perform minimal local refactor required by blocker closure.
+
+Forbidden:
+
+- broaden scope;
+- re-plan the phase;
+- introduce future-phase work;
+- rewrite unrelated code;
+- add new procedure IDs;
+- add new workflow, schema, or access-layer machinery without explicit
+  approval.
+
+If a fix-pass cannot be bounded to the original findings, stop and escalate
+instead of silently continuing.
+
+## Closeout freshness requirement
+
+`phase-closeout-review` must include Source-of-Truth Refresh / Documentation
+Garbage Collection.
+
+It must check:
+
+- whether current behavior changed;
+- whether task or roadmap boundaries changed;
+- whether entrypoint or command flow changed;
+- whether procedure contracts changed;
+- whether future-phase boundaries changed;
+- whether README, AGENTS, Human Operator Manual, SELF_HOSTING docs, prompts,
+  skills, and output formats still match current project truth;
+- whether stale docs were updated, removed, or explicitly marked;
+- whether advisory sources were recorded.
+
+Required closeout outcomes:
+
+- `CLOSEOUT_ACCEPTED`
+- `CLOSEOUT_ACCEPTED_WITH_DOC_FOLLOWUP`
+- `CLOSEOUT_BLOCKED_SOURCE_OF_TRUTH_STALE`
 
 ## Review intensity tiers
 

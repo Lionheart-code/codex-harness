@@ -36,12 +36,19 @@ style alone.
 - Do not broaden scope while reviewing.
 
 ## checklist
+- Derive the review surface from the active task, current diff, changed file
+  domains, affected procedures, required evidence, forbidden scope, and
+  authority boundaries.
 - Compare the diff against the task and approved plan.
 - Check for missing acceptance coverage and later-phase creep.
 - Check `anti_slop`, `design_invariant`, `scope_legality`, `evidence_gap`,
   `docs_consistency`, and `future_phase_leakage` explicitly.
 - Confirm `review_tier_controls` are named when the task is `high` or
   `extra-high`.
+- Check source trace when authoritative docs, prompts, skills, or workflow
+  contracts changed.
+- Check skill risk classification when the diff changes procedure/skill
+  surfaces.
 - Check whether evidence and validation are adequate for the claimed result.
 - Reject confident claims that are not backed by deterministic evidence.
 - Return findings clearly enough for a scoped fix pass.
@@ -53,6 +60,9 @@ Return the exact section order documented in
 ## blocker_conditions
 - There is no stable approved plan to compare against.
 - The diff is incomplete or mixed with unrelated work.
+- The review surface cannot be derived safely.
+- Source trace is unclear for an authoritative behavior change.
+- Skill risk classification is unclear for changed procedure/skill surfaces.
 - Review cannot determine whether claimed behavior is covered by evidence.
 - Review finds unresolved policy issues in anti-slop, design invariants, scope
   legality, evidence discipline, docs consistency, future-phase leakage, or
@@ -60,9 +70,12 @@ Return the exact section order documented in
 
 ## evidence_to_record
 - Findings
+- Review surface
 - Policy findings covering `anti_slop`, `design_invariant`,
   `scope_legality`, `evidence_gap`, `docs_consistency`,
   `future_phase_leakage`, and `review_tier_controls` when applicable
+- Source trace note
+- Skill risk check when applicable
 - Scope compliance result
 - Missing test or validation notes
 - Fix-pass recommendation

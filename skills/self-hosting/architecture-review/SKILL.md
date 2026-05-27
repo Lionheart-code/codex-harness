@@ -18,7 +18,8 @@ forward.
 ## when_to_use
 - The work affects architecture, boundaries, lifecycle, or core workflow shape.
 - The task is tagged `high` or `extra-high`.
-- The plan may pull Phase 24, Phase 25, or Phase 26 work into the current pass.
+- The plan may pull Phase 24, Phase 25, Phase 26, or Phase 27 work into the
+  current pass.
 
 ## required_inputs
 - Draft or approved plan
@@ -38,6 +39,10 @@ forward.
 ## checklist
 - Check for future-phase creep.
 - Verify product-source versus runtime-state boundaries.
+- Check source trace when authoritative docs, prompts, or procedure contracts
+  are being amended.
+- Check access-layer boundary claims, keeping CLI as the current baseline and
+  App Server as future-candidate-only.
 - Confirm the proposal keeps core domain-neutral and solo-maintainable.
 - Flag any hidden runtime, adapter, packet, or pack implementation.
 
@@ -52,6 +57,7 @@ Return the exact section order documented in
 
 ## evidence_to_record
 - Boundary findings
+- Source trace note
 - Future-phase creep findings
 - Recommended keep, defer, or split decision
 

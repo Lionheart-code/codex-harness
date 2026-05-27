@@ -92,13 +92,31 @@ Phase 22.5 adds a minimal self-hosted runtime path through:
 
 ```bash
 node bin/ch run start --task TASK.md
-node bin/ch run status
+node bin/ch run status --operator
 node bin/ch run verify
 node bin/ch run closeout
 node bin/ch run remote-status
 ```
 
 This path uses the current source CLI/runtime. It must not install a persistent second harness inside the `codex-harness` product repository.
+
+Current product self-hosting entrypoint:
+
+```text
+TASK.md
+-> node bin/ch run start --task TASK.md
+-> node bin/ch run status --operator
+-> manual procedure execution
+```
+
+This is distinct from the installed target workflow:
+
+```text
+init / worktree / prompt / context inspect / review / check / report
+```
+
+Installed-target commands remain useful in target repos and install/e2e
+testing, but they are not the current product self-hosting authority path.
 
 ## Runtime State Boundary
 

@@ -342,7 +342,7 @@ Reviewers must check especially for:
 - initiative outputs being auto-promoted instead of remaining reviewable packet/report material;
 - domain-specific report logic entering core;
 - accidental Agent Access Layer work;
-- accidental Phase 26 pack runtime work.
+- accidental Phase 27 pack runtime work.
 
 ## Suggested implementation order
 

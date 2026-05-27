@@ -13,8 +13,13 @@ a hosted API product. MCP remains optional and may be deferred if
 parity/redaction are not mature enough.
 
 Provider/host adapters and independent review orchestration build on the
-operator/procedure/proof foundation. They must not bypass deterministic evidence
-or shared core services.
+operator/procedure/proof foundation. They must not bypass deterministic
+evidence or shared core services.
+
+CLI remains the current baseline access surface. App Server is a future
+candidate only and must be evaluated against CLI for speed, reliability, auth,
+approvals, event visibility, operational simplicity, and cost/access fit. This
+phase must not assume App Server is the guaranteed baseline.
 
 ## Read before editing
 
@@ -37,7 +42,8 @@ or shared core services.
 
 Expose safe, governed access to runtime, memory, reports, and packets through shared core services.
 
-Direct API and CLI are primary. MCP is optional adapter only.
+CLI and Direct API are primary. App Server and MCP are optional future adapter
+surfaces only.
 
 ## Why this phase exists
 
@@ -75,6 +81,7 @@ Create a shared access/service layer for:
 
 ### Optional surface
 
+- App Server adapter if a later review explicitly approves it.
 - MCP adapter for read-only and explicitly approved operations.
 
 ### Parity tests
@@ -121,6 +128,7 @@ core runtime, memory, report, packet, redaction, or approval logic.
 - no raw SQL interface;
 - no connector marketplace;
 - no hosted API server by default;
+- no App Server integration by default;
 - no SaaS dashboard;
 - no write-capable external integrations by default;
 - no autonomous agent;
@@ -131,12 +139,17 @@ core runtime, memory, report, packet, redaction, or approval logic.
 ## Implementation guardrails
 
 - Treat Direct API as a local/internal programmatic boundary unless a later phase explicitly approves hosted/server behavior.
+- Keep CLI as the current baseline access surface.
+- Treat App Server as a future candidate only; do not assume it is the default
+  or required access layer.
 - MCP is optional; if it weakens parity, redaction, or approval guarantees, defer it.
 - Do not add write-capable external connectors in this phase.
 - Do not introduce background polling or autonomous tool loops.
 - Keep provider/model-specific behavior in adapters and profiles rather than in shared core business logic.
 - Query limits must be enforced in the shared service, not only in CLI output formatting.
 - Read-only operations should be implemented first; mutation requests should be explicit, approval-gated, and test-covered.
+- Do not make API-key billing the default path or add hidden paid
+  token-metered execution.
 
 ## Minimum parity set
 

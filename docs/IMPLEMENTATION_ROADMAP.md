@@ -317,6 +317,11 @@ canonical source.
 Status:
 Active implementation phase.
 `skills/self-hosting/**` remains canonical.
+Current bounded scope is a source-of-truth and procedure-surface patch before
+registry implementation. This phase records advisory prompt/review prior-art
+and source trace, but it does not implement role execution, provider/model
+routing, App Server integration, MCP, external API execution, or domain-pack
+runtime.
 
 ## Phase 23.9 — Minimal Proof-Carrying Work and Review Policy
 
@@ -361,6 +366,10 @@ Blocked until amended Phase 24 is complete and reviewed.
 Must preserve Direct API/CLI first, optional MCP only, read-only defaults,
 redaction, query limits, no raw SQL by default, approval-gated mutations, no
 autonomous agent, and no external write connector.
+CLI remains the current baseline access surface. App Server is a future
+candidate only and must be evaluated against CLI for speed, reliability,
+auth, approvals, event visibility, operational simplicity, and cost/access
+fit. API-key billing must not become the default or hidden execution path.
 
 ## Phase 26 — Big Task Decomposer and Architect Planner
 

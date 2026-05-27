@@ -40,6 +40,10 @@ guardrails.
 - Check model-versus-harness boundaries.
 - Check source-of-truth and discovery boundaries.
 - Check role, approval, verification, and closeout boundaries.
+- Check source trace on any advisory pattern imported into repo-owned
+  procedure/policy surfaces.
+- Check skill risk classification for changed procedures or tooling surfaces.
+- Check docs freshness and closeout/readiness boundaries.
 - Check for future-phase creep and hidden runtime behavior.
 
 ## expected_output_format
@@ -54,6 +58,8 @@ Return the exact section order documented in
 ## evidence_to_record
 - Audit findings
 - Boundary-risk summary
+- Source trace note
+- Skill risk note
 - Recommended keep, defer, or split decisions
 
 ## phase_23_5_dependencies

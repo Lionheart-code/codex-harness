@@ -2,6 +2,23 @@
 
 `codex-harness` is a Codex-first programming harness. Phase 23 adds a local Memory/Evidence Core with an append-only JSONL ledger, rebuildable SQLite projection, content-addressed artifacts, and exact input-set local verification reuse on top of the Phase 22.5 runtime model, Phase 22 release hardening, Phase 21 cross-platform command-runner hardening, the Phase 20 security/eval/context hardening, the Phase 19 artifact schemas and migrations, and earlier harness flow.
 
+## Current product self-hosting entrypoint
+
+The harness product repository currently self-hosts through the runtime/operator
+surface:
+
+```text
+TASK.md
+-> node bin/ch run start --task TASK.md
+-> node bin/ch run status --operator
+-> manual procedure execution
+```
+
+This is distinct from the installed target workflow commands such as
+`init / worktree / prompt / context inspect / review / check / report`, which
+remain the target-project harness workflow and not the current product
+self-hosting authority.
+
 ## Phase 23 commands
 
 Run the local CLI through `node bin/ch`:

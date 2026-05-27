@@ -41,6 +41,10 @@ implementation or workflow change.
 - Check whether procedure docs match the current accepted repo boundary.
 - Check whether stale wording implies the wrong lifecycle or source-of-truth
   model.
+- Check that the current product self-hosting entrypoint remains distinct from
+  the installed target workflow.
+- Check source trace when authoritative docs adopt or reject advisory sources.
+- Check whether stale docs were updated, removed, or explicitly marked.
 - Return only contradictions that affect implementation or later interpretation.
 
 ## expected_output_format
@@ -55,6 +59,8 @@ Return the exact section order documented in
 ## evidence_to_record
 - Contradictions found
 - Minimal doc correction recommendation
+- Source trace note when applicable
+- Docs freshness note
 - Residual ambiguity notes
 
 ## phase_23_5_dependencies

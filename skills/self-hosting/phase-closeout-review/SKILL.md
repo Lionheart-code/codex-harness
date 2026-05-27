@@ -41,6 +41,8 @@ rules.
 - Check closeout readiness.
 - Check harvest prerequisites separately.
 - Check deletion safety rules separately from closeout readiness.
+- Run Source-of-Truth Refresh / Documentation Garbage Collection checks for the
+  affected task/docs/prompt/skill/output-format surfaces.
 - Return explicit blockers and unresolved risks.
 
 ## expected_output_format
@@ -52,11 +54,16 @@ Return the exact section order documented in
 - Lifecycle state is ambiguous.
 - The work claims deletion or cleanup readiness without the required lifecycle
   state.
+- Authoritative source-of-truth surfaces are stale or unresolved.
 
 ## evidence_to_record
 - Closeout readiness result
 - Harvest readiness result
 - Deletion-safety result
+- Docs freshness result
+- Closeout outcome (`CLOSEOUT_ACCEPTED`,
+  `CLOSEOUT_ACCEPTED_WITH_DOC_FOLLOWUP`, or
+  `CLOSEOUT_BLOCKED_SOURCE_OF_TRUTH_STALE`)
 - Remaining blockers or unresolved risks
 
 ## phase_23_5_dependencies
