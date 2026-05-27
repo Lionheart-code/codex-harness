@@ -44,12 +44,22 @@ test("global self-hosting review policy is consistent across task docs prompts a
   assert.match(workflow, /must explicitly\s+check `anti_slop`, `design_invariant`, `scope_legality`, `evidence_gap`,\s+`docs_consistency`, `future_phase_leakage`, and `review_tier_controls`/i);
   assert.match(workflow, /Global reviewer posture:/);
   assert.match(workflow, /reconcile those surfaces before\s+implementation or review continues when authoritative behavior changed/i);
+  assert.match(workflow, /## Review surface discovery/);
+  assert.match(workflow, /BLOCKED_REVIEW_SURFACE_UNCLEAR/);
+  assert.match(workflow, /## Fix-pass and re-review protocol/);
+  assert.match(workflow, /## Closeout freshness requirement/);
+  assert.match(workflow, /CLOSEOUT_BLOCKED_SOURCE_OF_TRUTH_STALE/);
 
   assert.match(routingPolicy, /may surface the globally defined\s+`review_tier_controls` and related policy notes through `notes`/i);
   assert.match(routingPolicy, /Phase 23\.7\s+reports those controls; it does not define them/i);
   assert.doesNotMatch(routingPolicy, /required_controls:/i);
 
   assert.match(planPrompt, /REVIEWER_POLICY_CHECKS:/);
+  assert.match(planPrompt, /SOURCE_OF_TRUTH_CHECKS:/);
+  assert.match(planPrompt, /runtime_operator_entrypoint:/);
+  assert.match(planPrompt, /source_trace:/);
+  assert.match(planPrompt, /prompt_procedure_impact:/);
+  assert.match(planPrompt, /cost_access_boundary:/);
   for (const marker of [
     /anti_slop:/,
     /design_invariant:/,
@@ -63,12 +73,11 @@ test("global self-hosting review policy is consistent across task docs prompts a
   }
 
   for (const marker of [
-    /Anti-slop\/code-quality policy:/,
-    /Design\/taste\/invariant policy:/,
-    /Scope legality:/,
-    /Evidence policy:/,
-    /Docs-consistency policy:/,
-    /Review-tier control discipline:/,
+    /Derive the review surface from:/,
+    /BLOCKED_REVIEW_SURFACE_UNCLEAR/,
+    /BLOCKED_SOURCE_TRACE_UNCLEAR/,
+    /BLOCKED_SKILL_RISK_UNCLEAR/,
+    /Review surface:/,
     /Policy findings:/,
     /anti_slop: \.\.\./,
     /design_invariant: \.\.\./,
@@ -76,7 +85,10 @@ test("global self-hosting review policy is consistent across task docs prompts a
     /evidence_gap: \.\.\./,
     /docs_consistency: \.\.\./,
     /future_phase_leakage: \.\.\./,
-    /review_tier_controls: \.\.\./
+    /review_tier_controls: \.\.\./,
+    /source_trace: \.\.\./,
+    /skill_risk: \.\.\./,
+    /docs_freshness: \.\.\./
   ]) {
     assert.match(reviewPrompt, marker);
   }

@@ -139,6 +139,58 @@ input, it is advisory evidence only. It does not override repo task/docs
 contracts or official Codex behavior. Its absence must not block Phase 23.6.
 ```
 
+## 2.5 Phase 23.8 bounded Step R source trace
+
+Step R is a bounded prompt/review prior-art audit. It is not a separate phase.
+It records advisory inputs for prompt/procedure hardening before registry
+implementation.
+
+Required audit fields:
+
+```text
+source_url_or_doc
+source_type
+pattern_observed
+accepted/adapted/rejected/deferred
+target_file
+reason
+```
+
+Source status values for provenance and later registry metadata:
+
+```text
+authoritative
+advisory
+derived
+deprecated
+rejected
+```
+
+Step R source trace:
+
+| source_url_or_doc | source_type | pattern_observed | accepted/adapted/rejected/deferred | target_file | reason |
+| --- | --- | --- | --- | --- | --- |
+| `https://openai.com/index/harness-engineering/` | official | Short `AGENTS.md`, repo docs as system of record, doc gardening, feedback loops | accepted | `README.md`, `docs/HUMAN_OPERATOR_MANUAL.md`, `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`, `docs/SELF_HOSTING_PLAN_REVIEW_WORKFLOW.md` | Align product self-hosting docs around repo-local authority and freshness checks. |
+| `https://openai.com/index/unlocking-the-codex-harness/` | official | App Server as serious future access-layer candidate with approvals/event surface | adapted | `tasks/PHASE_23_8_AGENT_NATIVE_PROCEDURE_REGISTRY_AND_SKILL_SURFACE.md`, `docs/IMPLEMENTATION_ROADMAP.md`, `tasks/PHASE_25_AGENT_ACCESS_LAYER.md` | Record App Server as future candidate only; do not implement it in Phase 23.8. |
+| `https://developers.openai.com/codex/skills` | official | Progressive-disclosure skills, compact `SKILL.md`, details in references | accepted | `skills/self-hosting/**`, `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md` | Keep procedure skills compact and registry-friendly. |
+| `https://developers.openai.com/codex/guides/agents-md` | official | `AGENTS.md` as short map to deeper repo truth | accepted | `AGENTS.md`, `README.md`, `docs/HUMAN_OPERATOR_MANUAL.md` | Keep `AGENTS.md` short and remove install-local managed block drift. |
+| `https://developers.openai.com/codex/cli` | official | CLI as scriptable access surface with explicit auth/profile controls | adapted | `docs/IMPLEMENTATION_ROADMAP.md`, `tasks/PHASE_25_AGENT_ACCESS_LAYER.md` | Keep CLI as current baseline and avoid API-key-default claims. |
+| `https://developers.openai.com/codex/subagents` | official | Bounded helper mechanism, not durable execution authority | adapted | `tasks/PHASE_23_8_AGENT_NATIVE_PROCEDURE_REGISTRY_AND_SKILL_SURFACE.md`, `docs/SELF_HOSTING_AGENT_OPERATING_POLICY.md` | Preserve later access-layer boundary and reject current autonomous loops. |
+| `https://developers.openai.com/codex/hooks` | official | Hooks are guardrails/reminders, not authority | accepted | `docs/SELF_HOSTING_AGENT_OPERATING_POLICY.md`, `docs/PHASE_ACCEPTANCE.md`, `skills/self-hosting/delivery-facts-review/SKILL.md` | Reinforce hook limits and keep authority in repo/runtime contracts. |
+| `https://github.com/openai/codex/blob/main/AGENTS.md` | repo_pattern | Real short-map `AGENTS.md` example | adapted | `AGENTS.md`, `README.md` | Advisory prior-art supporting short product AGENTS discipline. |
+| `https://github.com/openai/codex/blob/main/.codex/skills/code-review/SKILL.md` | repo_pattern | Narrow review skill with clear trigger and output | adapted | `skills/self-hosting/plan-review/SKILL.md`, `skills/self-hosting/implementation-review/SKILL.md`, `skills/self-hosting/harness-audit/SKILL.md` | Keep review surfaces narrow and explicit. |
+| `https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/skills-best-practices.md` | repo_pattern | Compact skills and references-first organization | adapted | `skills/self-hosting/**` | Advisory support for compact `SKILL.md` plus references. |
+| `https://github.com/google-gemini/gemini-cli/blob/main/.gemini/commands/review-and-fix.toml` | repo_pattern | Review-and-fix flow, gather context, bounded remediation | adapted/rejected | `docs/SELF_HOSTING_PLAN_REVIEW_WORKFLOW.md`, `skills/self-hosting/fix-pass-review/SKILL.md` | Adapt bounded fix-pass; reject persona injection, auto-fix loop, commit/revert automation. |
+| `https://github.com/anthropics/claude-code-action/blob/main/.claude/commands/review-pr.md` | repo_pattern | Findings-first review posture | adapted | `prompts/99-review-current-task.md`, `skills/self-hosting/implementation-review/references/output-format.md` | Keep findings-first review and explicit blockers. |
+| `https://github.com/Aider-AI/aider/blob/main/aider/coders/architect_prompts.py` | repo_pattern | Architecture-oriented planning checks | adapted | `prompts/00-slash-plan-master.md`, `skills/self-hosting/architecture-review/SKILL.md` | Strengthen architecture boundary review without importing prompt blobs. |
+| `https://github.com/Aider-AI/aider/blob/main/aider/coders/base_prompts.py` | repo_pattern | Narrow prompting around task intent and edits | adapted | `prompts/00-slash-plan-master.md` | Support concise task-scoped planning checks. |
+| `https://github.com/cline/cline/blob/main/apps/vscode/src/core/prompts/system-prompt/README.md` | repo_pattern | Layered prompt architecture | deferred | `prompts/00-slash-plan-master.md` | Useful framing, but current patch avoids broad prompt architecture rewrite. |
+| `https://github.com/continuedev/continue/blob/main/.continue/agents/test-coverage.md` | repo_pattern | Focused specialist review agent | adapted | `skills/self-hosting/verification-review/SKILL.md` | Advisory support for narrow verification-review scope. |
+| `https://github.com/OpenHands/OpenHands/blob/main/AGENTS.md` | repo_pattern | Repo-map guidance for agents | adapted | `README.md`, `docs/HUMAN_OPERATOR_MANUAL.md` | Reinforces short map over giant manual. |
+| `https://github.com/SWE-agent/SWE-agent/blob/main/config/sweagent_0_7/07.yaml` | repo_pattern | Structured prompt/config boundary | deferred | `prompts/00-slash-plan-master.md` | Useful reference, but current patch avoids model-specific config machinery. |
+| `AI Agentic Software Engineering Research.docx` | advisory_doc | Read-only review skills, compact skills, bounded fix-pass, App Server vs CLI trade-off, provenance | adapted | `docs/SELF_HOSTING_PLAN_REVIEW_WORKFLOW.md`, `tasks/PHASE_23_8_AGENT_NATIVE_PROCEDURE_REGISTRY_AND_SKILL_SURFACE.md`, `tasks/PHASE_25_AGENT_ACCESS_LAYER.md` | User-provided advisory research that supports the bounded patch. |
+| `AI Agent Frameworks and Workflows.docx` | advisory_doc | Skill risk vetting, local-first/domain-pack separation, evidence provenance | adapted | `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`, `docs/SELF_HOSTING_AGENT_OPERATING_POLICY.md` | User-provided advisory research for metadata/risk/freshness additions. |
+
 ### D. Community pattern sources
 
 These are pattern libraries only. They must not be bulk-installed in this
@@ -236,6 +288,67 @@ source_adaptation_notes:
   rejected: string[]
 authority_level: binding | advisory | pattern-only
 ```
+
+## 4A. Phase 23.8 registry metadata extension
+
+Phase 23.8 preserves the Phase 23.6 procedure IDs and extends the documented
+contract with registry-oriented metadata. This section documents the target
+metadata; it does not yet implement the registry.
+
+```yaml
+canonical_skill_path: string
+actor_mode: read_only | write_capable | approval_gated
+permission_mode: read_only | local_write | approval_required
+risk_class: read_only | local_write_contract | script_or_tooling | external_or_network
+side_effect_class: none | local_files | runtime_state | external_state
+allowed_stages: string[]
+required_outputs: string[]
+required_evidence: string[]
+blocking_conditions: string[]
+forbidden_actions: string[]
+requires_human_approval: boolean
+review_tier_applicability: standard | high | extra-high
+required_controls: string[]
+non_authoritative_surfaces: string[]
+output_format_path: string
+source_notes_path: string
+source_of_truth_path: string
+policy_dependencies: string[]
+advisory_sources: string[]
+source_status: authoritative | advisory | derived | deprecated | rejected
+last_reviewed_or_verification_note: string
+validity_scope: string
+not_applied_to: string[]
+deprecation_notes: string[]
+```
+
+Registry material must not create a parallel taxonomy or new procedure IDs.
+Generated or discovery targets remain non-authoritative surfaces.
+
+## 4B. Skill risk vetting
+
+Every self-hosting procedure should be classifiable with a bounded risk review.
+Check especially for:
+
+```text
+scripts
+shell commands
+network references
+MCP/tool references
+hardcoded credentials
+path traversal
+broad filesystem access
+instruction manipulation
+generated/non-authoritative surfaces
+external dependency assumptions
+```
+
+If a procedure or related artifact cannot be classified safely, return
+`BLOCKED_SKILL_RISK_UNCLEAR`.
+
+Current repo note: `skills/self-hosting/**` does not currently embed packaged
+scripts or executables, so skill risk vetting is primarily a metadata and
+boundary discipline in this phase.
 
 Minimum file shape:
 

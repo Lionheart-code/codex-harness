@@ -39,6 +39,8 @@ before closeout.
 - Check whether PR, CI, review, and merge facts are present or explicitly
   missing.
 - Check provenance and status for each fact.
+- Check source trace when delivery-fact interpretation changes authoritative
+  closeout wording or policy.
 - Confirm the workflow distinguishes local verification from remote delivery
   state.
 - Return explicit blockers when closeout evidence is incomplete.
@@ -55,6 +57,7 @@ Return the exact section order documented in
 ## evidence_to_record
 - Delivery-facts status by type
 - Missing or ambiguous provenance notes
+- Source trace note when applicable
 - Closeout blockers related to remote state
 
 ## phase_23_5_dependencies

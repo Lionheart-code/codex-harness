@@ -132,7 +132,9 @@ Required controls:
 
 Phase 23.7 may expose a suggested review tier for the current stage. It must
 not implement full provider/model routing. Later provider/host adapter work
-owns model selection and second-review orchestration.
+owns model selection and second-review orchestration. CLI remains the current
+baseline access surface; App Server is a future candidate only until a later
+phase proves otherwise.
 
 ## Implementation requirement
 

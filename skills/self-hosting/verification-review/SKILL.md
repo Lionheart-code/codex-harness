@@ -38,6 +38,7 @@ deterministically.
 ## checklist
 - Check that required commands were run.
 - Check exit status and any explicit failure output.
+- Record explicit evidence gaps instead of inferring success.
 - Distinguish local verification from remote CI state.
 - Check package and release boundary commands when required by the task.
 
@@ -54,6 +55,7 @@ Return the exact section order documented in
 - Verification command list
 - Pass/fail status per command
 - Missing command or evidence notes
+- Evidence gaps
 - Local versus remote status note
 
 ## phase_23_5_dependencies

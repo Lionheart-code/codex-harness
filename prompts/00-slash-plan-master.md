@@ -7,6 +7,7 @@ Read:
 - `AGENTS.md`
 - `TASK.md`
 - `README_START_HERE.md`
+- `README.md`
 - `docs/MASTER_ARCHITECTURE.md`
 - `docs/IMPLEMENTATION_ROADMAP.md`
 - `docs/OPERATIONS_PLAN.md`
@@ -23,26 +24,44 @@ Read:
 - `docs/HARNESS_EVALS_AND_REGRESSION.md`
 - `docs/SECURITY_AND_PERMISSION_MODEL.md`
 - `docs/ARTIFACT_SCHEMAS_AND_MIGRATIONS.md`
+- `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`
+- `docs/SELF_HOSTING_PLAN_REVIEW_WORKFLOW.md`
+- `docs/SELF_HOSTING_AGENT_OPERATING_POLICY.md`
+- `docs/SELF_HOSTING_OPERATOR_ROUTING_POLICY.md`
+- `docs/SELF_HOSTING_REVIEW_TIER_POLICY.md`
 - all files in `tasks/`
 - all files in `prompts/`
 - the task file referenced by `TASK.md`
 
-
 Your job in `/plan` mode:
 
-1. Review the whole system for holes, contradictions, missing acceptance criteria, and scope risks.
+1. Review the whole system for holes, contradictions, missing acceptance
+   criteria, and scope risks.
 2. Do not implement code yet.
 3. Produce a concrete implementation plan for the current task only.
-4. Check whether the master-plan package was committed as a baseline before Phase 0, so diff/review is meaningful.
-4. Keep later phases as roadmap context only.
-5. If the current task is too broad or unsafe, say so.
-6. If documents conflict, identify the conflict and propose the smallest document fix.
-7. Do not add new product features.
-8. Do not propose database, dashboard, swarm, or auto-merge.
-9. Explain how the plan avoids unnecessary abstraction, invariant violations,
-   scope creep, docs/task/prompt/skill inconsistency, future-phase leakage,
-   and evidence-free claims.
-10. If the current task is `high` or `extra-high` tier, name the required
+4. Check whether the master-plan package was committed as a baseline before
+   Phase 0, so diff/review is meaningful.
+5. Keep later phases as roadmap context only.
+6. If the current task is too broad or unsafe, say so.
+7. If documents conflict, identify the conflict and propose the smallest
+   document fix.
+8. Do not add new product features.
+9. Do not propose database, dashboard, swarm, or auto-merge.
+10. Check the current runtime/operator entrypoint and distinguish product
+    self-hosting from installed target workflow.
+11. Check whether source-of-truth docs, prompts, skills, and output formats
+    remain consistent with the active task.
+12. Check whether the task changes procedure metadata expectations, source
+    trace, or review-surface rules.
+13. Check future-phase boundaries explicitly: access/model routing, App Server,
+    MCP, decomposer/planner, domain packs, and autonomous loops remain later
+    phases unless the active task proves otherwise.
+14. Check the cost/access boundary explicitly: CLI is the current baseline
+    access surface; do not assume API-key billing or hidden paid execution.
+15. Explain how the plan avoids unnecessary abstraction, invariant violations,
+    scope creep, docs/task/prompt/skill inconsistency, future-phase leakage,
+    and evidence-free claims.
+16. If the current task is `high` or `extra-high` tier, name the required
     review controls explicitly.
 
 Output format:
@@ -61,6 +80,18 @@ IMPLEMENTATION_PLAN:
 
 FILES_TO_CREATE_OR_CHANGE:
 - ...
+
+SOURCE_OF_TRUTH_CHECKS:
+- runtime_operator_entrypoint:
+  - ...
+- source_trace:
+  - ...
+- prompt_procedure_impact:
+  - ...
+- future_phase_boundary:
+  - ...
+- cost_access_boundary:
+  - ...
 
 REVIEWER_POLICY_CHECKS:
 - anti_slop:
@@ -88,4 +119,5 @@ READY_TO_IMPLEMENT:
 YES | NO
 ```
 
-If `READY_TO_IMPLEMENT: YES`, implementation may proceed only for the current task.
+If `READY_TO_IMPLEMENT: YES`, implementation may proceed only for the current
+task.

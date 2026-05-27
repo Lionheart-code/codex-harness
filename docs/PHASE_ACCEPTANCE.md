@@ -79,5 +79,36 @@ Phase 23.6 acceptance must also fail if:
 - `.agents/**` or other generated discovery targets become hidden
   source-of-truth;
 - hooks are treated as lifecycle or memory authority;
-- implementation introduces Phase 24, Phase 25, or Phase 26 CLI or runtime
-  surface.
+- implementation introduces later-phase CLI or runtime surface, including
+  Phase 24 reports/packets, Phase 25 access layer behavior, Phase 26
+  decomposer/planner execution, or Phase 27 domain-pack runtime behavior.
+
+## Phase 23.8 source-of-truth/procedure-surface acceptance additions
+
+Phase 23.8 acceptance must also fail if:
+
+- the active Phase 23.8 task file does not contain both `## Acceptance commands`
+  and `## Acceptance behavior`;
+- Step R exact advisory sources or unavailable-source handling are not
+  documented;
+- the current product self-hosting entrypoint remains materially contradicted
+  across authoritative task/docs/prompt/skill surfaces;
+- review-surface discovery is missing from the review workflow or review prompt
+  surfaces that govern it;
+- bounded fix-pass protocol is missing from the workflow or fix-pass procedure
+  surfaces that govern it;
+- source trace or skill risk vetting is missing from the authoritative surfaces
+  that claim to govern them;
+- phase closeout does not require Source-of-Truth Refresh / Documentation
+  Garbage Collection;
+- registry metadata target is not documented over existing Phase 23.6
+  procedure IDs;
+- generated or discovery targets become canonical source-of-truth;
+- App Server is presented as current-phase work or guaranteed Phase 25
+  baseline;
+- CLI is no longer described as the current baseline access surface;
+- API-key billing becomes the default path or hidden token-metered execution is
+  introduced in the documented access boundary;
+- the implementation introduces Phase 23.8 registry execution, role execution,
+  provider/model routing, App Server integration, MCP adapter work, external
+  API execution, domain-pack implementation, or autonomous loop behavior.
