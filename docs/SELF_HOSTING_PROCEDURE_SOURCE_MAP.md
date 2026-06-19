@@ -293,7 +293,11 @@ authority_level: binding | advisory | pattern-only
 
 Phase 23.8 preserves the Phase 23.6 procedure IDs and extends the documented
 contract with registry-oriented metadata. This section documents the target
-metadata; it does not yet implement the registry.
+metadata. The Phase 23.8 checked-in registry implements the subset needed for
+current operator/runtime consumption and points back to canonical skill
+contracts; broader actor, permission, risk, side-effect, and control metadata
+remain the documented target for a later reviewed schema expansion before any
+runner or execution surface consumes them.
 
 ```yaml
 canonical_skill_path: string

@@ -39,9 +39,11 @@ future access layers.
 - Build or validate a machine-readable index/registry of Phase 23.6 procedures
   after the bounded patch is reviewed.
 - Preserve procedure IDs.
-- Expose required inputs, outputs, actor/permission/risk metadata, allowed
-  states, blockers, evidence requirements, source trace, and packet
-  dependencies.
+- Expose the registry-backed metadata needed for current operator lookup:
+  required inputs, outputs, allowed outcome states, blockers, evidence
+  requirements, source trace, and packet dependencies. Document
+  actor/permission/risk metadata as the broader registry target for a later
+  reviewed schema expansion before runner or execution surfaces consume it.
 - Tighten the canonical `draft-plan`, `plan-review`, and `plan-amend`
   procedure surfaces only where needed so the approved workflow semantics are
   durable in repo-owned contracts rather than chat-local prompts.
