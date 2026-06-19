@@ -1,0 +1,121 @@
+# Phase 23.8.5 - Automation Roadmap and Task Authority Rebase
+
+## Status
+
+Planned. Starts only after Phase 23.8 Agent-native Procedure Registry and Skill
+Surface is complete, reviewed, and accepted.
+
+## Purpose
+
+Convert the lightweight operator-first automation rebase into canonical
+roadmap, task, and operating-policy contracts before any new runtime automation
+is implemented.
+
+This is an authority rebase, not an implementation phase. It clarifies what the
+next phases are allowed to build and what they must not pre-implement.
+
+## Read before editing
+
+- `TASK.md`
+- `docs/IMPLEMENTATION_ROADMAP.md`
+- `docs/OPERATIONS_PLAN.md`
+- `docs/MASTER_ARCHITECTURE.md`
+- `docs/SELF_HOSTING_OPERATOR_ROUTING_POLICY.md`
+- `docs/SELF_HOSTING_OPERATOR_STAGE_MAP.md`
+- `docs/AGENT_BOUNDARIES_AND_ADAPTERS.md`
+- `docs/SECURITY_AND_PERMISSION_MODEL.md`
+- `tasks/PHASE_23_8_AGENT_NATIVE_PROCEDURE_REGISTRY_AND_SKILL_SURFACE.md`
+- `tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md`
+- `tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`
+- `tasks/PHASE_25_AGENT_ACCESS_LAYER.md`
+- `tasks/PHASE_26_BIG_TASK_DECOMPOSER_AND_ARCHITECT_PLANNER.md`
+- `tasks/PHASE_27_DOMAIN_PACK_SKILLS_ARCHITECTURE.md`
+- `tasks/PHASE_28_DOMAIN_INGESTION_AND_SCHEMA_EVOLUTION_SAFETY.md`
+- `tasks/PHASE_29_PRIOR_ART_DISCOVERY_GATE.md`
+- `tasks/PHASE_30_BOUNDED_AGENT_EXPERIMENTATION_LOOP.md`
+
+## Scope
+
+Required changes:
+
+- Update `docs/IMPLEMENTATION_ROADMAP.md` with the Phase 23.8.5 -> 23.8.6 ->
+  23.8.7 -> 23.9 -> 24A -> 24B -> 25A -> 25B -> 26 sequence.
+- Add a roadmap continuity invariant that preserves Phases 27-30 as the
+  downstream domain-pack, ingestion/schema-safety, prior-art discovery, and
+  bounded experimentation path.
+- Amend `docs/OPERATIONS_PLAN.md` with operator-first operations: no manual
+  `run.json` repair, every operator action maps to a product command or
+  documented ingestion path.
+- Amend `docs/MASTER_ARCHITECTURE.md` to state lightweight control layer as a
+  hard invariant.
+- Amend `docs/SELF_HOSTING_OPERATOR_ROUTING_POLICY.md` so operator
+  `next_allowed_action` must map to a product command or documented ingestion
+  path where durable state is required.
+- Amend `docs/SELF_HOSTING_OPERATOR_STAGE_MAP.md` to mention future
+  procedure-ingestion and packet-preparation stages without adding runtime
+  behavior.
+- Amend `docs/AGENT_BOUNDARIES_AND_ADAPTERS.md` to split `RunnerProfile` from
+  `ExecutionPolicy`.
+- Amend `docs/SECURITY_AND_PERMISSION_MODEL.md` to define `ExecutionPolicy` as
+  the permission contract for future packet execution.
+- Create `tasks/PHASE_23_8_6_TRANSACTIONAL_PROCEDURE_RESULT_INGESTION.md`.
+- Create `tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md`.
+- Split or amend Phase 24 into `24A` and `24B` without deleting useful
+  evidence/report/redaction/provenance constraints.
+- Split or amend Phase 25 into `25A` and `25B` while preserving Direct API/CLI
+  first, MCP optional, redaction, query limits, no raw SQL,
+  approval-gated mutations, and no autonomous agent.
+- Amend Phase 26 while preserving that it extends `feature-decomposition`,
+  emits reviewable task graph proposals, and does not execute or approve its
+  own scope.
+
+## Non-goals
+
+- No runtime code changes.
+- No procedure ingestion commands.
+- No packet automation.
+- No proof generation.
+- No report builders.
+- No access APIs.
+- No MCP.
+- No runner execution.
+- No hooks work.
+- No provider adapters.
+- No domain-pack behavior.
+- No process-product expansion or generic orchestration platform.
+
+## Future-phase impact check
+
+- Prepares Phase 23.8.6, Phase 23.8.7, Phase 23.9, Phase 24A/24B, Phase
+  25A/25B, and Phase 26 by making dependencies explicit.
+- Must not pre-implement transactional ingestion, packet automation, proof
+  generation, report builders, access APIs, planner logic, domain packs,
+  prior-art discovery, or experimentation.
+- Preserves the domain/core boundary by keeping roadmap changes
+  domain-neutral and self-hosting-focused.
+- Requires architecture review if the rebase broadens core into generic
+  orchestration, domain workflow execution, background automation, or
+  MCP-native architecture.
+
+## Acceptance commands
+
+```bash
+npm run build
+git diff --check
+```
+
+## Acceptance behavior
+
+- Docs and task files agree on phase order.
+- Every new/split phase has a task file or clearly states which existing task
+  it amends/replaces.
+- The standalone run-state follow-up note is not a standalone authority
+  surface.
+- Roadmap blocks direct Phase 23.9 until run-state ingestion and packet
+  foundations are completed, explicitly deferred, or waived by reviewed
+  decision.
+- No runtime implementation is introduced.
+- No MCP/API/runner implementation is introduced.
+- No hook authority is introduced.
+- No broad process-product expansion is introduced.
+

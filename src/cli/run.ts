@@ -33,7 +33,7 @@ function printRunHelp(): void {
     "Commands:",
     "  start         Start a local runtime run for a task file.",
     "  status        Read the current runtime run or preview one in dry-run mode.",
-    "  verify        Record the current verifier artifact as a runtime verification result.",
+    "  verify        Run current verification commands or record installed verifier output.",
     "  closeout      Create a structured closeout receipt for the current runtime run.",
     "  mark-discardable Record an explicit discard reason for a run.",
     "  remote-status Record provider-neutral remote gate status for the current run."

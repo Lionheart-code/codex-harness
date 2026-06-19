@@ -4,10 +4,21 @@
 
 Turn the Gate 0 research protocol into a reusable harness module.
 
+## Status
+
+Planned. Blocked until Phase 28 Domain Ingestion and Schema Evolution Safety is
+complete and reviewed.
+
 ## Positioning
 
 Earlier phases use focused research checkpoints. Phase 29 makes discovery
 reusable and operator-aware.
+
+Roadmap continuity:
+
+Focused research checkpoints may appear earlier, but full prior-art discovery
+workflow remains here. Earlier phases must not use ad hoc research as hidden
+runtime authority or as a substitute for task contracts.
 
 ## Required outputs
 

@@ -44,6 +44,9 @@ Your job in `/plan` mode:
    and evidence-free claims.
 10. If the current task is `high` or `extra-high` tier, name the required
     review controls explicitly.
+11. Recommend one execution path, surface only real operator choices, and do
+    not invent fake alternatives when repo context already determines the
+    answer.
 
 Output format:
 

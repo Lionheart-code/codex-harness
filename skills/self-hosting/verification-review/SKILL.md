@@ -22,7 +22,7 @@ deterministically.
 
 ## required_inputs
 - Active task acceptance commands
-- Executed command results
+- Latest runtime verification result or verified snapshot command results
 - Current CI or release boundary docs
 - Current diff or implementation summary
 
@@ -36,10 +36,13 @@ deterministically.
 - Do not replace command evidence with review prose.
 
 ## checklist
+- Use active task acceptance commands as the authoritative local command list.
+- Read results from the latest runtime verification record or verified snapshot.
 - Check that required commands were run.
 - Check exit status and any explicit failure output.
 - Distinguish local verification from remote CI state.
-- Check package and release boundary commands when required by the task.
+- Check package and release boundary commands only when the task or boundary
+  requires them.
 
 ## expected_output_format
 Return the exact section order documented in
@@ -68,6 +71,7 @@ Return the exact section order documented in
 ## source_adaptation_notes
 ### internal_sources
 - Active task acceptance commands
+- Latest runtime verification result / verified snapshot
 - `package.json`
 - `.github/workflows/ci.yml`
 - `docs/PHASE_ACCEPTANCE.md`
@@ -87,12 +91,15 @@ Return the exact section order documented in
 - Evidence-first validation
 
 ### adapted
-- Include `npm run release:dry-run` when the repo CI and package boundary
+- Treat task acceptance commands as the primary local verification source.
+- Include `npm run release:dry-run` only when the repo CI and package boundary
   require it.
 
 ### rejected
 - "Tests probably passed" claims
 - Inferring remote CI from local command success
+- Using unrelated top-level run command results in place of the latest
+  verification record
 
 ## authority_level
 `binding`

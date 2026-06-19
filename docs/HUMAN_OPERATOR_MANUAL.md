@@ -125,6 +125,12 @@ Check:
 
 Local verification reuse is allowed only for exact input-set matches. If source, schema, test, package, CI, command-set, root, base commit, untracked file content, or artifact integrity changes, reuse is stale or missing. Docs/task-only changes may avoid rerunning a source suite only when the declared input set proves the source/schema/test/package/CI inputs did not change.
 
+For self-hosting runs, `node bin/ch run verify` uses the active task file's
+`## Acceptance commands` as the primary local command set. Treat
+`package.json`, `.github/workflows/ci.yml`, and related package or release
+boundary docs as context for extra required checks, not as a replacement for
+the task command list.
+
 Local reuse never satisfies remote CI. During implementation, use:
 
 ```bash
@@ -154,16 +160,23 @@ docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md
 docs/SELF_HOSTING_PLAN_REVIEW_WORKFLOW.md
 docs/SELF_HOSTING_AGENT_OPERATING_POLICY.md
 docs/SELF_HOSTING_SKILL_DISCOVERY.md
+skills/self-hosting/procedure-registry.json
 skills/self-hosting/**
 ```
 
 Check:
 
 - `skills/self-hosting/**` is the canonical source-of-truth;
+- `skills/self-hosting/procedure-registry.json` points back to the canonical
+  procedure files and does not replace them as authority;
 - `.agents/skills/**` and `$HOME/.agents/skills/**` are discovery or install
   targets only;
 - the source map, workflow, policy, and discovery docs agree with the active
   task and current repo boundary;
+- `plan-review` preserves a durable decision record in addition to a readable
+  review report;
+- if review required amendment, there is one effective amended plan for
+  approval and implementation instead of manual amendment-chain stitching;
 - prompts remain optional helpers and not the authority source;
 - implementation does not introduce Phase 24, Phase 25, or Phase 26 runtime
   behavior.

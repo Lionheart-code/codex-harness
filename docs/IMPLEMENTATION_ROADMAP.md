@@ -318,64 +318,445 @@ Status:
 Active implementation phase.
 `skills/self-hosting/**` remains canonical.
 
-## Phase 23.9 — Minimal Proof-Carrying Work and Review Policy
+Closeout addendum:
+- Phase 23.8 remains registry/skill-surface only.
+- The standalone `docs/SELF_HOSTING_RUN_STATE_AUTOMATION_FOLLOWUP.md` note must
+  not remain as an independent planning or authority surface in the final
+  Phase 23.8 closeout diff. Its substance belongs in this roadmap and canonical
+  future task contracts.
+- Phase 23.8 must not implement transactional run-state ingestion, packet
+  automation, proof generation, reports, access APIs, MCP, runners, hooks,
+  provider adapters, or domain-pack behavior.
+
+## Roadmap continuity invariant
+
+The Phase 23.8.5-26 rebase preserves the downstream path through Phases 27-30.
+
+- Phase 27 remains the domain pack architecture path for domain expansion.
+- Phase 28 remains the safety boundary for domain ingestion and schema
+  evolution.
+- Phase 29 remains the prior-art discovery gate before domain/runtime
+  expansion.
+- Phase 30 remains bounded experimentation only after evaluator/proof/report
+  foundations exist.
+- Phases 23.8.5-26 prepare stable operator/procedure/proof/report/access
+  foundations for those later phases; they must not replace, bypass, or make
+  those phases unnecessary through hidden core behavior.
+- If any proposed change in 23.8.5-26 makes Phases 27-30 harder, less safe,
+  less local-first, more core-coupled, or more autonomous than intended, stop
+  and run architecture review before implementation.
+
+Global constraints for the rebase:
+- lightweight control layer remains the primary product direction;
+- no process-product expansion, generic orchestration platform, dashboard,
+  marketplace, background runner, autonomous agent loop, MCP-native
+  architecture, or domain-specific core;
+- operator owns routing and state interpretation; it does not execute agents;
+- runner execution may happen only when a later phase explicitly adds it;
+- hooks remain sidecar guardrails only; no hook work in Phase 23.8.5, 23.8.6,
+  23.8.7, or 23.9;
+- staging DB is the active mutable authority for active runs, while `run.json`
+  is a compatibility projection;
+- proof and reports never become lifecycle authority.
+
+## Phase 23.8.5 — Automation Roadmap and Task Authority Rebase
+
+Task:
+`tasks/PHASE_23_8_5_AUTOMATION_ROADMAP_AND_TASK_AUTHORITY_REBASE.md`
+
+Goal:
+Perform a docs/task-contract authority rebase before runtime automation work.
+
+Status:
+Planned. Blocked until Phase 23.8 is complete, reviewed, and accepted.
+Docs/task-contract only: no runtime code, ingestion commands, packet
+automation, proof generation, reports, access APIs, MCP, runners, hooks,
+provider adapters, or domain-pack behavior.
+
+Required scope:
+- update this roadmap with the new sequence and a direct block before Phase
+  23.9;
+- amend `docs/OPERATIONS_PLAN.md` with operator-first operations where manual
+  `run.json` repair is forbidden and every operator action maps to a product
+  command or documented ingestion path;
+- amend `docs/MASTER_ARCHITECTURE.md` to state lightweight control layer as a
+  hard invariant;
+- amend operator routing/stage docs to account for future procedure-ingestion
+  and packet-preparation stages without adding runtime behavior;
+- amend agent boundary/security docs to split `RunnerProfile` from
+  `ExecutionPolicy`;
+- create task contracts for Phases 23.8.6 and 23.8.7;
+- split or amend Phase 24 into 24A/24B while preserving useful
+  evidence/report/redaction/provenance constraints;
+- split or amend Phase 25 into 25A/25B while preserving Direct API/CLI first,
+  MCP optional, redaction, query limits, no raw SQL, approval-gated mutations,
+  and no autonomous agent;
+- amend Phase 26 while preserving that it extends `feature-decomposition`,
+  emits reviewable task graph proposals, and does not execute or approve its
+  own scope;
+- preserve downstream constraints for Phases 27-30.
+
+Future-phase impact check:
+- prepares 23.8.6, 23.8.7, 23.9, 24A/24B, 25A/25B, and 26 by making
+  dependencies explicit;
+- must not pre-implement transactional ingestion, packet automation, proof
+  generation, report builders, access APIs, planner logic, domain packs,
+  prior-art discovery, or experimentation;
+- preserves the domain/core boundary by keeping roadmap changes
+  domain-neutral and self-hosting-focused;
+- requires architecture review if the rebase broadens core into generic
+  orchestration, domain workflow execution, background automation, or
+  MCP-native architecture.
+
+## Phase 23.8.6 — Transactional Procedure Result Ingestion and Slice-Isolated Run Mutations
+
+Task:
+`tasks/PHASE_23_8_6_TRANSACTIONAL_PROCEDURE_RESULT_INGESTION.md`
+
+Goal:
+Make run-state mutation reliable before stage packet automation and proof.
+
+Status:
+Planned. Blocked until Phase 23.8.5 is complete and reviewed.
+
+Required scope:
+- add formal procedure-result ingestion commands or equivalent documented
+  product surfaces for plan-review, plan-amend, implementation-review,
+  verification-review, and reviewed-plan approval;
+- validate procedure IDs through `skills/self-hosting/procedure-registry.json`;
+- ensure each mutation updates only its own state slice;
+- ensure `run verify` appends verification state without removing review,
+  approval, steps, or unrelated evidence;
+- ensure `remote-status`, `closeout`, and `mark-discardable` preserve unrelated
+  state slices;
+- regenerate compatibility `run.json` from staging DB rather than treating it
+  as manual live authority;
+- ensure operator `next_allowed_action` values that require durable state map
+  to real product commands or documented ingestion paths.
+
+Future-phase impact check:
+- prepares 23.8.7 and 23.9 by making procedure/stage inputs durable and
+  monotonic;
+- must not pre-implement packet automation, runner execution, proof records,
+  reports, access APIs, domain packs, or experimentation;
+- preserves the domain/core boundary by only hardening generic run/procedure
+  state, not domain-specific procedures or schemas;
+- requires architecture review if slice ingestion becomes a general workflow
+  engine, background runner, raw DB API, external connector surface, or domain
+  data ingestion path.
+
+## Phase 23.8.7 — Hookless Stage-Level Operator Packet Automation v0
+
+Task:
+`tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md`
+
+Goal:
+Prepare and ingest stage-level packet/result fixtures on top of stable
+run-state. No agents are launched.
+
+Status:
+Planned. Blocked until Phase 23.8.6 is complete and reviewed.
+
+Required scope:
+- define `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,
+  `ExecutionPolicy`, and `WaiverRecord` contracts;
+- add packet preparation such as
+  `run prepare-packet --kind auto|plan|implementation|review|fix-pass|closeout`
+  or equivalent;
+- add result fixture ingestion such as
+  `run record-stage-result --packet <packet-id> --file <path>` or equivalent;
+- report `human_action_required` separately from `next_allowed_action`;
+- route failed review fixtures to `FIX_PASS_PACKET`;
+- route passing review fixtures to `CLOSEOUT_PACKET` or closeout-ready state;
+- block missing deterministic checks with typed `stop_reason`.
+
+Non-goals:
+- no Codex execution from operator;
+- no automatic agent invocation;
+- no external runner adapter;
+- no background watcher;
+- no auto-commit, auto-merge, or self-approval;
+- no MCP/API access layer.
+
+Future-phase impact check:
+- prepares 23.9 proof, 24A reports/packets, and 25A read-only access by
+  creating stable stage/packet/result records;
+- must not pre-implement proof generation, report catalog, API layer, MCP
+  adapter, domain packs, or planner execution;
+- preserves the domain/core boundary by keeping packets procedure/stage-oriented
+  and domain-neutral;
+- requires architecture review if packet automation starts invoking runners,
+  selecting models/providers, writing source files, making approval decisions,
+  or encoding domain workflows in core.
+
+## Phase 23.9 — Minimal Proof-Carrying Work over Procedure/Stage Records
 
 Task:
 `tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md`
 
 Goal:
-Add a minimal proof/evidence/assumption/review mapping over existing
-review/evidence/closeout flow.
+Add a minimal proof/evidence/assumption/review mapping over stable
+procedure/stage records.
 
 Status:
-Planned. Blocked until Phase 23.8 is complete and reviewed. This phase must not
-become a separate lifecycle authority. Operator/proof schemas remain provisional
-sketches unless tightened during implementation.
+Planned. Blocked until Phase 23.8.6 and Phase 23.8.7 are complete and reviewed,
+unless a later reviewed decision explicitly defers or waives that dependency.
+This phase must not become a separate lifecycle authority. Operator/proof
+schemas remain provisional sketches unless tightened during implementation.
 
-## Phase 24 — reports and LLM-ready evidence packets
+Must preserve:
+- proof record;
+- task verifiability map;
+- assumption ledger;
+- operating envelope summary;
+- evidence gaps;
+- review verdict mapping;
+- model/provider metadata fields where available;
+- deterministic evidence outranks model opinion;
+- proof can be produced from a completed or reviewed run;
+- proof states what was verified, reviewed, assumed, and missing;
+- proof format supports Phase 24A packets later.
+
+Must not:
+- implement run-state ingestion;
+- generate reports or proposal drafts;
+- expose access APIs or MCP;
+- create domain-specific proof records;
+- let proof decide lifecycle or create waivers.
+
+## Phase 24A — Minimal Evidence Report and Review Packet
 
 Task:
-`tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`
+`tasks/PHASE_24A_MINIMAL_EVIDENCE_REPORT_AND_REVIEW_PACKET.md`
 
 Goal:
-Turn accepted project memory into deterministic reports and bounded evidence
-packets.
+Implement the smallest useful deterministic report/packet substrate.
 
 Status:
-Planned amended phase. Blocked until Phase 23.8 is complete and reviewed.
-Delayed until Phase 23.9 is complete and reviewed. Phase 24 must consume
-operator/procedure/proof state and must not decide lifecycle status.
+Planned split from `tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`. Blocked
+until Phase 23.9 is complete and reviewed.
 
-## Phase 25 — agent access layer
+Scope:
+- one deterministic run evidence/closeout report;
+- one bounded implementation-review or handoff packet;
+- accepted Project Memory DB records and operator/procedure/proof state as
+  inputs;
+- deterministic output where practical;
+- evidence-linked, inference-marked, or missing/unknown material claims;
+- redaction before export;
+- visible packet size/truncation;
+- provenance with Project Memory record IDs, payload/chunk refs where needed,
+  procedure IDs, and source-map/procedure-contract refs;
+- remote CI/check provenance when available, including provider, run ID or URL,
+  commit SHA, job/step conclusions, and bounded/redacted failed-step excerpts;
+- no hidden model-side summarization;
+- no LLM call required for deterministic report generation;
+- no domain-specific prompt logic in core.
+
+Non-goals:
+- no proposal drafts;
+- no governance report catalog;
+- no repeated-failure analytics;
+- no reviewer-disagreement report;
+- no portable export bundle;
+- no broad packet taxonomy;
+- no MCP, full Agent Access Layer, domain packs, external writes, or lifecycle
+  authority independent of runtime/closeout/harvest rules.
+
+Future-phase impact check:
+- prepares 24B, 25A, and 26 by proving the smallest useful report/packet
+  substrate;
+- must not pre-implement broad packet catalog, proposal drafting, governance
+  analytics, domain packs, MCP, or planner execution;
+- preserves the domain/core boundary by keeping outputs self-hosting/workflow
+  generic and evidence-linked;
+- requires architecture review if report generation starts deciding lifecycle,
+  promoting tasks, summarizing hidden model memory, or adding domain-specific
+  report logic in core.
+
+## Phase 24B — Expanded Reports and Packets
 
 Task:
-`tasks/PHASE_25_AGENT_ACCESS_LAYER.md`
+`tasks/PHASE_24B_EXPANDED_REPORTS_AND_PACKETS.md`
 
 Goal:
-Expose governed access to runtime, memory, reports, and packets through shared
-core services, with CLI/Direct API first and MCP optional.
+Expand reports and packets only after Phase 24A artifacts show concrete use.
 
 Status:
-Planned amended phase. Blocked until Phase 23.8 is complete and reviewed.
-Blocked until amended Phase 24 is complete and reviewed.
-Must preserve Direct API/CLI first, optional MCP only, read-only defaults,
-redaction, query limits, no raw SQL by default, approval-gated mutations, no
-autonomous agent, and no external write connector.
+Planned split from `tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`. Blocked
+until Phase 24A is complete and reviewed.
 
-## Phase 26 — Big Task Decomposer and Architect Planner
+Possible additions moved from the existing Phase 24 broad catalog:
+- proposal draft;
+- governance decision report;
+- acceptance evidence report;
+- remote CI/check evidence report;
+- review packet report;
+- handoff packet report;
+- unresolved-risk report;
+- reviewer disagreement report;
+- repeated failure report;
+- portable handoff/export bundle summary;
+- additional self-hosting packet types: planner, plan-review,
+  implementation-review, closeout-review, architecture-review,
+  DB/storage-review, docs-consistency.
+
+Preserved constraints:
+- deterministic where practical;
+- every material claim linked to evidence, marked as inference, or marked
+  missing/unknown;
+- redaction before export;
+- bounded raw logs only;
+- manifests include packet ID, packet type, source run/phase, schema version,
+  created_at, source records, redaction status, size budget, truncation policy,
+  missing evidence, procedure IDs, and review tier where applicable;
+- proposal drafts remain drafts until human promotion.
+
+Future-phase impact check:
+- prepares 25A, 26, and later 27-30 by improving evidence packaging without
+  turning reports into authority;
+- must not pre-implement access services, MCP adapters, domain packs, schema
+  ingestion, prior-art gates, or experimentation loops;
+- preserves the domain/core boundary by keeping expanded reports generic unless
+  Phase 27 domain-pack architecture explicitly owns domain formatting;
+- requires architecture review if expansion creates a report marketplace,
+  hidden advisor, auto-promotion path, domain-specific core catalog, or
+  unbounded packet generation.
+
+## Phase 25A — Read-only Direct API/CLI Access Layer
+
+Task:
+`tasks/PHASE_25A_READ_ONLY_DIRECT_API_CLI_ACCESS_LAYER.md`
+
+Goal:
+Expose read-only governed access to runtime, memory, reports, and packets
+through shared core services.
+
+Status:
+Planned split from `tasks/PHASE_25_AGENT_ACCESS_LAYER.md`. Blocked until Phase
+24A is complete and reviewed.
+
+Scope:
+- query runs;
+- query evidence;
+- query procedure outcomes;
+- query packets/results;
+- query proof;
+- fetch minimal reports/packets from Phase 24A;
+- enforce redaction and query limits in shared service;
+- Direct API/CLI first;
+- all access surfaces call shared core services;
+- no raw SQL exposed;
+- provider/model-specific behavior remains outside shared core logic;
+- model opinion cannot override missing evidence, failing tests,
+  source/runtime boundary violations, or approval requirements.
+
+Non-goals:
+- no MCP;
+- no hosted API server;
+- no external writes;
+- no autonomous action loop;
+- no provider execution;
+- no raw SQL interface;
+- no connector marketplace;
+- no domain packs;
+- no publishing/sending/updating external systems;
+- no bypass of human approval.
+
+Future-phase impact check:
+- prepares 25B, 26, and later domain-pack work by exposing governed read-only
+  access to stable core state;
+- must not pre-implement MCP adapters, write-capable external connectors,
+  provider runners, domain packs, prior-art discovery, or experimentation;
+- preserves the domain/core boundary by exposing generic core records only, not
+  domain-specific operations;
+- requires architecture review if access becomes hosted product architecture,
+  raw SQL interface, mutation API without approval, connector marketplace, or
+  autonomous action surface.
+
+## Phase 25B — Optional MCP/adapter parity
+
+Task:
+`tasks/PHASE_25B_OPTIONAL_MCP_ADAPTER_PARITY.md`
+
+Goal:
+Add optional adapter/MCP parity after Phase 25A is stable.
+
+Status:
+Planned split from `tasks/PHASE_25_AGENT_ACCESS_LAYER.md`. Blocked until Phase
+25A is complete and reviewed.
+
+Allowed only if:
+- Phase 25A shared service is stable;
+- read-only parity tests exist;
+- redaction and query limits are enforced in core;
+- MCP remains adapter surface, not architecture;
+- MCP adapter, if implemented, has parity tests and cannot bypass
+  redaction/policy;
+- mutating operations remain denied or approval-gated.
+
+Preserved constraints:
+- Direct API/CLI remain primary;
+- MCP optional only;
+- adapters are clients of core, not core itself;
+- no duplicate query/business logic in adapters;
+- no provider/model-specific logic in shared core services;
+- no external write connector by default.
+
+Non-goals:
+- no MCP-native core;
+- no raw SQL;
+- no marketplace;
+- no write-capable external connector by default;
+- no autonomous agent;
+- no background polling or autonomous tool loops;
+- no domain packs.
+
+Future-phase impact check:
+- prepares later optional runner/provider integrations without making MCP core
+  architecture;
+- must not pre-implement domain packs, schema ingestion, external write
+  connectors, background automation, prior-art gates, or experimentation loops;
+- preserves the domain/core boundary by keeping MCP an adapter over shared
+  services;
+- requires architecture review if MCP bypasses core services, exposes writes
+  by default, duplicates business logic, or becomes required for local-first
+  operation.
+
+## Phase 26 — Architect Planner / Task Graph Proposals
 
 Task:
 `tasks/PHASE_26_BIG_TASK_DECOMPOSER_AND_ARCHITECT_PLANNER.md`
 
 Goal:
 Extend the existing `feature-decomposition` procedure into a stronger
-architect/planner layer for large tasks.
+architect/planner layer that emits reviewable task graph proposals only.
 
 Status:
-Planned. Blocked until Phase 23.8 is complete and reviewed.
-Blocked until Phase 25 is complete and reviewed. Produces reviewable
+Planned. Blocked until Phase 25A is complete and reviewed. Produces reviewable
 task graph proposals and first-task recommendations. Does not execute generated
 tasks and does not approve its own scope.
+
+Must preserve:
+- builds on existing `feature-decomposition`;
+- accepts broad goals and reviewed findings as inputs;
+- emits goals, non-goals, assumptions, research summary, risks, dependencies,
+  proposed tasks, and first recommended task;
+- human approval imports task graph;
+- no domain-specific Ozon/CRM/marketing workflows;
+- no bypass of review/approval.
+
+Future-phase impact check:
+- prepares Phase 27 domain pack architecture and Phase 29 prior-art discovery
+  by producing reviewable proposals, not executing them;
+- must not pre-implement domain pack runtime, domain ingestion/schema
+  evolution, prior-art discovery gate, bounded experimentation loop, or
+  autonomous task execution;
+- preserves the domain/core boundary by keeping generated tasks as proposals
+  until human approval and later domain-pack contracts;
+- requires architecture review if planner creates executable scope without
+  approval, writes domain logic into core, bypasses task contracts, or starts
+  using findings as automatic implementation authority.
 
 ## Phase 27 — domain pack / skills architecture
 

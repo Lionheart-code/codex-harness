@@ -21,6 +21,7 @@ Canonical procedural source:
 
 ```text
 skills/self-hosting/**
+skills/self-hosting/procedure-registry.json
 docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md
 docs/SELF_HOSTING_PLAN_REVIEW_WORKFLOW.md
 docs/SELF_HOSTING_AGENT_OPERATING_POLICY.md
@@ -37,6 +38,7 @@ The operator interpreter may inspect:
 - current run status/lifecycle records;
 - existing evidence/delivery facts/review receipts/closeout receipts;
 - Phase 23.6 procedure contracts;
+- self-hosting procedure registry metadata when present;
 - Phase 23.6 source map;
 - current task contract and artifacts;
 - test/verification results when present.
@@ -59,11 +61,42 @@ review_tier:
 notes:
 ```
 
+## Command mapping rule
+
+When `next_allowed_action` requires durable run/procedure state, it must map to
+a real product command or an explicitly documented ingestion path. The operator
+must not depend on manual `.harness/runs/**/run.json` repair as a normal
+workflow step.
+
+Current examples:
+
+```text
+run status --operator
+run verify
+run remote-status
+run closeout
+```
+
+Future Phase 23.8.6 examples:
+
+```text
+run record-procedure --procedure <id> --file <path>
+run approve-plan --run <run-id> ...
+```
+
+If a stage requires a command that does not exist yet, the stage should report
+the missing ingestion path as a blocker or future precondition rather than
+implying manual state surgery.
+
 ## Routing layers
 
 ### 1. Workflow routing
 
 Decides current workflow stage and next allowed stage.
+
+When a review procedure defines a durable decision record, routing should use
+that durable record or equivalent typed runtime evidence where practical
+instead of inferring progression from long prose alone.
 
 Example:
 

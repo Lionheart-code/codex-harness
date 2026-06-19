@@ -5,6 +5,7 @@ Source map authority: `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`
 ## internal_sources
 
 - Active task acceptance commands
+- Latest runtime verification result / verified snapshot
 - `package.json`
 - `.github/workflows/ci.yml`
 - `docs/PHASE_ACCEPTANCE.md`
@@ -29,10 +30,13 @@ Source map authority: `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`
 
 ## adapted
 
-- Include release dry-run checks when the repo CI and package boundary require
-  them.
+- Treat task acceptance commands as the primary local verification source.
+- Include release dry-run checks only when the repo CI and package boundary
+  require them.
 
 ## rejected
 
 - "Tests probably passed" claims
 - Remote CI inferred from local success
+- Unrelated top-level run command results used in place of the latest
+  verification record

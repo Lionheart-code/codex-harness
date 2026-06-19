@@ -5,6 +5,13 @@
 Planned. Blocked until Phase 26 Big Task Decomposer and Architect Planner is
 complete and reviewed.
 
+Roadmap continuity:
+
+Phase 23.8.5-26 prepare operator/procedure/proof/report/access foundations for
+this phase. They must not replace this phase by adding domain logic, pack
+runtime behavior, marketplace behavior, or domain-specific prompts/reports into
+core.
+
 ## Review status
 
 Reviewed v2. The main correction is to keep pack loading local, static, and non-executing by default. Packs define domain behavior; they must not become a plugin marketplace or remote-code mechanism.

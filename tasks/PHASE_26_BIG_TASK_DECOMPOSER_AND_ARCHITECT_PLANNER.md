@@ -1,9 +1,12 @@
-# Phase 26 - Big Task Decomposer and Architect Planner
+# Phase 26 - Architect Planner / Task Graph Proposals
 
 ## Purpose
 
 Extend existing Phase 23.6 `feature-decomposition` into a stronger
-architect/planner layer for large tasks.
+architect/planner layer for large tasks and reviewed findings.
+
+This phase emits reviewable task graph proposals only. It does not execute
+generated tasks and does not approve its own scope.
 
 ## Key rule
 
@@ -12,7 +15,8 @@ This is not a new decomposer from scratch. It must build on the existing
 
 ## Goal
 
-Turn a broad goal into a reviewable architecture/task packet:
+Turn a broad goal or reviewed finding into a reviewable architecture/task graph
+proposal:
 
 - normalized brief;
 - goals and non-goals;
@@ -24,12 +28,19 @@ Turn a broad goal into a reviewable architecture/task packet:
 - risks;
 - first recommended task;
 - approval questions.
+- human approval/import boundary.
 
 ## Non-goals
 
 - Do not execute generated tasks automatically.
+- Do not approve generated scope.
 - Do not create domain-specific Ozon/CRM/marketing workflows.
 - Do not bypass review/approval.
+- Do not implement domain pack runtime.
+- Do not implement domain ingestion/schema evolution.
+- Do not implement the prior-art discovery gate.
+- Do not implement bounded experimentation.
+- Do not create an autonomous planner loop.
 
 ## Acceptance criteria
 
@@ -38,3 +49,18 @@ Turn a broad goal into a reviewable architecture/task packet:
 - Integrates with operator lifecycle after approval.
 - Uses research checkpoints when architecture depends on external current
   knowledge.
+- Generated proposals remain reviewable material until promoted by human
+  approval.
+
+## Future-phase impact check
+
+- Prepares Phase 27 domain pack architecture and Phase 29 prior-art discovery
+  by producing reviewable proposals, not executing them.
+- Must not pre-implement domain pack runtime, domain ingestion/schema
+  evolution, prior-art discovery gate, bounded experimentation loop, or
+  autonomous task execution.
+- Preserves the domain/core boundary by keeping generated tasks as proposals
+  until human approval and later domain-pack contracts.
+- Requires architecture review if the planner creates executable scope without
+  approval, writes domain logic into core, bypasses task contracts, or starts
+  using findings as automatic implementation authority.

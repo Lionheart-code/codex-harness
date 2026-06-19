@@ -19,6 +19,8 @@ test("global self-hosting review policy is consistent across task docs prompts a
   const draftPlanFormat = readText("skills/self-hosting/draft-plan/references/output-format.md");
   const planReviewSkill = readText("skills/self-hosting/plan-review/SKILL.md");
   const planReviewFormat = readText("skills/self-hosting/plan-review/references/output-format.md");
+  const planAmendSkill = readText("skills/self-hosting/plan-amend/SKILL.md");
+  const planAmendFormat = readText("skills/self-hosting/plan-amend/references/output-format.md");
   const implementationReviewSkill = readText("skills/self-hosting/implementation-review/SKILL.md");
   const implementationReviewFormat = readText("skills/self-hosting/implementation-review/references/output-format.md");
 
@@ -99,7 +101,10 @@ test("global self-hosting review policy is consistent across task docs prompts a
 
   assert.match(planReviewSkill, /Check `anti_slop`, `design_invariant`, `scope_legality`, `evidence_gap`,\s+`docs_consistency`, and `future_phase_leakage` explicitly\./i);
   assert.match(planReviewSkill, /Confirm `review_tier_controls` are named/i);
+  assert.match(planReviewSkill, /durable decision record/i);
+  assert.match(planReviewSkill, /real operator choices/i);
   assert.match(planReviewFormat, /## Policy Control Check/);
+  assert.match(planReviewFormat, /## Durable Decision Record/);
   for (const marker of [
     /anti_slop:/,
     /design_invariant:/,
@@ -111,6 +116,25 @@ test("global self-hosting review policy is consistent across task docs prompts a
   ]) {
     assert.match(planReviewFormat, marker);
   }
+  for (const marker of [
+    /verdict:/,
+    /outcome_state:/,
+    /blocking_findings:/,
+    /required_amendments:/,
+    /accepted_defaults:/,
+    /real_operator_choices:/,
+    /next_allowed_action:/,
+    /validation_required:/,
+    /source_trace:/,
+    /future_phase_deferrals:/
+  ]) {
+    assert.match(planReviewFormat, marker);
+  }
+
+  assert.match(planAmendSkill, /effective amended plan/i);
+  assert.match(planAmendSkill, /supersede earlier plan versions for execution/i);
+  assert.match(planAmendFormat, /## Effective Plan Status/);
+  assert.match(planAmendFormat, /latest amended plan supersedes earlier draft\/amend\s+plan artifacts/i);
 
   assert.match(implementationReviewSkill, /Check `anti_slop`, `design_invariant`, `scope_legality`, `evidence_gap`,\s+`docs_consistency`, and `future_phase_leakage` explicitly\./i);
   assert.match(implementationReviewSkill, /Confirm `review_tier_controls` are named/i);
@@ -137,6 +161,8 @@ test("global self-hosting review policy is consistent across task docs prompts a
     draftPlanFormat,
     planReviewSkill,
     planReviewFormat,
+    planAmendSkill,
+    planAmendFormat,
     implementationReviewSkill,
     implementationReviewFormat
   ]) {

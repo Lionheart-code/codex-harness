@@ -21,7 +21,8 @@ export const PRODUCT_SCHEMA_FILE_NAMES = [
   "harvest-record.schema.json",
   "verified-snapshot.schema.json",
   "change-set-fingerprint.schema.json",
-  "evidence-projection.schema.json"
+  "evidence-projection.schema.json",
+  "self-hosting-procedure-registry.schema.json"
 ] as const;
 
 export type ProductSchemaFileName = (typeof PRODUCT_SCHEMA_FILE_NAMES)[number];

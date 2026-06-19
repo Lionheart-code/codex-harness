@@ -55,6 +55,45 @@ Each agent profile must define:
 
 These fields define a future contract. They do not grant runtime execution in Phase 6.
 
+## RunnerProfile and ExecutionPolicy split
+
+Future stage-packet automation must distinguish runner capability from
+per-packet permission.
+
+`RunnerProfile` describes what a runner can do:
+
+```json
+{
+  "runner_id": "codex",
+  "runner_kind": "manual_prompt | cli | api | app",
+  "supported_roles": ["architect", "scout", "builder", "verifier"],
+  "supported_packet_kinds": ["plan", "implementation", "review"],
+  "structured_output_support": "none | markdown | json_schema",
+  "write_capability": "none | harness_artifacts | task_worktree",
+  "session_support": "single_turn | resumable",
+  "status": "planned | available | disabled"
+}
+```
+
+`ExecutionPolicy` describes how one packet may use a runner:
+
+```json
+{
+  "role": "builder",
+  "write_scope": "none | harness_artifacts | task_worktree",
+  "sandbox_mode": "read_only | write_worktree",
+  "approval_policy": "none | human_required",
+  "network_policy": "disabled | allowed_by_task",
+  "command_policy": "none | allowlisted",
+  "timeout_policy": "bounded",
+  "allowed_paths": [],
+  "forbidden_paths": []
+}
+```
+
+A runner may be capable of writes while a specific packet grants only
+read-only review. Capabilities and permissions must not be merged.
+
 ## Permission modes
 
 ### `read_only`

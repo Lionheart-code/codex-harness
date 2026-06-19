@@ -2,8 +2,18 @@
 
 ## Status
 
-Planned amended phase. Blocked until amended Phase 24 Reports and LLM-ready
-Evidence Packets is complete and reviewed.
+Superseded as a single implementation task by:
+
+- `tasks/PHASE_25A_READ_ONLY_DIRECT_API_CLI_ACCESS_LAYER.md`
+- `tasks/PHASE_25B_OPTIONAL_MCP_ADAPTER_PARITY.md`
+
+This file remains the source catalog for useful Phase 25 access, redaction,
+query-limit, Direct API/CLI, MCP-optional, and adapter-boundary constraints.
+Implementers must not treat the broad catalog below as permission to implement
+MCP or write-capable access in Phase 25A.
+
+Phase 25A starts only after Phase 24A is complete and reviewed. Phase 25B
+starts only after Phase 25A is stable and read-only parity tests exist.
 
 ## Review status
 
@@ -15,6 +25,15 @@ parity/redaction are not mature enough.
 Provider/host adapters and independent review orchestration build on the
 operator/procedure/proof foundation. They must not bypass deterministic evidence
 or shared core services.
+
+Split rule:
+
+- Phase 25A implements read-only Direct API/CLI access over shared services.
+- Phase 25B may add optional MCP/adapter parity only after 25A is stable.
+- Direct API/CLI remain primary.
+- MCP remains optional and adapter-only.
+- Redaction, query limits, no raw SQL, approval-gated mutations, no autonomous
+  agent, and no external write connector remain mandatory constraints.
 
 ## Read before editing
 

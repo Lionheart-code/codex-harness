@@ -14,9 +14,15 @@ new authority mechanisms.
 - Task files remain the binding implementation contract.
 - Plan mode is a planning and review gate, not runtime truth.
 - Approved plans must remain reviewable artifacts.
+- If plan review required amendments, the latest effective amended plan is the
+  one approved for implementation; earlier draft/amend plan artifacts remain
+  audit trail only.
 - Implementation must not intentionally broaden scope beyond the approved plan.
 - Review must compare implementation against both the task contract and the
   approved plan.
+- `plan-review` must preserve a human-readable review report plus a durable
+  decision record. Operator/runtime progression should consume the durable
+  record rather than prose heuristics where practical.
 - Closeout must use Phase 23.5 delivery-facts, lifecycle, and harvest rules.
 - Prompts are invocation helpers. Procedures and policy docs are the repo-owned
   operating contracts.

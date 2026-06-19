@@ -11,6 +11,14 @@ Return Markdown with these sections in this order:
 7. `## Ordered Implementation Steps`
 8. `## Validation`
 
+Inside `## Ordered Implementation Steps`:
+
+- make one recommended execution path explicit;
+- surface alternatives only where more than one rational path remains;
+- surface operator choice points only where a human decision is actually
+  needed;
+- say so explicitly when no real operator choice remains.
+
 `## Reviewer Policy Checks` must include these labels in order:
 
 - `anti_slop:`

@@ -37,12 +37,18 @@ Independently review a draft plan before implementation begins.
 
 ## checklist
 - Compare the plan against the task and non-goals.
+- Treat the task as the boundary contract and the draft plan as a proposed
+  concretization inside that boundary.
 - Check for later-phase creep and authority-boundary violations.
 - Check `anti_slop`, `design_invariant`, `scope_legality`, `evidence_gap`,
   `docs_consistency`, and `future_phase_leakage` explicitly.
 - Confirm `review_tier_controls` are named when the work is `high` or
   `extra-high`.
 - Confirm validation commands and evidence expectations are adequate.
+- Distinguish deterministic defaults from real operator choices.
+- Preserve two layers of output:
+  - a human-readable review report for auditability;
+  - a durable decision record for operator/runtime progression.
 - Return findings clearly enough for `plan-amend` to act on them.
 
 ## expected_output_format
@@ -60,6 +66,7 @@ Return the exact section order documented in
 ## evidence_to_record
 - Review findings
 - Review tier used
+- Durable decision record with outcome state and next allowed action
 - Policy control check covering `anti_slop`, `design_invariant`,
   `scope_legality`, `evidence_gap`, `docs_consistency`,
   `future_phase_leakage`, and `review_tier_controls`
