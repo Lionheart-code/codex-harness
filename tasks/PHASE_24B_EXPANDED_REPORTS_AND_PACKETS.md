@@ -96,4 +96,3 @@ git diff --check
 - Proposal drafts remain drafts and are not promoted automatically.
 - No access layer, MCP adapter, domain pack, schema-ingestion, prior-art, or
   experimentation behavior is introduced.
-

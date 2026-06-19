@@ -87,4 +87,3 @@ mapping.
 - No proposal drafts, governance catalog, broad packet taxonomy, MCP, Agent
   Access Layer, domain packs, dashboard, SaaS, or external writes are
   introduced.
-

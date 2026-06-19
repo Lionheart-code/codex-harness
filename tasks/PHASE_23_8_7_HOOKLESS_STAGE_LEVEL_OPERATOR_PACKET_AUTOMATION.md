@@ -104,4 +104,3 @@ git diff --check
 - Missing deterministic checks block progression with typed `stop_reason`.
 - Hooks absent or disabled do not affect lifecycle.
 - No agent or runner is invoked.
-

@@ -80,4 +80,3 @@ Exact command names may change, but equivalent behavior must exist.
 - Mutation requests are denied or explicitly out of scope.
 - No MCP, hosted API server, external write connector, provider execution,
   marketplace, domain pack, or autonomous action loop is introduced.
-

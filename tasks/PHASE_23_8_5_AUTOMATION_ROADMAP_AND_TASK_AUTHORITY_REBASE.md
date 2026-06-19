@@ -118,4 +118,3 @@ git diff --check
 - No MCP/API/runner implementation is introduced.
 - No hook authority is introduced.
 - No broad process-product expansion is introduced.
-

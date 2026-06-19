@@ -79,4 +79,3 @@ explicit deferral record and parity-risk rationale.
 - No external write connector is introduced.
 - No domain packs, marketplace, hosted API, autonomous agent, or background
   polling is introduced.
-
