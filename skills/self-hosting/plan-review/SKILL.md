@@ -36,6 +36,9 @@ Independently review a draft plan before implementation begins.
 - Do not treat review as optional.
 
 ## checklist
+- Derive the review surface from the active task, relevant plan artifacts,
+  changed file domains, affected procedures, required evidence, forbidden
+  scope, and authority boundaries.
 - Compare the plan against the task and non-goals.
 - Treat the task as the boundary contract and the draft plan as a proposed
   concretization inside that boundary.
@@ -44,6 +47,9 @@ Independently review a draft plan before implementation begins.
   `docs_consistency`, and `future_phase_leakage` explicitly.
 - Confirm `review_tier_controls` are named when the work is `high` or
   `extra-high`.
+- Check source trace when the plan changes authoritative docs, prompts, skills,
+  or workflow contracts.
+- Check skill risk classification when the plan expects procedure/skill changes.
 - Confirm validation commands and evidence expectations are adequate.
 - Distinguish deterministic defaults from real operator choices.
 - Preserve two layers of output:
@@ -58,6 +64,9 @@ Return the exact section order documented in
 ## blocker_conditions
 - The plan is missing key implementation or validation details.
 - The review intensity tier is unknown for a high-risk task.
+- The review surface cannot be derived safely.
+- Source trace is unclear for an authoritative behavior change.
+- Skill risk classification is unclear for planned procedure/skill changes.
 - The plan omits required `anti_slop`, `design_invariant`,
   `scope_legality`, `evidence_gap`, `docs_consistency`,
   `future_phase_leakage`, or `review_tier_controls` checks for the task.
@@ -65,11 +74,14 @@ Return the exact section order documented in
 
 ## evidence_to_record
 - Review findings
+- Review surface
 - Review tier used
 - Durable decision record with outcome state and next allowed action
 - Policy control check covering `anti_slop`, `design_invariant`,
   `scope_legality`, `evidence_gap`, `docs_consistency`,
   `future_phase_leakage`, and `review_tier_controls`
+- Source trace note
+- Skill risk check when applicable
 - Blockers and residual risks
 - Pass or amend recommendation
 

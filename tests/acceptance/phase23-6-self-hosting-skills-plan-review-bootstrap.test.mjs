@@ -95,7 +95,8 @@ test("phase 23.6 self-hosting procedures, docs, and boundaries exist", () => {
   assert.match(policy, /Hooks remain guardrails and reminders only\./);
   assert.match(policy, /Phase 24 owns packet and report materialization\./);
   assert.match(policy, /Phase 25 owns provider-specific access layers/);
-  assert.match(policy, /Phase 26 owns domain-specific autonomy through packs/);
+  assert.match(policy, /Phase 27 owns domain-pack architecture and must keep domain logic out of\s+core/);
+  assert.match(policy, /Phase 28 owns domain ingestion and schema-evolution safety/);
   assert.match(policy, /does not introduce runtime supervision/i);
 
   assert.match(discovery, /Codex does not auto-discover arbitrary `skills\/self-hosting\/\*\*` paths\./);

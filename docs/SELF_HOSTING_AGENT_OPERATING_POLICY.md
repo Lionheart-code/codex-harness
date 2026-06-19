@@ -27,6 +27,9 @@ new authority mechanisms.
 - Prompts are invocation helpers. Procedures and policy docs are the repo-owned
   operating contracts.
 - Generated or local discovery targets must not become hidden source-of-truth.
+- External official or prior-art sources remain advisory unless adopted into
+  repo docs/tests. Procedure and policy changes must carry explicit source
+  trace.
 
 ## Role separation
 
@@ -89,8 +92,10 @@ Initiative capture is not permission for adjacent implementation.
 - Phase 24 owns packet and report materialization.
 - Phase 25 owns provider-specific access layers, adapters, and shared access
   services.
-- Phase 26 owns domain-specific autonomy through packs and must keep domain
-  logic out of core.
+- Phase 27 owns domain-pack architecture and must keep domain logic out of
+  core.
+- Phase 28 owns domain ingestion and schema-evolution safety for future domain
+  packs.
 
 Phase 23.6 must not implement packet generation, access layers, domain packs,
 MCP or A2A, daemons, process managers, local message buses, auto-commit, or

@@ -1,4 +1,4 @@
-# Phase 26 - Architect Planner / Task Graph Proposals
+# Phase 26 - Big Task Decomposer and Architect Planner
 
 ## Purpose
 

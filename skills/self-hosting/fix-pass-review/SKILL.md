@@ -37,8 +37,11 @@ Verify that a follow-up fix addresses review findings without widening scope.
 ## checklist
 - Check each original finding for resolved, partially resolved, or unresolved
   status.
+- Confirm the fix pass stays bounded to the original findings.
 - Check that no new scope was added.
 - Check whether verification evidence needs to be rerun or expanded.
+- Check source trace if the fix pass touched authoritative docs, prompts,
+  skills, or workflow contracts.
 - Return remaining blockers clearly.
 
 ## expected_output_format
@@ -48,11 +51,14 @@ Return the exact section order documented in
 ## blocker_conditions
 - Original findings are missing or too vague.
 - The fix-pass diff includes unrelated changes.
+- The claimed fix-pass scope cannot be mapped back to the original findings.
 - Verification status is missing for a finding that depends on it.
 
 ## evidence_to_record
 - Finding-by-finding disposition
+- Fix-pass scope note
 - New scope check
+- Source trace note when applicable
 - Remaining blockers or residual risks
 
 ## phase_23_5_dependencies

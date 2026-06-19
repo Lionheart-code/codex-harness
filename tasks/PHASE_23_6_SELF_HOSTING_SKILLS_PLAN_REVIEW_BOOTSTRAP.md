@@ -365,7 +365,7 @@ Required policy points:
 - hooks remain guardrails/reminders only and do not become lifecycle, process, or memory authority;
 - Phase 24 owns later packet/report materialization for initiative and review context;
 - Phase 25 owns provider/model-specific adapter and profile behavior;
-- Phase 26 owns domain-specific autonomy through packs and must keep domain logic out of core;
+- Phase 27 owns domain-pack architecture and must keep domain logic out of core;
 - this policy defines contract-level operating rules only; it does not introduce runtime enforcement, process supervision, or autonomous orchestration.
 
 ### 7. Optional hook-assisted reminders
@@ -443,7 +443,7 @@ A Phase 24 packet must identify the procedure contract/rubric used to select and
 - no DB-first memory implementation; that belongs to Phase 23.5;
 - no reports/packets implementation; that belongs to Phase 24;
 - no full agent access layer; that belongs to Phase 25;
-- no full domain pack runtime; that belongs to Phase 26;
+- no full domain pack runtime; that belongs to Phase 27;
 - no pack manifest;
 - no pack loader;
 - no compatibility resolver;
@@ -528,7 +528,7 @@ plus a deterministic validation, script, fixture, or documented check proving re
 - every procedure has source adaptation notes;
 - every procedure states what was adopted, adapted, and rejected;
 - the self-hosting agent operating policy exists and distinguishes role autonomy, protected deterministic workflows, command/process behavior, and initiative capture from runtime implementation;
-- procedures clearly distinguish Phase 23.6 lightweight skills from Phase 26 product pack architecture;
+- procedures clearly distinguish Phase 23.6 lightweight skills from Phase 27 product pack architecture;
 - prompts, if added, are wrappers derived from procedures and not source-of-truth;
 - plan-review workflow is explicit;
 - implementation starts only after approved plan in the documented workflow;
@@ -550,7 +550,7 @@ Reviewers must check especially for:
 - missing `feature-decomposition` or an incomplete large-work decomposition flow;
 - procedure files becoming vague prose with no inputs/outputs/checklists;
 - procedure files lacking source adaptation notes;
-- Phase 26 pack architecture leaking into Phase 23.6;
+- Phase 27 pack architecture leaking into Phase 23.6;
 - plan review being optional or undocumented;
 - implementation flow starting before plan approval;
 - missing or weak self-hosting agent operating policy boundaries;
@@ -591,7 +591,7 @@ When this task is implemented, the agent must return:
 - how the plan-review workflow is invoked;
 - review intensity tiers implemented/documented;
 - Phase 24 packet linkage summary;
-- explicit confirmation that Phase 26 pack runtime was not implemented;
+- explicit confirmation that Phase 27 pack runtime was not implemented;
 - explicit confirmation that Phase 25 agent access was not implemented;
 - verification commands and results;
 - remaining debt or open questions;

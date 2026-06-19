@@ -317,6 +317,12 @@ canonical source.
 Status:
 Active implementation phase.
 `skills/self-hosting/**` remains canonical.
+The bounded source-of-truth and procedure-surface patch is the accepted
+pre-registry baseline. The current phase materializes the checked-in registry
+and minimal operator/runtime metadata consumption while retaining advisory
+prompt/review prior-art, source trace, and skill-risk constraints.
+This phase does not implement role execution, provider/model routing, App
+Server integration, MCP, external API execution, or domain-pack runtime.
 
 Closeout addendum:
 - Phase 23.8 remains registry/skill-surface only.
@@ -585,6 +591,13 @@ Expand reports and packets only after Phase 24A artifacts show concrete use.
 Status:
 Planned split from `tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`. Blocked
 until Phase 24A is complete and reviewed.
+Must preserve Direct API/CLI first, optional MCP only, read-only defaults,
+redaction, query limits, no raw SQL by default, approval-gated mutations, no
+autonomous agent, and no external write connector.
+CLI remains the current baseline access surface. App Server is a future
+candidate only and must be evaluated against CLI for speed, reliability,
+auth, approvals, event visibility, operational simplicity, and cost/access
+fit. API-key billing must not become the default or hidden execution path.
 
 Possible additions moved from the existing Phase 24 broad catalog:
 - proposal draft;
@@ -723,7 +736,7 @@ Future-phase impact check:
   by default, duplicates business logic, or becomes required for local-first
   operation.
 
-## Phase 26 — Architect Planner / Task Graph Proposals
+## Phase 26 — Big Task Decomposer and Architect Planner
 
 Task:
 `tasks/PHASE_26_BIG_TASK_DECOMPOSER_AND_ARCHITECT_PLANNER.md`

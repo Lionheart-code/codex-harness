@@ -2,13 +2,16 @@
 
 Return Markdown with these sections in this order:
 
-1. `## Review Tier`
-2. `## Findings`
-3. `## Scope And Boundary Check`
-4. `## Policy Control Check`
-5. `## Validation Check`
-6. `## Durable Decision Record`
-7. `## Recommendation`
+1. `## Review Surface`
+2. `## Review Tier`
+3. `## Findings`
+4. `## Scope And Boundary Check`
+5. `## Policy Control Check`
+6. `## Source Trace`
+7. `## Skill Risk Check`
+8. `## Validation Check`
+9. `## Durable Decision Record`
+10. `## Recommendation`
 
 `## Policy Control Check` must include these labels in order:
 

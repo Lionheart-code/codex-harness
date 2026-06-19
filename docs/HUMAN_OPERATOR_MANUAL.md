@@ -6,18 +6,24 @@ This document explains how a human operator should use `codex-harness` safely.
 
 ## Current build process for the harness itself
 
-1. Create `codex-harness` repository.
-2. Copy master-plan package.
-3. Commit baseline.
-4. Run `/plan` for Phase 0.
-5. If clean, commit Phase 0.
-6. Update `TASK.md` to Phase 1.
-7. Run `/plan` for Phase 1.
-8. Implement only current task.
-9. Run acceptance.
-10. Review diff.
-11. Commit.
-12. Move to next phase.
+1. Read `TASK.md` and the task it references.
+2. Inspect the current repo state before implementation.
+3. Dry-run the current product self-hosting entrypoint:
+   `node bin/ch run start --task TASK.md --dry-run`.
+4. Use `node bin/ch run status --operator --dry-run` to confirm the current
+   operator-visible stage, required evidence, and next procedure.
+5. Continue with manual procedure execution through the documented
+   self-hosting procedures; prompts are helpers, not the authority source.
+6. Run the active task acceptance commands.
+7. Review the diff against task scope and non-goals.
+8. Commit only after review, verification, and closeout prerequisites are
+   satisfied.
+
+The installed target workflow remains separate:
+
+```text
+init / worktree / prompt / context inspect / review / check / report
+```
 
 ## When not to press implement
 
@@ -178,8 +184,9 @@ Check:
 - if review required amendment, there is one effective amended plan for
   approval and implementation instead of manual amendment-chain stitching;
 - prompts remain optional helpers and not the authority source;
-- implementation does not introduce Phase 24, Phase 25, or Phase 26 runtime
-  behavior.
+- implementation does not introduce Phase 24 packet/runtime behavior, Phase 25
+  access/runtime behavior, Phase 26 decomposer/planner execution, or Phase 27
+  domain-pack runtime behavior.
 
 ## Install and upgrade safety
 
