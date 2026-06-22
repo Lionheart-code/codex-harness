@@ -2,8 +2,8 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8 Agent-native Procedure Registry and Skill
-Surface is complete, reviewed, and accepted.
+Active docs/task-contract phase. Starts after Phase 23.8 Agent-native
+Procedure Registry and Skill Surface is complete, reviewed, and accepted.
 
 ## Purpose
 

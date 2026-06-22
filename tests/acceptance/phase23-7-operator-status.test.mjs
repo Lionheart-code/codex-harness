@@ -537,6 +537,72 @@ test("phase 23.7 operator status projects boundary states and stays read-only wi
   assert.ok(readNotes(explicitMissingOutput).includes("explicit_run_not_found: run-missing"));
 });
 
+test("phase 23.7 operator status accepts split phase ids from task and roadmap", () => {
+  ensureBuiltCli();
+
+  const phaseCases = [
+    {
+      activeTaskPath: "tasks/PHASE_23_8_5_AUTOMATION_ROADMAP_AND_TASK_AUTHORITY_REBASE.md",
+      taskHeading: "# Phase 23.8.5 - Automation Roadmap and Task Authority Rebase",
+      roadmapHeading: "## Phase 23.8.5 — Automation Roadmap and Task Authority Rebase"
+    },
+    {
+      activeTaskPath: "tasks/PHASE_24A_MINIMAL_EVIDENCE_REPORT_AND_REVIEW_PACKET.md",
+      taskHeading: "# Phase 24A - Minimal Evidence Report and Review Packet",
+      roadmapHeading: "## Phase 24A — Minimal Evidence Report and Review Packet"
+    }
+  ];
+
+  for (const phaseCase of phaseCases) {
+    const tempRepo = createPhase237Repo("codex-harness-phase23-7-split-phase-", {
+      activeTaskMarkdown: null,
+      omitNextPhaseSection: true
+    });
+
+    writeText(
+      path.join(tempRepo, "TASK.md"),
+      [
+        "# Current Task",
+        "",
+        `Implement only: ${phaseCase.activeTaskPath}`,
+        "",
+        "Do not implement later phases.",
+        ""
+      ].join("\n")
+    );
+    writeText(
+      path.join(tempRepo, phaseCase.activeTaskPath),
+      [
+        phaseCase.taskHeading,
+        "",
+        "## Goal",
+        "Keep operator routing aligned with split phase task identifiers.",
+        "",
+        "## Acceptance behavior",
+        "- operator status must not report a stale task roadmap conflict.",
+        ""
+      ].join("\n")
+    );
+    writeText(
+      path.join(tempRepo, "docs", "IMPLEMENTATION_ROADMAP.md"),
+      [
+        phaseCase.roadmapHeading,
+        "",
+        "Task:",
+        `\`${phaseCase.activeTaskPath}\``,
+        "",
+        "Status:",
+        "Active test phase.",
+        ""
+      ].join("\n")
+    );
+
+    const output = runOperatorStatus(tempRepo);
+    assertProjectedStage(output, "NO_ACTIVE_RUN", "none");
+    assert.notEqual(output.get("current_stage"), "STALE_TASK_ROADMAP_CONFLICT");
+  }
+});
+
 test("phase 23.7 operator flag is rejected outside run status", () => {
   ensureBuiltCli();
   const tempRepo = createPhase237Repo("codex-harness-phase23-7-operator-flag-reject-");

@@ -315,7 +315,8 @@ discover procedure metadata without treating generated discovery targets as
 canonical source.
 
 Status:
-Active implementation phase.
+Complete, reviewed, and accepted. Phase 23.8.5 is now the active
+docs/task-contract authority rebase before runtime automation work.
 `skills/self-hosting/**` remains canonical.
 The bounded source-of-truth and procedure-surface patch is the accepted
 pre-registry baseline. The current phase materializes the checked-in registry
@@ -399,7 +400,8 @@ Goal:
 Perform a docs/task-contract authority rebase before runtime automation work.
 
 Status:
-Planned. Blocked until Phase 23.8 is complete, reviewed, and accepted.
+Active docs/task-contract phase. Phase 23.8 is complete, reviewed, and
+accepted.
 Docs/task-contract only: no runtime code, ingestion commands, packet
 automation, proof generation, reports, access APIs, MCP, runners, hooks,
 provider adapters, or domain-pack behavior.
