@@ -55,6 +55,9 @@ Required behavior:
   new run in that task worktree.
 - That productized materialization path must own branch/worktree creation
   directly instead of assuming an undocumented pre-created branch context.
+- Even if the implementation uses separate git primitives underneath, the
+  product surface must treat branch attachment and worktree creation as one
+  logical materialization step for the new task.
 - Enforce that the new branch/worktree belongs to the new active task and not
   to the old closing or harvested run.
 - Post-merge delivery evidence is explicit: implementation must either require

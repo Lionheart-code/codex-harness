@@ -29,6 +29,11 @@ not implicit in `run start`. Later productized materialization must wrap that
 same sequence in one formal command path. The invariant is one task = one
 branch = one worktree.
 
+Git branch creation and git worktree creation are distinct low-level
+operations, but harness materialization must treat them as one logical step for
+the new task context. The operator should not have to reason about them as two
+independent workflow transitions in the steady-state automated path.
+
 Until the Phase 23.8.6 transactional ingestion task is implemented, any
 operator action that requires durable procedure/run-state must either use an
 existing product command or be documented as a future precondition. Do not

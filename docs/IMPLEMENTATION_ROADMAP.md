@@ -384,6 +384,9 @@ Task-cycle materialization invariant:
   new run;
 - branch/worktree creation is explicit operator-owned work in the current
   manual flow and must not be treated as implicit in `run start`;
+- git branch creation and git worktree creation remain distinct primitives, but
+  steady-state harness materialization must own them as one logical task
+  materialization step;
 - a later productized materialization surface must wrap that same sequence in
   one formal command path or equivalent documented runtime surface.
 
