@@ -353,12 +353,18 @@ The Phase 23.8.5-26 rebase preserves the downstream path through Phases 27-30.
   and run architecture review before implementation.
 
 Global constraints for the rebase:
-- lightweight control layer remains the primary product direction;
+- lightweight, fast, operator-first control plane remains the primary product
+  direction: models propose, while the harness validates, authorizes, executes,
+  records, verifies, and exposes recovery paths through typed state and product
+  commands;
 - no process-product expansion, generic orchestration platform, dashboard,
   marketplace, background runner, autonomous agent loop, MCP-native
   architecture, or domain-specific core;
 - operator owns routing and state interpretation; it does not execute agents;
-- runner execution may happen only when a later phase explicitly adds it;
+- runner execution may happen only when a later phase explicitly adds it, and
+  runner/model selection must stay provider-neutral through explicit
+  `RunnerProfile` plus `ExecutionPolicy` contracts rather than Codex-only prompt
+  assumptions;
 - hooks remain sidecar guardrails only; no hook work in Phase 23.8.5, 23.8.6,
   23.8.7, or 23.9;
 - staging DB is the active mutable authority for active runs, while `run.json`
@@ -435,6 +441,9 @@ Required scope:
   approval, steps, or unrelated evidence;
 - ensure `remote-status`, `closeout`, and `mark-discardable` preserve unrelated
   state slices;
+- add typed delivery-fact ingestion for `merge` results and merge commits, and
+  define whether merge evidence is required before harvest or may be appended
+  after harvest without reopening or manually repairing the run;
 - regenerate compatibility `run.json` from staging DB rather than treating it
   as manual live authority;
 - ensure operator `next_allowed_action` values that require durable state map
