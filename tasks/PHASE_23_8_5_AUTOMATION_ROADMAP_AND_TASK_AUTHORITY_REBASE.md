@@ -54,6 +54,8 @@ Required changes:
   start-of-new-cycle materialization, which in the current manual harness flow
   creates or enters the new task branch/worktree, activates the next task
   there, and starts the new run in that task worktree.
+- Make explicit that branch/worktree creation is still a manual operator-owned
+  step in the current replay flow and is not yet implicit in `run start`.
 - State that Phase 23.8.6 owns the future productized materialization surface
   for activating the next task, starting the new run, and creating the
   branch/worktree through formal product commands or equivalent documented

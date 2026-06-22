@@ -24,8 +24,10 @@ determine and record the next task, but it must not create or claim the next
 task branch/worktree. Start-of-new-cycle materialization belongs to the new
 task context. In the current manual harness flow, create or enter the task
 branch/worktree first, activate `TASK.md` there, and then start the new run.
-Later productized materialization may wrap that sequence in one formal command
-path. The invariant is one task = one branch = one worktree.
+That branch/worktree creation step is explicit operator-owned work today; it is
+not implicit in `run start`. Later productized materialization must wrap that
+same sequence in one formal command path. The invariant is one task = one
+branch = one worktree.
 
 Until the Phase 23.8.6 transactional ingestion task is implemented, any
 operator action that requires durable procedure/run-state must either use an

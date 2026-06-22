@@ -24,7 +24,9 @@ own the new task branch/worktree. The next cycle starts only when `TASK.md` is
 activated in that task's own branch/worktree and a new run is opened there.
 For the current manual harness flow, create or enter the task branch/worktree
 first, then update `TASK.md` in that worktree, then run `node bin/ch run start
---task TASK.md`. Preserve one task = one branch = one worktree.
+--task TASK.md`. Branch/worktree creation is an explicit operator-owned step in
+the current flow; `run start` does not create it for you yet. Preserve one
+task = one branch = one worktree.
 
 The installed target workflow remains separate:
 

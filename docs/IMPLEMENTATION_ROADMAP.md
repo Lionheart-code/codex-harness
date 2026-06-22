@@ -382,7 +382,9 @@ Task-cycle materialization invariant:
   current manual harness flow, that means creating or entering the new task
   branch/worktree first, activating the next task there, and then starting the
   new run;
-- a later productized materialization surface may wrap that same sequence in
+- branch/worktree creation is explicit operator-owned work in the current
+  manual flow and must not be treated as implicit in `run start`;
+- a later productized materialization surface must wrap that same sequence in
   one formal command path or equivalent documented runtime surface.
 
 ## Phase 23.8.5 — Automation Roadmap and Task Authority Rebase

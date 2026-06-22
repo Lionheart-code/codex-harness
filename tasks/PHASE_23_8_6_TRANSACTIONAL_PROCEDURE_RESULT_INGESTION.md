@@ -53,6 +53,8 @@ Required behavior:
   context:
   create or enter the branch/worktree, activate next task there, and start the
   new run in that task worktree.
+- That productized materialization path must own branch/worktree creation
+  directly instead of assuming an undocumented pre-created branch context.
 - Enforce that the new branch/worktree belongs to the new active task and not
   to the old closing or harvested run.
 - Post-merge delivery evidence is explicit: implementation must either require
