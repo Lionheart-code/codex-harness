@@ -78,6 +78,14 @@ Required changes:
 - Amend `docs/SELF_HOSTING_OPERATOR_STAGE_MAP.md` to mention future
   procedure-ingestion and packet-preparation stages without adding runtime
   behavior.
+- Amend the operator contracts to document the interim pre-23.8.6 manual replay
+  rule: procedure-shaped transcripts may prepare the next prompt, but they are
+  not durable runtime evidence, do not advance operator stage state, and must
+  not be backfilled by editing `run.json`.
+- Make the current CLI split explicit: `node bin/ch` is the product CLI surface,
+  while separate Codex CLI or equivalent review-only sessions may be used for
+  independent procedure passes such as `plan-review` without becoming runtime
+  authority.
 - Amend `docs/AGENT_BOUNDARIES_AND_ADAPTERS.md` to split `RunnerProfile` from
   `ExecutionPolicy`.
 - Amend `docs/SECURITY_AND_PERMISSION_MODEL.md` to define `ExecutionPolicy` as

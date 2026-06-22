@@ -423,6 +423,10 @@ Required scope:
   hard invariant;
 - amend operator routing/stage docs to account for future procedure-ingestion
   and packet-preparation stages without adding runtime behavior;
+- document the interim pre-23.8.6 manual replay rule: procedure-shaped
+  transcripts can prepare the next prompt, but they are not runtime evidence,
+  do not advance operator stage state, and must not be backfilled through
+  manual `run.json` edits;
 - amend agent boundary/security docs to split `RunnerProfile` from
   `ExecutionPolicy`;
 - create task contracts for Phases 23.8.6 and 23.8.7;

@@ -39,6 +39,16 @@ operator action that requires durable procedure/run-state must either use an
 existing product command or be documented as a future precondition. Do not
 silently repair `.harness/runs/**/run.json` by hand.
 
+During that interim, a human may manually replay procedure steps to prepare the
+next implementation or review prompt, but that replay is not runtime evidence.
+The output must follow the canonical `skills/self-hosting/<procedure>/`
+contract and output format, and the operator must keep the distinction clear:
+manual transcript can guide the next prompt, while durable stage advancement
+waits for Phase 23.8.6 ingestion or an existing product command. Independent
+review procedures should run in a separate Codex CLI session or equivalent
+review-only agent session, with the same repo-owned procedure contract as the
+prompt source.
+
 The product direction is a lightweight, provider-neutral harness control plane:
 different models or runners may handle different stages only through explicit
 runner/profile and permission contracts, while codex-harness owns validation,

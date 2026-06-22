@@ -14,6 +14,10 @@ This document explains how a human operator should use `codex-harness` safely.
    operator-visible stage, required evidence, and next procedure.
 5. Continue with manual procedure execution through the documented
    self-hosting procedures; prompts are helpers, not the authority source.
+   Until Phase 23.8.6 adds procedure-result ingestion, procedure outputs are
+   operator transcript artifacts only. They do not advance runtime stage state,
+   and the operator must not patch `.harness/runs/**/run.json` to make them
+   look ingested.
 6. Run the active task acceptance commands.
 7. Review the diff against task scope and non-goals.
 8. Commit only after review, verification, and closeout prerequisites are
@@ -33,6 +37,29 @@ The installed target workflow remains separate:
 ```text
 init / worktree / prompt / context inspect / review / check / report
 ```
+
+The current CLI baseline is the local product command plus the external Codex
+CLI when a separate agent pass is needed:
+
+```bash
+node bin/ch --help
+codex --help
+```
+
+Use a separate Codex CLI session, or an equivalent independent agent session,
+for reviewer-only passes such as `plan-review` and `implementation-review`.
+For example:
+
+```bash
+cd <task-worktree>
+codex -C "$PWD" --sandbox read-only --ask-for-approval never
+```
+
+The prompt pasted into that session must be derived from the active
+`skills/self-hosting/<procedure>/` contract and its output format, not from a
+chat-local rewrite. The reviewer pass may inspect files and report findings; it
+must not implement, mutate runtime state, or claim a durable decision unless a
+current product command or documented ingestion path records that decision.
 
 ## When not to press implement
 
