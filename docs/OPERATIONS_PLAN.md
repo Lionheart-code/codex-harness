@@ -24,6 +24,11 @@ operator action that requires durable procedure/run-state must either use an
 existing product command or be documented as a future precondition. Do not
 silently repair `.harness/runs/**/run.json` by hand.
 
+The product direction is a lightweight, provider-neutral harness control plane:
+different models or runners may handle different stages only through explicit
+runner/profile and permission contracts, while codex-harness owns validation,
+approval, evidence, rollback/recovery visibility, and delivery facts.
+
 Near-term progression:
 
 ```text

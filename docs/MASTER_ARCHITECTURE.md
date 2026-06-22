@@ -6,6 +6,11 @@ Build `codex-harness`: a reusable local control layer for software development w
 
 The harness should make Codex-driven development disciplined, repeatable, auditable, and portable across repositories.
 
+Codex-first means Codex is the first supported runner, not the only future
+runner or model. Future runner/model selection must flow through explicit
+profiles, permissions, evidence contracts, and verification gates owned by the
+harness.
+
 Lightweight control remains the primary product direction. The harness should
 not become a process-product expansion, generic orchestration platform,
 dashboard, marketplace, background runner, autonomous agent loop,

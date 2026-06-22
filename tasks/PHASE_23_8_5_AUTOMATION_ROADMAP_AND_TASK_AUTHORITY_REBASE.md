@@ -48,6 +48,10 @@ Required changes:
   documented ingestion path.
 - Amend `docs/MASTER_ARCHITECTURE.md` to state lightweight control layer as a
   hard invariant.
+- Amend the roadmap/operations contracts to state that codex-harness remains a
+  lightweight, provider-neutral control plane: models/runners propose or execute
+  only through explicit stage, runner profile, permission, evidence, and
+  recovery contracts owned by the harness.
 - Amend `docs/SELF_HOSTING_OPERATOR_ROUTING_POLICY.md` so operator
   `next_allowed_action` must map to a product command or documented ingestion
   path where durable state is required.
@@ -107,6 +111,8 @@ git diff --check
 ## Acceptance behavior
 
 - Docs and task files agree on phase order.
+- Docs and task files preserve the lightweight provider-neutral control-plane
+  invariant.
 - Every new/split phase has a task file or clearly states which existing task
   it amends/replaces.
 - The standalone run-state follow-up note is not a standalone authority

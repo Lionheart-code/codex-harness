@@ -37,6 +37,12 @@ Required behavior:
   steps, or unrelated evidence.
 - `remote-status`, `closeout`, and `mark-discardable` preserve unrelated
   slices.
+- Delivery-fact ingestion covers PR, remote CI/check, review, `merge` result,
+  merge commit, and closeout approval facts without manual `run.json` repair.
+- Post-merge delivery evidence is explicit: implementation must either require
+  merge evidence before harvest or provide a typed append-only post-harvest
+  delivery update path that records the merge fact without reopening,
+  re-harvesting, or mutating unrelated run state.
 - Compatibility `run.json` is regenerated from staging DB and never becomes
   manual repair authority.
 - Operator `next_allowed_action` values that require durable state must map to
@@ -88,5 +94,8 @@ git diff --check
 - Staging DB and `run.json` do not diverge under normal use.
 - A self-hosting run can progress from plan-review through verification-review
   without manual state reconstruction.
+- Merge results and merge commits can be recorded through a product command or
+  documented ingestion path, including the chosen pre-harvest or post-harvest
+  semantics.
 - No packet automation, runner execution, proof generation, report generation,
   or access API is introduced.
