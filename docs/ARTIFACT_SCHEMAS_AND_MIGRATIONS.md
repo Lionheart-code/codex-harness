@@ -56,6 +56,7 @@ schemas/
   verified-snapshot.schema.json
   change-set-fingerprint.schema.json
   evidence-projection.schema.json
+  self-hosting-procedure-registry.schema.json
 ```
 
 Installed project:
@@ -88,6 +89,7 @@ schemas/
   verified-snapshot.schema.json
   change-set-fingerprint.schema.json
   evidence-projection.schema.json
+  self-hosting-procedure-registry.schema.json
 
 migrations/
   0001-legacy-unversioned-to-v1.json
@@ -153,6 +155,26 @@ Any later phase that creates a new machine-readable artifact must either:
 
 - create or update its schema, or
 - explicitly state why schema work is deferred.
+
+## Phase 23.8 self-hosting procedure registry schema
+
+Phase 23.8 adds a checked-in product-source registry at:
+
+```text
+skills/self-hosting/procedure-registry.json
+```
+
+Its schema lives at:
+
+```text
+schemas/self-hosting-procedure-registry.schema.json
+```
+
+This registry is a product-source artifact, not an installed target-root
+runtime artifact. It must validate in product acceptance tests and point back
+to canonical procedure files under `skills/self-hosting/**`. Discovery or
+install targets such as `.agents/**` and `$HOME/.agents/**` must remain
+non-authoritative.
 
 ## Phase 23 evidence schema contract
 

@@ -10,7 +10,8 @@ Return Markdown with these sections in this order:
 6. `## Source Trace`
 7. `## Skill Risk Check`
 8. `## Validation Check`
-9. `## Recommendation`
+9. `## Durable Decision Record`
+10. `## Recommendation`
 
 `## Policy Control Check` must include these labels in order:
 
@@ -23,3 +24,17 @@ Return Markdown with these sections in this order:
 - `review_tier_controls:`
 
 `## Recommendation` must end with either `PASS` or `AMEND_REQUIRED`.
+
+`## Durable Decision Record` must be compact and operator-readable. It must
+include these labels in order:
+
+- `verdict:`
+- `outcome_state:`
+- `blocking_findings:`
+- `required_amendments:`
+- `accepted_defaults:`
+- `real_operator_choices:`
+- `next_allowed_action:`
+- `validation_required:`
+- `source_trace:`
+- `future_phase_deferrals:`

@@ -1,5 +1,52 @@
 # Operations Plan
 
+## Current operator-first contract
+
+The current self-hosting direction is a lightweight operator-first control
+layer, not a generic orchestration platform.
+
+Task files remain the implementation contract. Roadmap and procedure docs
+define allowed progression. Runtime state must be updated through product
+commands or documented ingestion paths, not manual `run.json` repair.
+
+Operator actions must be traceable:
+
+```text
+operator stage
+-> next allowed action
+-> product command or documented ingestion path
+-> durable run/procedure evidence
+-> deterministic validation/review gate
+```
+
+Until the Phase 23.8.6 transactional ingestion task is implemented, any
+operator action that requires durable procedure/run-state must either use an
+existing product command or be documented as a future precondition. Do not
+silently repair `.harness/runs/**/run.json` by hand.
+
+Near-term progression:
+
+```text
+23.8 registry/skill-surface closeout
+-> 23.8.5 roadmap/task authority rebase
+-> 23.8.6 transactional procedure result ingestion
+-> 23.8.7 hookless stage-level packet automation
+-> 23.9 minimal proof over stable procedure/stage records
+```
+
+Hard boundaries:
+
+- no hook authority;
+- no runner execution from the operator;
+- no MCP-native architecture;
+- no dashboard/marketplace/background runner;
+- no domain-specific core behavior;
+- no proof/report lifecycle authority.
+
+The historical bootstrap notes below remain useful for early repository setup,
+but current phase work follows the active `TASK.md` and the operator-first
+contracts above.
+
 ## Initial setup
 
 ```bash

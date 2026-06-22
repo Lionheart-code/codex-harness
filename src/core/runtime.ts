@@ -47,6 +47,12 @@ import {
   writeCompatibilityRunArtifacts
 } from "./run-staging-db";
 import { CURRENT_SCHEMA_VERSION, buildSchemaMetadata, validateOptionalSchemaMetadata } from "./schema-migrations";
+import {
+  indexSelfHostingProceduresById,
+  readSelfHostingProcedureRegistry,
+  type SelfHostingProcedureDescriptor,
+  type SelfHostingProcedureRegistry
+} from "./self-hosting-procedures";
 import { listTasks } from "./tasks";
 
 export const RUNTIME_CONTRACT_NAMES = [
@@ -433,6 +439,7 @@ interface RuntimeVerificationCommand {
   args: string[];
   shell: boolean;
   timeoutSeconds: number;
+  displayCommand?: string;
 }
 
 interface VerificationResolution {
@@ -464,9 +471,13 @@ interface OperatorEvaluationContext {
   taskContext: OperatorTaskContext;
   reviewTier: OperatorReviewTier;
   baseNotes: string[];
+  procedureRegistry?: SelfHostingProcedureRegistry;
+  proceduresById?: Map<string, SelfHostingProcedureDescriptor>;
   runContext?: OperatorRunContext;
   taggedProcedures?: Set<string>;
-  latestReviewResult?: ReviewResult;
+  latestPlanReviewResult?: ReviewResult;
+  latestPlanReviewDecisionRecord?: PlanReviewDecisionRecord;
+  latestImplementationChainReviewResult?: ReviewResult;
   latestVerification?: VerificationResult;
   latestCloseoutReceipt?: CloseoutReceipt;
   blockingFindings?: boolean;
@@ -477,6 +488,26 @@ interface OperatorEvaluationContext {
 type OperatorStageDraft = Omit<RuntimeOperatorStatus, "review_tier" | "next_procedure_id"> & {
   next_procedure_id: string;
 };
+
+interface PlanReviewDecisionRecord {
+  verdict: string;
+  outcome_state: string;
+  blocking_findings: string;
+  required_amendments: string;
+  accepted_defaults: string;
+  real_operator_choices: string;
+  next_allowed_action: string;
+  validation_required: string;
+  source_trace: string;
+  future_phase_deferrals: string;
+}
+
+interface PlanReviewOperatorDecision {
+  route: "approval" | "amend" | "blocked";
+  stopReason: string;
+  nextAllowedAction: string;
+  notes: string[];
+}
 
 const RUNTIME_RUNS_DIR = path.join(HARNESS_DIR, "runs");
 const CURRENT_RUN_FILE = "current.json";
@@ -670,6 +701,158 @@ function extractActiveTaskPath(taskMarkdown: string): string | undefined {
 
   const value = match[1].trim();
   return value.length > 0 ? value : undefined;
+}
+
+function extractMarkdownSection(markdown: string, heading: string): string | undefined {
+  const lines = markdown.split(/\r?\n/u);
+  const normalizedHeading = heading.trim().toLowerCase();
+  const startIndex = lines.findIndex((line) => {
+    const match = /^##\s+(.+?)\s*$/u.exec(line.trim());
+    return match?.[1]?.trim().toLowerCase() === normalizedHeading;
+  });
+
+  if (startIndex === -1) {
+    return undefined;
+  }
+
+  let endIndex = lines.length;
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    if (/^##\s+/u.test(lines[index].trim())) {
+      endIndex = index;
+      break;
+    }
+  }
+
+  return lines.slice(startIndex + 1, endIndex).join("\n");
+}
+
+function normalizeAcceptanceCommandLine(line: string): string | undefined {
+  let value = line.trim();
+
+  if (value.length === 0 || value.startsWith("#")) {
+    return undefined;
+  }
+
+  const listMatch = /^(?:[-*]|\d+\.)\s+(.+)$/u.exec(value);
+  if (listMatch) {
+    value = listMatch[1]?.trim() ?? "";
+  }
+
+  if (value.startsWith("`") && value.endsWith("`") && value.length > 1) {
+    value = value.slice(1, -1).trim();
+  }
+
+  return value.length > 0 ? value : undefined;
+}
+
+function extractAcceptanceCommands(markdown: string): string[] {
+  const section = extractMarkdownSection(markdown, "Acceptance commands");
+
+  if (!section) {
+    return [];
+  }
+
+  const lines = section.split(/\r?\n/u);
+  const fencedCommands: string[] = [];
+  let insideFence = false;
+  let sawFence = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+
+    if (/^```/u.test(trimmed)) {
+      insideFence = !insideFence;
+      sawFence = true;
+      continue;
+    }
+
+    if (!insideFence) {
+      continue;
+    }
+
+    const command = normalizeAcceptanceCommandLine(rawLine);
+    if (command) {
+      fencedCommands.push(command);
+    }
+  }
+
+  if (sawFence) {
+    return fencedCommands;
+  }
+
+  return lines
+    .map((line) => normalizeAcceptanceCommandLine(line))
+    .filter((command): command is string => Boolean(command));
+}
+
+function resolveRunActiveTaskMarkdown(targetRoot: string, run: Run): string | undefined {
+  const candidatePaths = [run.active_task_path]
+    .filter((candidate): candidate is string => typeof candidate === "string" && candidate.trim().length > 0);
+
+  if (typeof run.task_path === "string" && run.task_path.trim().length > 0) {
+    try {
+      const task = resolveTaskReference(targetRoot, run.task_path);
+      const resolvedTaskPath = task.activeTaskPath ?? task.taskPath;
+      if (resolvedTaskPath && !candidatePaths.includes(resolvedTaskPath)) {
+        candidatePaths.push(resolvedTaskPath);
+      }
+    } catch {
+      if (candidatePaths.length === 0) {
+        return undefined;
+      }
+    }
+  }
+
+  for (const candidatePath of candidatePaths) {
+    try {
+      const absoluteTaskPath = path.resolve(targetRoot, candidatePath);
+      ensureInsideTargetRoot(targetRoot, absoluteTaskPath);
+
+      if (fs.existsSync(absoluteTaskPath) && fs.statSync(absoluteTaskPath).isFile()) {
+        return fs.readFileSync(absoluteTaskPath, "utf8");
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
+}
+
+function inferVerificationTimeoutSeconds(commandLine: string): number {
+  const normalized = commandLine.trim().toLowerCase();
+
+  if (normalized === "git diff --check") {
+    return 60;
+  }
+
+  if (/\b(?:npm|pnpm|yarn)\b.*\bbuild\b/u.test(normalized) || /\btsc\b/u.test(normalized)) {
+    return 600;
+  }
+
+  return 1800;
+}
+
+function buildTaskAcceptanceVerificationCommand(commandLine: string): RuntimeVerificationCommand {
+  const timeoutSeconds = inferVerificationTimeoutSeconds(commandLine);
+
+  if (process.platform === "win32") {
+    return {
+      command: process.env.ComSpec ?? "cmd.exe",
+      args: ["/d", "/s", "/c", commandLine],
+      shell: false,
+      timeoutSeconds,
+      displayCommand: commandLine
+    };
+  }
+
+  return {
+    command: "/bin/sh",
+    args: ["-lc", commandLine],
+    shell: false,
+    timeoutSeconds,
+    displayCommand: commandLine
+  };
 }
 
 function inferPhaseIdFromText(markdown: string): string | undefined {
@@ -1346,7 +1529,18 @@ function dedupeRuntimeArtifactRefs(artifacts: ArtifactRef[]): ArtifactRef[] {
   });
 }
 
-function buildSelfHostingVerificationCommands(targetRoot: string): RuntimeVerificationCommand[] | undefined {
+function buildRuntimeVerificationDisplayCommand(command: RuntimeVerificationCommand): string {
+  return command.displayCommand ?? formatCommandForDisplay(command.command, command.args);
+}
+
+function buildSelfHostingVerificationCommands(targetRoot: string, run: Run): RuntimeVerificationCommand[] | undefined {
+  const activeTaskMarkdown = resolveRunActiveTaskMarkdown(targetRoot, run);
+  const taskAcceptanceCommands = activeTaskMarkdown ? extractAcceptanceCommands(activeTaskMarkdown) : [];
+
+  if (taskAcceptanceCommands.length > 0) {
+    return taskAcceptanceCommands.map((commandLine) => buildTaskAcceptanceVerificationCommand(commandLine));
+  }
+
   const packageJsonPath = path.join(targetRoot, "package.json");
 
   if (!fs.existsSync(packageJsonPath) || !fs.statSync(packageJsonPath).isFile()) {
@@ -1380,7 +1574,7 @@ function buildSelfHostingVerificationCommands(targetRoot: string): RuntimeVerifi
 
 function commandSpecsToEvidence(commands: RuntimeVerificationCommand[]): VerificationCommandSpec[] {
   return commands.map((command) => ({
-    command: formatCommandForDisplay(command.command, command.args)
+    command: buildRuntimeVerificationDisplayCommand(command)
   }));
 }
 
@@ -1799,7 +1993,7 @@ function loadOperatorRunContext(targetRoot: string, projectRoot: string, runId?:
   };
 }
 
-function readPhase236ProcedureIds(targetRoot: string): Set<string> {
+function scanPhase236ProcedureIds(targetRoot: string): Set<string> {
   const skillsRoot = path.join(targetRoot, "skills", "self-hosting");
 
   if (!fs.existsSync(skillsRoot) || !fs.statSync(skillsRoot).isDirectory()) {
@@ -1823,6 +2017,14 @@ function readPhase236ProcedureIds(targetRoot: string): Set<string> {
   }
 
   return procedureIds;
+}
+
+function readPhase236ProcedureIds(targetRoot: string, registry?: SelfHostingProcedureRegistry): Set<string> {
+  if (registry) {
+    return new Set(registry.procedures.map((procedure) => procedure.procedure_id));
+  }
+
+  return scanPhase236ProcedureIds(targetRoot);
 }
 
 function readTaggedProcedureId(value: string | undefined, procedureIds: Set<string>): string | undefined {
@@ -1867,8 +2069,275 @@ function collectTaggedProcedureEvidence(run: Run, procedureIds: Set<string>): Se
   return tagged;
 }
 
+function getProcedureRequiredInputs(
+  context: OperatorEvaluationContext,
+  procedureId: string,
+  fallbackInputs: string[]
+): string[] {
+  const inputs = context.proceduresById?.get(procedureId)?.required_inputs;
+  return inputs && inputs.length > 0 ? inputs : fallbackInputs;
+}
+
+function hasDurableReviewOutcome(review: ReviewResult | undefined): boolean {
+  return !!review && review.status !== "MISSING" && review.status !== "UNKNOWN";
+}
+
+const PLAN_REVIEW_DURABLE_FIELD_NAMES = [
+  "verdict",
+  "outcome_state",
+  "blocking_findings",
+  "required_amendments",
+  "accepted_defaults",
+  "real_operator_choices",
+  "next_allowed_action",
+  "validation_required",
+  "source_trace",
+  "future_phase_deferrals"
+] as const;
+
+function parsePlanReviewDecisionRecord(markdown: string): PlanReviewDecisionRecord | undefined {
+  const sectionMatch = /## Durable Decision Record\s*\n([\s\S]*?)(?=\n## |\s*$)/.exec(markdown);
+
+  if (!sectionMatch?.[1]) {
+    return undefined;
+  }
+
+  const section = sectionMatch[1];
+  const values = new Map<string, string>();
+
+  for (let index = 0; index < PLAN_REVIEW_DURABLE_FIELD_NAMES.length; index += 1) {
+    const fieldName = PLAN_REVIEW_DURABLE_FIELD_NAMES[index];
+    const nextFieldName = PLAN_REVIEW_DURABLE_FIELD_NAMES[index + 1];
+    const pattern = nextFieldName
+      ? new RegExp(`^${fieldName}:\\s*([\\s\\S]*?)^${nextFieldName}:`, "mi")
+      : new RegExp(`^${fieldName}:\\s*([\\s\\S]*?)$`, "mi");
+    const match = pattern.exec(section);
+    const value = match?.[1]?.trim();
+
+    if (!value) {
+      return undefined;
+    }
+
+    values.set(fieldName, value);
+  }
+
+  return {
+    verdict: values.get("verdict")!,
+    outcome_state: values.get("outcome_state")!,
+    blocking_findings: values.get("blocking_findings")!,
+    required_amendments: values.get("required_amendments")!,
+    accepted_defaults: values.get("accepted_defaults")!,
+    real_operator_choices: values.get("real_operator_choices")!,
+    next_allowed_action: values.get("next_allowed_action")!,
+    validation_required: values.get("validation_required")!,
+    source_trace: values.get("source_trace")!,
+    future_phase_deferrals: values.get("future_phase_deferrals")!
+  };
+}
+
+function normalizeDecisionToken(value: string | undefined): string {
+  return (value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function hasNamedRequiredAmendments(record: PlanReviewDecisionRecord): boolean {
+  const normalized = normalizeDecisionToken(record.required_amendments);
+  return normalized !== "" && normalized !== "none" && normalized !== "not_applicable" && normalized !== "n/a";
+}
+
+function interpretPlanReviewDecisionRecord(record: PlanReviewDecisionRecord): PlanReviewOperatorDecision {
+  const outcomeState = normalizeDecisionToken(record.outcome_state);
+  const verdict = normalizeDecisionToken(record.verdict);
+  const requiresAmendments = hasNamedRequiredAmendments(record);
+  const notes = [
+    `plan_review_outcome_state: ${record.outcome_state}`,
+    `plan_review_verdict: ${record.verdict}`
+  ];
+
+  if (
+    outcomeState === "needs_contract_surface_update"
+    || verdict === "amend_required"
+    || requiresAmendments
+  ) {
+    return {
+      route: "amend",
+      stopReason: "plan_review_requires_amendment",
+      nextAllowedAction: record.next_allowed_action,
+      notes
+    };
+  }
+
+  if (outcomeState === "ready_for_implementation" && verdict === "pass") {
+    return {
+      route: "approval",
+      stopReason: "missing_plan_approval",
+      nextAllowedAction: record.next_allowed_action,
+      notes
+    };
+  }
+
+  if (outcomeState === "decision_required") {
+    return {
+      route: "blocked",
+      stopReason: "plan_review_operator_decision_required",
+      nextAllowedAction: record.next_allowed_action,
+      notes
+    };
+  }
+
+  if (outcomeState === "blocked") {
+    return {
+      route: "blocked",
+      stopReason: "plan_review_blocked",
+      nextAllowedAction: record.next_allowed_action,
+      notes
+    };
+  }
+
+  return {
+    route: "blocked",
+    stopReason: "invalid_plan_review_decision_record",
+    nextAllowedAction: record.next_allowed_action,
+    notes: [...notes, "plan_review_decision_record_invalid: true"]
+  };
+}
+
 function hasBlockingFindings(run: Run): boolean {
   return run.findings.some((finding) => finding.blocking && finding.status !== "resolved");
+}
+
+function escapeRegExpPattern(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function reviewSourceMatchesProcedure(source: string | undefined, procedureId: string): boolean {
+  if (!source) {
+    return false;
+  }
+
+  const pattern = new RegExp(`(^|[^a-z0-9])${escapeRegExpPattern(procedureId)}([^a-z0-9]|$)`, "i");
+  return pattern.test(source);
+}
+
+function findLatestProcedureReviewResult(run: Run, procedureId: string): ReviewResult | undefined {
+  for (let index = run.review_results.length - 1; index >= 0; index -= 1) {
+    const review = run.review_results[index];
+    if (reviewSourceMatchesProcedure(review.source, procedureId)) {
+      return review;
+    }
+  }
+
+  return undefined;
+}
+
+function findLatestProcedureReviewResultForAny(run: Run, procedureIds: string[]): ReviewResult | undefined {
+  for (let index = run.review_results.length - 1; index >= 0; index -= 1) {
+    const review = run.review_results[index];
+    if (procedureIds.some((procedureId) => reviewSourceMatchesProcedure(review.source, procedureId))) {
+      return review;
+    }
+  }
+
+  return undefined;
+}
+
+function findLatestProcedureEvidence(
+  run: Run,
+  procedureIds: Set<string>,
+  procedureId: string
+): EvidenceRef | undefined {
+  for (let index = run.evidence.length - 1; index >= 0; index -= 1) {
+    const evidence = run.evidence[index];
+    const taggedProcedureId = readTaggedProcedureId(evidence.kind, procedureIds)
+      ?? readTaggedProcedureId(evidence.summary, procedureIds);
+
+    if (taggedProcedureId === procedureId) {
+      return evidence;
+    }
+  }
+
+  return undefined;
+}
+
+function readLatestPlanReviewDecisionRecord(
+  runContext: OperatorRunContext,
+  procedureIds: Set<string>
+): PlanReviewDecisionRecord | undefined {
+  const evidence = findLatestProcedureEvidence(runContext.run, procedureIds, "plan-review");
+
+  if (!evidence?.path) {
+    return undefined;
+  }
+
+  const absolutePath = resolveRunLocalPath(runContext, evidence.path);
+  const markdown = readUtf8FileIfExists(absolutePath);
+  return markdown ? parsePlanReviewDecisionRecord(markdown) : undefined;
+}
+
+function resolveRunLocalPath(runContext: OperatorRunContext, relativeOrAbsolutePath: string): string {
+  if (path.isAbsolute(relativeOrAbsolutePath)) {
+    return relativeOrAbsolutePath;
+  }
+
+  if (relativeOrAbsolutePath.startsWith(".harness/")) {
+    return path.join(runContext.run.repository.root_path, relativeOrAbsolutePath);
+  }
+
+  return path.join(path.dirname(runContext.runPath), relativeOrAbsolutePath);
+}
+
+function readFileTimestampMs(candidatePath: string): number | undefined {
+  if (!fs.existsSync(candidatePath) || !fs.statSync(candidatePath).isFile()) {
+    return undefined;
+  }
+
+  return fs.statSync(candidatePath).mtimeMs;
+}
+
+function readProcedureEvidenceTimestampMs(runContext: OperatorRunContext, procedureId: string): number | undefined {
+  const timestamps: number[] = [];
+
+  for (const evidence of runContext.run.evidence) {
+    const taggedProcedureId = readTaggedProcedureId(evidence.kind, new Set([procedureId]))
+      ?? readTaggedProcedureId(evidence.summary, new Set([procedureId]));
+
+    if (taggedProcedureId !== procedureId) {
+      continue;
+    }
+
+    if (evidence.path) {
+      const evidenceTimestamp = readFileTimestampMs(resolveRunLocalPath(runContext, evidence.path));
+      if (evidenceTimestamp !== undefined) {
+        timestamps.push(evidenceTimestamp);
+      }
+    }
+
+    if (evidence.artifact_id) {
+      const artifact = runContext.run.artifacts.find((entry) => entry.artifact_id === evidence.artifact_id);
+      if (artifact?.path) {
+        const artifactTimestamp = readFileTimestampMs(resolveRunLocalPath(runContext, artifact.path));
+        if (artifactTimestamp !== undefined) {
+          timestamps.push(artifactTimestamp);
+        }
+      }
+    }
+  }
+
+  return timestamps.length > 0 ? Math.max(...timestamps) : undefined;
+}
+
+function isProcedureEvidenceFreshAfter(
+  runContext: OperatorRunContext,
+  laterProcedureId: string,
+  earlierProcedureId: string
+): boolean {
+  const laterTimestamp = readProcedureEvidenceTimestampMs(runContext, laterProcedureId);
+  const earlierTimestamp = readProcedureEvidenceTimestampMs(runContext, earlierProcedureId);
+
+  if (laterTimestamp === undefined || earlierTimestamp === undefined) {
+    return false;
+  }
+
+  return laterTimestamp > earlierTimestamp;
 }
 
 function isPlanApproval(approval: Approval): boolean {
@@ -1883,8 +2352,34 @@ function isPlanApproval(approval: Approval): boolean {
   return hasPlan && hasReviewedPlanSignal && hasApprovalBoundary;
 }
 
-function hasApprovedPlan(run: Run): boolean {
-  return run.approvals.some((approval) => isPlanApproval(approval));
+function hasApprovedPlan(runContext: OperatorRunContext): boolean {
+  const approvals = runContext.run.approvals
+    .filter((approval) => isPlanApproval(approval))
+    .map((approval) => ({
+      approval,
+      timestamp: Number.isFinite(Date.parse(approval.created_at)) ? Date.parse(approval.created_at) : undefined
+    }))
+    .filter((entry) => entry.timestamp !== undefined) as Array<{ approval: Approval; timestamp: number }>;
+
+  if (approvals.length === 0) {
+    return false;
+  }
+
+  const latestApprovalTimestamp = Math.max(...approvals.map((entry) => entry.timestamp));
+  const latestPlanAmendTimestamp = readProcedureEvidenceTimestampMs(runContext, "plan-amend");
+  const latestDraftPlanTimestamp = readProcedureEvidenceTimestampMs(runContext, "draft-plan");
+  const latestPlanReviewTimestamp = readProcedureEvidenceTimestampMs(runContext, "plan-review");
+  const latestEffectivePlanTimestamp = latestPlanAmendTimestamp ?? latestDraftPlanTimestamp;
+  const latestApprovalBoundaryTimestamp = Math.max(
+    latestEffectivePlanTimestamp ?? Number.NEGATIVE_INFINITY,
+    latestPlanReviewTimestamp ?? Number.NEGATIVE_INFINITY
+  );
+
+  if (Number.isFinite(latestApprovalBoundaryTimestamp) && latestApprovalTimestamp < latestApprovalBoundaryTimestamp) {
+    return false;
+  }
+
+  return true;
 }
 
 function isReadOnlyActivityText(value: string): boolean {
@@ -2174,12 +2669,26 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
   }
 
   const taskMarkdown = context.taskContext.activeTaskMarkdown;
+  const hasPlanReviewEvidence = context.taggedProcedures.has("plan-review");
+  const hasPlanAmendEvidence = context.taggedProcedures.has("plan-amend");
+  const durablePlanReviewOutcomeRecorded = hasDurableReviewOutcome(context.latestPlanReviewResult)
+    && !!context.latestPlanReviewDecisionRecord;
+  const planReviewDecision = context.latestPlanReviewDecisionRecord
+    ? interpretPlanReviewDecisionRecord(context.latestPlanReviewDecisionRecord)
+    : undefined;
+  const freshPlanAmendForLatestPlanReview = planReviewDecision?.route === "amend"
+    ? isProcedureEvidenceFreshAfter(context.runContext, "plan-amend", "plan-review")
+    : false;
 
   if (!context.taggedProcedures.has("task-intake") && needsTaskIntake(taskMarkdown)) {
     return buildOperatorStageDraft({
       current_stage: "TASK_INTAKE_REQUIRED",
       next_procedure_id: "task-intake",
-      required_inputs: ["current TASK.md", "active task file", "relevant acceptance and boundary docs"],
+      required_inputs: getProcedureRequiredInputs(
+        context,
+        "task-intake",
+        ["current TASK.md", "active task file", "relevant acceptance and boundary docs"]
+      ),
       missing_inputs: [],
       required_evidence: ["task-intake"],
       missing_evidence: ["task-intake"],
@@ -2194,7 +2703,11 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
     return buildOperatorStageDraft({
       current_stage: "FEATURE_DECOMPOSITION_REQUIRED",
       next_procedure_id: "feature-decomposition",
-      required_inputs: ["broad request", "roadmap and boundary docs", "constraints and non-goals"],
+      required_inputs: getProcedureRequiredInputs(
+        context,
+        "feature-decomposition",
+        ["broad request", "roadmap and boundary docs", "constraints and non-goals"]
+      ),
       missing_inputs: [],
       required_evidence: ["feature-decomposition"],
       missing_evidence: ["feature-decomposition"],
@@ -2209,7 +2722,11 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
     return buildOperatorStageDraft({
       current_stage: "TASK_PROMPT_REQUIRED",
       next_procedure_id: "task-prompt-writer",
-      required_inputs: ["active task contract", "Phase 23.6 procedure contract", "validation commands", "repo boundaries"],
+      required_inputs: getProcedureRequiredInputs(
+        context,
+        "task-prompt-writer",
+        ["active task contract", "Phase 23.6 procedure contract", "validation commands", "repo boundaries"]
+      ),
       missing_inputs: [],
       required_evidence: ["task-prompt-writer"],
       missing_evidence: ["task-prompt-writer"],
@@ -2224,7 +2741,11 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
     return buildOperatorStageDraft({
       current_stage: "PLAN_DRAFT_REQUIRED",
       next_procedure_id: "draft-plan",
-      required_inputs: ["task prompt guidance", "repo context", "active constraints"],
+      required_inputs: getProcedureRequiredInputs(
+        context,
+        "draft-plan",
+        ["task prompt guidance", "repo context", "active constraints"]
+      ),
       missing_inputs: [],
       required_evidence: ["draft-plan"],
       missing_evidence: ["draft-plan"],
@@ -2235,33 +2756,83 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
     });
   }
 
-  if (!context.taggedProcedures.has("plan-review")) {
+  if (!hasPlanReviewEvidence || !durablePlanReviewOutcomeRecorded) {
     return buildOperatorStageDraft({
       current_stage: "PLAN_REVIEW_REQUIRED",
       next_procedure_id: "plan-review",
-      required_inputs: ["draft plan", "task contract", "review tier"],
+      required_inputs: getProcedureRequiredInputs(
+        context,
+        "plan-review",
+        ["draft plan", "task contract", "review tier"]
+      ),
       missing_inputs: [],
-      required_evidence: ["plan-review"],
-      missing_evidence: ["plan-review"],
-      stop_reason: "missing_plan_review",
-      next_allowed_action: buildReviewStageAction("plan-review"),
+      required_evidence: hasPlanReviewEvidence
+        ? ["plan-review", "durable plan review decision record"]
+        : ["plan-review"],
+      missing_evidence: hasPlanReviewEvidence
+        ? ["durable plan review decision record"]
+        : ["plan-review"],
+      stop_reason: hasPlanReviewEvidence
+        ? "missing_plan_review_decision_record"
+        : "missing_plan_review",
+      next_allowed_action: hasPlanReviewEvidence
+        ? "record or import the durable plan-review decision record before implementation can continue"
+        : buildReviewStageAction("plan-review"),
       forbidden_actions: ["implementation", "source edits", "closeout"],
-      notes: context.baseNotes
+      notes: hasPlanReviewEvidence
+        ? [...context.baseNotes, "plan_review_progression_requires_durable_outcome: true"]
+        : context.baseNotes
     });
   }
 
-  if (!context.planApproved && context.blockingFindings) {
+  if (planReviewDecision?.route === "blocked") {
+    return buildOperatorStageDraft({
+      current_stage: "BLOCKED",
+      next_procedure_id: "none",
+      required_inputs: ["plan-review durable decision record"],
+      missing_inputs: [],
+      required_evidence: ["operator resolution of the recorded plan-review decision"],
+      missing_evidence: ["operator resolution of the recorded plan-review decision"],
+      stop_reason: planReviewDecision.stopReason,
+      next_allowed_action: planReviewDecision.nextAllowedAction,
+      forbidden_actions: ["implementation", "closeout"],
+      notes: [...context.baseNotes, ...planReviewDecision.notes]
+    });
+  }
+
+  if (
+    !context.planApproved &&
+    (
+      context.blockingFindings ||
+      (
+        planReviewDecision?.route === "amend" &&
+        (!hasPlanAmendEvidence || !freshPlanAmendForLatestPlanReview || context.blockingFindings)
+      )
+    )
+  ) {
     return buildOperatorStageDraft({
       current_stage: "PLAN_AMEND_REQUIRED",
       next_procedure_id: "plan-amend",
-      required_inputs: ["plan review findings"],
+      required_inputs: getProcedureRequiredInputs(context, "plan-amend", ["plan review findings"]),
       missing_inputs: [],
-      required_evidence: ["plan-amend"],
-      missing_evidence: ["plan-amend"],
-      stop_reason: "plan_review_requires_amendment",
-      next_allowed_action: "run plan-amend to address blocking review findings",
+      required_evidence: planReviewDecision?.route === "amend"
+        ? ["plan-amend after the latest durable plan-review decision"]
+        : ["plan-amend"],
+      missing_evidence: planReviewDecision?.route === "amend" && hasPlanAmendEvidence && !freshPlanAmendForLatestPlanReview
+        ? ["fresh plan-amend after the latest durable plan-review decision"]
+        : ["plan-amend"],
+      stop_reason: planReviewDecision?.stopReason ?? "plan_review_requires_amendment",
+      next_allowed_action: planReviewDecision?.nextAllowedAction ?? "run plan-amend to address blocking review findings",
       forbidden_actions: ["implementation", "closeout"],
-      notes: context.baseNotes
+      notes: planReviewDecision
+        ? [
+            ...context.baseNotes,
+            ...planReviewDecision.notes,
+            ...(hasPlanAmendEvidence && !freshPlanAmendForLatestPlanReview
+              ? ["plan_amend_stale_for_latest_plan_review: true"]
+              : [])
+          ]
+        : context.baseNotes
     });
   }
 
@@ -2274,9 +2845,11 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
       required_evidence: ["explicit reviewed-plan owner approval"],
       missing_evidence: ["explicit reviewed-plan owner approval"],
       stop_reason: "missing_plan_approval",
-      next_allowed_action: "obtain explicit human approval of the reviewed plan",
+      next_allowed_action: planReviewDecision?.route === "approval"
+        ? planReviewDecision.nextAllowedAction
+        : "obtain explicit human approval of the reviewed plan",
       forbidden_actions: ["implementation", "closeout"],
-      notes: context.baseNotes
+      notes: planReviewDecision ? [...context.baseNotes, ...planReviewDecision.notes] : context.baseNotes
     });
   }
 
@@ -2305,7 +2878,11 @@ function resolveImplementationReviewStage(context: OperatorEvaluationContext): O
     return buildOperatorStageDraft({
       current_stage: "IMPLEMENTATION_REVIEW_REQUIRED",
       next_procedure_id: "implementation-review",
-      required_inputs: ["implementation report", "changed files", "test output"],
+      required_inputs: getProcedureRequiredInputs(
+        context,
+        "implementation-review",
+        ["implementation report", "changed files", "test output"]
+      ),
       missing_inputs: [],
       required_evidence: ["implementation-review"],
       missing_evidence: ["implementation-review"],
@@ -2316,11 +2893,18 @@ function resolveImplementationReviewStage(context: OperatorEvaluationContext): O
     });
   }
 
-  if ((context.latestReviewResult?.status === "FIX_REQUIRED" || context.blockingFindings) && taggedProcedures.has("implementation-review")) {
+  if (
+    (context.latestImplementationChainReviewResult?.status === "FIX_REQUIRED" || context.blockingFindings) &&
+    taggedProcedures.has("implementation-review")
+  ) {
     return buildOperatorStageDraft({
       current_stage: "FIX_PASS_REQUIRED",
       next_procedure_id: "fix-pass-review",
-      required_inputs: ["implementation review findings", "fix-pass diff", "fix-pass tests"],
+      required_inputs: getProcedureRequiredInputs(
+        context,
+        "fix-pass-review",
+        ["implementation review findings", "fix-pass diff", "fix-pass tests"]
+      ),
       missing_inputs: [],
       required_evidence: ["fix-pass-review"],
       missing_evidence: ["fix-pass-review"],
@@ -2342,7 +2926,11 @@ function resolveVerificationStage(context: OperatorEvaluationContext): OperatorS
     return buildOperatorStageDraft({
       current_stage: "VERIFICATION_REVIEW_REQUIRED",
       next_procedure_id: "verification-review",
-      required_inputs: ["verification command results", "build/test evidence"],
+      required_inputs: getProcedureRequiredInputs(
+        context,
+        "verification-review",
+        ["verification command results", "build/test evidence"]
+      ),
       missing_inputs: [],
       required_evidence: ["passing verification evidence", "verification-review"],
       missing_evidence: [
@@ -2362,7 +2950,11 @@ function resolveVerificationStage(context: OperatorEvaluationContext): OperatorS
     return buildOperatorStageDraft({
       current_stage: "DELIVERY_FACTS_REVIEW_REQUIRED",
       next_procedure_id: "delivery-facts-review",
-      required_inputs: ["delivery facts record/import"],
+      required_inputs: getProcedureRequiredInputs(
+        context,
+        "delivery-facts-review",
+        ["delivery facts record/import"]
+      ),
       missing_inputs: [],
       required_evidence: ["delivery facts", "delivery-facts-review"],
       missing_evidence: [
@@ -2398,7 +2990,11 @@ function resolveCloseoutLifecycleStage(context: OperatorEvaluationContext): Oper
     return buildOperatorStageDraft({
       current_stage: "CLOSEOUT_REVIEW_REQUIRED",
       next_procedure_id: taggedProcedures.has("phase-closeout-review") ? "none" : "phase-closeout-review",
-      required_inputs: ["implementation review", "verification evidence", "delivery facts"],
+      required_inputs: getProcedureRequiredInputs(
+        context,
+        "phase-closeout-review",
+        ["implementation review", "verification evidence", "delivery facts"]
+      ),
       missing_inputs: [],
       required_evidence: ["phase-closeout-review", "ready closeout receipt"],
       missing_evidence: [
@@ -2464,7 +3060,9 @@ function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string,
   context?: OperatorEvaluationContext;
 } {
   const dryRun = options.dryRun ?? false;
-  const procedureIds = readPhase236ProcedureIds(targetRoot);
+  const procedureRegistry = readSelfHostingProcedureRegistry(targetRoot);
+  const proceduresById = procedureRegistry ? indexSelfHostingProceduresById(procedureRegistry) : undefined;
+  const procedureIds = readPhase236ProcedureIds(targetRoot, procedureRegistry);
   const taskContext = resolveOperatorTaskContext(targetRoot);
 
   if (!taskContext) {
@@ -2499,17 +3097,20 @@ function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string,
       taskContext,
       reviewTier: tier,
       baseNotes: [...notes, ...(runContext?.notes ?? [])],
+      ...(procedureRegistry ? { procedureRegistry, proceduresById } : {}),
       runContext,
       taggedProcedures,
-      latestReviewResult: runContext && runContext.run.review_results.length > 0
-        ? runContext.run.review_results[runContext.run.review_results.length - 1]
+      latestPlanReviewResult: runContext ? findLatestProcedureReviewResult(runContext.run, "plan-review") : undefined,
+      latestPlanReviewDecisionRecord: runContext ? readLatestPlanReviewDecisionRecord(runContext, procedureIds) : undefined,
+      latestImplementationChainReviewResult: runContext
+        ? findLatestProcedureReviewResultForAny(runContext.run, ["implementation-review", "fix-pass-review"])
         : undefined,
       latestVerification: runContext && runContext.run.verification_results.length > 0
         ? runContext.run.verification_results[runContext.run.verification_results.length - 1]
         : undefined,
       latestCloseoutReceipt,
       blockingFindings: runContext ? hasBlockingFindings(runContext.run) : undefined,
-      planApproved: runContext ? hasApprovedPlan(runContext.run) : undefined,
+      planApproved: runContext ? hasApprovedPlan(runContext) : undefined,
       implementationEvidence: runContext ? hasImplementationEvidence(runContext.run, procedureIds) : undefined
     }
   };
@@ -2690,7 +3291,7 @@ async function executeSelfHostingVerification(
 
   for (let index = 0; index < commands.length; index += 1) {
     const command = commands[index];
-    const display = formatCommandForDisplay(command.command, command.args);
+    const display = buildRuntimeVerificationDisplayCommand(command);
     const startedAt = nowIso();
     const result = runStructuredCommand({
       command: command.command,
@@ -2915,7 +3516,9 @@ async function resolveVerification(
   run: Run,
   dryRun: boolean
 ): Promise<VerificationResolution> {
-  const selfHostingCommands = !detectInstalledLayer(targetRoot) ? buildSelfHostingVerificationCommands(targetRoot) : undefined;
+  const selfHostingCommands = !detectInstalledLayer(targetRoot)
+    ? buildSelfHostingVerificationCommands(targetRoot, run)
+    : undefined;
 
   if (!selfHostingCommands || selfHostingCommands.length === 0) {
     const detectedVerification = readInstalledVerifier(run, targetRoot);

@@ -54,6 +54,11 @@ Mandatory rules:
 
 - Implementation must not start before human approval of the reviewed plan.
 - Reviewers compare work against both the task contract and the approved plan.
+- `plan-review` must preserve both a human-readable review report and a
+  durable decision record for operator/runtime use.
+- `plan-amend` must yield one effective amended plan for execution. If
+  multiple amendments exist, the latest amended plan supersedes earlier draft
+  or amend plan artifacts while preserving them as audit trail.
 - `draft-plan`, `plan-review`, and `implementation-review` must explicitly
   check `anti_slop`, `design_invariant`, `scope_legality`, `evidence_gap`,
   `docs_consistency`, `future_phase_leakage`, and `review_tier_controls` when
@@ -216,6 +221,9 @@ docs-consistency packet:
 
 - `skills/self-hosting/**` is the canonical product-source location for these
   procedures.
+- `skills/self-hosting/procedure-registry.json` is the checked-in derived
+  registry for these procedures. It must point back to the canonical files and
+  must not replace them as authority.
 - `.agents/skills/**` and `$HOME/.agents/skills/**` are optional discovery or
   install targets only.
 - Prompt wrappers are optional later helpers and are not required to run this

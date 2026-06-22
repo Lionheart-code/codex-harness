@@ -293,7 +293,11 @@ authority_level: binding | advisory | pattern-only
 
 Phase 23.8 preserves the Phase 23.6 procedure IDs and extends the documented
 contract with registry-oriented metadata. This section documents the target
-metadata; it does not yet implement the registry.
+metadata. The Phase 23.8 checked-in registry implements the subset needed for
+current operator/runtime consumption and points back to canonical skill
+contracts; broader actor, permission, risk, side-effect, and control metadata
+remain the documented target for a later reviewed schema expansion before any
+runner or execution surface consumes them.
 
 ```yaml
 canonical_skill_path: string
@@ -357,6 +361,15 @@ skills/self-hosting/<procedure-id>/SKILL.md
 skills/self-hosting/<procedure-id>/references/source-notes.md
 skills/self-hosting/<procedure-id>/references/output-format.md
 ```
+
+Phase 23.8 adds a checked-in derived registry:
+
+```text
+skills/self-hosting/procedure-registry.json
+```
+
+It must point back to the canonical files above and must not replace them as
+the authority source.
 
 ## 5. Procedure source map entries
 
@@ -462,7 +475,8 @@ skills/self-hosting/<procedure-id>/references/output-format.md
 - `what was adopted`: Plan-first discipline; explicit assumptions, risks,
   validation, and done conditions
 - `what was adapted`: Planning gates around codex-harness phase/task boundaries
-  and evidence expectations
+  and evidence expectations, including deterministic defaults versus real
+  operator choices
 - `what was rejected`: Implementation during planning; hidden scope decisions
 - `canonical source path`: `skills/self-hosting/draft-plan/`
 - `Codex discovery/install path`: Sync or install from
@@ -488,7 +502,8 @@ skills/self-hosting/<procedure-id>/references/output-format.md
 - `what was adopted`: Separate reviewer pass; explicit findings; review
   intensity tiers
 - `what was adapted`: Review against codex-harness task, plan, and phase
-  boundaries before implementation
+  boundaries before implementation, plus a durable decision record for
+  operator/runtime consumption
 - `what was rejected`: Reviewer as implementer; optional plan review
 - `canonical source path`: `skills/self-hosting/plan-review/`
 - `Codex discovery/install path`: Sync or install from
@@ -514,7 +529,7 @@ skills/self-hosting/<procedure-id>/references/output-format.md
 - `what was adopted`: Amendment traceability; accepted/rejected review items;
   stable revised output
 - `what was adapted`: Codex-harness review findings become explicit plan deltas
-  before approval
+  before approval and yield one effective amended plan for implementation
 - `what was rejected`: Silent plan rewriting; scope growth hidden in revisions
 - `canonical source path`: `skills/self-hosting/plan-amend/`
 - `Codex discovery/install path`: Sync or install from
@@ -644,17 +659,20 @@ skills/self-hosting/<procedure-id>/references/output-format.md
 
 - `procedure_id`: `verification-review`
 - `purpose`: Check local build, test, and acceptance evidence deterministically.
-- `primary internal sources`: Task acceptance commands; `package.json`;
+- `primary internal sources`: Task acceptance commands; latest runtime
+  verification result or verified snapshot; `package.json`;
   `.github/workflows/ci.yml`; `docs/PHASE_ACCEPTANCE.md`
 - `official Codex sources`: Codex best practices
 - `external/advisory sources`: Prior acceptance or regression audits
 - `community pattern sources`: Deterministic verification patterns
 - `what was adopted`: Exact command-based verification; local versus remote
   distinction; evidence-first interpretation
-- `what was adapted`: Map verification review to codex-harness build, test,
-  acceptance, and release dry-run commands
+- `what was adapted`: Treat task acceptance commands as the primary local
+  verification source and include release dry-run only when the repo CI or
+  package boundary requires it
 - `what was rejected`: "Tests probably passed" claims; remote CI inferred from
-  local success
+  local success; unrelated top-level run command results used in place of the
+  latest verification record
 - `canonical source path`: `skills/self-hosting/verification-review/`
 - `Codex discovery/install path`: Sync or install from
   `skills/self-hosting/**` into `.agents/skills/**` or

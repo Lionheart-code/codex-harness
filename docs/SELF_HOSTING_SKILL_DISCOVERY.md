@@ -28,10 +28,14 @@ Codex also supports other official/admin-managed skill locations, but Phase
 ## Boundary rules
 
 - `skills/self-hosting/**` is the canonical source-of-truth.
+- `skills/self-hosting/procedure-registry.json` is the checked-in derived
+  registry over that canonical source.
 - `.agents/skills/**` is a generated or local discovery target only in this
   repo unless a future reviewed boundary change says otherwise.
 - `$HOME/.agents/skills/**` is a user-level install target only.
 - Generated or local discovery targets must not become hidden source-of-truth.
+- Discovery or install targets must not rewrite the checked-in registry or
+  canonical procedure files.
 - Prompt wrappers, if added later, remain derived invocation helpers and not
   authority.
 

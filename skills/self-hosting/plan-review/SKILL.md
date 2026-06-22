@@ -40,6 +40,8 @@ Independently review a draft plan before implementation begins.
   changed file domains, affected procedures, required evidence, forbidden
   scope, and authority boundaries.
 - Compare the plan against the task and non-goals.
+- Treat the task as the boundary contract and the draft plan as a proposed
+  concretization inside that boundary.
 - Check for later-phase creep and authority-boundary violations.
 - Check `anti_slop`, `design_invariant`, `scope_legality`, `evidence_gap`,
   `docs_consistency`, and `future_phase_leakage` explicitly.
@@ -49,6 +51,10 @@ Independently review a draft plan before implementation begins.
   or workflow contracts.
 - Check skill risk classification when the plan expects procedure/skill changes.
 - Confirm validation commands and evidence expectations are adequate.
+- Distinguish deterministic defaults from real operator choices.
+- Preserve two layers of output:
+  - a human-readable review report for auditability;
+  - a durable decision record for operator/runtime progression.
 - Return findings clearly enough for `plan-amend` to act on them.
 
 ## expected_output_format
@@ -70,6 +76,7 @@ Return the exact section order documented in
 - Review findings
 - Review surface
 - Review tier used
+- Durable decision record with outcome state and next allowed action
 - Policy control check covering `anti_slop`, `design_invariant`,
   `scope_legality`, `evidence_gap`, `docs_consistency`,
   `future_phase_leakage`, and `review_tier_controls`

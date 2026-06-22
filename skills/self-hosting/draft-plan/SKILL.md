@@ -39,6 +39,9 @@ starting execution.
 ## checklist
 - State the intended outcome and success criteria.
 - Define the smallest safe implementation steps.
+- Distinguish deterministic decisions from true operator choices.
+- Recommend one concrete execution path and avoid fake alternatives where repo
+  context already determines the answer.
 - Explain how the plan avoids unnecessary abstraction or one-use generic
   helpers.
 - Preserve design invariants and source-of-truth boundaries explicitly.
@@ -54,13 +57,15 @@ Return the exact section order documented in
 `references/output-format.md`.
 
 ## blocker_conditions
-- Acceptance or boundary rules are too ambiguous to plan safely.
+- Acceptance or boundary rules are too ambiguous to recommend a safe concrete
+  path.
 - Key implementation choices depend on missing repo facts.
 - The task already requires decomposition instead of direct planning.
 
 ## evidence_to_record
 - Draft plan
 - Assumptions and risks
+- Recommended defaults and any real operator-choice points that remain
 - Reviewer policy checks for `anti_slop`, `design_invariant`,
   `scope_legality`, `evidence_gap`, `docs_consistency`,
   `future_phase_leakage`, and `review_tier_controls` when applicable

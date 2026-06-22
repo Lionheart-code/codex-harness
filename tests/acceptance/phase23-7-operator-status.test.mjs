@@ -210,6 +210,81 @@ function writeRuntimeRunFixture(tempRepo, run) {
   );
 }
 
+function buildPlanReviewEvidenceMarkdown(reviewResult) {
+  const verdict = reviewResult?.status === "PASS" ? "PASS" : "AMEND_REQUIRED";
+  const outcomeState = reviewResult?.status === "PASS"
+    ? "ready_for_implementation"
+    : "needs_contract_surface_update";
+
+  return [
+    "## Review Tier",
+    "",
+    "extra-high",
+    "",
+    "## Findings",
+    "",
+    "1. Review fixture.",
+    "",
+    "## Scope And Boundary Check",
+    "",
+    "Inside task boundary.",
+    "",
+    "## Policy Control Check",
+    "",
+    "anti_slop: pass",
+    "design_invariant: pass",
+    "scope_legality: pass",
+    "evidence_gap: pass",
+    "docs_consistency: pass",
+    "future_phase_leakage: pass",
+    "review_tier_controls: named",
+    "",
+    "## Validation Check",
+    "",
+    "validation fixture",
+    "",
+    "## Durable Decision Record",
+    "",
+    `verdict: ${verdict}`,
+    `outcome_state: ${outcomeState}`,
+    "blocking_findings: none",
+    `required_amendments: ${verdict === "PASS" ? "none" : "amend plan per review findings"}`,
+    "accepted_defaults: defaults stand",
+    "real_operator_choices: none",
+    `next_allowed_action: ${verdict === "PASS" ? "obtain explicit human approval of the reviewed plan" : "run plan-amend to address blocking review findings"}`,
+    "validation_required: npm run build; node --test ...; git diff --check",
+    "source_trace: procedure:plan-review",
+    "future_phase_deferrals: none",
+    "",
+    "## Recommendation",
+    "",
+    verdict
+  ].join("\n");
+}
+
+function materializeProcedureEvidenceFiles(tempRepo, run) {
+  const runDir = path.join(tempRepo, ".harness", "runs", run.run_id);
+  const latestPlanReviewResult = [...run.review_results]
+    .reverse()
+    .find((review) => /procedure:plan-review/i.test(review.source));
+  const baseTimestamp = Date.parse("2026-05-25T00:01:00.000Z");
+
+  for (const [index, evidence] of run.evidence.entries()) {
+    if (!evidence.path) {
+      continue;
+    }
+
+    const evidencePath = path.join(runDir, evidence.path);
+    fs.mkdirSync(path.dirname(evidencePath), { recursive: true });
+    const content = evidence.kind === "procedure:plan-review" && latestPlanReviewResult
+      ? buildPlanReviewEvidenceMarkdown(latestPlanReviewResult)
+      : `${evidence.kind}\n`;
+    writeText(evidencePath, content);
+    const timestamp = new Date(baseTimestamp + index * 1000);
+    fs.utimesSync(evidencePath, timestamp, timestamp);
+  }
+}
+
 function createBaseRun(runtimeModule, tempRepo, runId) {
   return runtimeModule.buildRuntimeRun({
     runId,
@@ -274,13 +349,13 @@ function addBlockingFinding(runtimeModule, run, title = "Blocking plan issue") {
   });
 }
 
-function addReviewResult(runtimeModule, run, status, summary = "Implementation review result") {
+function addReviewResult(runtimeModule, run, status, summary = "Implementation review result", source = "reviewer") {
   return runtimeModule.recordReviewResult(run, {
     review_result_id: `review-${run.review_results.length + 1}`,
     status,
     created_at: "2026-05-25T00:15:00.000Z",
     summary,
-    source: "reviewer",
+    source,
     blockers: status === "FIX_REQUIRED" ? [summary] : [],
     artifact_refs: []
   });
@@ -342,6 +417,7 @@ function setLifecycle(run, lifecycleStatus, extra = {}) {
 function buildPostApprovalBaseRun(runtimeModule, tempRepo, runId) {
   let run = createBaseRun(runtimeModule, tempRepo, runId);
   run = addTaggedProcedures(run, "task-intake", "task-prompt-writer", "draft-plan", "plan-review");
+  run = addReviewResult(runtimeModule, run, "PASS", "Plan review approved the plan", "procedure:plan-review");
   run = addPlanApproval(runtimeModule, run);
   return run;
 }
@@ -350,7 +426,7 @@ function buildPostImplementationBaseRun(runtimeModule, tempRepo, runId) {
   let run = buildPostApprovalBaseRun(runtimeModule, tempRepo, runId);
   run = addImplementationEvidence(runtimeModule, run);
   run = addTaggedProcedures(run, "implementation-review");
-  run = addReviewResult(runtimeModule, run, "PASS");
+  run = addReviewResult(runtimeModule, run, "PASS", "Implementation review passed", "procedure:implementation-review");
   run = addVerificationResult(runtimeModule, run, "pass");
   run = addTaggedProcedures(run, "verification-review");
   run = addDeliveryFacts(run);
@@ -529,6 +605,7 @@ test("phase 23.7 operator status projects all pre-implementation stages", () => 
           "draft-plan",
           "plan-review"
         );
+        run = addReviewResult(runtimeModule, run, "FIX_REQUIRED", "Plan review requires amendment", "procedure:plan-review");
         run = addBlockingFinding(runtimeModule, run, "Plan review found a blocking issue");
         return run;
       },
@@ -538,13 +615,21 @@ test("phase 23.7 operator status projects all pre-implementation stages", () => 
       name: "PLAN_APPROVAL_REQUIRED",
       activeTaskMarkdown: defaultActiveTaskMarkdown(),
       buildRun(tempRepo) {
-        return addTaggedProcedures(
+        let run = addTaggedProcedures(
           createBaseRun(runtimeModule, tempRepo, "run-plan-approval"),
           "task-intake",
           "task-prompt-writer",
           "draft-plan",
           "plan-review"
         );
+        run = addReviewResult(
+          runtimeModule,
+          run,
+          "PASS",
+          "Plan review approved the plan",
+          "procedure:plan-review"
+        );
+        return run;
       },
       expectedProcedure: "none"
     },
@@ -554,12 +639,18 @@ test("phase 23.7 operator status projects all pre-implementation stages", () => 
       buildRun(tempRepo) {
         return addPlanApproval(
           runtimeModule,
-          addTaggedProcedures(
-            createBaseRun(runtimeModule, tempRepo, "run-implementation-ready"),
-            "task-intake",
-            "task-prompt-writer",
-            "draft-plan",
-            "plan-review"
+          addReviewResult(
+            runtimeModule,
+            addTaggedProcedures(
+              createBaseRun(runtimeModule, tempRepo, "run-implementation-ready"),
+              "task-intake",
+              "task-prompt-writer",
+              "draft-plan",
+              "plan-review"
+            ),
+            "PASS",
+            "Plan review approved the plan",
+            "procedure:plan-review"
           )
         );
       },
@@ -574,6 +665,7 @@ test("phase 23.7 operator status projects all pre-implementation stages", () => 
     const run = scenario.buildRun(tempRepo);
     runtimeModule.validateRuntimeRun(run);
     writeRuntimeRunFixture(tempRepo, run);
+    materializeProcedureEvidenceFiles(tempRepo, run);
 
     const output = runOperatorStatus(tempRepo, "--run", run.run_id);
     assertProjectedStage(output, scenario.name, scenario.expectedProcedure);
@@ -590,6 +682,7 @@ test("phase 23.7 operator status does not treat generic approved approvals as pl
     "draft-plan",
     "plan-review"
   );
+  run = addReviewResult(runtimeModule, run, "PASS", "Plan review approved the plan", "procedure:plan-review");
 
   run = runtimeModule.recordApproval(run, {
     approvalId: "approval-generic",
@@ -601,6 +694,7 @@ test("phase 23.7 operator status does not treat generic approved approvals as pl
 
   runtimeModule.validateRuntimeRun(run);
   writeRuntimeRunFixture(tempRepo, run);
+  materializeProcedureEvidenceFiles(tempRepo, run);
 
   const output = runOperatorStatus(tempRepo, "--run", run.run_id);
   assertProjectedStage(output, "PLAN_APPROVAL_REQUIRED", "none");
@@ -616,6 +710,7 @@ test("phase 23.7 operator status does not emit CLOSEOUT_READY without a ready cl
 
   runtimeModule.validateRuntimeRun(run);
   writeRuntimeRunFixture(tempRepo, run);
+  materializeProcedureEvidenceFiles(tempRepo, run);
 
   const output = runOperatorStatus(tempRepo, "--run", run.run_id);
   assertProjectedStage(output, "CLOSEOUT_REVIEW_REQUIRED", "none");
@@ -644,7 +739,13 @@ test("phase 23.7 operator status projects implementation, closeout, and lifecycl
         let run = buildPostApprovalBaseRun(runtimeModule, tempRepo, "run-fix-pass");
         run = addImplementationEvidence(runtimeModule, run);
         run = addTaggedProcedures(run, "implementation-review");
-        run = addReviewResult(runtimeModule, run, "FIX_REQUIRED", "Implementation review requires fixes");
+        run = addReviewResult(
+          runtimeModule,
+          run,
+          "FIX_REQUIRED",
+          "Implementation review requires fixes",
+          "procedure:implementation-review"
+        );
         return run;
       },
       expectedProcedure: "fix-pass-review"
@@ -655,7 +756,7 @@ test("phase 23.7 operator status projects implementation, closeout, and lifecycl
         let run = buildPostApprovalBaseRun(runtimeModule, tempRepo, "run-verification-review");
         run = addImplementationEvidence(runtimeModule, run);
         run = addTaggedProcedures(run, "implementation-review");
-        run = addReviewResult(runtimeModule, run, "PASS");
+        run = addReviewResult(runtimeModule, run, "PASS", "Implementation review passed", "procedure:implementation-review");
         run = addVerificationResult(runtimeModule, run, "pass");
         return run;
       },
@@ -673,7 +774,7 @@ test("phase 23.7 operator status projects implementation, closeout, and lifecycl
         let run = buildPostApprovalBaseRun(runtimeModule, tempRepo, "run-delivery-facts-review");
         run = addImplementationEvidence(runtimeModule, run);
         run = addTaggedProcedures(run, "implementation-review");
-        run = addReviewResult(runtimeModule, run, "PASS");
+        run = addReviewResult(runtimeModule, run, "PASS", "Implementation review passed", "procedure:implementation-review");
         run = addVerificationResult(runtimeModule, run, "pass");
         run = addTaggedProcedures(run, "verification-review");
         return run;
@@ -748,11 +849,39 @@ test("phase 23.7 operator status projects implementation, closeout, and lifecycl
     const run = scenario.buildRun(tempRepo);
     runtimeModule.validateRuntimeRun(run);
     writeRuntimeRunFixture(tempRepo, run);
+    materializeProcedureEvidenceFiles(tempRepo, run);
 
     const output = runOperatorStatus(tempRepo, "--run", run.run_id);
     assertProjectedStage(output, scenario.name, scenario.expectedProcedure);
     scenario.assertExtra?.(output);
   }
+});
+
+test("phase 23.7 operator status does not route delivery-facts review findings into fix-pass", () => {
+  const { runtimeModule } = loadBuiltModules();
+  const tempRepo = createPhase237Repo("codex-harness-phase23-7-delivery-facts-findings-");
+  let run = buildPostApprovalBaseRun(runtimeModule, tempRepo, "run-delivery-facts-findings");
+
+  run = addImplementationEvidence(runtimeModule, run);
+  run = addTaggedProcedures(run, "implementation-review");
+  run = addReviewResult(runtimeModule, run, "PASS", "Implementation review passed", "procedure:implementation-review");
+  run = addVerificationResult(runtimeModule, run, "pass");
+  run = addTaggedProcedures(run, "verification-review", "delivery-facts-review");
+  run = addReviewResult(
+    runtimeModule,
+    run,
+    "FIX_REQUIRED",
+    "Delivery facts review requires recorded PR and CI facts",
+    "procedure:delivery-facts-review"
+  );
+
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+  materializeProcedureEvidenceFiles(tempRepo, run);
+
+  const output = runOperatorStatus(tempRepo, "--run", run.run_id);
+  assertProjectedStage(output, "DELIVERY_FACTS_REVIEW_REQUIRED", "delivery-facts-review");
+  assert.match(output.get("missing_evidence"), /delivery facts/);
 });
 
 test("phase 23.7 operator status projects RUN_QUARANTINED without creating runtime side effects", () => {
@@ -763,6 +892,7 @@ test("phase 23.7 operator status projects RUN_QUARANTINED without creating runti
 
   runtimeModule.validateRuntimeRun(run);
   writeRuntimeRunFixture(tempRepo, run);
+  materializeProcedureEvidenceFiles(tempRepo, run);
   seedQuarantineState(stagingModule, tempRepo, run.run_id);
   const before = snapshotRepoFiles(tempRepo);
 
@@ -794,6 +924,7 @@ test("phase 23.7 operator status does not use installed-layer prompt review or v
   run = addTaggedProcedures(run, "task-intake");
   runtimeModule.validateRuntimeRun(run);
   writeRuntimeRunFixture(tempRepo, run);
+  materializeProcedureEvidenceFiles(tempRepo, run);
 
   const output = runOperatorStatus(tempRepo, "--run", run.run_id);
   assertProjectedStage(output, "TASK_PROMPT_REQUIRED", "task-prompt-writer");

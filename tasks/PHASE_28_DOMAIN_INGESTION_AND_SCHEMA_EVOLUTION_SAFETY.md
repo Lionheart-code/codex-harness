@@ -4,6 +4,18 @@
 
 Define safe ingestion and schema-evolution primitives for future domain packs.
 
+## Status
+
+Planned. Blocked until Phase 27 Domain Pack / Skills Architecture is complete
+and reviewed.
+
+Roadmap continuity:
+
+Earlier operator/procedure/proof/report/access phases must not implement
+automatic domain ingestion, production domain data ingestion, or domain schema
+mutation. They may only preserve generic foundations that this phase can use
+later.
+
 ## Core idea
 
 Future domain runtimes may ingest broad raw data, but raw data must not become
@@ -37,3 +49,4 @@ Schema changes require:
 - Do not implement a production Ozon/CRM/marketing system.
 - Do not allow agents to mutate domain schema automatically after each new data
   point.
+- Do not let earlier core phases bypass domain-pack safety boundaries.

@@ -3,11 +3,11 @@
 ## Purpose
 
 Materialize and validate the existing Phase 23.6 self-hosting procedure surface
-so later registry work can discover and use procedures consistently.
+so agents and operator surfaces can discover and use procedures consistently.
 
-This phase begins with a bounded source-of-truth and procedure-surface patch.
-It aligns authoritative task/docs/policies/prompts/skills/output formats/tests
-before any registry implementation.
+This phase includes the bounded source-of-truth and procedure-surface alignment
+from the pre-registry patch, then materializes the checked-in registry and the
+minimal operator/runtime consumption needed by the approved plan.
 
 This phase extends `skills/self-hosting/**`; it does not replace it.
 
@@ -23,24 +23,34 @@ External OpenAI/Codex docs, GitHub prior-art repos, and user research
 documents are advisory inputs only. Repo tasks, docs, tests, and verified
 runtime behavior remain the project authority.
 
-Phase 23.8 records metadata and source trace only. It does not execute roles,
-route models, or integrate future access layers.
+Phase 23.8 records procedure metadata, source trace, and registry-backed
+operator lookup behavior. It does not execute roles, route models, or integrate
+future access layers.
 
 ## Required work
 
-- Add one bounded source-of-truth and procedure-surface patch before registry
-  implementation.
+- Preserve the completed bounded source-of-truth and procedure-surface patch as
+  an explicit prerequisite for the registry implementation.
 - Run Step R: a bounded prompt/review prior-art audit with exact source URLs,
   unavailable-source handling, and compact source trace.
 - Record Step R output with:
   `source_url_or_doc`, `source_type`, `pattern_observed`,
   `accepted/adapted/rejected/deferred`, `target_file`, and `reason`.
 - Build or validate a machine-readable index/registry of Phase 23.6 procedures
-  only after the bounded patch is reviewed.
+  after the bounded patch is reviewed.
 - Preserve procedure IDs.
-- Expose required inputs, outputs, actor/permission/risk metadata, allowed
-  states, blockers, evidence requirements, source trace, and packet
-  dependencies.
+- Expose the registry-backed metadata needed for current operator lookup:
+  required inputs, outputs, allowed outcome states, blockers, evidence
+  requirements, source trace, and packet dependencies. Document
+  actor/permission/risk metadata as the broader registry target for a later
+  reviewed schema expansion before runner or execution surfaces consume it.
+- Tighten the canonical `draft-plan`, `plan-review`, and `plan-amend`
+  procedure surfaces only where needed so the approved workflow semantics are
+  durable in repo-owned contracts rather than chat-local prompts.
+- Make `plan-review` preserve a durable operator-readable decision record in
+  addition to a human-readable review report.
+- Make `plan-amend` yield one effective amended plan rather than leaving
+  implementation to merge amendment history manually.
 - Add validation that generated/discovery targets are not treated as canonical
   source.
 - Add review-surface discovery, bounded fix-pass, source trace, skill risk
@@ -153,7 +163,6 @@ source_notes_path
 - Do not build a broad plugin framework.
 - Do not import community skill packs.
 - Do not move canonical source out of `skills/self-hosting/**`.
-- Do not implement registry execution in this patch.
 - Do not implement role execution.
 - Do not implement provider/model review routing.
 - Do not implement App Server integration.
@@ -163,12 +172,46 @@ source_notes_path
 - Do not introduce a new procedure taxonomy or new procedure IDs.
 - Do not make API-key billing the default path.
 - Do not introduce hidden paid token-metered execution.
+- Do not implement transactional procedure-result ingestion or slice-isolated
+  run mutations.
+- Do not implement stage packet automation, proof generation, reports, access
+  APIs, MCP, runners, hooks, provider adapters, or domain-pack behavior.
+
+## Closeout addendum
+
+Before Phase 23.8 closeout, the standalone
+`docs/SELF_HOSTING_RUN_STATE_AUTOMATION_FOLLOWUP.md` note must not remain as an
+independent planning or authority surface. Its substance must be folded into
+canonical roadmap/task contracts, and the standalone file must be removed or
+left uncommitted before closeout.
+
+Phase 23.8 may update future task contracts and roadmap preconditions to
+represent that run-state ingestion hardening is required before Phase 23.9.
+It must not implement that hardening in this phase.
+
+Required future contract coverage:
+
+- `tasks/PHASE_23_8_5_AUTOMATION_ROADMAP_AND_TASK_AUTHORITY_REBASE.md`;
+- `tasks/PHASE_23_8_6_TRANSACTIONAL_PROCEDURE_RESULT_INGESTION.md`;
+- `tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md`;
+- an amended `tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md`
+  that consumes stable procedure/run-state records or explicitly documents a
+  reviewed defer/waiver.
+
+## Acceptance criteria
+
+- Existing Phase 23.6 procedure IDs are discoverable through a registry/index.
+- Registry/index points back to canonical source paths.
+- Generated/export targets are clearly non-authoritative.
+- Operator can use registry metadata without parsing prose heuristically where
+  practical.
+- No parallel procedure taxonomy is introduced.
 
 ## Acceptance commands
 
 ```bash
 npm run build
-node --test tests/acceptance/phase23-6-self-hosting-skills-plan-review-bootstrap.test.mjs tests/acceptance/self-hosting-review-policy-hardening.test.mjs tests/acceptance/phase23-8-bounded-source-of-truth-procedure-surface-patch.test.mjs
+node --test tests/acceptance/phase23-6-self-hosting-skills-plan-review-bootstrap.test.mjs tests/acceptance/self-hosting-review-policy-hardening.test.mjs tests/acceptance/phase23-7-operator-status.test.mjs tests/acceptance/phase23-8-bounded-source-of-truth-procedure-surface-patch.test.mjs tests/acceptance/phase23-8-agent-native-procedure-registry-and-skill-surface.test.mjs
 node bin/ch run start --task TASK.md --dry-run
 node bin/ch run status --operator --dry-run
 git diff --check
@@ -176,7 +219,33 @@ git diff --check
 
 ## Acceptance behavior
 
-- source-of-truth docs are aligned before registry implementation;
+- `skills/self-hosting/procedure-registry.json` exists as a checked-in,
+  canonical registry artifact and validates against a product-source schema
+  under `schemas/`.
+- The registry preserves existing Phase 23.6 procedure IDs, points back to the
+  canonical `skills/self-hosting/**` files, and marks `.agents/**` or
+  host-installed discovery targets as non-authoritative.
+- `node bin/ch run status --operator` can consume registry-backed procedure
+  metadata where practical instead of relying only on prose or directory scans.
+- Pre-implementation operator progression is outcome-aware enough to avoid
+  treating bare `plan-review` evidence as equivalent to an approved or amended
+  plan.
+- Canonical `draft-plan`, `plan-review`, and `plan-amend` surfaces preserve:
+  - deterministic decisions versus real operator choices;
+  - `plan-review` as the mandatory task-boundary barrier before implementation;
+  - a durable review decision record for operator/runtime use;
+  - one effective amended plan rather than manual amendment-chain stitching.
+- Hooks remain guardrails and docs/defer-only in this phase; they do not become
+  task, review, lifecycle, or memory authority.
+- The focused research checkpoint records what was adopted, what remains
+  advisory, and what is deferred to later phases.
+- No standalone run-state follow-up planning file remains in the final Phase
+  23.8 diff.
+- Future run-state ingestion work is represented only through canonical roadmap
+  and task contracts.
+- source-of-truth docs are aligned before registry implementation as the
+  completed bounded pre-registry prerequisite, and the final phase state also
+  materializes the checked-in registry.
 - Step R source trace is recorded, and unavailable or moved sources are marked
   explicitly when encountered;
 - current product self-hosting entrypoint is documented consistently as
@@ -196,4 +265,7 @@ git diff --check
 - no parallel procedure taxonomy is introduced;
 - no role execution, provider/model routing, App Server integration, MCP
   adapter work, external API execution, domain-pack implementation, or
-  autonomous loop is introduced in this patch.
+  autonomous loop is introduced in Phase 23.8.
+- No transactional ingestion commands, packet automation, proof generation,
+  reports, access APIs, MCP, runners, hooks, provider adapters, or domain-pack
+  behavior are implemented in Phase 23.8.

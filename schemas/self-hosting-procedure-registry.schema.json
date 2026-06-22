@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codex-harness self-hosting procedure registry",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "producer_command",
+    "registry_id",
+    "canonical_root",
+    "discovery_targets",
+    "procedures"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "producer_command": { "type": "string", "minLength": 1 },
+    "registry_id": { "type": "string", "const": "self-hosting-procedure-registry" },
+    "canonical_root": { "type": "string", "const": "skills/self-hosting/" },
+    "discovery_targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "authority", "purpose"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "authority": { "const": "non-authoritative" },
+          "purpose": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "procedures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "procedure_id",
+          "title",
+          "purpose",
+          "canonical_source_path",
+          "skill_path",
+          "source_notes_path",
+          "output_format_path",
+          "required_inputs",
+          "blocker_conditions",
+          "evidence_to_record",
+          "phase_23_5_dependencies",
+          "phase_24_packet_dependencies",
+          "authority_level",
+          "generated_or_install_targets_non_authoritative"
+        ],
+        "properties": {
+          "procedure_id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "purpose": { "type": "string", "minLength": 1 },
+          "canonical_source_path": { "type": "string", "pattern": "^skills/self-hosting/.+/$" },
+          "skill_path": { "type": "string", "pattern": "^skills/self-hosting/.+/SKILL\\.md$" },
+          "source_notes_path": { "type": "string", "pattern": "^skills/self-hosting/.+/references/source-notes\\.md$" },
+          "output_format_path": { "type": "string", "pattern": "^skills/self-hosting/.+/references/output-format\\.md$" },
+          "required_inputs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "blocker_conditions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "evidence_to_record": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "phase_23_5_dependencies": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "phase_24_packet_dependencies": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "authority_level": { "enum": ["binding", "advisory", "pattern-only"] },
+          "generated_or_install_targets_non_authoritative": { "const": true },
+          "operator_contract": {
+            "type": "object",
+            "required": ["primary_outputs", "allowed_outcome_states"],
+            "properties": {
+              "primary_outputs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+              "allowed_outcome_states": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+              "durable_decision_fields": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+              "real_operator_choices_only": { "type": "boolean" },
+              "latest_amendment_supersedes_prior_plan": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

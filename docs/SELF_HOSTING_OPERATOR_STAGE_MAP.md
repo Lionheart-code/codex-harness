@@ -68,6 +68,32 @@ task/run/evidence/review/closeout state where possible. Do not introduce a DB
 migration merely to store a stage label unless repo inspection proves
 projection is insufficient.
 
+For the pre-implementation path, bare `plan-review` evidence is not enough on
+its own. The operator should rely on a durable review decision record or
+equivalent typed runtime review evidence, and `PLAN_APPROVAL_REQUIRED` refers
+to the latest effective amended plan rather than any stale draft-plan artifact.
+
+## Future ingestion and packet stages
+
+Phase 23.8.6 and Phase 23.8.7 may add richer command-backed transitions for
+procedure-result ingestion and stage-packet preparation. Until those task
+contracts are active and implemented, this stage map remains a projection and
+must not imply manual `run.json` repair, runner invocation, background
+automation, or hook authority.
+
+Expected future command-backed actions include:
+
+```text
+record procedure result
+record reviewed-plan approval
+prepare stage packet
+record stage result fixture
+```
+
+Those actions must preserve the existing stage boundaries: procedure ingestion
+does not execute the next phase, packet preparation does not launch a runner,
+and proof/report/access layers do not decide lifecycle.
+
 ## Change control
 
 If repo inspection shows a different canonical stage model, the Phase 23.7

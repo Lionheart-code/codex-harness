@@ -19,6 +19,9 @@ Optional user-level install target:
 Rules:
 
 - `skills/self-hosting/**` is the authority source in this repo.
+- `skills/self-hosting/procedure-registry.json` is the checked-in derived
+  registry over that canonical source. It must point back to the canonical
+  files and must not replace them.
 - `.agents/**` remains local or generated state in this repo unless a future
   reviewed task changes that boundary explicitly.
 - Generated or local discovery targets must not become hidden source-of-truth.

@@ -2,8 +2,18 @@
 
 ## Status
 
-Planned amended phase. Starts only after Phase 23.7, Phase 23.8, and Phase
-23.9 operator/procedure/proof foundations are complete, reviewed, and accepted.
+Superseded as a single implementation task by:
+
+- `tasks/PHASE_24A_MINIMAL_EVIDENCE_REPORT_AND_REVIEW_PACKET.md`
+- `tasks/PHASE_24B_EXPANDED_REPORTS_AND_PACKETS.md`
+
+This file remains the source catalog for useful Phase 24 report, packet,
+redaction, provenance, and manifest constraints. Implementers must not treat
+the broad catalog below as permission to implement all reports in Phase 24A.
+
+Phase 24A starts only after Phase 23.9 operator/procedure/proof foundations are
+complete, reviewed, and accepted. Phase 24B starts only after Phase 24A shows
+concrete value.
 
 ## Review status
 
@@ -17,6 +27,15 @@ Phase 23 JSONL/projection assumptions.
 
 Phase 24 reports and packets consume operator/procedure/proof state. They do
 not decide lifecycle status independently.
+
+Split rule:
+
+- Phase 24A implements one deterministic run evidence/closeout report and one
+  bounded implementation-review or handoff packet.
+- Phase 24B may add the broader report/packet catalog only after measured use,
+  with one acceptance fixture per new surface.
+- Neither phase may introduce MCP, full Agent Access Layer, domain packs,
+  external writes, hidden summarization, or lifecycle authority.
 
 ## Read before editing
 

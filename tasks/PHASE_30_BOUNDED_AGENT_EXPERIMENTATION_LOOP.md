@@ -5,6 +5,17 @@
 Add an AutoResearch-style experimentation primitive after
 operator/procedure/proof/evaluator fixtures exist.
 
+## Status
+
+Planned. Blocked until Phase 29 Prior-Art Discovery Gate is complete and
+reviewed.
+
+Roadmap continuity:
+
+Earlier phases may preserve hooks, adapters, runner comparisons, reviewer
+improvements, and packet optimization as deferred candidates. They must not run
+experimentation loops before evaluator/proof/report foundations exist.
+
 ## Core pattern
 
 - human/architect-owned experiment program;

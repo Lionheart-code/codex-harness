@@ -13,7 +13,7 @@ Plan Amend
 
 ## purpose
 Revise a draft plan in response to explicit review findings while keeping the
-change history visible.
+change history visible and yielding one effective amended plan for execution.
 
 ## when_to_use
 - `plan-review` returned findings that require revision.
@@ -38,6 +38,8 @@ change history visible.
 ## checklist
 - Map every review finding to accepted, rejected, or unresolved disposition.
 - Update only the plan sections affected by those findings.
+- Make the latest amendment supersede earlier plan versions for execution while
+  preserving older artifacts as audit trail.
 - Preserve explicit scope, non-goals, and validation steps.
 - Record residual risks that still require human judgment.
 
@@ -54,6 +56,7 @@ Return the exact section order documented in
 ## evidence_to_record
 - Amended plan
 - Finding disposition log
+- Supersession note identifying the effective amended plan
 - Residual risks or unresolved items
 
 ## phase_23_5_dependencies

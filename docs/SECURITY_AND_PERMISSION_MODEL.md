@@ -92,6 +92,35 @@ Every agent profile must define:
 - timeout;
 - confirmation requirement.
 
+## Future ExecutionPolicy contract
+
+Phase 23.8.7 may introduce stage packets with an `ExecutionPolicy`. That
+policy is the per-packet permission boundary. It is separate from a
+`RunnerProfile`, which only describes runner capabilities.
+
+`ExecutionPolicy` must define:
+
+- role;
+- write scope;
+- sandbox mode;
+- approval policy;
+- network policy;
+- command policy;
+- timeout policy;
+- allowed paths;
+- forbidden paths.
+
+Rules:
+
+- A runner capability never grants permission by itself.
+- A packet may only use permissions explicitly present in its
+  `ExecutionPolicy`.
+- Write-capable runners remain read-only unless the packet policy and human
+  approval boundary allow writes.
+- Unknown or malformed execution policy fails closed.
+- Execution policy does not authorize runner invocation until a later reviewed
+  phase explicitly implements runner execution.
+
 ## Failure policy
 
 If permission state is unclear:

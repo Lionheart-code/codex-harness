@@ -6,6 +6,11 @@ Build `codex-harness`: a reusable local control layer for software development w
 
 The harness should make Codex-driven development disciplined, repeatable, auditable, and portable across repositories.
 
+Lightweight control remains the primary product direction. The harness should
+not become a process-product expansion, generic orchestration platform,
+dashboard, marketplace, background runner, autonomous agent loop,
+MCP-native architecture, or domain-specific core.
+
 Target lifecycle:
 
 ```text
@@ -37,9 +42,13 @@ This is not:
 Harness owns:
 - task state;
 - phase boundaries;
+- procedure and operator-stage routing contracts;
 - prompt generation;
 - worktree discipline;
 - check execution;
+- validation gates;
+- durable evidence/proof/report/access foundations when their phases are
+  implemented;
 - report generation;
 - install/upgrade of repo-local harness layer.
 
@@ -64,6 +73,20 @@ Project tests own:
 Human owns:
 - final merge decision.
 ```
+
+Active run-state authority:
+
+```text
+staging DB
+  mutable active-run authority
+
+run.json
+  compatibility projection, not manual repair authority
+```
+
+Agents and future runners execute only scoped packets when a later phase
+explicitly adds runner invocation. The operator interprets state and prepares
+allowed next actions; it does not execute agents by itself.
 
 ## 4. Repository model
 
@@ -165,6 +188,9 @@ Hooks must not be:
 - a transaction manager;
 - the full security boundary;
 - the worktree manager.
+
+Hooks remain sidecar guardrails. They must not become task, review, lifecycle,
+memory, proof, report, access, runner, or domain authority.
 
 ## 9. Skills role
 
