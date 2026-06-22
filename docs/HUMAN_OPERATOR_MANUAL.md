@@ -19,6 +19,11 @@ This document explains how a human operator should use `codex-harness` safely.
 8. Commit only after review, verification, and closeout prerequisites are
    satisfied.
 
+A closing or harvested run may record which task should come next. It does not
+own the new task branch/worktree. The next cycle starts only when `TASK.md` is
+activated for that task, a new run is opened, and the branch/worktree for that
+task is created or entered. Preserve one task = one branch = one worktree.
+
 The installed target workflow remains separate:
 
 ```text
@@ -234,12 +239,14 @@ After apply:
 
 ## Moving to next phase
 
-Only after commit:
+Only after commit and closeout/harvest decision:
 
-1. edit `TASK.md`;
-2. point to next phase task file;
-3. commit task pointer change if desired;
-4. start fresh `/plan`.
+1. record the next task decision if it is not already recorded;
+2. start the new cycle by editing `TASK.md` to point to that task;
+3. start the new run for the active task;
+4. create or enter the branch/worktree owned by that task;
+5. commit the task pointer/materialization change if desired;
+6. start fresh `/plan`.
 
 ## Emergency rollback
 

@@ -34,7 +34,7 @@ Non-procedure transitions belong in `next_allowed_action`.
 | `CLOSEOUT_REVIEW_REQUIRED` | `phase-closeout-review` | run phase-closeout-review procedure | accepted implementation review, verification, delivery facts | `missing_closeout_review` | harvest |
 | `CLOSEOUT_READY` | `none` | perform closeout lifecycle command under Phase 23.5 rules | accepted closeout review | `closeout_ready` | new implementation in same run |
 | `HARVEST_READY` | `none` | perform harvest lifecycle command under Phase 23.5 rules | closeout receipt and harvest candidates | `harvest_ready` | direct accepted-memory writes without harvest |
-| `RUN_HARVESTED` | `none` | start new run/task if needed | harvested run/closeout record | `run_already_harvested` | new work in same run |
+| `RUN_HARVESTED` | `none` | record next-task decision or begin separate new-cycle materialization if needed | harvested run/closeout record | `run_already_harvested` | new work in same run, claiming next task branch/worktree from harvested run |
 | `RUN_DISCARDED` | `none` | require explicit recovery/reopen decision | discarded run/staging state | `run_discarded` | resume without explicit recovery/reopen decision |
 | `RUN_QUARANTINED` | `none` | manual/review decision before transition | quarantined run/evidence/state | `run_quarantined` | implementation, harvest, accepted-memory writes |
 | `BLOCKED` | `none` | resolve blocker-specific condition | blocker-specific evidence | blocker-specific stop reason | any transition not resolving blocker |
@@ -81,11 +81,21 @@ contracts are active and implemented, this stage map remains a projection and
 must not imply manual `run.json` repair, runner invocation, background
 automation, or hook authority.
 
+Procedure ingestion may record that closeout/harvest selected the next task.
+New-cycle materialization is separate: activate the next task, start the new
+run, and create the task branch/worktree through formal product commands or an
+equivalent documented runtime surface. The harvested run must not create,
+claim, or mutate the next task branch/worktree.
+
 Expected future command-backed actions include:
 
 ```text
 record procedure result
 record reviewed-plan approval
+record next-task decision
+activate next task
+start new run
+create task branch/worktree
 prepare stage packet
 record stage result fixture
 ```

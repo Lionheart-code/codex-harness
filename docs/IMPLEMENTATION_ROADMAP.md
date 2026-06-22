@@ -371,6 +371,17 @@ Global constraints for the rebase:
   is a compatibility projection;
 - proof and reports never become lifecycle authority.
 
+Task-cycle materialization invariant:
+- one task = one branch = one worktree;
+- a closing or harvested run may determine and record the next task decision;
+- a closing or harvested run must not create, claim, or mutate the next task
+  branch/worktree;
+- the next task branch/worktree belongs to the new active task, not the old
+  closing or harvested run;
+- start-of-new-cycle materialization means activating the next task, starting
+  the new run, and creating the new branch/worktree through product commands or
+  equivalent documented runtime surfaces.
+
 ## Phase 23.8.5 — Automation Roadmap and Task Authority Rebase
 
 Task:
@@ -386,8 +397,14 @@ automation, proof generation, reports, access APIs, MCP, runners, hooks,
 provider adapters, or domain-pack behavior.
 
 Required scope:
+- activate this task by updating `TASK.md`, then keep this pass docs/task-only;
 - update this roadmap with the new sequence and a direct block before Phase
   23.9;
+- separate end-of-old-cycle decision from start-of-new-cycle materialization:
+  closeout/harvest may record the next task, while the new cycle activates the
+  task, starts the run, and creates the branch/worktree;
+- preserve one task = one branch = one worktree and make clear that a harvested
+  run never owns the next task branch/worktree;
 - amend `docs/OPERATIONS_PLAN.md` with operator-first operations where manual
   `run.json` repair is forbidden and every operator action maps to a product
   command or documented ingestion path;
@@ -444,6 +461,11 @@ Required scope:
 - add typed delivery-fact ingestion for `merge` results and merge commits, and
   define whether merge evidence is required before harvest or may be appended
   after harvest without reopening or manually repairing the run;
+- add a formal product command sequence or equivalent documented runtime
+  surface for start-of-new-cycle materialization: activate the decided next
+  task, start the new run, and create the task branch/worktree;
+- ensure a harvested/closing run may record the next task decision but cannot
+  create, claim, or mutate the new task branch/worktree;
 - regenerate compatibility `run.json` from staging DB rather than treating it
   as manual live authority;
 - ensure operator `next_allowed_action` values that require durable state map
@@ -870,5 +892,8 @@ After every phase:
 1. Run acceptance.
 2. Review diff.
 3. Commit.
-4. Update `TASK.md` to point to the next phase.
-5. Start a new `/plan` run.
+4. Record the next task decision as part of old-cycle closeout/harvest when
+   applicable.
+5. In the new cycle, activate the next task in `TASK.md`, start the new run,
+   and create the new branch/worktree for that task.
+6. Start a new `/plan` run for the new active task.

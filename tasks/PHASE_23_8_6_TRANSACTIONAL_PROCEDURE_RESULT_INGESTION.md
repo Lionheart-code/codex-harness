@@ -14,6 +14,11 @@ The product must provide formal procedure-aware ingestion paths and
 slice-isolated mutations so a command that records one kind of result cannot
 remove unrelated run-state.
 
+This phase also owns the future productized materialization path for moving
+from a recorded next-task decision into a new active task cycle. That path must
+activate the next task, start the new run, and create the new branch/worktree
+through formal product commands or equivalent documented runtime surfaces.
+
 ## Problem
 
 Self-hosting procedures can produce valid files or evidence artifacts, while
@@ -39,6 +44,14 @@ Required behavior:
   slices.
 - Delivery-fact ingestion covers PR, remote CI/check, review, `merge` result,
   merge commit, and closeout approval facts without manual `run.json` repair.
+- End-of-old-cycle ingestion may record the decided next task as a closeout or
+  harvest fact, but it must not create, claim, or mutate the next task
+  branch/worktree.
+- Add a formal product command sequence or equivalent documented runtime
+  surface for start-of-new-cycle materialization:
+  activate next task, start the new run, and create the branch/worktree.
+- Enforce that the new branch/worktree belongs to the new active task and not
+  to the old closing or harvested run.
 - Post-merge delivery evidence is explicit: implementation must either require
   merge evidence before harvest or provide a typed append-only post-harvest
   delivery update path that records the merge fact without reopening,
@@ -60,6 +73,7 @@ Required behavior:
 - No domain pack.
 - No generic workflow engine.
 - No background runner.
+- No automatic next-task implementation.
 - No raw DB API exposed to agents.
 - No domain data ingestion path.
 
@@ -97,5 +111,9 @@ git diff --check
 - Merge results and merge commits can be recorded through a product command or
   documented ingestion path, including the chosen pre-harvest or post-harvest
   semantics.
+- A recorded next-task decision can be materialized only by the formal
+  new-cycle command path or documented runtime surface.
+- Materialization preserves one task = one branch = one worktree and does not
+  attribute the new branch/worktree to the old closing or harvested run.
 - No packet automation, runner execution, proof generation, report generation,
   or access API is introduced.

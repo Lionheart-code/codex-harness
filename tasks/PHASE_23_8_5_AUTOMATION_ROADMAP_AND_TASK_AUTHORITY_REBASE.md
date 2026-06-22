@@ -14,6 +14,10 @@ is implemented.
 This is an authority rebase, not an implementation phase. It clarifies what the
 next phases are allowed to build and what they must not pre-implement.
 
+It also separates the end-of-old-cycle decision from the start-of-new-cycle
+materialization. A closing or harvested run may determine and record the next
+task, but it must not create, claim, or mutate the next task branch/worktree.
+
 ## Read before editing
 
 - `TASK.md`
@@ -38,8 +42,21 @@ next phases are allowed to build and what they must not pre-implement.
 
 Required changes:
 
+- Update `TASK.md` to activate this task file for the current preparation pass.
 - Update `docs/IMPLEMENTATION_ROADMAP.md` with the Phase 23.8.5 -> 23.8.6 ->
   23.8.7 -> 23.9 -> 24A -> 24B -> 25A -> 25B -> 26 sequence.
+- Amend roadmap/operator contracts to make this invariant explicit:
+  one task = one branch = one worktree; a closing or harvested run may decide
+  the next task, but the new branch/worktree belongs to the new active task and
+  must be created only during the new-cycle materialization step.
+- Split operator lifecycle language into:
+  end-of-old-cycle decision, which determines and records the next task; and
+  start-of-new-cycle materialization, which activates the next task, starts the
+  new run, and creates the new branch/worktree.
+- State that Phase 23.8.6 owns the future productized materialization surface
+  for activating the next task, starting the new run, and creating the
+  branch/worktree through formal product commands or equivalent documented
+  runtime surfaces.
 - Add a roadmap continuity invariant that preserves Phases 27-30 as the
   downstream domain-pack, ingestion/schema-safety, prior-art discovery, and
   bounded experimentation path.
@@ -87,6 +104,8 @@ Required changes:
 - No provider adapters.
 - No domain-pack behavior.
 - No process-product expansion or generic orchestration platform.
+- No new run is started during this pass.
+- No branch/worktree materialization is performed during this pass.
 
 ## Future-phase impact check
 
@@ -124,3 +143,7 @@ git diff --check
 - No MCP/API/runner implementation is introduced.
 - No hook authority is introduced.
 - No broad process-product expansion is introduced.
+- Old-cycle closeout/harvest and new-cycle activation/materialization are
+  explicitly separate.
+- The one task = one branch = one worktree invariant is preserved, and no
+  harvested/closing run claims the next task branch/worktree.
