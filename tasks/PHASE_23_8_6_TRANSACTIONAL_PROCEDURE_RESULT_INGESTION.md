@@ -16,7 +16,8 @@ remove unrelated run-state.
 
 This phase also owns the future productized materialization path for moving
 from a recorded next-task decision into a new active task cycle. That path must
-activate the next task, start the new run, and create the new branch/worktree
+preserve the new task context: create or enter the new branch/worktree,
+activate the next task there, and start the new run in that task worktree,
 through formal product commands or equivalent documented runtime surfaces.
 
 ## Problem
@@ -48,8 +49,10 @@ Required behavior:
   harvest fact, but it must not create, claim, or mutate the next task
   branch/worktree.
 - Add a formal product command sequence or equivalent documented runtime
-  surface for start-of-new-cycle materialization:
-  activate next task, start the new run, and create the branch/worktree.
+  surface for start-of-new-cycle materialization that preserves the new task
+  context:
+  create or enter the branch/worktree, activate next task there, and start the
+  new run in that task worktree.
 - Enforce that the new branch/worktree belongs to the new active task and not
   to the old closing or harvested run.
 - Post-merge delivery evidence is explicit: implementation must either require

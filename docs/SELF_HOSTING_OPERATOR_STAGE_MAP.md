@@ -82,9 +82,10 @@ must not imply manual `run.json` repair, runner invocation, background
 automation, or hook authority.
 
 Procedure ingestion may record that closeout/harvest selected the next task.
-New-cycle materialization is separate: activate the next task, start the new
-run, and create the task branch/worktree through formal product commands or an
-equivalent documented runtime surface. The harvested run must not create,
+New-cycle materialization is separate. In the current manual harness flow, it
+must create or enter the task branch/worktree first, activate the next task
+there, and then start the new run in that task worktree. A later formal
+product command may wrap that sequence. The harvested run must not create,
 claim, or mutate the next task branch/worktree.
 
 Expected future command-backed actions include:
@@ -93,9 +94,9 @@ Expected future command-backed actions include:
 record procedure result
 record reviewed-plan approval
 record next-task decision
-activate next task
-start new run
 create task branch/worktree
+activate next task in task worktree
+start new run in task worktree
 prepare stage packet
 record stage result fixture
 ```

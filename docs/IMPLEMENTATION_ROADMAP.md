@@ -378,9 +378,12 @@ Task-cycle materialization invariant:
   branch/worktree;
 - the next task branch/worktree belongs to the new active task, not the old
   closing or harvested run;
-- start-of-new-cycle materialization means activating the next task, starting
-  the new run, and creating the new branch/worktree through product commands or
-  equivalent documented runtime surfaces.
+- start-of-new-cycle materialization belongs to the new task context; in the
+  current manual harness flow, that means creating or entering the new task
+  branch/worktree first, activating the next task there, and then starting the
+  new run;
+- a later productized materialization surface may wrap that same sequence in
+  one formal command path or equivalent documented runtime surface.
 
 ## Phase 23.8.5 — Automation Roadmap and Task Authority Rebase
 
@@ -401,8 +404,9 @@ Required scope:
 - update this roadmap with the new sequence and a direct block before Phase
   23.9;
 - separate end-of-old-cycle decision from start-of-new-cycle materialization:
-  closeout/harvest may record the next task, while the new cycle activates the
-  task, starts the run, and creates the branch/worktree;
+  closeout/harvest may record the next task, while the new cycle creates or
+  enters the task branch/worktree, activates the task there, and starts the
+  run in that task context;
 - preserve one task = one branch = one worktree and make clear that a harvested
   run never owns the next task branch/worktree;
 - amend `docs/OPERATIONS_PLAN.md` with operator-first operations where manual
@@ -462,8 +466,9 @@ Required scope:
   define whether merge evidence is required before harvest or may be appended
   after harvest without reopening or manually repairing the run;
 - add a formal product command sequence or equivalent documented runtime
-  surface for start-of-new-cycle materialization: activate the decided next
-  task, start the new run, and create the task branch/worktree;
+  surface for start-of-new-cycle materialization that preserves the new task
+  context: create or enter the task branch/worktree, activate the decided next
+  task there, and start the new run in that task worktree;
 - ensure a harvested/closing run may record the next task decision but cannot
   create, claim, or mutate the new task branch/worktree;
 - regenerate compatibility `run.json` from staging DB rather than treating it
@@ -894,6 +899,7 @@ After every phase:
 3. Commit.
 4. Record the next task decision as part of old-cycle closeout/harvest when
    applicable.
-5. In the new cycle, activate the next task in `TASK.md`, start the new run,
-   and create the new branch/worktree for that task.
+5. In the new cycle, create or enter the new branch/worktree for that task,
+   activate the next task in `TASK.md` there, and start the new run in that
+   task worktree.
 6. Start a new `/plan` run for the new active task.

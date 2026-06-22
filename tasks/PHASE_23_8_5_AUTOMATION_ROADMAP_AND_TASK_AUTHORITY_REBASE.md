@@ -51,8 +51,9 @@ Required changes:
   must be created only during the new-cycle materialization step.
 - Split operator lifecycle language into:
   end-of-old-cycle decision, which determines and records the next task; and
-  start-of-new-cycle materialization, which activates the next task, starts the
-  new run, and creates the new branch/worktree.
+  start-of-new-cycle materialization, which in the current manual harness flow
+  creates or enters the new task branch/worktree, activates the next task
+  there, and starts the new run in that task worktree.
 - State that Phase 23.8.6 owns the future productized materialization surface
   for activating the next task, starting the new run, and creating the
   branch/worktree through formal product commands or equivalent documented

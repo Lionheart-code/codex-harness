@@ -21,8 +21,10 @@ This document explains how a human operator should use `codex-harness` safely.
 
 A closing or harvested run may record which task should come next. It does not
 own the new task branch/worktree. The next cycle starts only when `TASK.md` is
-activated for that task, a new run is opened, and the branch/worktree for that
-task is created or entered. Preserve one task = one branch = one worktree.
+activated in that task's own branch/worktree and a new run is opened there.
+For the current manual harness flow, create or enter the task branch/worktree
+first, then update `TASK.md` in that worktree, then run `node bin/ch run start
+--task TASK.md`. Preserve one task = one branch = one worktree.
 
 The installed target workflow remains separate:
 
@@ -242,9 +244,9 @@ After apply:
 Only after commit and closeout/harvest decision:
 
 1. record the next task decision if it is not already recorded;
-2. start the new cycle by editing `TASK.md` to point to that task;
-3. start the new run for the active task;
-4. create or enter the branch/worktree owned by that task;
+2. create or enter the branch/worktree owned by that task;
+3. in that branch/worktree, edit `TASK.md` to point to that task;
+4. start the new run for the active task in that task worktree;
 5. commit the task pointer/materialization change if desired;
 6. start fresh `/plan`.
 

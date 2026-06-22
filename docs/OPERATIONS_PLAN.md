@@ -21,9 +21,11 @@ operator stage
 
 Task-cycle boundaries are explicit. End-of-old-cycle closeout/harvest may
 determine and record the next task, but it must not create or claim the next
-task branch/worktree. Start-of-new-cycle materialization activates `TASK.md`,
-starts the new run, and creates the branch/worktree for that new active task.
-The invariant is one task = one branch = one worktree.
+task branch/worktree. Start-of-new-cycle materialization belongs to the new
+task context. In the current manual harness flow, create or enter the task
+branch/worktree first, activate `TASK.md` there, and then start the new run.
+Later productized materialization may wrap that sequence in one formal command
+path. The invariant is one task = one branch = one worktree.
 
 Until the Phase 23.8.6 transactional ingestion task is implemented, any
 operator action that requires durable procedure/run-state must either use an
@@ -134,9 +136,9 @@ Commit only after:
 After commit:
 
 1. Record the next task decision if closeout/harvest has not already done so.
-2. Start the new cycle by activating `TASK.md` for that next task.
-3. Start the new run for the active task.
-4. Create or enter the branch/worktree owned by that task.
+2. Create or enter the branch/worktree owned by that task.
+3. In that branch/worktree, activate `TASK.md` for the next task.
+4. Start the new run for the active task in that task worktree.
 5. Run `/plan` again.
 6. Implement the active task only.
 
