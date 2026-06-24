@@ -73,6 +73,14 @@ Required changes:
   for activating the next task, starting the new run, and creating the
   branch/worktree through formal product commands or equivalent documented
   runtime surfaces.
+- Amend Phase 23.8.6 so its contract explicitly covers:
+  atomic `plan-review` ingestion tied to the reviewed plan artifact;
+  immutable run-instance identity across allocation, harvest, authoritative
+  readback, retry, and compatibility projection paths;
+  fail-closed handling for legacy or ambiguous records that lack exact
+  run-instance identity; and
+  typed harvest collision behavior that distinguishes same-instance retry from
+  different-instance collision on the same display `run_id`.
 - Add a roadmap continuity invariant that preserves Phases 27-31 as the
   downstream domain-pack, ingestion/schema-safety, prior-art discovery,
   bounded experimentation/improvement, and late reviewed runner-execution
@@ -211,5 +219,13 @@ git diff --check
 - Phase 23.8.7 packet contracts explicitly require verifiable stopping
   conditions, validation artifacts/commands, and bounded progress/result logs
   without adding runner execution.
+- Phase 23.8.6 contract explicitly covers:
+  atomic `plan-review` ingestion bound to the reviewed plan artifact rather
+  than a loose equivalent-evidence substitute;
+  immutable run-instance identity across allocation, harvest, retry,
+  authoritative readback, and compatibility projection;
+  typed fail-closed handling for identity-less legacy records; and
+  typed harvest collision behavior that blocks different-instance collisions
+  without mutating current staging state.
 - Phase 30 and the new late runner-execution phase remain explicit checked-in
   future task contracts rather than chat-only intent.

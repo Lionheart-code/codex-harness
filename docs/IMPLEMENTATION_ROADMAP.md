@@ -492,12 +492,26 @@ Required scope:
 - add formal procedure-result ingestion commands or equivalent documented
   product surfaces for plan-review, plan-amend, implementation-review,
   verification-review, and reviewed-plan approval;
+- make `plan-review` ingestion one atomic product result tied to the reviewed
+  plan artifact, including typed outcome, reviewed-plan identity, and an
+  embedded immutable decision record or exact immutable decision-record
+  reference validated in the same transaction; keep `plan-amend` responsible
+  for the later effective amended-plan identity;
 - validate procedure IDs through `skills/self-hosting/procedure-registry.json`;
 - ensure each mutation updates only its own state slice;
 - ensure `run verify` appends verification state without removing review,
   approval, steps, or unrelated evidence;
 - ensure `remote-status`, `closeout`, and `mark-discardable` preserve unrelated
   state slices;
+- require immutable run-instance identity across allocation, harvest,
+  accepted/project readback, idempotent retry, and compatibility `run.json`
+  regeneration, while leaving exact ID format to implementation;
+- fail closed when legacy or ambiguous records lack exact immutable
+  run-instance identity; those records cannot authorize mutation or
+  progression until a typed migration/blocker path resolves them;
+- distinguish same-instance harvest retry from different-instance collision on
+  the same display `run_id`, and require collision-safe typed blocker behavior
+  with no current-staging mutation;
 - add typed delivery-fact ingestion for `merge` results and merge commits, and
   define whether merge evidence is required before harvest or may be appended
   after harvest without reopening or manually repairing the run;
@@ -507,6 +521,8 @@ Required scope:
   task there, and start the new run in that task worktree;
 - ensure a harvested/closing run may record the next task decision but cannot
   create, claim, or mutate the new task branch/worktree;
+- forbid accepted/project readback from acting as implicit repair authority
+  without exact immutable run-instance identity match;
 - regenerate compatibility `run.json` from staging DB rather than treating it
   as manual live authority;
 - ensure operator `next_allowed_action` values that require durable state map

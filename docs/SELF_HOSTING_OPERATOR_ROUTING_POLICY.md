@@ -95,8 +95,13 @@ implying manual state surgery.
 Decides current workflow stage and next allowed stage.
 
 When a review procedure defines a durable decision record, routing should use
-that durable record or equivalent typed runtime evidence where practical
-instead of inferring progression from long prose alone.
+the exact durable decision semantics required by the active contract instead of
+inferring progression from long prose alone.
+
+For future Phase 23.8.6 `plan-review` ingestion, the typed review outcome plus
+the immutable durable decision record must arrive as one atomic product result
+bound to the reviewed plan artifact. Routing must not treat loosely equivalent
+typed evidence as a substitute once that contract is active.
 
 Example:
 
