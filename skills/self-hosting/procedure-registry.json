@@ -57,7 +57,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 lifecycle and accepted-memory authority stay unchanged during pre-implementation planning."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/feature-decomposition.md"
     },
     {
       "procedure_id": "task-intake",
@@ -100,7 +101,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 lifecycle and accepted-memory authority stay unchanged during pre-implementation planning."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/task-intake.md"
     },
     {
       "procedure_id": "task-prompt-writer",
@@ -142,7 +144,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 lifecycle and accepted-memory authority stay unchanged during pre-implementation planning."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/task-prompt-writer.md"
     },
     {
       "procedure_id": "draft-plan",
@@ -189,7 +192,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 lifecycle and accepted-memory authority stay unchanged during pre-implementation planning."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/draft-plan.md"
     },
     {
       "procedure_id": "plan-review",
@@ -250,7 +254,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 lifecycle and accepted-memory authority stay unchanged during pre-implementation planning."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/plan-review.md"
     },
     {
       "procedure_id": "plan-amend",
@@ -295,7 +300,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 lifecycle and accepted-memory authority stay unchanged during pre-implementation planning."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/plan-amend.md"
     },
     {
       "procedure_id": "architecture-review",
@@ -338,7 +344,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 lifecycle and accepted-memory authority stay unchanged during pre-implementation planning."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/architecture-review.md"
     },
     {
       "procedure_id": "db-storage-review",
@@ -381,7 +388,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 storage, lifecycle, and accepted-memory authority remain the boundary under review."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/db-storage-review.md"
     },
     {
       "procedure_id": "implementation-review",
@@ -427,7 +435,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 delivery facts, closeout, and harvest remain downstream authority boundaries."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/implementation-review.md"
     },
     {
       "procedure_id": "fix-pass-review",
@@ -470,7 +479,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 delivery facts, closeout, and harvest remain downstream authority boundaries."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/fix-pass-review.md"
     },
     {
       "procedure_id": "verification-review",
@@ -514,7 +524,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 closeout readiness consumes verification evidence through typed runtime records only."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/verification-review.md"
     },
     {
       "procedure_id": "delivery-facts-review",
@@ -557,7 +568,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 delivery facts are required before closeout and harvest."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/delivery-facts-review.md"
     },
     {
       "procedure_id": "phase-closeout-review",
@@ -576,12 +588,15 @@
       "blocker_conditions": [
         "verification or delivery-facts evidence is missing",
         "lifecycle state is ambiguous",
-        "work claims deletion or cleanup readiness without required lifecycle evidence"
+        "work claims deletion or cleanup readiness without required lifecycle evidence",
+        "authoritative source-of-truth surfaces are stale or unresolved"
       ],
       "evidence_to_record": [
         "closeout readiness result",
         "harvest readiness result",
         "deletion-safety result",
+        "docs freshness result",
+        "closeout outcome",
         "remaining blockers or unresolved risks"
       ],
       "phase_24_packet_dependencies": [
@@ -600,7 +615,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 closeout receipt and harvest lifecycle remain authoritative."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/phase-closeout-review.md"
     },
     {
       "procedure_id": "docs-consistency-review",
@@ -643,7 +659,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 lifecycle and accepted-memory authority stay unchanged during pre-implementation planning."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/docs-consistency-review.md"
     },
     {
       "procedure_id": "harness-audit",
@@ -685,7 +702,8 @@
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 lifecycle and accepted-memory authority stay unchanged during pre-implementation planning."
-      ]
+      ],
+      "prompt_wrapper_path": "prompts/self-hosting/harness-audit.md"
     }
   ]
 }

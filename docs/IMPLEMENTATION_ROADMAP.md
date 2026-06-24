@@ -315,7 +315,8 @@ discover procedure metadata without treating generated discovery targets as
 canonical source.
 
 Status:
-Active implementation phase.
+Complete, reviewed, and accepted. Phase 23.8.5 is now the active
+docs/task-contract authority rebase before runtime automation work.
 `skills/self-hosting/**` remains canonical.
 The bounded source-of-truth and procedure-surface patch is the accepted
 pre-registry baseline. The current phase materializes the checked-in registry
@@ -336,19 +337,21 @@ Closeout addendum:
 
 ## Roadmap continuity invariant
 
-The Phase 23.8.5-26 rebase preserves the downstream path through Phases 27-30.
+The Phase 23.8.5-26 rebase preserves the downstream path through Phases 27-31.
 
 - Phase 27 remains the domain pack architecture path for domain expansion.
 - Phase 28 remains the safety boundary for domain ingestion and schema
   evolution.
 - Phase 29 remains the prior-art discovery gate before domain/runtime
   expansion.
-- Phase 30 remains bounded experimentation only after evaluator/proof/report
-  foundations exist.
+- Phase 30 remains bounded experimentation and eval-driven harness improvement
+  only after evaluator/proof/report foundations exist.
+- Phase 31 remains the late reviewed runner-execution and PR/CI repair path
+  after evaluator/experimentation boundaries are explicit.
 - Phases 23.8.5-26 prepare stable operator/procedure/proof/report/access
   foundations for those later phases; they must not replace, bypass, or make
   those phases unnecessary through hidden core behavior.
-- If any proposed change in 23.8.5-26 makes Phases 27-30 harder, less safe,
+- If any proposed change in 23.8.5-26 makes Phases 27-31 harder, less safe,
   less local-first, more core-coupled, or more autonomous than intended, stop
   and run architecture review before implementation.
 
@@ -371,6 +374,25 @@ Global constraints for the rebase:
   is a compatibility projection;
 - proof and reports never become lifecycle authority.
 
+Task-cycle materialization invariant:
+- one task = one branch = one worktree;
+- a closing or harvested run may determine and record the next task decision;
+- a closing or harvested run must not create, claim, or mutate the next task
+  branch/worktree;
+- the next task branch/worktree belongs to the new active task, not the old
+  closing or harvested run;
+- start-of-new-cycle materialization belongs to the new task context; in the
+  current manual harness flow, that means creating or entering the new task
+  branch/worktree first, activating the next task there, and then starting the
+  new run;
+- branch/worktree creation is explicit operator-owned work in the current
+  manual flow and must not be treated as implicit in `run start`;
+- git branch creation and git worktree creation remain distinct primitives, but
+  steady-state harness materialization must own them as one logical task
+  materialization step;
+- a later productized materialization surface must wrap that same sequence in
+  one formal command path or equivalent documented runtime surface.
+
 ## Phase 23.8.5 — Automation Roadmap and Task Authority Rebase
 
 Task:
@@ -380,14 +402,35 @@ Goal:
 Perform a docs/task-contract authority rebase before runtime automation work.
 
 Status:
-Planned. Blocked until Phase 23.8 is complete, reviewed, and accepted.
-Docs/task-contract only: no runtime code, ingestion commands, packet
-automation, proof generation, reports, access APIs, MCP, runners, hooks,
-provider adapters, or domain-pack behavior.
+Active docs/task-contract phase. Phase 23.8 is complete, reviewed, and
+accepted.
+Docs/task-contract and registry contract-enforcement only: no runtime
+automation code, ingestion commands, packet automation, proof generation,
+reports, access APIs, MCP, runners, hooks, provider adapters, or domain-pack
+behavior. TypeScript changes are limited to registry validator/model parity.
 
 Required scope:
+- activate this task by updating `TASK.md`, then keep this pass to
+  docs/task-contract reconciliation plus the narrow registry/schema/validator/
+  test contract-enforcement exception already allowed by the active task;
+- add mandatory derived self-hosting procedure wrappers at
+  `prompts/self-hosting/<procedure-id>.md`, with exact one-to-one parity with
+  `skills/self-hosting/procedure-registry.json`;
+- add required `prompt_wrapper_path` registry metadata and update the registry
+  schema, TypeScript validator/model, and acceptance tests so wrapper drift
+  fails closed; keep `schema_version` unchanged because this is an atomic
+  product-source registry update, not a runtime migration;
 - update this roadmap with the new sequence and a direct block before Phase
   23.9;
+- separate end-of-old-cycle decision from start-of-new-cycle materialization:
+  closeout/harvest may record the next task, while the new cycle creates or
+  enters the task branch/worktree, activates the task there, and starts the
+  run in that task context;
+- keep the current Phase 23.8.5 self-hosting run distinct from the prohibited
+  next-cycle run: this pass may execute inside its own active task run, but it
+  must not materialize or start the next task cycle;
+- preserve one task = one branch = one worktree and make clear that a harvested
+  run never owns the next task branch/worktree;
 - amend `docs/OPERATIONS_PLAN.md` with operator-first operations where manual
   `run.json` repair is forbidden and every operator action maps to a product
   command or documented ingestion path;
@@ -395,9 +438,16 @@ Required scope:
   hard invariant;
 - amend operator routing/stage docs to account for future procedure-ingestion
   and packet-preparation stages without adding runtime behavior;
+- document the interim pre-23.8.6 manual replay rule: procedure-shaped
+  transcripts can prepare the next prompt, but they are not runtime evidence,
+  do not advance operator stage state, and must not be backfilled through
+  manual `run.json` edits;
 - amend agent boundary/security docs to split `RunnerProfile` from
   `ExecutionPolicy`;
 - create task contracts for Phases 23.8.6 and 23.8.7;
+- amend Phase 23.8.7 so `StagePacket` contracts require a verifiable stopping
+  condition, required validation commands/artifacts, and a bounded
+  progress/result log contract without adding runner execution;
 - split or amend Phase 24 into 24A/24B while preserving useful
   evidence/report/redaction/provenance constraints;
 - split or amend Phase 25 into 25A/25B while preserving Direct API/CLI first,
@@ -406,11 +456,18 @@ Required scope:
 - amend Phase 26 while preserving that it extends `feature-decomposition`,
   emits reviewable task graph proposals, and does not execute or approve its
   own scope;
-- preserve downstream constraints for Phases 27-30.
+- amend Phase 30 so bounded experimentation explicitly includes procedure
+  trigger evals, findings/traces/CI-failure promotion into approved eval
+  candidates/regression fixtures, and bounded drift/entropy cleanup proposals
+  tied to evidence;
+- create `tasks/PHASE_31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP.md`;
+- preserve downstream constraints for Phases 27-31.
+- distinguish checked-in procedure wrappers from generated product prompts
+  created by `node bin/ch prompt ...`.
 
 Future-phase impact check:
-- prepares 23.8.6, 23.8.7, 23.9, 24A/24B, 25A/25B, and 26 by making
-  dependencies explicit;
+- prepares 23.8.6, 23.8.7, 23.9, 24A/24B, 25A/25B, 26, and downstream
+  Phases 27-31 by making dependencies explicit;
 - must not pre-implement transactional ingestion, packet automation, proof
   generation, report builders, access APIs, planner logic, domain packs,
   prior-art discovery, or experimentation;
@@ -435,15 +492,37 @@ Required scope:
 - add formal procedure-result ingestion commands or equivalent documented
   product surfaces for plan-review, plan-amend, implementation-review,
   verification-review, and reviewed-plan approval;
+- make `plan-review` ingestion one atomic product result tied to the reviewed
+  plan artifact, including typed outcome, reviewed-plan identity, and an
+  embedded immutable decision record or exact immutable decision-record
+  reference validated in the same transaction; keep `plan-amend` responsible
+  for the later effective amended-plan identity;
 - validate procedure IDs through `skills/self-hosting/procedure-registry.json`;
 - ensure each mutation updates only its own state slice;
 - ensure `run verify` appends verification state without removing review,
   approval, steps, or unrelated evidence;
 - ensure `remote-status`, `closeout`, and `mark-discardable` preserve unrelated
   state slices;
+- require immutable run-instance identity across allocation, harvest,
+  accepted/project readback, idempotent retry, and compatibility `run.json`
+  regeneration, while leaving exact ID format to implementation;
+- fail closed when legacy or ambiguous records lack exact immutable
+  run-instance identity; those records cannot authorize mutation or
+  progression until a typed migration/blocker path resolves them;
+- distinguish same-instance harvest retry from different-instance collision on
+  the same display `run_id`, and require collision-safe typed blocker behavior
+  with no current-staging mutation;
 - add typed delivery-fact ingestion for `merge` results and merge commits, and
   define whether merge evidence is required before harvest or may be appended
   after harvest without reopening or manually repairing the run;
+- add a formal product command sequence or equivalent documented runtime
+  surface for start-of-new-cycle materialization that preserves the new task
+  context: create or enter the task branch/worktree, activate the decided next
+  task there, and start the new run in that task worktree;
+- ensure a harvested/closing run may record the next task decision but cannot
+  create, claim, or mutate the new task branch/worktree;
+- forbid accepted/project readback from acting as implicit repair authority
+  without exact immutable run-instance identity match;
 - regenerate compatibility `run.json` from staging DB rather than treating it
   as manual live authority;
 - ensure operator `next_allowed_action` values that require durable state map
@@ -480,6 +559,9 @@ Required scope:
   or equivalent;
 - add result fixture ingestion such as
   `run record-stage-result --packet <packet-id> --file <path>` or equivalent;
+- require every `StagePacket` to include a verifiable stopping condition,
+  required validation commands/artifacts, and a bounded progress/result log
+  contract;
 - report `human_action_required` separately from `next_allowed_action`;
 - route failed review fixtures to `FIX_PASS_PACKET`;
 - route passing review fixtures to `CLOSEOUT_PACKET` or closeout-ready state;
@@ -503,6 +585,11 @@ Future-phase impact check:
 - requires architecture review if packet automation starts invoking runners,
   selecting models/providers, writing source files, making approval decisions,
   or encoding domain workflows in core.
+
+Acceptance behavior highlights:
+- prepared packet fixtures include a verifiable stopping condition, required
+  validation commands/artifacts, and a bounded progress/result log contract;
+- no agent or runner is invoked.
 
 ## Phase 23.9 — Minimal Proof-Carrying Work over Procedure/Stage Records
 
@@ -600,13 +687,9 @@ Expand reports and packets only after Phase 24A artifacts show concrete use.
 Status:
 Planned split from `tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`. Blocked
 until Phase 24A is complete and reviewed.
-Must preserve Direct API/CLI first, optional MCP only, read-only defaults,
-redaction, query limits, no raw SQL by default, approval-gated mutations, no
-autonomous agent, and no external write connector.
 CLI remains the current baseline access surface. App Server is a future
-candidate only and must be evaluated against CLI for speed, reliability,
-auth, approvals, event visibility, operational simplicity, and cost/access
-fit. API-key billing must not become the default or hidden execution path.
+candidate only, but that access-layer evaluation remains owned by Phase 25A/25B
+and must not be reintroduced here as Phase 24B implementation scope.
 
 Possible additions moved from the existing Phase 24 broad catalog:
 - proposal draft;
@@ -635,7 +718,7 @@ Preserved constraints:
 - proposal drafts remain drafts until human promotion.
 
 Future-phase impact check:
-- prepares 25A, 26, and later 27-30 by improving evidence packaging without
+- prepares 25A, 26, and later 27-31 by improving evidence packaging without
   turning reports into authority;
 - must not pre-implement access services, MCP adapters, domain packs, schema
   ingestion, prior-art gates, or experimentation loops;
@@ -829,14 +912,40 @@ Task:
 `tasks/PHASE_30_BOUNDED_AGENT_EXPERIMENTATION_LOOP.md`
 
 Goal:
-Add a bounded experimentation primitive after operator/procedure/proof/evaluator
-fixtures exist.
+Add a bounded experimentation and eval-driven harness-improvement primitive
+after operator/procedure/proof/evaluator fixtures exist.
 
 Status:
 Planned experimental. Blocked until Phase 23.8 is complete and reviewed.
 Blocked until Phase 29 is complete and reviewed. Not
 uncontrolled self-improvement, not autonomous product development, and not a
 replacement for architecture review.
+
+Required scope highlights:
+- procedure-trigger evals with negative cases, blocker semantics, and
+  output-format conformance;
+- findings/traces/CI failures promoted into approved eval candidates and then
+  regression fixtures;
+- harness change proposals tied to evidence/eval IDs;
+- bounded drift/entropy cleanup proposals for stale docs, wrapper drift,
+  source-map drift, duplicate authority, and abandoned experiment notes;
+- immutable evaluator, durable experiment record, and explicit keep/revert
+  decision.
+
+## Phase 31 — Reviewed Runner Execution and PR/CI Repair Loop
+
+Task:
+`tasks/PHASE_31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP.md`
+
+Goal:
+Execute approved stage packets through reviewed runner surfaces under explicit
+`RunnerProfile` and `ExecutionPolicy` boundaries, ingest runner/CI/review
+results, and prepare bounded fix-pass packets for failing CI/review outcomes.
+
+Status:
+Planned. Blocked until Phase 30 is complete and reviewed. No self-approval,
+auto-merge, unrestricted write access, provider-specific core logic, or
+domain-core execution behavior is allowed.
 
 ## Pilot — Research Ops pack
 
@@ -870,5 +979,12 @@ After every phase:
 1. Run acceptance.
 2. Review diff.
 3. Commit.
-4. Update `TASK.md` to point to the next phase.
-5. Start a new `/plan` run.
+4. Record the next task decision as part of old-cycle closeout/harvest when
+   applicable.
+   Until Phase 23.8.6 adds a formal ingestion path, this is an
+   operator-reviewed closeout/harvest fact rather than a runtime-ingested state
+   change.
+5. In the new cycle, create or enter the new branch/worktree for that task,
+   activate the next task in `TASK.md` there, and start the new run in that
+   task worktree.
+6. Start a new `/plan` run for the new active task.

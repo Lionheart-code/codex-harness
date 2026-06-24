@@ -215,13 +215,15 @@ skills/self-hosting/<procedure-id>/references/source-notes.md
 skills/self-hosting/<procedure-id>/references/output-format.md
 ```
 
-Optional manual prompt wrappers:
+Mandatory derived manual prompt wrappers:
 
 ```text
 prompts/self-hosting/<procedure-id>.md
 ```
 
 Prompt wrappers are derived invocation templates, not source-of-truth.
+Each required procedure must have exactly one wrapper at this path. Extra files
+under `prompts/self-hosting/` are not allowed except `README.md`.
 
 ### 3. Required self-hosting procedures
 
@@ -484,7 +486,7 @@ Subject to repo inspection:
 
 - `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`;
 - `.agents/skills/**`, `skills/self-hosting/**`, or repo-approved equivalent;
-- `prompts/self-hosting/**` if manual invocation wrappers are used;
+- `prompts/self-hosting/**` for mandatory derived manual invocation wrappers;
 - prompt/procedure template paths;
 - agent orchestration docs;
 - governance docs;
@@ -529,7 +531,8 @@ plus a deterministic validation, script, fixture, or documented check proving re
 - every procedure states what was adopted, adapted, and rejected;
 - the self-hosting agent operating policy exists and distinguishes role autonomy, protected deterministic workflows, command/process behavior, and initiative capture from runtime implementation;
 - procedures clearly distinguish Phase 23.6 lightweight skills from Phase 27 product pack architecture;
-- prompts, if added, are wrappers derived from procedures and not source-of-truth;
+- prompts are mandatory wrappers derived from procedures and not
+  source-of-truth;
 - plan-review workflow is explicit;
 - implementation starts only after approved plan in the documented workflow;
 - procedure outputs have stable formats;
@@ -570,7 +573,7 @@ Reviewers must check especially for:
 4. Add the procedure contract.
 5. Add required procedure files.
 6. Define stable output format for each procedure.
-7. Add optional prompt wrappers derived from procedures if useful.
+7. Add mandatory prompt wrappers derived from procedures.
 8. Define review intensity tiers.
 9. Add plan-review workflow documentation.
 10. Add Phase 24 packet linkage.

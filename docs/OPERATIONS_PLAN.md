@@ -19,10 +19,38 @@ operator stage
 -> deterministic validation/review gate
 ```
 
+Task-cycle boundaries are explicit. End-of-old-cycle closeout/harvest may
+determine and record the next task, but it must not create or claim the next
+task branch/worktree. Start-of-new-cycle materialization belongs to the new
+task context. In the current manual harness flow, create or enter the task
+branch/worktree first, activate `TASK.md` there, and then start the new run.
+That branch/worktree creation step is explicit operator-owned work today; it is
+not implicit in `run start`. Later productized materialization must wrap that
+same sequence in one formal command path. The invariant is one task = one
+branch = one worktree.
+
+Git branch creation and git worktree creation are distinct low-level
+operations, but harness materialization must treat them as one logical step for
+the new task context. The operator should not have to reason about them as two
+independent workflow transitions in the steady-state automated path.
+
 Until the Phase 23.8.6 transactional ingestion task is implemented, any
 operator action that requires durable procedure/run-state must either use an
 existing product command or be documented as a future precondition. Do not
 silently repair `.harness/runs/**/run.json` by hand.
+
+During that interim, a human may manually replay procedure steps to prepare the
+next implementation or review prompt, but that replay is not runtime evidence.
+The prompt should use the checked-in
+`prompts/self-hosting/<procedure-id>.md` wrapper, whose authority still comes
+from the canonical `skills/self-hosting/<procedure>/` contract and output
+format. The operator must keep the distinction clear: manual transcript can
+guide the next prompt, while durable stage advancement waits for Phase 23.8.6
+ingestion or an existing product command. Independent review procedures should
+run in a separate Codex CLI session or equivalent review-only agent session,
+with the same repo-owned procedure contract as the prompt source. Generated
+product prompts from `node bin/ch prompt ...` remain separate task-local
+artifacts and do not replace checked-in self-hosting procedure wrappers.
 
 The product direction is a lightweight, provider-neutral harness control plane:
 different models or runners may handle different stages only through explicit
@@ -127,9 +155,15 @@ Commit only after:
 
 After commit:
 
-1. Update `TASK.md` to point to the next phase.
-2. Run `/plan` again.
-3. Implement next phase only.
+1. Record the next task decision if closeout/harvest has not already done so.
+   Until Phase 23.8.6 adds a formal ingestion path, that record is an
+   operator-reviewed closeout/harvest fact rather than a runtime-ingested state
+   mutation.
+2. Create or enter the branch/worktree owned by that task.
+3. In that branch/worktree, activate `TASK.md` for the next task.
+4. Start the new run for the active task in that task worktree.
+5. Run `/plan` again.
+6. Implement the active task only.
 
 
 ## Product vs target project

@@ -52,6 +52,13 @@ starting execution.
 - Record assumptions, risks, and validation commands.
 - Keep later phases out of scope.
 
+## manual_invocation_guidance
+- Prefer a stronger planning profile than a lightweight synthesis pass when the
+  task is non-trivial, phase-order sensitive, or review-tier `high` /
+  `extra-high`.
+- Keep this as advisory manual CLI guidance only; it does not create
+  provider/model routing or runtime execution authority.
+
 ## expected_output_format
 Return the exact section order documented in
 `references/output-format.md`.

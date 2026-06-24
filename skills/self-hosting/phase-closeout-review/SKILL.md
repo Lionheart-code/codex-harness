@@ -63,6 +63,7 @@ Return the exact section order documented in
 - Docs freshness result
 - Closeout outcome (`CLOSEOUT_ACCEPTED`,
   `CLOSEOUT_ACCEPTED_WITH_DOC_FOLLOWUP`, or
+  `CLOSEOUT_BLOCKED_READINESS`, or
   `CLOSEOUT_BLOCKED_SOURCE_OF_TRUTH_STALE`)
 - Remaining blockers or unresolved risks
 

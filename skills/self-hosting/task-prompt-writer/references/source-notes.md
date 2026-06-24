@@ -32,7 +32,8 @@ Source map authority: `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`
 
 ## adapted
 
-- Keep prompts as derived helpers rather than repo authority.
+- Keep task-local generated prompts as derived helpers rather than repo
+  authority, and keep checked-in procedure wrappers separate.
 
 ## rejected
 

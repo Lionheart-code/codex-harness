@@ -13,6 +13,13 @@ test("global self-hosting review policy is consistent across task docs prompts a
   const reviewTierPolicy = readText("docs/SELF_HOSTING_REVIEW_TIER_POLICY.md");
   const workflow = readText("docs/SELF_HOSTING_PLAN_REVIEW_WORKFLOW.md");
   const routingPolicy = readText("docs/SELF_HOSTING_OPERATOR_ROUTING_POLICY.md");
+  const registry = JSON.parse(readText("skills/self-hosting/procedure-registry.json"));
+  const wrapperDirectory = path.join(productRoot, "prompts", "self-hosting");
+  const wrapperTexts = registry.procedures.map((procedure) => ({
+    procedureId: procedure.procedure_id,
+    path: procedure.prompt_wrapper_path,
+    text: readText(procedure.prompt_wrapper_path)
+  }));
   const planPrompt = readText("prompts/00-slash-plan-master.md");
   const reviewPrompt = readText("prompts/99-review-current-task.md");
   const draftPlanSkill = readText("skills/self-hosting/draft-plan/SKILL.md");
@@ -50,11 +57,25 @@ test("global self-hosting review policy is consistent across task docs prompts a
   assert.match(workflow, /BLOCKED_REVIEW_SURFACE_UNCLEAR/);
   assert.match(workflow, /## Fix-pass and re-review protocol/);
   assert.match(workflow, /## Closeout freshness requirement/);
+  assert.match(workflow, /CLOSEOUT_BLOCKED_READINESS/);
   assert.match(workflow, /CLOSEOUT_BLOCKED_SOURCE_OF_TRUTH_STALE/);
 
   assert.match(routingPolicy, /may surface the globally defined\s+`review_tier_controls` and related policy notes through `notes`/i);
   assert.match(routingPolicy, /Phase 23\.7\s+reports those controls; it does not define them/i);
   assert.doesNotMatch(routingPolicy, /required_controls:/i);
+
+  assert.deepEqual(
+    fs.readdirSync(wrapperDirectory).filter((entry) => entry.endsWith(".md") && entry !== "README.md").sort(),
+    registry.procedures.map((procedure) => `${procedure.procedure_id}.md`).sort(),
+    "review policy consistency must include exactly one self-hosting wrapper per registry procedure"
+  );
+  for (const wrapper of wrapperTexts) {
+    assert.equal(wrapper.path, `prompts/self-hosting/${wrapper.procedureId}.md`);
+    assert.match(wrapper.text, /derived, non-authoritative invocation helper/i);
+    assert.match(wrapper.text, new RegExp(`skills/self-hosting/${wrapper.procedureId}/SKILL\\.md`));
+    assert.match(wrapper.text, /Do not broaden scope/);
+    assert.match(wrapper.text, /runtime authority/);
+  }
 
   assert.match(planPrompt, /REVIEWER_POLICY_CHECKS:/);
   assert.match(planPrompt, /SOURCE_OF_TRUTH_CHECKS:/);
@@ -176,7 +197,8 @@ test("global self-hosting review policy is consistent across task docs prompts a
     planAmendSkill,
     planAmendFormat,
     implementationReviewSkill,
-    implementationReviewFormat
+    implementationReviewFormat,
+    ...wrapperTexts.map((wrapper) => wrapper.text)
   ]) {
     assert.doesNotMatch(fileText, /Phase 23\.7 pre-runtime/i);
     assert.doesNotMatch(fileText, /pre-runtime consistency checkpoint/i);

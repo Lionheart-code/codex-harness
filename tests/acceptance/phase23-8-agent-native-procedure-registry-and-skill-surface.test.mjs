@@ -346,12 +346,27 @@ test("phase 23.8 registry is canonical, schema-backed, and preserves procedure s
   assert.equal(registry.discovery_targets.every((target) => target.authority === "non-authoritative"), true);
 
   for (const procedure of registry.procedures) {
+    const expectedPromptWrapperPath = `prompts/self-hosting/${procedure.procedure_id}.md`;
     assert.ok(fs.existsSync(path.join(productRoot, procedure.skill_path)), `missing skill path for ${procedure.procedure_id}`);
     assert.ok(fs.existsSync(path.join(productRoot, procedure.source_notes_path)), `missing source-notes path for ${procedure.procedure_id}`);
     assert.ok(fs.existsSync(path.join(productRoot, procedure.output_format_path)), `missing output-format path for ${procedure.procedure_id}`);
+    assert.equal(procedure.prompt_wrapper_path, expectedPromptWrapperPath);
+    assert.ok(
+      fs.existsSync(path.join(productRoot, procedure.prompt_wrapper_path)),
+      `missing prompt wrapper path for ${procedure.procedure_id}`
+    );
     assert.ok(procedure.phase_23_5_dependencies.length > 0, `${procedure.procedure_id} must declare Phase 23.5 linkage`);
     assert.equal(procedure.generated_or_install_targets_non_authoritative, true);
   }
+
+  const promptWrapperFiles = fs.readdirSync(path.join(productRoot, "prompts", "self-hosting"))
+    .filter((entry) => entry.endsWith(".md") && entry !== "README.md")
+    .sort();
+  assert.deepEqual(
+    promptWrapperFiles,
+    [...expectedProcedureIds].map((procedureId) => `${procedureId}.md`).sort(),
+    "prompts/self-hosting must have exactly one wrapper per registry procedure"
+  );
 
   const draftPlan = registry.procedures.find((procedure) => procedure.procedure_id === "draft-plan");
   const planReview = registry.procedures.find((procedure) => procedure.procedure_id === "plan-review");
@@ -365,6 +380,27 @@ test("phase 23.8 registry is canonical, schema-backed, and preserves procedure s
   assert.ok(
     registrySchema.properties?.procedures?.items?.required?.includes("phase_23_5_dependencies"),
     "registry schema must require Phase 23.5 dependency metadata"
+  );
+  assert.ok(
+    registrySchema.properties?.procedures?.items?.required?.includes("prompt_wrapper_path"),
+    "registry schema must require prompt wrapper metadata"
+  );
+  assert.equal(
+    registrySchema.properties?.procedures?.items?.properties?.prompt_wrapper_path?.pattern,
+    "^prompts/self-hosting/[a-z0-9-]+\\.md$"
+  );
+});
+
+test("phase 23.8 registry validation fails closed on prompt wrapper path mismatch", () => {
+  const { registryModule } = loadBuiltModules();
+  const registry = JSON.parse(fs.readFileSync(path.join(productRoot, "skills", "self-hosting", "procedure-registry.json"), "utf8"));
+  const firstProcedure = registry.procedures[0];
+  firstProcedure.prompt_wrapper_path = "prompts/self-hosting/not-the-procedure.md";
+
+  assert.throws(
+    () => registryModule.validateSelfHostingProcedureRegistry(registry),
+    (error) => error instanceof Error
+      && error.message.includes(`prompt_wrapper_path must be prompts/self-hosting/${firstProcedure.procedure_id}.md`)
   );
 });
 

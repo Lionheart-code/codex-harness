@@ -172,9 +172,16 @@ schemas/self-hosting-procedure-registry.schema.json
 
 This registry is a product-source artifact, not an installed target-root
 runtime artifact. It must validate in product acceptance tests and point back
-to canonical procedure files under `skills/self-hosting/**`. Discovery or
-install targets such as `.agents/**` and `$HOME/.agents/**` must remain
+to canonical procedure files under `skills/self-hosting/**`. It also records
+the required derived `prompt_wrapper_path` for each procedure, which must equal
+`prompts/self-hosting/<procedure-id>.md`. Discovery or install targets such as
+`.agents/**`, `$HOME/.agents/**`, and checked-in prompt wrappers must remain
 non-authoritative.
+
+Because this registry is checked-in product source, adding required metadata
+such as `prompt_wrapper_path` can be handled atomically in the active task by
+updating the schema, registry, validator, and tests without a separate runtime
+migration task or schema-version bump.
 
 ## Phase 23 evidence schema contract
 

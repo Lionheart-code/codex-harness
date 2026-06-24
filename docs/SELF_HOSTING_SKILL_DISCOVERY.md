@@ -36,8 +36,11 @@ Codex also supports other official/admin-managed skill locations, but Phase
 - Generated or local discovery targets must not become hidden source-of-truth.
 - Discovery or install targets must not rewrite the checked-in registry or
   canonical procedure files.
-- Prompt wrappers, if added later, remain derived invocation helpers and not
-  authority.
+- Prompt wrappers under `prompts/self-hosting/<procedure-id>.md` are mandatory
+  derived invocation helpers for each checked-in procedure and not authority.
+- Generated product prompts from `node bin/ch prompt ...` are task-local
+  generated artifacts and are separate from checked-in self-hosting procedure
+  wrappers.
 
 ## Packaging and release boundary
 

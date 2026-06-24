@@ -34,10 +34,10 @@ Non-procedure transitions belong in `next_allowed_action`.
 | `CLOSEOUT_REVIEW_REQUIRED` | `phase-closeout-review` | run phase-closeout-review procedure | accepted implementation review, verification, delivery facts | `missing_closeout_review` | harvest |
 | `CLOSEOUT_READY` | `none` | perform closeout lifecycle command under Phase 23.5 rules | accepted closeout review | `closeout_ready` | new implementation in same run |
 | `HARVEST_READY` | `none` | perform harvest lifecycle command under Phase 23.5 rules | closeout receipt and harvest candidates | `harvest_ready` | direct accepted-memory writes without harvest |
-| `RUN_HARVESTED` | `none` | start new run/task if needed | harvested run/closeout record | `run_already_harvested` | new work in same run |
+| `RUN_HARVESTED` | `none` | record next-task decision or begin separate new-cycle materialization if needed | identity-matched harvested run/closeout record | `run_already_harvested` | new work in same run, claiming next task branch/worktree from harvested run |
 | `RUN_DISCARDED` | `none` | require explicit recovery/reopen decision | discarded run/staging state | `run_discarded` | resume without explicit recovery/reopen decision |
 | `RUN_QUARANTINED` | `none` | manual/review decision before transition | quarantined run/evidence/state | `run_quarantined` | implementation, harvest, accepted-memory writes |
-| `BLOCKED` | `none` | resolve blocker-specific condition | blocker-specific evidence | blocker-specific stop reason | any transition not resolving blocker |
+| `BLOCKED` | `none` | resolve blocker-specific condition | blocker-specific evidence | blocker-specific stop reason such as `harvest_identity_collision` | any transition not resolving blocker |
 
 ## Minimal acceptance behavior
 
@@ -69,9 +69,12 @@ migration merely to store a stage label unless repo inspection proves
 projection is insufficient.
 
 For the pre-implementation path, bare `plan-review` evidence is not enough on
-its own. The operator should rely on a durable review decision record or
-equivalent typed runtime review evidence, and `PLAN_APPROVAL_REQUIRED` refers
-to the latest effective amended plan rather than any stale draft-plan artifact.
+its own. Before Phase 23.8.6 is implemented, projection should fail closed
+unless the operator has the exact durable plan-review decision semantics
+required by the active contract. Phase 23.8.6 must treat `plan-review` as one
+atomic procedure result tied to the reviewed plan artifact, and
+`PLAN_APPROVAL_REQUIRED` refers to the latest effective amended plan rather
+than any stale draft-plan artifact.
 
 ## Future ingestion and packet stages
 
@@ -81,11 +84,37 @@ contracts are active and implemented, this stage map remains a projection and
 must not imply manual `run.json` repair, runner invocation, background
 automation, or hook authority.
 
+If a pre-23.8.6 manual replay produces a valid procedure-shaped transcript,
+the operator should invoke the procedure through the checked-in
+`prompts/self-hosting/<procedure-id>.md` wrapper. That transcript may be used to
+prepare the next operator prompt, but it does not satisfy `required_evidence`
+for this map. For example, a manual `task-intake` transcript does not make
+runtime status leave `TASK_INTAKE_REQUIRED` until a product command or
+documented ingestion path records it. Operators must name that distinction
+explicitly when continuing a manual preparation pass.
+
+Procedure ingestion may record that closeout/harvest selected the next task.
+New-cycle materialization is separate. In the current manual harness flow, it
+must create or enter the task branch/worktree first, activate the next task
+there, and then start the new run in that task worktree. A later formal
+product command may wrap that sequence. The harvested run must not create,
+claim, or mutate the next task branch/worktree.
+
+Once Phase 23.8.6 is active, `RUN_HARVESTED` must refer to identity-matched
+harvest evidence for the same immutable run instance. If project memory matches
+the display `run_id` but not the immutable run-instance identity, the operator
+must route to `BLOCKED` with a dedicated harvest-identity-collision stop reason
+instead of treating the current run as already harvested.
+
 Expected future command-backed actions include:
 
 ```text
 record procedure result
 record reviewed-plan approval
+record next-task decision
+create task branch/worktree
+activate next task in task worktree
+start new run in task worktree
 prepare stage packet
 record stage result fixture
 ```

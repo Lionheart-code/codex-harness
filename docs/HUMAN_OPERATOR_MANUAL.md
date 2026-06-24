@@ -14,16 +14,79 @@ This document explains how a human operator should use `codex-harness` safely.
    operator-visible stage, required evidence, and next procedure.
 5. Continue with manual procedure execution through the documented
    self-hosting procedures; prompts are helpers, not the authority source.
+   Until Phase 23.8.6 adds procedure-result ingestion, procedure outputs are
+   operator transcript artifacts only. They do not advance runtime stage state,
+   and the operator must not patch `.harness/runs/**/run.json` to make them
+   look ingested.
 6. Run the active task acceptance commands.
 7. Review the diff against task scope and non-goals.
 8. Commit only after review, verification, and closeout prerequisites are
    satisfied.
+
+A closing or harvested run may record which task should come next. It does not
+own the new task branch/worktree. The next cycle starts only when `TASK.md` is
+activated in that task's own branch/worktree and a new run is opened there.
+For the current manual harness flow, create or enter the task branch/worktree
+first, then update `TASK.md` in that worktree, then run `node bin/ch run start
+--task TASK.md`. Branch/worktree creation is an explicit operator-owned step in
+the current flow; `run start` does not create it for you yet. Preserve one
+task = one branch = one worktree.
 
 The installed target workflow remains separate:
 
 ```text
 init / worktree / prompt / context inspect / review / check / report
 ```
+
+The current CLI baseline is the local product command plus the external Codex
+CLI when a separate agent pass is needed:
+
+```bash
+node bin/ch --help
+codex --help
+```
+
+Use a separate Codex CLI session, or an equivalent independent agent session,
+for reviewer-only passes such as `plan-review` and `implementation-review`.
+For example:
+
+```bash
+cd <task-worktree>
+codex -C "$PWD" --sandbox read-only --ask-for-approval never
+```
+
+The prompt pasted into that session should use the checked-in
+`prompts/self-hosting/<procedure-id>.md` wrapper. That wrapper is derived from the
+active `skills/self-hosting/<procedure>/` contract and its output format, not
+from a chat-local rewrite. The reviewer pass may inspect files and report
+findings; it must not implement, mutate runtime state, or claim a durable
+decision unless a current product command or documented ingestion path records
+that decision.
+
+Manual model/reasoning guidance for the current self-hosting replay flow is
+advisory operator guidance only:
+
+- bounded synthesis/normalization passes such as `task-intake` and
+  `task-prompt-writer` may use a lower-cost profile such as `gpt-5.4-mini`
+  when the procedure stays narrow and well-specified;
+- hard planning passes such as `draft-plan` and broad decomposition should use
+  a stronger planning profile such as `gpt-5.4` with `extra high` reasoning;
+- implementation or builder passes may use a stronger builder profile matched
+  to task complexity; `gpt-5.4` with `high` reasoning is the default manual
+  implementation profile, while more difficult cross-cutting work may escalate
+  to `extra high`;
+- review passes such as `plan-review`, `implementation-review`,
+  `fix-pass-review`, and `verification-review` should run in a separate
+  reviewer session and should use a different reviewer model/profile than the
+  planning or builder pass they are checking; `gpt-5.5` with `high` reasoning
+  is the default reviewer profile;
+- `gpt-5.5` with `extra high` reasoning is an escalation profile only for
+  ambiguous architecture, disputed findings, repeated failed fix passes, or
+  source-trace deadlocks. It is not the default daily review setting.
+
+This guidance does not create provider/model routing, runtime selection logic,
+or approval authority. It only helps the operator pick an appropriate manual
+CLI profile until later reviewed phases introduce formal execution surfaces.
 
 ## When not to press implement
 
@@ -168,6 +231,7 @@ docs/SELF_HOSTING_AGENT_OPERATING_POLICY.md
 docs/SELF_HOSTING_SKILL_DISCOVERY.md
 skills/self-hosting/procedure-registry.json
 skills/self-hosting/**
+prompts/self-hosting/**
 ```
 
 Check:
@@ -183,7 +247,10 @@ Check:
   review report;
 - if review required amendment, there is one effective amended plan for
   approval and implementation instead of manual amendment-chain stitching;
-- prompts remain optional helpers and not the authority source;
+- `prompts/self-hosting/<procedure-id>.md` wrappers exist for each procedure and
+  remain derived helpers, not the authority source;
+- generated product prompts from `node bin/ch prompt ...` are separate
+  task-local artifacts and do not replace checked-in self-hosting wrappers;
 - implementation does not introduce Phase 24 packet/runtime behavior, Phase 25
   access/runtime behavior, Phase 26 decomposer/planner execution, or Phase 27
   domain-pack runtime behavior.
@@ -234,12 +301,17 @@ After apply:
 
 ## Moving to next phase
 
-Only after commit:
+Only after commit and closeout/harvest decision:
 
-1. edit `TASK.md`;
-2. point to next phase task file;
-3. commit task pointer change if desired;
-4. start fresh `/plan`.
+1. record the next task decision if it is not already recorded;
+   until Phase 23.8.6 provides a formal ingestion path, this is an
+   operator-reviewed closeout/harvest fact rather than a runtime-ingested state
+   change;
+2. create or enter the branch/worktree owned by that task;
+3. in that branch/worktree, edit `TASK.md` to point to that task;
+4. start the new run for the active task in that task worktree;
+5. commit the task pointer/materialization change if desired;
+6. start fresh `/plan`.
 
 ## Emergency rollback
 

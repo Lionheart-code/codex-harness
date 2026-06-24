@@ -65,7 +65,7 @@ Required preserved constraints:
 
 ## Future-phase impact check
 
-- Prepares Phase 25A, Phase 26, and later Phases 27-30 by improving evidence
+- Prepares Phase 25A, Phase 26, and later Phases 27-31 by improving evidence
   packaging without turning reports into authority.
 - Must not pre-implement access services, MCP adapters, domain packs, schema
   ingestion, prior-art gates, or experimentation loops.
