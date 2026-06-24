@@ -1,0 +1,88 @@
+# Phase 31 - Reviewed Runner Execution and PR/CI Repair Loop
+
+## Status
+
+Planned. Starts only after Phase 30 Bounded Agent Experimentation Loop is
+complete, reviewed, and accepted.
+
+## Purpose
+
+Execute approved stage packets through reviewed runner surfaces under explicit
+`RunnerProfile` and `ExecutionPolicy` boundaries, ingest runner/CI/review
+results, and prepare bounded fix-pass packets for failing CI/review outcomes.
+
+## Why this phase exists
+
+By this point the harness should already have:
+
+- durable procedure/state ingestion;
+- stage packets and result ingestion;
+- proof/review policy;
+- reports/packets;
+- read-only access and optional adapter parity;
+- bounded experimentation and evaluator-backed keep/revert rules.
+
+This phase turns those foundations into a reviewed operational runner-execution
+surface without allowing self-approval, hidden provider logic, or unrestricted
+repair loops.
+
+## Scope
+
+Required behavior:
+
+- Execute approved `StagePacket` instances through reviewed runner surfaces or
+  equivalent formal runtime commands.
+- Enforce `ExecutionPolicy` boundaries for sandbox mode, write scope,
+  approval policy, network policy, command allowlist, timeout policy, and
+  path constraints.
+- Record structured runner invocation results and map them back to
+  `StageResult`, delivery facts, or equivalent typed evidence.
+- Ingest CI and review outcomes as typed facts/evidence rather than free-form
+  chat state.
+- Prepare bounded fix-pass packets when CI or review fails.
+- Keep provider/host adapters behind shared runner/access boundaries instead
+  of embedding provider-specific logic into core lifecycle behavior.
+- Preserve human review and approval boundaries for high-risk writes, merges,
+  and lifecycle transitions.
+
+## Non-goals
+
+- No self-approval.
+- No auto-merge.
+- No unrestricted write access.
+- No bypass of sandbox or approval policy.
+- No provider-specific core logic.
+- No MCP-native architecture.
+- No domain workflow execution in core.
+- No background autonomous repair loop without reviewed approval boundaries.
+
+## Future-phase impact check
+
+- Prepares later operational refinement work such as richer CI/review repair
+  flows without making them autonomous by default.
+- Must not bypass the proof/report/access/evaluator foundations from earlier
+  phases.
+- Preserves the domain/core boundary by keeping runner execution generic,
+  approval-gated, and evidence-backed.
+- Requires architecture review if runner execution starts approving its own
+  actions, merging automatically, or encoding provider-specific or
+  domain-specific workflow logic into core.
+
+## Acceptance commands
+
+```bash
+npm run build
+npm test
+npm run test:acceptance
+git diff --check
+```
+
+## Acceptance behavior
+
+- Approved packets can be executed only through reviewed runner surfaces with
+  explicit `RunnerProfile` and `ExecutionPolicy` boundaries.
+- Failing CI/review outcomes can produce bounded fix-pass packets.
+- Runner execution writes typed evidence/results that preserve lifecycle and
+  approval boundaries.
+- No self-approval, auto-merge, unrestricted provider logic, or domain-core
+  execution behavior is introduced.

@@ -1,6 +1,6 @@
 # Self-hosting Procedure Source Map
 
-Status: active Phase 23.6 deliverable
+Status: maintained self-hosting authority surface, introduced in Phase 23.6
 Target repo path: `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`  
 Related phase: `tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md`  
 Purpose: define where each self-hosting procedure comes from, how it is adapted for `codex-harness`, and what authority it has.
@@ -34,7 +34,8 @@ These are binding for `codex-harness`.
 TASK.md
 tasks/PHASE_23_5_DB_FIRST_MEMORY_LIFECYCLE_HOOKS_RECONCILIATION.md
 tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md
-tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md
+tasks/PHASE_24A_MINIMAL_EVIDENCE_REPORT_AND_REVIEW_PACKET.md
+tasks/PHASE_24B_EXPANDED_REPORTS_AND_PACKETS.md
 docs/IMPLEMENTATION_ROADMAP.md
 docs/HARNESS_GOVERNANCE_AND_EVOLUTION.md
 docs/HUMAN_OPERATOR_MANUAL.md
@@ -256,8 +257,10 @@ Rules:
 Generated or local discovery targets must not become hidden source-of-truth.
 .agents/** remains ignored or local installed state in this repo unless a
 future reviewed boundary change says otherwise.
-Prompt wrappers, if ever added later, are invocation helpers and not
-source-of-truth.
+Prompt wrappers under prompts/self-hosting/<procedure-id>.md are mandatory
+derived invocation helpers and not source-of-truth.
+Generated product prompts from node bin/ch prompt ... are separate task-local
+artifacts and do not replace checked-in self-hosting procedure wrappers.
 ```
 
 ## 4. Procedure contract
@@ -301,6 +304,7 @@ runner or execution surface consumes them.
 
 ```yaml
 canonical_skill_path: string
+prompt_wrapper_path: string
 actor_mode: read_only | write_capable | approval_gated
 permission_mode: read_only | local_write | approval_required
 risk_class: read_only | local_write_contract | script_or_tooling | external_or_network
@@ -371,6 +375,10 @@ skills/self-hosting/procedure-registry.json
 It must point back to the canonical files above and must not replace them as
 the authority source.
 
+The registry also records `prompt_wrapper_path` for each procedure. That path is
+derived metadata and must equal `prompts/self-hosting/<procedure-id>.md`; it does
+not make prompt wrappers authoritative.
+
 ## 5. Procedure source map entries
 
 ### feature-decomposition
@@ -435,8 +443,8 @@ the authority source.
 ### task-prompt-writer
 
 - `procedure_id`: `task-prompt-writer`
-- `purpose`: Produce or review invocation-ready implementation guidance derived
-  from approved repo contracts.
+- `purpose`: Produce or review task-local generated implementation guidance
+  derived from approved repo contracts.
 - `primary internal sources`:
   `tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md`;
   `docs/HUMAN_OPERATOR_MANUAL.md`; `docs/SECURITY_AND_PERMISSION_MODEL.md`;
@@ -445,10 +453,11 @@ the authority source.
   practices
 - `external/advisory sources`: Prior prompt audits; `agents-best-practices`
 - `community pattern sources`: Agent Skills specification
-- `what was adopted`: Prompt wrappers point at repo artifacts, boundaries,
-  required checks, and non-goals
-- `what was adapted`: Prompt writing becomes a derived helper from procedures
-  rather than source-of-truth
+- `what was adopted`: Task-local prompt guidance points at repo artifacts,
+  boundaries, required checks, and non-goals
+- `what was adapted`: Prompt writing becomes derived task-local guidance from
+  procedures rather than source-of-truth, while checked-in self-hosting
+  procedure wrappers remain a separate repo-owned surface
 - `what was rejected`: Chat-only mega prompts with no artifact contract
 - `canonical source path`: `skills/self-hosting/task-prompt-writer/`
 - `Codex discovery/install path`: Sync or install from

@@ -55,11 +55,32 @@ cd <task-worktree>
 codex -C "$PWD" --sandbox read-only --ask-for-approval never
 ```
 
-The prompt pasted into that session must be derived from the active
-`skills/self-hosting/<procedure>/` contract and its output format, not from a
-chat-local rewrite. The reviewer pass may inspect files and report findings; it
-must not implement, mutate runtime state, or claim a durable decision unless a
-current product command or documented ingestion path records that decision.
+The prompt pasted into that session should use the checked-in
+`prompts/self-hosting/<procedure-id>.md` wrapper. That wrapper is derived from the
+active `skills/self-hosting/<procedure>/` contract and its output format, not
+from a chat-local rewrite. The reviewer pass may inspect files and report
+findings; it must not implement, mutate runtime state, or claim a durable
+decision unless a current product command or documented ingestion path records
+that decision.
+
+Manual model/reasoning guidance for the current self-hosting replay flow is
+advisory operator guidance only:
+
+- lighter synthesis/normalization passes such as `task-intake` and
+  `task-prompt-writer` may use a lighter or medium-strength profile;
+- hard planning passes such as `draft-plan` and broad decomposition may use a
+  stronger planning profile with higher reasoning;
+- implementation or builder passes may use a stronger builder profile matched
+  to task complexity, but they should stay separate from the reviewer profile
+  used to judge the same work;
+- review passes such as `plan-review`, `implementation-review`,
+  `fix-pass-review`, and `verification-review` should run in a separate
+  reviewer session and should use a different reviewer model/profile than the
+  planning or builder pass they are checking.
+
+This guidance does not create provider/model routing, runtime selection logic,
+or approval authority. It only helps the operator pick an appropriate manual
+CLI profile until later reviewed phases introduce formal execution surfaces.
 
 ## When not to press implement
 
@@ -204,6 +225,7 @@ docs/SELF_HOSTING_AGENT_OPERATING_POLICY.md
 docs/SELF_HOSTING_SKILL_DISCOVERY.md
 skills/self-hosting/procedure-registry.json
 skills/self-hosting/**
+prompts/self-hosting/**
 ```
 
 Check:
@@ -219,7 +241,10 @@ Check:
   review report;
 - if review required amendment, there is one effective amended plan for
   approval and implementation instead of manual amendment-chain stitching;
-- prompts remain optional helpers and not the authority source;
+- `prompts/self-hosting/<procedure-id>.md` wrappers exist for each procedure and
+  remain derived helpers, not the authority source;
+- generated product prompts from `node bin/ch prompt ...` are separate
+  task-local artifacts and do not replace checked-in self-hosting wrappers;
 - implementation does not introduce Phase 24 packet/runtime behavior, Phase 25
   access/runtime behavior, Phase 26 decomposer/planner execution, or Phase 27
   domain-pack runtime behavior.

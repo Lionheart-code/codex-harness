@@ -13,6 +13,9 @@ is implemented.
 
 This is an authority rebase, not an implementation phase. It clarifies what the
 next phases are allowed to build and what they must not pre-implement.
+It may update schema, registry, validator, and acceptance-test surfaces only as
+needed to enforce repo-owned self-hosting procedure wrapper parity. Those
+changes are contract enforcement, not runtime automation.
 
 It also separates the end-of-old-cycle decision from the start-of-new-cycle
 materialization. A closing or harvested run may determine and record the next
@@ -43,6 +46,16 @@ task, but it must not create, claim, or mutate the next task branch/worktree.
 Required changes:
 
 - Update `TASK.md` to activate this task file for the current preparation pass.
+- Add mandatory derived self-hosting procedure wrappers at
+  `prompts/self-hosting/<procedure-id>.md`, with exactly one wrapper per
+  `procedure_id` from `skills/self-hosting/procedure-registry.json` and no extra
+  wrapper files except `prompts/self-hosting/README.md`.
+- Add required `prompt_wrapper_path` metadata to the self-hosting procedure
+  registry, schema, TypeScript registry model/validator, and acceptance tests.
+  Keep `schema_version` unchanged because this registry is a checked-in
+  product-source artifact updated atomically in this task.
+- Update acceptance coverage so wrapper drift fails closed, including a negative
+  validator test for mismatched `prompt_wrapper_path`.
 - Update `docs/IMPLEMENTATION_ROADMAP.md` with the Phase 23.8.5 -> 23.8.6 ->
   23.8.7 -> 23.9 -> 24A -> 24B -> 25A -> 25B -> 26 sequence.
 - Amend roadmap/operator contracts to make this invariant explicit:
@@ -60,9 +73,10 @@ Required changes:
   for activating the next task, starting the new run, and creating the
   branch/worktree through formal product commands or equivalent documented
   runtime surfaces.
-- Add a roadmap continuity invariant that preserves Phases 27-30 as the
-  downstream domain-pack, ingestion/schema-safety, prior-art discovery, and
-  bounded experimentation path.
+- Add a roadmap continuity invariant that preserves Phases 27-31 as the
+  downstream domain-pack, ingestion/schema-safety, prior-art discovery,
+  bounded experimentation/improvement, and late reviewed runner-execution
+  path.
 - Amend `docs/OPERATIONS_PLAN.md` with operator-first operations: no manual
   `run.json` repair, every operator action maps to a product command or
   documented ingestion path.
@@ -86,12 +100,21 @@ Required changes:
   while separate Codex CLI or equivalent review-only sessions may be used for
   independent procedure passes such as `plan-review` without becoming runtime
   authority.
+- Amend operator/procedure docs to record advisory manual model/reasoning
+  guidance for separate planning, review, and implementation passes. That
+  guidance may distinguish lighter synthesis passes from stronger
+  planning/review passes and may recommend keeping reviewer profiles separate
+  from builder profiles, but it must not introduce provider/model routing,
+  runtime selection logic, or self-approval.
 - Amend `docs/AGENT_BOUNDARIES_AND_ADAPTERS.md` to split `RunnerProfile` from
   `ExecutionPolicy`.
 - Amend `docs/SECURITY_AND_PERMISSION_MODEL.md` to define `ExecutionPolicy` as
   the permission contract for future packet execution.
 - Create `tasks/PHASE_23_8_6_TRANSACTIONAL_PROCEDURE_RESULT_INGESTION.md`.
 - Create `tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md`.
+- Amend Phase 23.8.7 so `StagePacket` contracts require a verifiable stopping
+  condition, required validation commands/artifacts, and a bounded
+  progress/result log contract without adding runner execution.
 - Split or amend Phase 24 into `24A` and `24B` without deleting useful
   evidence/report/redaction/provenance constraints.
 - Split or amend Phase 25 into `25A` and `25B` while preserving Direct API/CLI
@@ -100,10 +123,18 @@ Required changes:
 - Amend Phase 26 while preserving that it extends `feature-decomposition`,
   emits reviewable task graph proposals, and does not execute or approve its
   own scope.
+- Amend Phase 30 so bounded experimentation explicitly includes procedure
+  trigger evals, findings/traces/CI-failure promotion into approved eval
+  candidates/regression fixtures, and bounded drift/entropy cleanup proposals
+  tied to evidence.
+- Create `tasks/PHASE_31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP.md`.
 
 ## Non-goals
 
-- No runtime code changes.
+- No runtime automation code or runtime behavior changes outside registry
+  contract validation. Minimal schema, registry, TypeScript validator/model, and
+  acceptance-test changes are allowed only to enforce the wrapper contract
+  introduced by this task.
 - No procedure ingestion commands.
 - No packet automation.
 - No proof generation.
@@ -123,7 +154,8 @@ Required changes:
 ## Future-phase impact check
 
 - Prepares Phase 23.8.6, Phase 23.8.7, Phase 23.9, Phase 24A/24B, Phase
-  25A/25B, and Phase 26 by making dependencies explicit.
+  25A/25B, Phase 26, and downstream Phases 27-31 by making dependencies
+  explicit.
 - Must not pre-implement transactional ingestion, packet automation, proof
   generation, report builders, access APIs, planner logic, domain packs,
   prior-art discovery, or experimentation.
@@ -137,6 +169,7 @@ Required changes:
 
 ```bash
 npm run build
+node --test tests/acceptance/phase23-6-self-hosting-skills-plan-review-bootstrap.test.mjs tests/acceptance/self-hosting-review-policy-hardening.test.mjs tests/acceptance/phase23-7-operator-status.test.mjs tests/acceptance/phase23-8-bounded-source-of-truth-procedure-surface-patch.test.mjs tests/acceptance/phase23-8-agent-native-procedure-registry-and-skill-surface.test.mjs
 git diff --check
 ```
 
@@ -152,7 +185,9 @@ git diff --check
 - Roadmap blocks direct Phase 23.9 until run-state ingestion and packet
   foundations are completed, explicitly deferred, or waived by reviewed
   decision.
-- No runtime implementation is introduced.
+- No runtime implementation is introduced beyond the narrow
+  registry/schema/validator/test contract-enforcement exception already
+  allowed by this task.
 - No MCP/API/runner implementation is introduced.
 - No hook authority is introduced.
 - No broad process-product expansion is introduced.
@@ -160,3 +195,21 @@ git diff --check
   explicitly separate.
 - The one task = one branch = one worktree invariant is preserved, and no
   harvested/closing run claims the next task branch/worktree.
+- Self-hosting procedure wrappers are mandatory derived helpers:
+  every registry `procedure_id` has exactly
+  `prompts/self-hosting/<procedure-id>.md`, no extra wrapper files exist except
+  `prompts/self-hosting/README.md`, every wrapper file is checked in as
+  repo-owned source, and wrappers do not replace canonical `skills/self-hosting/**`
+  authority.
+- The registry requires `prompt_wrapper_path`; validator code fails closed when
+  the path does not equal `prompts/self-hosting/<procedure-id>.md`.
+- Checked-in procedure wrappers are distinguished from generated product prompts
+  created by `node bin/ch prompt ...`.
+- Manual procedure model guidance, if added, remains advisory operator guidance
+  only. It must not become provider/model routing, runtime role execution, or
+  authority to start implementation or approve review outcomes.
+- Phase 23.8.7 packet contracts explicitly require verifiable stopping
+  conditions, validation artifacts/commands, and bounded progress/result logs
+  without adding runner execution.
+- Phase 30 and the new late runner-execution phase remain explicit checked-in
+  future task contracts rather than chat-only intent.

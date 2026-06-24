@@ -24,6 +24,8 @@ Required behavior:
   or equivalent.
 - Add result fixture ingestion such as
   `run record-stage-result --packet <packet-id> --file <path>` or equivalent.
+- Each `StagePacket` must include a verifiable stopping condition, required
+  validation commands/artifacts, and a bounded progress/result log contract.
 - Operator emits `human_action_required` separately from
   `next_allowed_action`.
 - Failed review routes to `FIX_PASS_PACKET`.
@@ -40,7 +42,8 @@ Required behavior:
 
 `StagePacket`: `packet_id`, `packet_kind`, `task_id`, `run_id`, `stage_id`,
 `procedure_id`, `effective_plan_ref`, `evidence_refs`, `input_refs`,
-`output_contract`, `required_result_schema`, `execution_policy_ref`.
+`output_contract`, `required_result_schema`, `stopping_condition`,
+`validation_refs`, `progress_log_contract`, `execution_policy_ref`.
 
 `RunnerProfile`: `runner_id`, `runner_kind`, `supported_roles`,
 `supported_packet_kinds`, `structured_output_support`, `write_capability`,
@@ -52,7 +55,8 @@ Required behavior:
 
 `StageResult`: `result_id`, `packet_id`, `runner_id`, `runner_metadata`,
 `files_changed`, `commands_run`, `outputs`, `declared_blockers`,
-`evidence_refs`, `result_schema_valid`.
+`evidence_refs`, `validation_results`, `progress_log_ref`,
+`result_schema_valid`.
 
 `WaiverRecord`: `waiver_id`, `failed_check`, `reason`, `approver`, `scope`,
 `evidence_refs`.
@@ -97,6 +101,8 @@ git diff --check
 
 - Operator can prepare plan, implementation, review, fix-pass, and closeout
   packet fixtures from run/procedure state.
+- Prepared packet fixtures include a verifiable stopping condition, required
+  validation commands/artifacts, and a bounded progress/result log contract.
 - Operator reports `human_action_required` separately from
   `next_allowed_action`.
 - Failed review fixture routes to fix-pass packet state.

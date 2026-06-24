@@ -57,6 +57,13 @@ Independently review a draft plan before implementation begins.
   - a durable decision record for operator/runtime progression.
 - Return findings clearly enough for `plan-amend` to act on them.
 
+## manual_invocation_guidance
+- Run this review in a separate reviewer session from the planner or builder.
+- Use a different reviewer model/profile from the planning or implementation
+  pass being reviewed.
+- This is advisory manual CLI guidance only; it does not create
+  provider/model routing or runtime approval authority.
+
 ## expected_output_format
 Return the exact section order documented in
 `references/output-format.md`.

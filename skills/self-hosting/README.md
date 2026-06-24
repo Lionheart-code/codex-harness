@@ -25,9 +25,34 @@ Rules:
 - `.agents/**` remains local or generated state in this repo unless a future
   reviewed task changes that boundary explicitly.
 - Generated or local discovery targets must not become hidden source-of-truth.
-- Prompt wrappers, if added later, are derived invocation helpers and not authority.
+- Prompt wrappers are mandatory derived invocation helpers and not authority.
+  Each procedure must have exactly one wrapper at
+  `prompts/self-hosting/<procedure-id>.md`.
+- Checked-in self-hosting procedure wrappers are separate from generated product
+  prompts created by `node bin/ch prompt ...`.
 - These procedure files are repo-owned operating artifacts and are intentionally
   outside the current packaged runtime allowlist.
+
+## Manual model guidance
+
+Current self-hosting procedure runs may record advisory manual model/reasoning
+guidance without turning it into runtime routing.
+
+- `task-intake` and `task-prompt-writer` may use lighter or medium-strength
+  synthesis profiles.
+- `feature-decomposition` and `draft-plan` may use stronger planning profiles.
+- implementation or builder passes may use a stronger builder profile matched
+  to task complexity, but they should remain separate from the reviewer
+  profile used to judge the same work.
+- Review-family procedures such as `plan-review`, `implementation-review`,
+  `fix-pass-review`, `verification-review`, `delivery-facts-review`,
+  `phase-closeout-review`, `architecture-review`, `db-storage-review`,
+  `docs-consistency-review`, and `harness-audit` should use a separate reviewer
+  session and a different reviewer model/profile from the planning or builder
+  pass they are checking.
+
+This guidance is operator advisory only. It must not be implemented as current
+provider/model routing, runtime profile selection, or self-approval logic.
 
 ## Required procedures
 

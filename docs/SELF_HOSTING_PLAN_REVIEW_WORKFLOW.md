@@ -7,7 +7,8 @@ verify, and close its own changes after Phase 23.5 established the accepted
 memory and lifecycle authority model.
 
 Task files remain the contract. Procedure skills provide the reusable operating
-rubrics. Prompts are derived helpers only if added later.
+rubrics. Checked-in `prompts/self-hosting/<procedure-id>.md` wrappers are
+mandatory derived invocation helpers, not authority.
 
 ## Broad-request pre-flow
 
@@ -29,6 +30,29 @@ large goal or major module request
 
 `feature-decomposition` produces reviewable task-contract proposals. It does
 not approve scope and does not start implementation.
+
+## Manual model guidance
+
+For the current manual replay flow, procedure model/reasoning choice is
+operator guidance only and must not be treated as runtime routing.
+
+- `task-intake` and `task-prompt-writer` are bounded synthesis/normalization
+  passes and may use lighter or medium-strength profiles.
+- `feature-decomposition` and `draft-plan` are harder planning passes and may
+  use stronger planning profiles with higher reasoning.
+- implementation or builder passes may use a stronger builder profile matched
+  to task complexity, but they should remain separate from the reviewer
+  profile used to judge the same work.
+- `plan-review`, `implementation-review`, `fix-pass-review`,
+  `verification-review`, `delivery-facts-review`, `phase-closeout-review`,
+  `architecture-review`, `db-storage-review`, `docs-consistency-review`, and
+  `harness-audit` are reviewer passes. They should use a separate reviewer
+  session and a different reviewer model/profile from the planning or builder
+  pass they are checking.
+
+These are manual invocation defaults only. They do not authorize model
+selection by runtime state, do not create a provider/model policy engine, and
+do not bypass human approval or review boundaries.
 
 ## Standard workflow
 
@@ -138,6 +162,7 @@ Required closeout outcomes:
 
 - `CLOSEOUT_ACCEPTED`
 - `CLOSEOUT_ACCEPTED_WITH_DOC_FOLLOWUP`
+- `CLOSEOUT_BLOCKED_READINESS`
 - `CLOSEOUT_BLOCKED_SOURCE_OF_TRUTH_STALE`
 
 ## Review intensity tiers
@@ -226,5 +251,8 @@ docs-consistency packet:
   must not replace them as authority.
 - `.agents/skills/**` and `$HOME/.agents/skills/**` are optional discovery or
   install targets only.
-- Prompt wrappers are optional later helpers and are not required to run this
-  workflow.
+- Prompt wrappers under `prompts/self-hosting/<procedure-id>.md` are required
+  derived invocation helpers for manual procedure replay and are not authority.
+- Generated product prompts from `node bin/ch prompt ...` are task-local
+  generated artifacts and do not replace checked-in self-hosting procedure
+  wrappers.

@@ -32,6 +32,7 @@ export interface SelfHostingProcedureDescriptor {
   skill_path: string;
   source_notes_path: string;
   output_format_path: string;
+  prompt_wrapper_path: string;
   required_inputs: string[];
   blocker_conditions: string[];
   evidence_to_record: string[];
@@ -121,6 +122,21 @@ function assertPathInsideCanonicalRoot(
 
   if (!normalized.startsWith(normalizedRoot)) {
     throw new Error(`${label} ${field} must stay inside ${normalizedRoot}.`);
+  }
+
+  return normalized;
+}
+
+function getExpectedPromptWrapperPath(procedureId: string): string {
+  return `prompts/self-hosting/${procedureId}.md`;
+}
+
+function assertPromptWrapperPath(fieldValue: string, procedureId: string, label: string): string {
+  const normalized = toPortablePath(fieldValue);
+  const expectedPath = getExpectedPromptWrapperPath(procedureId);
+
+  if (normalized !== expectedPath) {
+    throw new Error(`${label} prompt_wrapper_path must be ${expectedPath}.`);
   }
 
   return normalized;
@@ -229,6 +245,11 @@ export function validateSelfHostingProcedureRegistry(value: unknown): SelfHostin
         assertString(item.output_format_path, "output_format_path", `self-hosting procedure registry procedures[${index}]`),
         "output_format_path",
         canonicalRoot,
+        `self-hosting procedure registry procedure ${procedureId}`
+      ),
+      prompt_wrapper_path: assertPromptWrapperPath(
+        assertString(item.prompt_wrapper_path, "prompt_wrapper_path", `self-hosting procedure registry procedures[${index}]`),
+        procedureId,
         `self-hosting procedure registry procedure ${procedureId}`
       ),
       required_inputs: assertStringArray(item.required_inputs, "required_inputs", `self-hosting procedure registry procedures[${index}]`),

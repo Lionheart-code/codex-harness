@@ -53,6 +53,14 @@ style alone.
 - Reject confident claims that are not backed by deterministic evidence.
 - Return findings clearly enough for a scoped fix pass.
 
+## manual_invocation_guidance
+- Run this procedure in a separate reviewer session from the implementation
+  pass.
+- Use a different reviewer model/profile from the builder profile used for the
+  implementation pass.
+- This is advisory manual CLI guidance only; it does not create
+  provider/model routing, runtime role execution, or approval authority.
+
 ## expected_output_format
 Return the exact section order documented in
 `references/output-format.md`.

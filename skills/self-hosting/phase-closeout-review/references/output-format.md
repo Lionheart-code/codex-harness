@@ -15,4 +15,5 @@ Each readiness section must end with `ready`, `blocked`, or `not_applicable`.
 
 - `CLOSEOUT_ACCEPTED`
 - `CLOSEOUT_ACCEPTED_WITH_DOC_FOLLOWUP`
+- `CLOSEOUT_BLOCKED_READINESS`
 - `CLOSEOUT_BLOCKED_SOURCE_OF_TRUTH_STALE`

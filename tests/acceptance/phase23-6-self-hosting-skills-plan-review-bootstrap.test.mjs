@@ -60,8 +60,9 @@ test("phase 23.6 self-hosting procedures, docs, and boundaries exist", () => {
   const policyPath = path.join(productRoot, "docs", "SELF_HOSTING_AGENT_OPERATING_POLICY.md");
   const discoveryPath = path.join(productRoot, "docs", "SELF_HOSTING_SKILL_DISCOVERY.md");
   const skillsRoot = path.join(productRoot, "skills", "self-hosting");
+  const promptsRoot = path.join(productRoot, "prompts", "self-hosting");
 
-  for (const docPath of [sourceMapPath, workflowPath, policyPath, discoveryPath, skillsRoot]) {
+  for (const docPath of [sourceMapPath, workflowPath, policyPath, discoveryPath, skillsRoot, promptsRoot]) {
     assert.ok(fs.existsSync(docPath), `expected Phase 23.6 artifact to exist: ${docPath}`);
   }
 
@@ -105,9 +106,24 @@ test("phase 23.6 self-hosting procedures, docs, and boundaries exist", () => {
   assert.match(discovery, /must not become hidden source-of-truth/);
 
   assert.match(readme, /canonical product-source location/i);
-  assert.match(readme, /Prompt wrappers, if added later, are derived invocation helpers and not authority\./);
+  assert.match(readme, /Prompt wrappers are mandatory derived invocation helpers and not authority\./);
 
-  assert.equal(fs.existsSync(path.join(productRoot, "prompts", "self-hosting")), false);
+  const wrapperFiles = fs.readdirSync(promptsRoot)
+    .filter((entry) => entry.endsWith(".md"))
+    .sort();
+  assert.deepEqual(
+    wrapperFiles,
+    [...requiredProcedures.map((procedureId) => `${procedureId}.md`), "README.md"].sort(),
+    "prompts/self-hosting must contain exactly one wrapper per procedure plus README.md"
+  );
+
+  const trackedWrappers = runCommand("git", ["ls-files", "prompts/self-hosting"], { cwd: productRoot });
+  assertSuccess(trackedWrappers, "git ls-files prompts/self-hosting");
+  assert.deepEqual(
+    trackedWrappers.stdout.trim().split(/\r?\n/u).filter(Boolean).sort(),
+    wrapperFiles.map((entry) => `prompts/self-hosting/${entry}`).sort(),
+    "prompts/self-hosting wrappers must be checked-in repo-owned source"
+  );
 
   const trackedAgents = runCommand("git", ["ls-files", ".agents"], { cwd: productRoot });
   assertSuccess(trackedAgents, "git ls-files .agents");
@@ -118,17 +134,25 @@ test("phase 23.6 self-hosting procedures, docs, and boundaries exist", () => {
     const skillPath = path.join(procedureRoot, "SKILL.md");
     const sourceNotesPath = path.join(procedureRoot, "references", "source-notes.md");
     const outputFormatPath = path.join(procedureRoot, "references", "output-format.md");
+    const wrapperPath = path.join(promptsRoot, `${procedureId}.md`);
 
-    for (const expectedPath of [procedureRoot, skillPath, sourceNotesPath, outputFormatPath]) {
+    for (const expectedPath of [procedureRoot, skillPath, sourceNotesPath, outputFormatPath, wrapperPath]) {
       assert.ok(fs.existsSync(expectedPath), `expected Phase 23.6 procedure artifact to exist: ${expectedPath}`);
     }
 
     const skillContent = fs.readFileSync(skillPath, "utf8");
     const sourceNotesContent = fs.readFileSync(sourceNotesPath, "utf8");
     const outputFormatContent = fs.readFileSync(outputFormatPath, "utf8");
+    const wrapperContent = fs.readFileSync(wrapperPath, "utf8");
 
     assert.match(skillContent, /^---\nname: codex-harness-[a-z0-9-]+\ndescription: .+\n---\n/m);
     assert.match(skillContent, new RegExp(`## procedure_id\\n\`${procedureId}\``));
+    assert.match(wrapperContent, new RegExp(`Self-hosting Procedure Wrapper: \`${procedureId}\``));
+    assert.match(wrapperContent, new RegExp(`skills/self-hosting/${procedureId}/SKILL\\.md`));
+    assert.match(wrapperContent, new RegExp(`skills/self-hosting/${procedureId}/references/output-format\\.md`));
+    assert.match(wrapperContent, new RegExp(`skills/self-hosting/${procedureId}/references/source-notes\\.md`));
+    assert.match(wrapperContent, /derived, non-authoritative invocation helper/);
+    assert.match(wrapperContent, /Do not broaden scope/);
 
     for (const marker of requiredSkillMarkers) {
       assert.match(skillContent, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));

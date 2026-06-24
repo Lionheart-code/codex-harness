@@ -337,19 +337,21 @@ Closeout addendum:
 
 ## Roadmap continuity invariant
 
-The Phase 23.8.5-26 rebase preserves the downstream path through Phases 27-30.
+The Phase 23.8.5-26 rebase preserves the downstream path through Phases 27-31.
 
 - Phase 27 remains the domain pack architecture path for domain expansion.
 - Phase 28 remains the safety boundary for domain ingestion and schema
   evolution.
 - Phase 29 remains the prior-art discovery gate before domain/runtime
   expansion.
-- Phase 30 remains bounded experimentation only after evaluator/proof/report
-  foundations exist.
+- Phase 30 remains bounded experimentation and eval-driven harness improvement
+  only after evaluator/proof/report foundations exist.
+- Phase 31 remains the late reviewed runner-execution and PR/CI repair path
+  after evaluator/experimentation boundaries are explicit.
 - Phases 23.8.5-26 prepare stable operator/procedure/proof/report/access
   foundations for those later phases; they must not replace, bypass, or make
   those phases unnecessary through hidden core behavior.
-- If any proposed change in 23.8.5-26 makes Phases 27-30 harder, less safe,
+- If any proposed change in 23.8.5-26 makes Phases 27-31 harder, less safe,
   less local-first, more core-coupled, or more autonomous than intended, stop
   and run architecture review before implementation.
 
@@ -402,12 +404,22 @@ Perform a docs/task-contract authority rebase before runtime automation work.
 Status:
 Active docs/task-contract phase. Phase 23.8 is complete, reviewed, and
 accepted.
-Docs/task-contract only: no runtime code, ingestion commands, packet
-automation, proof generation, reports, access APIs, MCP, runners, hooks,
-provider adapters, or domain-pack behavior.
+Docs/task-contract and registry contract-enforcement only: no runtime
+automation code, ingestion commands, packet automation, proof generation,
+reports, access APIs, MCP, runners, hooks, provider adapters, or domain-pack
+behavior. TypeScript changes are limited to registry validator/model parity.
 
 Required scope:
-- activate this task by updating `TASK.md`, then keep this pass docs/task-only;
+- activate this task by updating `TASK.md`, then keep this pass to
+  docs/task-contract reconciliation plus the narrow registry/schema/validator/
+  test contract-enforcement exception already allowed by the active task;
+- add mandatory derived self-hosting procedure wrappers at
+  `prompts/self-hosting/<procedure-id>.md`, with exact one-to-one parity with
+  `skills/self-hosting/procedure-registry.json`;
+- add required `prompt_wrapper_path` registry metadata and update the registry
+  schema, TypeScript validator/model, and acceptance tests so wrapper drift
+  fails closed; keep `schema_version` unchanged because this is an atomic
+  product-source registry update, not a runtime migration;
 - update this roadmap with the new sequence and a direct block before Phase
   23.9;
 - separate end-of-old-cycle decision from start-of-new-cycle materialization:
@@ -433,6 +445,9 @@ Required scope:
 - amend agent boundary/security docs to split `RunnerProfile` from
   `ExecutionPolicy`;
 - create task contracts for Phases 23.8.6 and 23.8.7;
+- amend Phase 23.8.7 so `StagePacket` contracts require a verifiable stopping
+  condition, required validation commands/artifacts, and a bounded
+  progress/result log contract without adding runner execution;
 - split or amend Phase 24 into 24A/24B while preserving useful
   evidence/report/redaction/provenance constraints;
 - split or amend Phase 25 into 25A/25B while preserving Direct API/CLI first,
@@ -441,11 +456,18 @@ Required scope:
 - amend Phase 26 while preserving that it extends `feature-decomposition`,
   emits reviewable task graph proposals, and does not execute or approve its
   own scope;
-- preserve downstream constraints for Phases 27-30.
+- amend Phase 30 so bounded experimentation explicitly includes procedure
+  trigger evals, findings/traces/CI-failure promotion into approved eval
+  candidates/regression fixtures, and bounded drift/entropy cleanup proposals
+  tied to evidence;
+- create `tasks/PHASE_31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP.md`;
+- preserve downstream constraints for Phases 27-31.
+- distinguish checked-in procedure wrappers from generated product prompts
+  created by `node bin/ch prompt ...`.
 
 Future-phase impact check:
-- prepares 23.8.6, 23.8.7, 23.9, 24A/24B, 25A/25B, and 26 by making
-  dependencies explicit;
+- prepares 23.8.6, 23.8.7, 23.9, 24A/24B, 25A/25B, 26, and downstream
+  Phases 27-31 by making dependencies explicit;
 - must not pre-implement transactional ingestion, packet automation, proof
   generation, report builders, access APIs, planner logic, domain packs,
   prior-art discovery, or experimentation;
@@ -521,6 +543,9 @@ Required scope:
   or equivalent;
 - add result fixture ingestion such as
   `run record-stage-result --packet <packet-id> --file <path>` or equivalent;
+- require every `StagePacket` to include a verifiable stopping condition,
+  required validation commands/artifacts, and a bounded progress/result log
+  contract;
 - report `human_action_required` separately from `next_allowed_action`;
 - route failed review fixtures to `FIX_PASS_PACKET`;
 - route passing review fixtures to `CLOSEOUT_PACKET` or closeout-ready state;
@@ -544,6 +569,11 @@ Future-phase impact check:
 - requires architecture review if packet automation starts invoking runners,
   selecting models/providers, writing source files, making approval decisions,
   or encoding domain workflows in core.
+
+Acceptance behavior highlights:
+- prepared packet fixtures include a verifiable stopping condition, required
+  validation commands/artifacts, and a bounded progress/result log contract;
+- no agent or runner is invoked.
 
 ## Phase 23.9 — Minimal Proof-Carrying Work over Procedure/Stage Records
 
@@ -641,13 +671,9 @@ Expand reports and packets only after Phase 24A artifacts show concrete use.
 Status:
 Planned split from `tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`. Blocked
 until Phase 24A is complete and reviewed.
-Must preserve Direct API/CLI first, optional MCP only, read-only defaults,
-redaction, query limits, no raw SQL by default, approval-gated mutations, no
-autonomous agent, and no external write connector.
 CLI remains the current baseline access surface. App Server is a future
-candidate only and must be evaluated against CLI for speed, reliability,
-auth, approvals, event visibility, operational simplicity, and cost/access
-fit. API-key billing must not become the default or hidden execution path.
+candidate only, but that access-layer evaluation remains owned by Phase 25A/25B
+and must not be reintroduced here as Phase 24B implementation scope.
 
 Possible additions moved from the existing Phase 24 broad catalog:
 - proposal draft;
@@ -676,7 +702,7 @@ Preserved constraints:
 - proposal drafts remain drafts until human promotion.
 
 Future-phase impact check:
-- prepares 25A, 26, and later 27-30 by improving evidence packaging without
+- prepares 25A, 26, and later 27-31 by improving evidence packaging without
   turning reports into authority;
 - must not pre-implement access services, MCP adapters, domain packs, schema
   ingestion, prior-art gates, or experimentation loops;
@@ -870,14 +896,40 @@ Task:
 `tasks/PHASE_30_BOUNDED_AGENT_EXPERIMENTATION_LOOP.md`
 
 Goal:
-Add a bounded experimentation primitive after operator/procedure/proof/evaluator
-fixtures exist.
+Add a bounded experimentation and eval-driven harness-improvement primitive
+after operator/procedure/proof/evaluator fixtures exist.
 
 Status:
 Planned experimental. Blocked until Phase 23.8 is complete and reviewed.
 Blocked until Phase 29 is complete and reviewed. Not
 uncontrolled self-improvement, not autonomous product development, and not a
 replacement for architecture review.
+
+Required scope highlights:
+- procedure-trigger evals with negative cases, blocker semantics, and
+  output-format conformance;
+- findings/traces/CI failures promoted into approved eval candidates and then
+  regression fixtures;
+- harness change proposals tied to evidence/eval IDs;
+- bounded drift/entropy cleanup proposals for stale docs, wrapper drift,
+  source-map drift, duplicate authority, and abandoned experiment notes;
+- immutable evaluator, durable experiment record, and explicit keep/revert
+  decision.
+
+## Phase 31 — Reviewed Runner Execution and PR/CI Repair Loop
+
+Task:
+`tasks/PHASE_31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP.md`
+
+Goal:
+Execute approved stage packets through reviewed runner surfaces under explicit
+`RunnerProfile` and `ExecutionPolicy` boundaries, ingest runner/CI/review
+results, and prepare bounded fix-pass packets for failing CI/review outcomes.
+
+Status:
+Planned. Blocked until Phase 30 is complete and reviewed. No self-approval,
+auto-merge, unrestricted write access, provider-specific core logic, or
+domain-core execution behavior is allowed.
 
 ## Pilot — Research Ops pack
 
