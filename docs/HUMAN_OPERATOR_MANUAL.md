@@ -304,6 +304,9 @@ After apply:
 Only after commit and closeout/harvest decision:
 
 1. record the next task decision if it is not already recorded;
+   until Phase 23.8.6 provides a formal ingestion path, this is an
+   operator-reviewed closeout/harvest fact rather than a runtime-ingested state
+   change;
 2. create or enter the branch/worktree owned by that task;
 3. in that branch/worktree, edit `TASK.md` to point to that task;
 4. start the new run for the active task in that task worktree;

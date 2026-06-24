@@ -156,6 +156,9 @@ Commit only after:
 After commit:
 
 1. Record the next task decision if closeout/harvest has not already done so.
+   Until Phase 23.8.6 adds a formal ingestion path, that record is an
+   operator-reviewed closeout/harvest fact rather than a runtime-ingested state
+   mutation.
 2. Create or enter the branch/worktree owned by that task.
 3. In that branch/worktree, activate `TASK.md` for the next task.
 4. Start the new run for the active task in that task worktree.

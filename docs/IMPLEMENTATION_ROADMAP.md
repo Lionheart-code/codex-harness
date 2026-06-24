@@ -981,6 +981,9 @@ After every phase:
 3. Commit.
 4. Record the next task decision as part of old-cycle closeout/harvest when
    applicable.
+   Until Phase 23.8.6 adds a formal ingestion path, this is an
+   operator-reviewed closeout/harvest fact rather than a runtime-ingested state
+   change.
 5. In the new cycle, create or enter the new branch/worktree for that task,
    activate the next task in `TASK.md` there, and start the new run in that
    task worktree.
