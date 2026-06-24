@@ -66,17 +66,23 @@ that decision.
 Manual model/reasoning guidance for the current self-hosting replay flow is
 advisory operator guidance only:
 
-- lighter synthesis/normalization passes such as `task-intake` and
-  `task-prompt-writer` may use a lighter or medium-strength profile;
-- hard planning passes such as `draft-plan` and broad decomposition may use a
-  stronger planning profile with higher reasoning;
+- bounded synthesis/normalization passes such as `task-intake` and
+  `task-prompt-writer` may use a lower-cost profile such as `gpt-5.4-mini`
+  when the procedure stays narrow and well-specified;
+- hard planning passes such as `draft-plan` and broad decomposition should use
+  a stronger planning profile such as `gpt-5.4` with `extra high` reasoning;
 - implementation or builder passes may use a stronger builder profile matched
-  to task complexity, but they should stay separate from the reviewer profile
-  used to judge the same work;
+  to task complexity; `gpt-5.4` with `high` reasoning is the default manual
+  implementation profile, while more difficult cross-cutting work may escalate
+  to `extra high`;
 - review passes such as `plan-review`, `implementation-review`,
   `fix-pass-review`, and `verification-review` should run in a separate
   reviewer session and should use a different reviewer model/profile than the
-  planning or builder pass they are checking.
+  planning or builder pass they are checking; `gpt-5.5` with `high` reasoning
+  is the default reviewer profile;
+- `gpt-5.5` with `extra high` reasoning is an escalation profile only for
+  ambiguous architecture, disputed findings, repeated failed fix passes, or
+  source-trace deadlocks. It is not the default daily review setting.
 
 This guidance does not create provider/model routing, runtime selection logic,
 or approval authority. It only helps the operator pick an appropriate manual

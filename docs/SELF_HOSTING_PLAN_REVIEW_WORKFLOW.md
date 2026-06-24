@@ -37,18 +37,24 @@ For the current manual replay flow, procedure model/reasoning choice is
 operator guidance only and must not be treated as runtime routing.
 
 - `task-intake` and `task-prompt-writer` are bounded synthesis/normalization
-  passes and may use lighter or medium-strength profiles.
-- `feature-decomposition` and `draft-plan` are harder planning passes and may
-  use stronger planning profiles with higher reasoning.
+  passes and may use lower-cost profiles such as `gpt-5.4-mini` when the
+  procedure stays narrow and well-specified.
+- `feature-decomposition` and `draft-plan` are harder planning passes and
+  should use a stronger planning profile such as `gpt-5.4` with `extra high`
+  reasoning.
 - implementation or builder passes may use a stronger builder profile matched
   to task complexity, but they should remain separate from the reviewer
-  profile used to judge the same work.
+  profile used to judge the same work; `gpt-5.4` with `high` reasoning is the
+  default manual implementation profile, with escalation to `extra high` only
+  for harder cross-cutting work.
 - `plan-review`, `implementation-review`, `fix-pass-review`,
   `verification-review`, `delivery-facts-review`, `phase-closeout-review`,
   `architecture-review`, `db-storage-review`, `docs-consistency-review`, and
   `harness-audit` are reviewer passes. They should use a separate reviewer
   session and a different reviewer model/profile from the planning or builder
-  pass they are checking.
+  pass they are checking; `gpt-5.5` with `high` reasoning is the default
+  reviewer profile, while `extra high` is escalation-only for ambiguous or
+  disputed review situations.
 
 These are manual invocation defaults only. They do not authorize model
 selection by runtime state, do not create a provider/model policy engine, and
