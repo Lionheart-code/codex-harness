@@ -381,11 +381,11 @@ Task-cycle materialization invariant:
   branch/worktree;
 - the next task branch/worktree belongs to the new active task, not the old
   closing or harvested run;
-- start-of-new-cycle materialization belongs to the new task context; in the
-  current manual harness flow, that means creating or entering the new task
-  branch/worktree first, activating the next task there, and then starting the
-  new run;
-- branch/worktree creation is explicit operator-owned work in the current
+- start-of-new-cycle materialization belongs to the new task context; Phase
+  23.8.6 now provides an explicit command path for recording the next-task
+  decision and materializing that new task branch/worktree before the new run
+  starts;
+- branch/worktree ownership remains explicit and task-scoped in the current
   manual flow and must not be treated as implicit in `run start`;
 - git branch creation and git worktree creation remain distinct primitives, but
   steady-state harness materialization must own them as one logical task
@@ -981,10 +981,8 @@ After every phase:
 3. Commit.
 4. Record the next task decision as part of old-cycle closeout/harvest when
    applicable.
-   Until Phase 23.8.6 adds a formal ingestion path, this is an
-   operator-reviewed closeout/harvest fact rather than a runtime-ingested state
-   change.
-5. In the new cycle, create or enter the new branch/worktree for that task,
-   activate the next task in `TASK.md` there, and start the new run in that
-   task worktree.
+   Use the Phase 23.8.6 runtime command path for this.
+5. In the new cycle, materialize the new branch/worktree for that task and let
+   that step activate the next task in `TASK.md` there and start the new run in
+   that task worktree.
 6. Start a new `/plan` run for the new active task.

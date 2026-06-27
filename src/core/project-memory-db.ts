@@ -124,6 +124,68 @@ function openProjectDatabase(projectDbPath: string): DatabaseLike {
   return database;
 }
 
+function hasExactRunIdentity(run: Run): run is Run & { run_instance_id: string } {
+  return typeof run.run_instance_id === "string" && run.run_instance_id.trim().length > 0;
+}
+
+function migrateProjectExactAuthority(database: DatabaseLike): void {
+  const runRows = database.prepare(
+    "SELECT run_id, run_json, created_at, updated_at FROM runs ORDER BY updated_at ASC, run_id ASC"
+  ).all() as Array<{ run_id: string; run_json: string; created_at: string; updated_at: string }>;
+
+  for (const row of runRows) {
+    const run = JSON.parse(row.run_json) as Run;
+    if (hasExactRunIdentity(run)) {
+      database.prepare([
+        "INSERT OR REPLACE INTO project_run_instances",
+        "(run_instance_id, run_id, project_run_id, run_json, created_at, updated_at)",
+        "VALUES (?, ?, ?, ?, ?, ?)"
+      ].join(" ")).run(
+        run.run_instance_id,
+        run.run_id,
+        run.run_instance_id,
+        row.run_json,
+        row.created_at,
+        row.updated_at
+      );
+    } else {
+      database.prepare([
+        "INSERT OR IGNORE INTO legacy_unresolved_runs",
+        "(legacy_row_id, run_id, run_json, blocker_reason, captured_at)",
+        "VALUES (?, ?, ?, ?, ?)"
+      ].join(" ")).run(
+        `legacy-${row.run_id}`,
+        row.run_id,
+        row.run_json,
+        "missing_run_instance_id",
+        row.updated_at
+      );
+    }
+  }
+
+  const harvestRows = database.prepare(
+    "SELECT details_json FROM harvest_records ORDER BY promoted_at ASC, harvest_id ASC"
+  ).all() as Array<{ details_json: string }>;
+  for (const row of harvestRows) {
+    const harvest = JSON.parse(row.details_json) as HarvestRecord;
+    const exactRuns = database.prepare(
+      "SELECT run_json FROM project_run_instances WHERE run_id = ? ORDER BY updated_at DESC"
+    ).all(harvest.run_id) as Array<{ run_json: string }>;
+    if (exactRuns.length !== 1) {
+      continue;
+    }
+    const run = JSON.parse(exactRuns[0].run_json) as Run;
+    if (!hasExactRunIdentity(run)) {
+      continue;
+    }
+    database.prepare([
+      "INSERT OR REPLACE INTO project_harvest_records_exact",
+      "(run_instance_id, run_id, promoted_at, harvest_json)",
+      "VALUES (?, ?, ?, ?)"
+    ].join(" ")).run(run.run_instance_id, run.run_id, harvest.promoted_at, row.details_json);
+  }
+}
+
 function readDatabaseStatus(projectDbPath: string): DatabaseStatus {
   const sizeWarningThresholdBytes = PROJECT_MEMORY_DB_WARNING_THRESHOLD_BYTES;
   const exists = fs.existsSync(projectDbPath);
@@ -284,6 +346,7 @@ export class ProjectMemoryDatabase {
   ensureInitialized(): DatabaseStatus {
     const database = this.open();
     try {
+      migrateProjectExactAuthority(database);
       database.prepare(
         "INSERT OR REPLACE INTO maintenance_events (event_id, db_role, event_kind, created_at, details_json) VALUES (?, ?, ?, ?, ?)"
       ).run("project-init", "project", "init", nowIso(), stringify({ project_root: this.projectRoot }));
@@ -298,11 +361,74 @@ export class ProjectMemoryDatabase {
     return readDatabaseStatus(this.projectDbPath);
   }
 
+  getHarvestRecordByRunInstanceId(runInstanceId: string): HarvestRecord | undefined {
+    const database = this.open();
+    try {
+      migrateProjectExactAuthority(database);
+      const row = database.prepare(
+        "SELECT harvest_json FROM project_harvest_records_exact WHERE run_instance_id = ?"
+      ).get(runInstanceId) as { harvest_json?: string } | undefined;
+      return row?.harvest_json ? (JSON.parse(row.harvest_json) as HarvestRecord) : undefined;
+    } finally {
+      database.close();
+    }
+  }
+
+  listHarvestRecordsByDisplayRunId(runId: string): HarvestRecord[] {
+    const database = this.open();
+    try {
+      migrateProjectExactAuthority(database);
+      const rows = database.prepare(
+        "SELECT harvest_json FROM project_harvest_records_exact WHERE run_id = ? ORDER BY promoted_at DESC"
+      ).all(runId) as Array<{ harvest_json?: string }>;
+      return rows
+        .map((row) => row.harvest_json ? (JSON.parse(row.harvest_json) as HarvestRecord) : undefined)
+        .filter((entry): entry is HarvestRecord => Boolean(entry));
+    } finally {
+      database.close();
+    }
+  }
+
   getHarvestRecord(runId: string): HarvestRecord | undefined {
     const database = this.open();
     try {
+      migrateProjectExactAuthority(database);
+      const exactRows = database.prepare(
+        "SELECT harvest_json FROM project_harvest_records_exact WHERE run_id = ? ORDER BY promoted_at DESC"
+      ).all(runId) as Array<{ harvest_json?: string }>;
+      if (exactRows.length === 1 && exactRows[0]?.harvest_json) {
+        return JSON.parse(exactRows[0].harvest_json) as HarvestRecord;
+      }
       const row = database.prepare("SELECT details_json FROM harvest_records WHERE run_id = ?").get(runId) as { details_json?: string } | undefined;
       return row?.details_json ? (JSON.parse(row.details_json) as HarvestRecord) : undefined;
+    } finally {
+      database.close();
+    }
+  }
+
+  getRunByInstanceId(runInstanceId: string): Run | undefined {
+    const database = this.open();
+    try {
+      migrateProjectExactAuthority(database);
+      const row = database.prepare(
+        "SELECT run_json FROM project_run_instances WHERE run_instance_id = ?"
+      ).get(runInstanceId) as { run_json?: string } | undefined;
+      return row?.run_json ? (JSON.parse(row.run_json) as Run) : undefined;
+    } finally {
+      database.close();
+    }
+  }
+
+  listRunsByDisplayRunId(runId: string): Run[] {
+    const database = this.open();
+    try {
+      migrateProjectExactAuthority(database);
+      const rows = database.prepare(
+        "SELECT run_json FROM project_run_instances WHERE run_id = ? ORDER BY updated_at DESC"
+      ).all(runId) as Array<{ run_json?: string }>;
+      return rows
+        .map((row) => row.run_json ? (JSON.parse(row.run_json) as Run) : undefined)
+        .filter((entry): entry is Run => Boolean(entry));
     } finally {
       database.close();
     }
@@ -311,6 +437,13 @@ export class ProjectMemoryDatabase {
   getRun(runId: string): Run | undefined {
     const database = this.open();
     try {
+      migrateProjectExactAuthority(database);
+      const exactRows = database.prepare(
+        "SELECT run_json FROM project_run_instances WHERE run_id = ? ORDER BY updated_at DESC"
+      ).all(runId) as Array<{ run_json?: string }>;
+      if (exactRows.length === 1 && exactRows[0]?.run_json) {
+        return JSON.parse(exactRows[0].run_json) as Run;
+      }
       const row = database.prepare("SELECT run_json FROM runs WHERE run_id = ?").get(runId) as { run_json?: string } | undefined;
       return row?.run_json ? (JSON.parse(row.run_json) as Run) : undefined;
     } finally {
@@ -323,6 +456,9 @@ export class ProjectMemoryDatabase {
     deliveryFacts: DeliveryFactRecord[],
     harvestRecord: HarvestRecord
   ): void {
+    if (!hasExactRunIdentity(run)) {
+      throw new Error(`Accepted run ${run.run_id} lacks exact immutable identity.`);
+    }
     const transfer = run.source_staging_db_path
       ? readStagingTransferSnapshot(run.source_staging_db_path, run.run_id)
       : undefined;
@@ -330,6 +466,13 @@ export class ProjectMemoryDatabase {
 
     try {
       database.exec("BEGIN IMMEDIATE;");
+      migrateProjectExactAuthority(database);
+      const existingExactHarvest = database.prepare(
+        "SELECT harvest_json FROM project_harvest_records_exact WHERE run_instance_id = ?"
+      ).get(run.run_instance_id) as { harvest_json?: string } | undefined;
+      if (existingExactHarvest?.harvest_json) {
+        throw new HarvestConflictError(run.run_id);
+      }
       database.prepare([
         "INSERT OR REPLACE INTO runs",
         "(run_id, task_path, active_task_path, phase_id, run_mode, lifecycle_status, created_at, updated_at, target_root, project_root, repository_json, run_json, discard_reason, manual_override_reason, harvested_at, source_snapshot)",
@@ -351,6 +494,18 @@ export class ProjectMemoryDatabase {
         run.manual_override_reason ?? null,
         run.harvested_at ?? null,
         run.source_snapshot ?? null
+      );
+      database.prepare([
+        "INSERT OR REPLACE INTO project_run_instances",
+        "(run_instance_id, run_id, project_run_id, run_json, created_at, updated_at)",
+        "VALUES (?, ?, ?, ?, ?, ?)"
+      ].join(" ")).run(
+        run.run_instance_id,
+        run.run_id,
+        run.run_instance_id,
+        stringify(run),
+        run.created_at,
+        run.updated_at
       );
 
       database.prepare("DELETE FROM records WHERE run_id = ?").run(run.run_id);
@@ -482,7 +637,7 @@ export class ProjectMemoryDatabase {
       }
 
       database.prepare([
-        "INSERT INTO harvest_records",
+        "INSERT OR REPLACE INTO harvest_records",
         "(harvest_id, run_id, project_run_id, status, promoted_at, accepted_count, discarded_count, quarantined_count, redacted_count, unresolved_count, source_task_path, source_snapshot, details_json)",
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ].join(" ")).run(
@@ -500,14 +655,27 @@ export class ProjectMemoryDatabase {
         harvestRecord.source_snapshot,
         stringify(harvestRecord)
       );
+      database.prepare([
+        "INSERT INTO project_harvest_records_exact",
+        "(run_instance_id, run_id, promoted_at, harvest_json)",
+        "VALUES (?, ?, ?, ?)"
+      ].join(" ")).run(
+        run.run_instance_id,
+        harvestRecord.run_id,
+        harvestRecord.promoted_at,
+        stringify({
+          ...harvestRecord,
+          project_run_id: run.run_instance_id
+        } satisfies HarvestRecord)
+      );
       database.prepare(
         "INSERT OR REPLACE INTO maintenance_events (event_id, db_role, event_kind, created_at, details_json) VALUES (?, ?, ?, ?, ?)"
-      ).run(`harvest-${run.run_id}`, "project", "harvest", nowIso(), stringify(harvestRecord));
+      ).run(`harvest-${run.run_instance_id}`, "project", "harvest", nowIso(), stringify(harvestRecord));
       database.exec("COMMIT;");
     } catch (error) {
       database.exec("ROLLBACK;");
       const message = error instanceof Error ? error.message : String(error);
-      if (/constraint failed/i.test(message) && /harvest_records/i.test(message)) {
+      if (/constraint failed/i.test(message) && /(harvest_records|project_harvest_records_exact)/i.test(message)) {
         throw new HarvestConflictError(run.run_id);
       }
       throw error;

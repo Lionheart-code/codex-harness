@@ -22,10 +22,10 @@ operator stage
 Task-cycle boundaries are explicit. End-of-old-cycle closeout/harvest may
 determine and record the next task, but it must not create or claim the next
 task branch/worktree. Start-of-new-cycle materialization belongs to the new
-task context. In the current manual harness flow, create or enter the task
-branch/worktree first, activate `TASK.md` there, and then start the new run.
-That branch/worktree creation step is explicit operator-owned work today; it is
-not implicit in `run start`. Later productized materialization must wrap that
+task context. Phase 23.8.6 now provides an explicit command path for that:
+record the next-task decision, then materialize the new task branch/worktree.
+`run start` by itself still does not create the task branch/worktree. Later
+productized materialization must wrap that
 same sequence in one formal command path. The invariant is one task = one
 branch = one worktree.
 
@@ -156,12 +156,11 @@ Commit only after:
 After commit:
 
 1. Record the next task decision if closeout/harvest has not already done so.
-   Until Phase 23.8.6 adds a formal ingestion path, that record is an
-   operator-reviewed closeout/harvest fact rather than a runtime-ingested state
-   mutation.
-2. Create or enter the branch/worktree owned by that task.
-3. In that branch/worktree, activate `TASK.md` for the next task.
-4. Start the new run for the active task in that task worktree.
+   Use `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`.
+2. Create or enter the branch/worktree owned by that task with
+   `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`.
+3. Let that materialization step activate `TASK.md` for the next task in the task worktree.
+4. Continue from the new run that materialization already opened in that task worktree.
 5. Run `/plan` again.
 6. Implement the active task only.
 

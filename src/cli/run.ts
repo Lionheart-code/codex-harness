@@ -1,15 +1,27 @@
 import * as path from "node:path";
 import { error, lines } from "../core/logger";
 import {
+  type ApprovePlanOptions,
   type MarkDiscardableOptions,
+  type MaterializeNextTaskOptions,
+  type RecordNextTaskOptions,
+  type RecordProcedureOptions,
   type RecordRemoteStatusOptions,
   type RemoteGateStatus,
+  type RuntimeNextTaskDecisionResult,
   type RuntimeOperatorStatusResult,
+  type RuntimePlanApprovalResult,
+  type RuntimeProcedureResult,
   type RuntimeServiceResult,
+  type RuntimeTaskMaterializationResult,
+  approveRuntimePlan,
   closeoutRuntimeRun,
   getRuntimeOperatorStatus,
   getRuntimeStatus,
+  materializeRuntimeNextTask,
   markRuntimeRunDiscardable,
+  recordRuntimeNextTask,
+  recordRuntimeProcedure,
   recordRuntimeRemoteStatus,
   startRuntimeRun,
   verifyRuntimeRun
@@ -27,6 +39,10 @@ function printRunHelp(): void {
     "  node bin/ch run status [--operator] [--run <run-id>] [--dry-run]",
     "  node bin/ch run verify [--run <run-id>] [--dry-run]",
     "  node bin/ch run closeout [--run <run-id>] [--dry-run]",
+    "  node bin/ch run record-procedure --run <run-id> --procedure <id> --file <path> [--dry-run]",
+    "  node bin/ch run approve-plan --run <run-id> --plan <path> --approver <name> [--reason <text>] [--dry-run]",
+    "  node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>] [--dry-run]",
+    "  node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing) [--dry-run]",
     "  node bin/ch run mark-discardable --run <run-id> --reason <reason> [--dry-run]",
     "  node bin/ch run remote-status [--run <provider-run-id>] [--provider <provider>] [--gate <gate-id>] [--name <name>] [--status pass|failed|skipped|missing|unknown] [--required true|false] [--explanation <text>] [--dry-run]",
     "",
@@ -35,6 +51,10 @@ function printRunHelp(): void {
     "  status        Read the current runtime run or preview one in dry-run mode.",
     "  verify        Run current verification commands or record installed verifier output.",
     "  closeout      Create a structured closeout receipt for the current runtime run.",
+    "  record-procedure Record a self-hosting procedure artifact as durable run evidence.",
+    "  approve-plan  Record explicit human approval of the reviewed plan.",
+    "  record-next-task Record the next task decision with exact base-commit authority.",
+    "  materialize-next-task Create or enter the next task branch/worktree and start its run.",
     "  mark-discardable Record an explicit discard reason for a run.",
     "  remote-status Record provider-neutral remote gate status for the current run."
   ]);
@@ -166,6 +186,58 @@ function renderOperatorLines(result: RuntimeOperatorStatusResult): string[] {
   return output;
 }
 
+function renderProcedureLines(result: RuntimeProcedureResult): string[] {
+  const output = renderRunLines("codex-harness run record-procedure", result);
+  output.push(`procedure: ${result.procedureId}`);
+  output.push(`recorded: ${result.recorded ? "true" : "false"}`);
+  output.push(`artifact path: ${result.artifact.path}`);
+  output.push(`artifact id: ${result.artifact.artifact_id}`);
+  output.push(`evidence id: ${result.evidence.evidence_id}`);
+  return output;
+}
+
+function renderPlanApprovalLines(result: RuntimePlanApprovalResult): string[] {
+  const output = renderRunLines("codex-harness run approve-plan", result);
+  output.push(`approval id: ${result.approval.approval_id}`);
+  output.push(`approver: ${result.approval.approver ?? "(unknown)"}`);
+  output.push(`recorded: ${result.recorded ? "true" : "false"}`);
+  output.push(`plan artifact path: ${result.artifact.path}`);
+  output.push(`plan artifact id: ${result.artifact.artifact_id}`);
+  return output;
+}
+
+function renderNextTaskDecisionLines(result: RuntimeNextTaskDecisionResult): string[] {
+  const output = renderRunLines("codex-harness run record-next-task", result);
+  output.push(`decision id: ${result.decision.decision_id}`);
+  output.push(`recorded: ${result.recorded ? "true" : "false"}`);
+  output.push(`artifact path: ${result.artifact.path}`);
+  output.push(`artifact id: ${result.artifact.artifact_id}`);
+  output.push(`evidence id: ${result.evidence.evidence_id}`);
+  return output;
+}
+
+function renderMaterializationLines(result: RuntimeTaskMaterializationResult): string[] {
+  const output = [
+    "codex-harness run materialize-next-task",
+    `target root: ${path.resolve(result.targetRoot)}`,
+    `project root: ${path.resolve(result.projectRoot)}`,
+    `dry run: ${result.dryRun ? "yes" : "no"}`,
+    `decision id: ${result.decisionId}`,
+    `task path: ${result.taskPath}`,
+    `branch: ${result.branch}`,
+    `worktree: ${result.worktreePath}`,
+    `created: ${result.created ? "true" : "false"}`,
+    `state: ${result.state}`
+  ];
+  if (result.newRun) {
+    output.push(`new run id: ${result.newRun.run_id}`);
+  }
+  if (result.newRunPath) {
+    output.push(`new run path: ${result.newRunPath}`);
+  }
+  return output;
+}
+
 async function runStart(args: string[]): Promise<number> {
   const options = parseOptions(args, new Set(["task"]));
   const result = await startRuntimeRun(process.cwd(), {
@@ -235,6 +307,119 @@ async function runCloseout(args: string[]): Promise<number> {
   }
 
   lines(output);
+  return 0;
+}
+
+async function runRecordProcedure(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run", "procedure", "file"]));
+  const procedureId = stringOption(options, "procedure");
+  const filePath = stringOption(options, "file");
+
+  if (!procedureId) {
+    throw new Error("--procedure is required.");
+  }
+
+  if (!filePath) {
+    throw new Error("--file is required.");
+  }
+
+  const result = await recordRuntimeProcedure(process.cwd(), {
+    dryRun: dryRunOption(options),
+    runId: stringOption(options, "run"),
+    procedureId,
+    filePath
+  } satisfies RecordProcedureOptions);
+  lines(renderProcedureLines(result));
+  return 0;
+}
+
+async function runApprovePlan(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run", "plan", "approver", "reason"]));
+  const planPath = stringOption(options, "plan");
+  const approver = stringOption(options, "approver");
+
+  if (!planPath) {
+    throw new Error("--plan is required.");
+  }
+
+  if (!approver) {
+    throw new Error("--approver is required.");
+  }
+
+  const result = await approveRuntimePlan(process.cwd(), {
+    dryRun: dryRunOption(options),
+    runId: stringOption(options, "run"),
+    planPath,
+    approver,
+    reason: stringOption(options, "reason")
+  } satisfies ApprovePlanOptions);
+  lines(renderPlanApprovalLines(result));
+  return 0;
+}
+
+async function runRecordNextTask(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run", "task", "base-commit", "base-ref", "file"]));
+  const taskPath = stringOption(options, "task");
+  const baseCommit = stringOption(options, "base-commit");
+  const filePath = stringOption(options, "file");
+
+  if (!taskPath) {
+    throw new Error("--task is required.");
+  }
+  if (!baseCommit) {
+    throw new Error("--base-commit is required.");
+  }
+  if (!filePath) {
+    throw new Error("--file is required.");
+  }
+
+  const result = await recordRuntimeNextTask(process.cwd(), {
+    dryRun: dryRunOption(options),
+    runId: stringOption(options, "run"),
+    taskPath,
+    baseCommit,
+    baseRef: stringOption(options, "base-ref"),
+    filePath
+  } satisfies RecordNextTaskOptions);
+  lines(renderNextTaskDecisionLines(result));
+  return 0;
+}
+
+async function runMaterializeNextTask(args: string[]): Promise<number> {
+  const options = parseOptions(
+    args,
+    new Set(["run", "decision-id", "task", "branch", "worktree"]),
+    new Set(["dry-run", "create", "enter-existing"])
+  );
+  const decisionId = stringOption(options, "decision-id");
+  const taskPath = stringOption(options, "task");
+  const branch = stringOption(options, "branch");
+  const worktreePath = stringOption(options, "worktree");
+
+  if (!decisionId) {
+    throw new Error("--decision-id is required.");
+  }
+  if (!taskPath) {
+    throw new Error("--task is required.");
+  }
+  if (!branch) {
+    throw new Error("--branch is required.");
+  }
+  if (!worktreePath) {
+    throw new Error("--worktree is required.");
+  }
+
+  const result = await materializeRuntimeNextTask(process.cwd(), {
+    dryRun: dryRunOption(options),
+    runId: stringOption(options, "run"),
+    decisionId,
+    taskPath,
+    branch,
+    worktreePath,
+    create: options.create === true,
+    enterExisting: options["enter-existing"] === true
+  } satisfies MaterializeNextTaskOptions);
+  lines(renderMaterializationLines(result));
   return 0;
 }
 
@@ -312,6 +497,14 @@ export async function runRuntime(args: string[]): Promise<number> {
         return runVerify(commandArgs);
       case "closeout":
         return runCloseout(commandArgs);
+      case "record-procedure":
+        return runRecordProcedure(commandArgs);
+      case "approve-plan":
+        return runApprovePlan(commandArgs);
+      case "record-next-task":
+        return runRecordNextTask(commandArgs);
+      case "materialize-next-task":
+        return runMaterializeNextTask(commandArgs);
       case "mark-discardable":
         return runMarkDiscardable(commandArgs);
       case "remote-status":

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { type DeliveryFactKind, type DeliveryFactRecord, type DeliveryFactStatus } from "./lifecycle-types";
+import { buildMergeFactOccurrenceId, isMergeFactKind, normalizeMergeFactKind } from "./merge-facts";
 import { RunStagingDatabase, resolveHarnessRoots, writeCompatibilityRunArtifacts } from "./run-staging-db";
 import {
   type RemoteCheckResult,
@@ -102,9 +103,17 @@ function nextId(prefix: string, seed: string): string {
   return `${prefix}-${seed.slice(0, 24)}`;
 }
 
-function buildDeliveryFactId(fact: DeliveryFactInput): string {
+function buildDeliveryFactId(run: Run, fact: DeliveryFactInput): string {
+  const normalizedFactKind = normalizeMergeFactKind(fact.fact_kind);
+  if (isMergeFactKind(normalizedFactKind)) {
+    if (typeof run.run_instance_id !== "string" || run.run_instance_id.trim().length === 0) {
+      throw new Error(`Run ${run.run_id} lacks exact immutable identity required for merge fact ingestion.`);
+    }
+    return buildMergeFactOccurrenceId(run.run_instance_id, normalizedFactKind, fact);
+  }
+
   const identity = stableJson({
-    fact_kind: fact.fact_kind,
+    fact_kind: normalizedFactKind,
     source: fact.source.trim().toLowerCase(),
     status: fact.status,
     recorded_at: fact.recorded_at,
@@ -151,6 +160,10 @@ function toReviewResult(factId: string, fact: DeliveryFactInput): ReviewResult |
   }
 
   const reviewStatus = normalizeReviewStatus(fact.status);
+  if (reviewStatus === "UNKNOWN") {
+    return undefined;
+  }
+
   return {
     review_result_id: nextId("review-import", factId),
     status: reviewStatus,
@@ -187,7 +200,8 @@ export function importDeliveryFacts(
   const reviewResults = new Map(nextRun.review_results.map((entry) => [entry.review_result_id, entry] as const));
 
   for (const fact of parsed.facts) {
-    const deliveryFactId = buildDeliveryFactId(fact);
+    const normalizedFactKind = normalizeMergeFactKind(fact.fact_kind);
+    const deliveryFactId = buildDeliveryFactId(nextRun, fact);
     const existingFact = knownFacts.get(deliveryFactId);
     let excerptPayloadId: string | undefined;
     if (existingFact?.excerpt_payload_id) {
@@ -199,7 +213,7 @@ export function importDeliveryFacts(
         sourcePhaseId: nextRun.phase_id,
         kind: "delivery_excerpt",
         mediaType: "text/plain",
-        summary: `${fact.fact_kind} excerpt`,
+        summary: `${normalizedFactKind} excerpt`,
         content: fact.excerpt,
         searchableText: fact.excerpt.slice(0, 4000),
         boundedExcerpt: fact.excerpt.slice(0, 500),
@@ -211,7 +225,7 @@ export function importDeliveryFacts(
       ...(existingFact ?? {}),
       delivery_fact_id: deliveryFactId,
       run_id: nextRun.run_id,
-      fact_kind: fact.fact_kind,
+      fact_kind: normalizedFactKind,
       source: fact.source,
       status: fact.status,
       recorded_at: fact.recorded_at,
@@ -247,6 +261,8 @@ export function importDeliveryFacts(
     const reviewResult = toReviewResult(deliveryFactId, fact);
     if (reviewResult) {
       reviewResults.set(reviewResult.review_result_id, reviewResult);
+    } else if (fact.fact_kind === "review") {
+      reviewResults.delete(nextId("review-import", deliveryFactId));
     }
   }
 
