@@ -8,6 +8,8 @@ export type DeliveryFactKind =
   | "remote_ci"
   | "review"
   | "merge"
+  | "merge_result"
+  | "merge_commit"
   | "closeout_approval";
 export type DeliveryFactStatus =
   | "created"

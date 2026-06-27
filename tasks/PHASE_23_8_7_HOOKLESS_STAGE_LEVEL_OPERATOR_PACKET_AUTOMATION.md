@@ -3,7 +3,9 @@
 ## Status
 
 Planned. Starts only after Phase 23.8.6 Transactional Procedure Result
-Ingestion and Slice-Isolated Run Mutations is complete, reviewed, and accepted.
+Ingestion and Slice-Isolated Run Mutations, Phase 23.8.6A Self-Hosting Replay
+and Re-ingestion Continuity, and Phase 23.8.6B Self-Hosting Model Routing
+Policy Packaging are complete, reviewed, and accepted.
 
 ## Purpose
 

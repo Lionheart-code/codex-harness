@@ -193,6 +193,31 @@ test("phase 22.5 runtime contracts cover the shared lifecycle and closeout gates
     status: "pass",
     explanation: "Required remote gate was recorded by the operator."
   });
+  run = {
+    ...run,
+    delivery_facts: [
+      {
+        delivery_fact_id: "delivery-merge-result",
+        run_id: run.run_id,
+        fact_kind: "merge_result",
+        source: "github",
+        status: "merged",
+        recorded_at: "2026-05-20T00:05:30.000Z",
+        summary: "PR merged."
+      },
+      {
+        delivery_fact_id: "delivery-merge-commit",
+        run_id: run.run_id,
+        fact_kind: "merge_commit",
+        source: "github",
+        status: "merged",
+        recorded_at: "2026-05-20T00:05:30.000Z",
+        summary: "Merge commit recorded.",
+        commit_sha: "abc123"
+      }
+    ],
+    updated_at: "2026-05-20T00:05:30.000Z"
+  };
 
   const readyReceipt = runtime.createCloseoutReceipt(run);
   runtime.validateCloseoutReceipt(readyReceipt);

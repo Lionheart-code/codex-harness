@@ -94,11 +94,10 @@ documented ingestion path records it. Operators must name that distinction
 explicitly when continuing a manual preparation pass.
 
 Procedure ingestion may record that closeout/harvest selected the next task.
-New-cycle materialization is separate. In the current manual harness flow, it
-must create or enter the task branch/worktree first, activate the next task
-there, and then start the new run in that task worktree. A later formal
-product command may wrap that sequence. The harvested run must not create,
-claim, or mutate the next task branch/worktree.
+New-cycle materialization is separate. Phase 23.8.6 now provides a formal
+command path for it: `run record-next-task` followed by
+`run materialize-next-task`. The harvested run still must not create, claim, or
+mutate the next task branch/worktree as old-run-owned state.
 
 Once Phase 23.8.6 is active, `RUN_HARVESTED` must refer to identity-matched
 harvest evidence for the same immutable run instance. If project memory matches
@@ -112,9 +111,7 @@ Expected future command-backed actions include:
 record procedure result
 record reviewed-plan approval
 record next-task decision
-create task branch/worktree
-activate next task in task worktree
-start new run in task worktree
+materialize next task branch/worktree
 prepare stage packet
 record stage result fixture
 ```

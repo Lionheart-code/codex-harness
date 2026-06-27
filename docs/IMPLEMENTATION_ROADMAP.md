@@ -381,11 +381,11 @@ Task-cycle materialization invariant:
   branch/worktree;
 - the next task branch/worktree belongs to the new active task, not the old
   closing or harvested run;
-- start-of-new-cycle materialization belongs to the new task context; in the
-  current manual harness flow, that means creating or entering the new task
-  branch/worktree first, activating the next task there, and then starting the
-  new run;
-- branch/worktree creation is explicit operator-owned work in the current
+- start-of-new-cycle materialization belongs to the new task context; Phase
+  23.8.6 now provides an explicit command path for recording the next-task
+  decision and materializing that new task branch/worktree before the new run
+  starts;
+- branch/worktree ownership remains explicit and task-scoped in the current
   manual flow and must not be treated as implicit in `run start`;
 - git branch creation and git worktree creation remain distinct primitives, but
   steady-state harness materialization must own them as one logical task
@@ -529,8 +529,8 @@ Required scope:
   to real product commands or documented ingestion paths.
 
 Future-phase impact check:
-- prepares 23.8.7 and 23.9 by making procedure/stage inputs durable and
-  monotonic;
+- prepares 23.8.6A, 23.8.6B, 23.8.7, and 23.9 by making procedure/stage
+  inputs durable and monotonic;
 - must not pre-implement packet automation, runner execution, proof records,
   reports, access APIs, domain packs, or experimentation;
 - preserves the domain/core boundary by only hardening generic run/procedure
@@ -538,6 +538,88 @@ Future-phase impact check:
 - requires architecture review if slice ingestion becomes a general workflow
   engine, background runner, raw DB API, external connector surface, or domain
   data ingestion path.
+
+## Phase 23.8.6A — Self-Hosting Replay and Re-ingestion Continuity
+
+Task:
+`tasks/PHASE_23_8_6A_SELF_HOSTING_REPLAY_AND_REINGESTION_CONTINUITY.md`
+
+Goal:
+Restore honest self-hosting continuity after exact immutable run identity is
+hardened, so exact already-recorded artifacts can be replayed and re-ingested
+across the full active operator chain without manual repair.
+
+Status:
+Planned. Blocked until Phase 23.8.6 is complete, reviewed, accepted, and
+merged.
+
+Required scope:
+- generalize exact-artifact replay and idempotent re-ingestion across the full
+  active self-hosting operator chain;
+- cover `task-intake`, `task-prompt-writer`, `draft-plan`, `plan-review`,
+  `plan-amend`, `architecture-review`, `db-storage-review`,
+  `implementation-review`, `fix-pass-review`, `verification-review`,
+  `delivery-facts-review`, `phase-closeout-review`, and the adjacent
+  `approve-plan` surface;
+- keep `feature-decomposition`, `docs-consistency-review`, and
+  `harness-audit` out of default scope unless a later reviewed task widens the
+  replay/re-ingestion target beyond the active chain above;
+- allow replay of the exact same already-recorded durable artifact to backfill
+  newly parseable derived state without duplicate evidence;
+- forbid per-run repair logic, manual `run.json` repair, or stage-skipping
+  hacks;
+- preserve slice-isolated mutation boundaries from Phase 23.8.6;
+- make replacement exact-identity runs able to recover honest active-chain
+  progress from already-recorded artifacts without rerunning unrelated
+  completed work.
+
+Future-phase impact check:
+- prepares 23.8.6B, 23.8.7, and 23.9 by restoring honest continuity on top of
+  exact-identity run authority;
+- must not pre-implement packet automation, runner execution, docs/model
+  routing policy packaging, provider selection, or experimentation;
+- preserves the domain/core boundary by staying inside runtime continuity
+  repair for generic self-hosting procedure state;
+- requires architecture review if replay/re-ingestion turns into a generic
+  workflow engine, runner launcher, or background repair loop.
+
+## Phase 23.8.6B — Self-Hosting Model Routing Policy Packaging
+
+Task:
+`tasks/PHASE_23_8_6B_SELF_HOSTING_MODEL_ROUTING_POLICY_PACKAGING.md`
+
+Goal:
+Package checked-in self-hosting model-routing, bounded-helper, and separate
+review-launch policy into narrow authoritative docs and future-task surfaces,
+without adding runtime code.
+
+Status:
+Planned. Blocked until Phase 23.8.6 and Phase 23.8.6A are complete, reviewed,
+accepted, and merged.
+
+Required scope:
+- create or update the canonical self-hosting model-routing policy document;
+- probe local Codex CLI help/capabilities and treat local help output as the
+  immediate source of truth for separate review launch shape;
+- encode the Codex CLI separate review launch discipline into repo-owned
+  policy;
+- package no-silent-degradation, bounded-helper/subagent limits, and explicit
+  wait discipline for child runs;
+- keep 23.8.7 advisory only and Phase 31 as the first home for runtime
+  execution enforcement;
+- make only narrow consistency updates in the authoritative docs and future
+  task contracts that need to reference that policy;
+- add no runtime code, runner execution, or provider-specific lifecycle logic.
+
+Future-phase impact check:
+- prepares 23.8.7, 24A/24B, 30, and 31 by turning the current review-launch
+  and routing discipline into checked-in authority;
+- must not pre-implement runtime replay/re-ingestion repair, packet
+  automation, runner execution, provider routing, or proof/report logic;
+- preserves the domain/core boundary by remaining a narrow docs/task-policy
+  pass;
+- requires architecture review if this pass starts adding runtime execution
+  logic or provider-specific lifecycle behavior.
 
 ## Phase 23.8.7 — Hookless Stage-Level Operator Packet Automation v0
 
@@ -549,7 +631,8 @@ Prepare and ingest stage-level packet/result fixtures on top of stable
 run-state. No agents are launched.
 
 Status:
-Planned. Blocked until Phase 23.8.6 is complete and reviewed.
+Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, and Phase 23.8.6B are
+complete and reviewed.
 
 Required scope:
 - define `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,
@@ -981,10 +1064,8 @@ After every phase:
 3. Commit.
 4. Record the next task decision as part of old-cycle closeout/harvest when
    applicable.
-   Until Phase 23.8.6 adds a formal ingestion path, this is an
-   operator-reviewed closeout/harvest fact rather than a runtime-ingested state
-   change.
-5. In the new cycle, create or enter the new branch/worktree for that task,
-   activate the next task in `TASK.md` there, and start the new run in that
-   task worktree.
+   Use the Phase 23.8.6 runtime command path for this.
+5. In the new cycle, materialize the new branch/worktree for that task and let
+   that step activate the next task in `TASK.md` there and start the new run in
+   that task worktree.
 6. Start a new `/plan` run for the new active task.

@@ -17,6 +17,11 @@ Run only the `verification-review` procedure. Return the exact output format
 from `references/output-format.md`, or the procedure's blocker format if the
 required inputs are missing.
 
+If the local verification evidence is being produced by
+`node bin/ch run verify --run <run-id>`, expect that command to take 14 minutes
+or more as the suite grows. Wait for the live process to exit and do not start
+a duplicate verification run while it is still active.
+
 Do not broaden scope, implement files, repair `.harness/runs/**/run.json`, start
 a run, launch a runner, create or claim a worktree, or treat this wrapper as
 runtime authority.

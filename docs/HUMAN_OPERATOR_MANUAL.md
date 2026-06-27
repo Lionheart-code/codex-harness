@@ -14,11 +14,23 @@ This document explains how a human operator should use `codex-harness` safely.
    operator-visible stage, required evidence, and next procedure.
 5. Continue with manual procedure execution through the documented
    self-hosting procedures; prompts are helpers, not the authority source.
-   Until Phase 23.8.6 adds procedure-result ingestion, procedure outputs are
-   operator transcript artifacts only. They do not advance runtime stage state,
-   and the operator must not patch `.harness/runs/**/run.json` to make them
-   look ingested.
+   Phase 23.8.6 adds limited product ingestion for durable pre-implementation
+   procedure state:
+   `node bin/ch run record-procedure --run <run-id> --procedure plan-review|plan-amend|implementation-review|verification-review --file <path>`
+   and
+   `node bin/ch run approve-plan --run <run-id> --plan <path> --approver <name>`.
+   For next-cycle continuity in the same phase, use
+   `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`
+   and then
+   `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`.
+   Earlier procedures such as `task-intake`, `task-prompt-writer`, and
+   `draft-plan` remain manual transcript artifacts unless a later reviewed task
+   expands durable ingestion. The operator must not patch
+   `.harness/runs/**/run.json` to simulate ingestion.
 6. Run the active task acceptance commands.
+   For the current self-hosting flow, `node bin/ch run verify --run <run-id>`
+   can take 14 minutes or more as the suite grows. Wait for real exit and do
+   not start a second verification run while the first is still active.
 7. Review the diff against task scope and non-goals.
 8. Commit only after review, verification, and closeout prerequisites are
    satisfied.
@@ -26,11 +38,13 @@ This document explains how a human operator should use `codex-harness` safely.
 A closing or harvested run may record which task should come next. It does not
 own the new task branch/worktree. The next cycle starts only when `TASK.md` is
 activated in that task's own branch/worktree and a new run is opened there.
-For the current manual harness flow, create or enter the task branch/worktree
-first, then update `TASK.md` in that worktree, then run `node bin/ch run start
---task TASK.md`. Branch/worktree creation is an explicit operator-owned step in
-the current flow; `run start` does not create it for you yet. Preserve one
-task = one branch = one worktree.
+Phase 23.8.6 now provides a formal product path for this:
+record the next-task decision, materialize the new task branch/worktree, then
+let `materialize-next-task` write the new `TASK.md` pointer there and start the
+new run.
+Preserve one task = one branch = one worktree. `run start` by itself still does
+not create the new task branch/worktree; that ownership stays on the explicit
+`materialize-next-task` step.
 
 The installed target workflow remains separate:
 
@@ -303,13 +317,12 @@ After apply:
 
 Only after commit and closeout/harvest decision:
 
-1. record the next task decision if it is not already recorded;
-   until Phase 23.8.6 provides a formal ingestion path, this is an
-   operator-reviewed closeout/harvest fact rather than a runtime-ingested state
-   change;
-2. create or enter the branch/worktree owned by that task;
-3. in that branch/worktree, edit `TASK.md` to point to that task;
-4. start the new run for the active task in that task worktree;
+1. record the next task decision with
+   `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`;
+2. materialize the new task context with
+   `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`;
+3. confirm the new task worktree and active `TASK.md` pointer are correct;
+4. continue from the new run already opened in that task worktree;
 5. commit the task pointer/materialization change if desired;
 6. start fresh `/plan`.
 

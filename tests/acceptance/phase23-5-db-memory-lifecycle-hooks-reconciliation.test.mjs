@@ -184,6 +184,23 @@ function writeDeliveryFactsFile(tempRepo, fileName = "delivery-facts.json") {
             url: "https://example.invalid/ci/123",
             commit_sha: "abc123",
             excerpt: "All required CI jobs passed."
+          },
+          {
+            fact_kind: "merge_result",
+            source: "github",
+            status: "merged",
+            recorded_at: "2026-05-22T00:13:00.000Z",
+            summary: "PR merged for task-test-task.",
+            url: "https://example.invalid/pr/123"
+          },
+          {
+            fact_kind: "merge_commit",
+            source: "github",
+            status: "merged",
+            recorded_at: "2026-05-22T00:13:00.000Z",
+            summary: "Merge commit recorded for task-test-task.",
+            url: "https://example.invalid/commit/abc123",
+            commit_sha: "abc123"
           }
         ]
       },
@@ -286,11 +303,11 @@ test("phase 23.5 delivery fact import is idempotent and preserves distinct facts
 
   const runStatus = runCli(["run", "status", "--run", "run-0001"], { cwd: tempRepo });
   assertSuccess(runStatus, "run status after repeated delivery-facts import");
-  assert.match(runStatus.stdout, /delivery facts: 3/);
+  assert.match(runStatus.stdout, /delivery facts: 5/);
 
   const run = readJson(getRunPath(tempRepo));
-  assert.equal(run.delivery_facts.length, 3);
-  assert.equal(new Set(run.delivery_facts.map((fact) => fact.delivery_fact_id)).size, 3);
+  assert.equal(run.delivery_facts.length, 5);
+  assert.equal(new Set(run.delivery_facts.map((fact) => fact.delivery_fact_id)).size, 5);
   assert.equal(run.remote_checks.length, 1);
   assert.equal(run.review_results.length, 1);
 });
@@ -311,11 +328,11 @@ test("phase 23.5 closeout stays distinct from harvest and blocks worktree deleti
   assert.match(projectStatus.stdout, /exists: true/);
 
   const importResult = importPassingDeliveryFacts(tempRepo);
-  assert.match(importResult.stdout, /imported facts: 2/);
+  assert.match(importResult.stdout, /imported facts: 4/);
 
   const stagingStatus = runCli(["memory", "run", "status", "--run", "run-0001"], { cwd: tempRepo });
   assertSuccess(stagingStatus, "memory run status");
-  assert.match(stagingStatus.stdout, /delivery facts: 2/);
+  assert.match(stagingStatus.stdout, /delivery facts: 4/);
   assert.match(stagingStatus.stdout, /run mode: normal/);
 
   const closeout = closeReadyRun(tempRepo);
@@ -324,7 +341,7 @@ test("phase 23.5 closeout stays distinct from harvest and blocks worktree deleti
   const closedStatus = runCli(["run", "status", "--run", "run-0001"], { cwd: tempRepo });
   assertSuccess(closedStatus, "run status after closeout");
   assert.match(closedStatus.stdout, /lifecycle status: closed/);
-  assert.match(closedStatus.stdout, /delivery facts: 2/);
+  assert.match(closedStatus.stdout, /delivery facts: 4/);
 
   const blockedDelete = runCli(["worktree", "delete", "--run", "run-0001"], { cwd: tempRepo });
   assertFailure(blockedDelete, "worktree delete before harvest");
@@ -366,7 +383,7 @@ test("phase 23.5 harvest retry resolves from project authority when staging stat
   const retried = runCli(["memory", "harvest", "--run", "run-0001"], { cwd: tempRepo });
   assertSuccess(retried, "harvest retry after staging removal");
   assert.match(retried.stdout, /already harvested: true/);
-  assert.match(retried.stdout, /delivery facts: 2/);
+  assert.match(retried.stdout, /delivery facts: 4/);
 });
 
 test("phase 23.5 discarded runs can be deleted after an explicit discard reason", () => {

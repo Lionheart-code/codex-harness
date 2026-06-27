@@ -1,4 +1,5 @@
 import { type HarvestRecord } from "./lifecycle-types";
+import { evaluateMergeFacts } from "./merge-facts";
 import { HarvestConflictError, ProjectMemoryDatabase } from "./project-memory-db";
 import { RunStagingDatabase, writeCompatibilityRunArtifacts } from "./run-staging-db";
 import { type Run } from "./runtime";
@@ -11,6 +12,14 @@ export interface HarvestResult {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function hasExactRunIdentity(run: Run): run is Run & { run_instance_id: string; run_revision: number } {
+  return typeof run.run_instance_id === "string"
+    && run.run_instance_id.trim().length > 0
+    && typeof run.run_revision === "number"
+    && Number.isInteger(run.run_revision)
+    && run.run_revision >= 1;
 }
 
 function countRedacted(run: Run): number {
@@ -46,12 +55,35 @@ export function harvestRun(
 ): HarvestResult {
   const staging = new RunStagingDatabase(targetRoot, projectRoot, runId);
   const project = new ProjectMemoryDatabase(targetRoot, projectRoot);
-  const existing = project.getHarvestRecord(runId);
+  const run = staging.loadRun(runId);
+  if (!run) {
+    const existingHarvests = project.listHarvestRecordsByDisplayRunId(runId);
+    const existingRuns = project.listRunsByDisplayRunId(runId);
+    if (existingHarvests.length === 1 && existingRuns.length === 1) {
+      return {
+        run: existingRuns[0],
+        harvest: existingHarvests[0],
+        alreadyHarvested: true
+      };
+    }
+    throw new Error(`Run not found in staging DB: ${runId}`);
+  }
+  if (!hasExactRunIdentity(run)) {
+    throw new Error(
+      `Run ${runId} lacks exact immutable identity and cannot be harvested. Open a fresh replacement run or migrate this legacy run first.`
+    );
+  }
 
+  const existing = project.getHarvestRecordByRunInstanceId(run.run_instance_id);
   if (existing) {
-    const existingRun = staging.loadRun(runId) ?? project.getRun(runId);
+    const existingRun = project.getRunByInstanceId(run.run_instance_id);
     if (!existingRun) {
       throw new Error(`Run ${runId} was harvested, but neither staging nor project authority can resolve the run state.`);
+    }
+    if (!hasExactRunIdentity(existingRun)) {
+      throw new Error(
+        `Harvest authority for ${runId} lacks exact immutable identity and cannot authorize retry or replacement.`
+      );
     }
 
     return {
@@ -60,16 +92,23 @@ export function harvestRun(
       alreadyHarvested: true
     };
   }
-
-  const run = staging.loadRun(runId);
-  if (!run) {
-    throw new Error(`Run not found in staging DB: ${runId}`);
+  const existingAcceptedRuns = project.listRunsByDisplayRunId(runId);
+  if (existingAcceptedRuns.some((existingAcceptedRun) => existingAcceptedRun.run_instance_id !== run.run_instance_id)) {
+    throw new HarvestConflictError(runId);
   }
 
   if (run.lifecycle_status !== "closed" && run.lifecycle_status !== "discarded") {
     throw new Error(
       `Run ${runId} cannot be harvested while lifecycle status is ${run.lifecycle_status}. Close or discard it first.`
     );
+  }
+  if (run.lifecycle_status !== "discarded") {
+    const mergeBlockers = evaluateMergeFacts(run.delivery_facts).blockers;
+    if (mergeBlockers.length > 0) {
+      throw new Error(
+        `Run ${runId} cannot be harvested until merge delivery facts are satisfied: ${mergeBlockers.join(", ")}`
+      );
+    }
   }
 
   const promotedAt = nowIso();
@@ -84,7 +123,7 @@ export function harvestRun(
   const harvest: HarvestRecord = {
     harvest_id: `harvest-${runId}`,
     run_id: runId,
-    project_run_id: runId,
+    project_run_id: run.run_instance_id,
     status: run.lifecycle_status === "discarded" ? "discarded" : "promoted",
     promoted_at: promotedAt,
     accepted_count: acceptedRun.command_results.length +
@@ -123,8 +162,8 @@ export function harvestRun(
     project.saveAcceptedRun(acceptedRun, deliveryFacts, harvest);
   } catch (error) {
     if (error instanceof HarvestConflictError) {
-      const authorityHarvest = project.getHarvestRecord(runId);
-      const authorityRun = project.getRun(runId);
+      const authorityHarvest = project.getHarvestRecordByRunInstanceId(run.run_instance_id) ?? project.getHarvestRecord(runId);
+      const authorityRun = project.getRunByInstanceId(run.run_instance_id) ?? project.getRun(runId);
       if (authorityHarvest && authorityRun) {
         return {
           run: authorityRun,

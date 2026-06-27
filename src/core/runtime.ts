@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { type VerifierRecord, validateVerifierRecord } from "./checks";
@@ -10,11 +11,13 @@ import {
   type ArtifactEvidenceRef,
   type EvidenceEventEnvelope,
   type EvidenceScope,
+  canonicalJson,
   type VerificationCommandResultEvidence,
   type VerificationCommandSpec,
   type VerificationReuseDecision,
   type VerifiedSnapshot,
-  buildTargetProjectId
+  buildTargetProjectId,
+  sha256Hex
 } from "./evidence-types";
 import {
   buildVerificationReuseDecisionPayload,
@@ -22,7 +25,7 @@ import {
   captureVerifiedSnapshot,
   decideLocalVerificationReuse
 } from "./verification-evidence";
-import { detectGitRepository, getGitStatusLines, getGitStatusPaths, runGitCommand } from "./git";
+import { detectGitRepository, getGitStatusLines, getGitStatusPaths, runGitCommand, worktreePathExistsInGit } from "./git";
 import { harvestRun } from "./harvest";
 import { detectInstalledLayer } from "./install";
 import {
@@ -30,6 +33,7 @@ import {
   type LifecycleStatus,
   type RunMode
 } from "./lifecycle-types";
+import { evaluateMergeFacts } from "./merge-facts";
 import { ProjectMemoryDatabase } from "./project-memory-db";
 import {
   HARNESS_DIR,
@@ -255,6 +259,8 @@ export interface Run {
   schema_version: typeof CURRENT_SCHEMA_VERSION;
   producer_command: string;
   run_id: string;
+  run_instance_id?: string;
+  run_revision?: number;
   task_path: string;
   active_task_path?: string;
   phase_id?: string;
@@ -312,6 +318,41 @@ export interface RuntimeVerificationResult extends RuntimeServiceResult {
 
 export interface RuntimeRemoteStatusResult extends RuntimeServiceResult {
   remoteCheck: RemoteCheckResult;
+}
+
+export interface RuntimeProcedureResult extends RuntimeServiceResult {
+  procedureId: string;
+  evidence: EvidenceRef;
+  artifact: ArtifactRef;
+  recorded: boolean;
+}
+
+export interface RuntimePlanApprovalResult extends RuntimeServiceResult {
+  approval: Approval;
+  evidence: EvidenceRef;
+  artifact: ArtifactRef;
+  recorded: boolean;
+}
+
+export interface RuntimeNextTaskDecisionResult extends RuntimeServiceResult {
+  decision: Decision;
+  evidence: EvidenceRef;
+  artifact: ArtifactRef;
+  recorded: boolean;
+}
+
+export interface RuntimeTaskMaterializationResult {
+  targetRoot: string;
+  projectRoot: string;
+  dryRun: boolean;
+  decisionId: string;
+  branch: string;
+  worktreePath: string;
+  taskPath: string;
+  created: boolean;
+  newRun?: Run;
+  newRunPath?: string;
+  state: "preview" | "updated";
 }
 
 export interface RuntimeCloseoutResult extends RuntimeServiceResult {
@@ -373,6 +414,33 @@ export interface RecordRemoteStatusOptions extends RuntimeDryRunOptions {
 
 export interface MarkDiscardableOptions extends RuntimeDryRunOptions {
   reason: string;
+}
+
+export interface RecordProcedureOptions extends RuntimeDryRunOptions {
+  procedureId: string;
+  filePath: string;
+}
+
+export interface ApprovePlanOptions extends RuntimeDryRunOptions {
+  planPath: string;
+  approver: string;
+  reason?: string;
+}
+
+export interface RecordNextTaskOptions extends RuntimeDryRunOptions {
+  taskPath: string;
+  baseCommit: string;
+  baseRef?: string;
+  filePath: string;
+}
+
+export interface MaterializeNextTaskOptions extends RuntimeDryRunOptions {
+  decisionId: string;
+  taskPath: string;
+  branch: string;
+  worktreePath: string;
+  create?: boolean;
+  enterExisting?: boolean;
 }
 
 export interface RecordPhaseRunInput {
@@ -918,6 +986,8 @@ export function buildRuntimeRun(input: BuildRuntimeRunInput): Run {
   return {
     ...buildSchemaMetadata(input.producerCommand ?? "node bin/ch run start"),
     run_id: input.runId,
+    run_instance_id: randomUUID(),
+    run_revision: 1,
     task_path: input.taskPath,
     ...(input.activeTaskPath ? { active_task_path: input.activeTaskPath } : {}),
     ...(input.phaseId ? { phase_id: input.phaseId } : {}),
@@ -1021,6 +1091,12 @@ export function validateRuntimeRun(value: unknown): Run {
     schema_version: CURRENT_SCHEMA_VERSION,
     producer_command: String(record.producer_command),
     run_id: String(record.run_id),
+    ...(typeof record.run_instance_id === "string" && record.run_instance_id.trim().length > 0
+      ? { run_instance_id: record.run_instance_id }
+      : {}),
+    ...(typeof record.run_revision === "number" && Number.isInteger(record.run_revision) && record.run_revision >= 0
+      ? { run_revision: record.run_revision }
+      : {}),
     task_path: String(record.task_path),
     ...(typeof record.active_task_path === "string" ? { active_task_path: record.active_task_path } : {}),
     ...(typeof record.phase_id === "string" ? { phase_id: record.phase_id } : {}),
@@ -1288,7 +1364,8 @@ function findCloseoutBlockers(
   verification: VerificationResult,
   review: ReviewResult,
   findings: Finding[],
-  requiredGates: RequiredGate[]
+  requiredGates: RequiredGate[],
+  deliveryFacts: DeliveryFactRecord[]
 ): string[] {
   const blockers: string[] = [];
 
@@ -1317,6 +1394,10 @@ function findCloseoutBlockers(
     }
   }
 
+  for (const blocker of evaluateMergeFacts(deliveryFacts).blockers) {
+    blockers.push(`Merge delivery state is blocked: ${blocker}.`);
+  }
+
   return blockers;
 }
 
@@ -1324,7 +1405,7 @@ export function createCloseoutReceipt(run: Run): CloseoutReceipt {
   const timestamp = nowIso();
   const verification = latestVerification(run, timestamp);
   const review = latestReview(run, timestamp);
-  const blockers = findCloseoutBlockers(verification, review, run.findings, run.required_gates);
+  const blockers = findCloseoutBlockers(verification, review, run.findings, run.required_gates, run.delivery_facts);
 
   return {
     ...buildSchemaMetadata("node bin/ch run closeout"),
@@ -1388,9 +1469,45 @@ function buildNextRunId(targetRoot: string): string {
   return `run-${String(maxRunNumber + 1).padStart(4, "0")}`;
 }
 
+function hasExactRunIdentity(run: Run): run is Run & { run_instance_id: string; run_revision: number } {
+  return typeof run.run_instance_id === "string"
+    && run.run_instance_id.trim().length > 0
+    && typeof run.run_revision === "number"
+    && Number.isInteger(run.run_revision)
+    && run.run_revision >= 1;
+}
+
+function requireExactRunIdentity(run: Run): asserts run is Run & { run_instance_id: string; run_revision: number } {
+  if (!hasExactRunIdentity(run)) {
+    throw new Error(
+      `Run ${run.run_id} lacks exact immutable identity. Open a fresh replacement run or migrate this legacy run before mutating or harvesting it.`
+    );
+  }
+}
+
 function readJsonFile(filePath: string): unknown {
   return JSON.parse(fs.readFileSync(filePath, "utf8")) as unknown;
 }
+
+function capitalizeWords(value: string): string {
+  return value
+    .split(/[-_\s]+/u)
+    .filter((part) => part.length > 0)
+    .map((part) => part[0]!.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+const PHASE_23_8_6_ALLOWED_PROCEDURE_INGESTION = new Set([
+  "plan-review",
+  "plan-amend",
+  "implementation-review",
+  "fix-pass-review",
+  "verification-review",
+  "delivery-facts-review",
+  "phase-closeout-review"
+]);
+
+const REVIEW_RECOMMENDATION_TOKENS = new Set(["PASS", "FIX_REQUIRED", "AMEND_REQUIRED", "BLOCKED"]);
 
 function writeJsonFile(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -1401,9 +1518,32 @@ function writeRuntimeRun(targetRoot: string, run: Run): string {
   const roots = resolveHarnessRoots(targetRoot);
   const staging = new RunStagingDatabase(targetRoot, roots.projectRoot, run.run_id);
   staging.ensureInitialized();
-  staging.saveRun(run);
-  writeCompatibilityRunArtifacts(targetRoot, run);
-  return runFilePath(targetRoot, run.run_id);
+  const existing = staging.loadRun(run.run_id);
+  const nextRun = (() => {
+    if (!existing) {
+      return run;
+    }
+    if (
+      existing.run_instance_id
+      && run.run_instance_id
+      && existing.run_instance_id !== run.run_instance_id
+    ) {
+      throw new Error(
+        `Run ${run.run_id} identity changed from ${existing.run_instance_id} to ${run.run_instance_id}; refusing to overwrite authoritative staging state.`
+      );
+    }
+    const nextRevision = typeof existing.run_revision === "number" && Number.isInteger(existing.run_revision)
+      ? existing.run_revision + 1
+      : 1;
+    return {
+      ...run,
+      ...(existing.run_instance_id ? { run_instance_id: run.run_instance_id ?? existing.run_instance_id } : {}),
+      run_revision: nextRevision
+    };
+  })();
+  staging.saveRun(nextRun);
+  writeCompatibilityRunArtifacts(targetRoot, nextRun);
+  return runFilePath(targetRoot, nextRun.run_id);
 }
 
 function readCurrentRuntimeRun(targetRoot: string): { run: Run; runPath: string } | undefined {
@@ -1416,6 +1556,10 @@ function readCurrentRuntimeRun(targetRoot: string): { run: Run; runPath: string 
   const pointer = assertObject(readJsonFile(pointerPath), "runtime current pointer");
   assertRequiredString(pointer, "run_id", "runtime current pointer");
   assertRequiredString(pointer, "run_path", "runtime current pointer");
+  const pointerRunInstanceId =
+    typeof pointer.run_instance_id === "string" && pointer.run_instance_id.trim().length > 0
+      ? pointer.run_instance_id
+      : undefined;
 
   const runPath = path.resolve(runtimeRunsDir(targetRoot), String(pointer.run_path));
   const relative = path.relative(runtimeRunsDir(targetRoot), runPath);
@@ -1429,6 +1573,11 @@ function readCurrentRuntimeRun(targetRoot: string): { run: Run; runPath: string 
   const stagedRun = staging.loadRun(String(pointer.run_id));
 
   if (stagedRun) {
+    if (pointerRunInstanceId && stagedRun.run_instance_id && stagedRun.run_instance_id !== pointerRunInstanceId) {
+      throw new Error(
+        `Runtime current pointer identity mismatch for ${String(pointer.run_id)}: expected ${pointerRunInstanceId}, got ${stagedRun.run_instance_id}.`
+      );
+    }
     return {
       run: stagedRun,
       runPath
@@ -1440,7 +1589,15 @@ function readCurrentRuntimeRun(targetRoot: string): { run: Run; runPath: string 
   }
 
   return {
-    run: validateRuntimeRun(readJsonFile(runPath)),
+    run: (() => {
+      const run = validateRuntimeRun(readJsonFile(runPath));
+      if (pointerRunInstanceId && run.run_instance_id && run.run_instance_id !== pointerRunInstanceId) {
+        throw new Error(
+          `Runtime current pointer identity mismatch for ${String(pointer.run_id)}: expected ${pointerRunInstanceId}, got ${run.run_instance_id}.`
+        );
+      }
+      return run;
+    })(),
     runPath
   };
 }
@@ -1652,7 +1809,8 @@ function buildRuntimeVerificationFromSnapshot(run: Run, snapshot: VerifiedSnapsh
 function loadRunForMutation(
   targetRoot: string,
   dryRun: boolean,
-  runId?: string
+  runId?: string,
+  requireExactIdentity = true
 ): { run: Run; runPath?: string; state: "loaded" | "preview" } {
   const roots = resolveHarnessRoots(targetRoot);
   const current = runId
@@ -1676,6 +1834,9 @@ function loadRunForMutation(
     : readCurrentRuntimeRun(targetRoot);
 
   if (current) {
+    if (!dryRun && requireExactIdentity) {
+      requireExactRunIdentity(current.run);
+    }
     return {
       run: current.run,
       runPath: current.runPath,
@@ -1756,11 +1917,634 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
   };
 }
 
-export function getRuntimeStatus(cwd: string, options: RuntimeDryRunOptions = {}): RuntimeServiceResult {
+export async function recordRuntimeProcedure(cwd: string, options: RecordProcedureOptions): Promise<RuntimeProcedureResult> {
   const roots = resolveHarnessRoots(cwd);
   const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  const registry = readSelfHostingProcedureRegistry(targetRoot);
+
+  if (!registry) {
+    throw new Error("Self-hosting procedure registry not found.");
+  }
+
+  const proceduresById = indexSelfHostingProceduresById(registry);
+  if (!proceduresById.has(options.procedureId)) {
+    throw new Error(`Unknown self-hosting procedure id: ${options.procedureId}`);
+  }
+  if (!PHASE_23_8_6_ALLOWED_PROCEDURE_INGESTION.has(options.procedureId)) {
+    throw new Error(
+      `Procedure ${options.procedureId} is outside the Phase 23.8.6 durable ingestion scope.`
+    );
+  }
+
+  const absoluteSourcePath = path.resolve(targetRoot, options.filePath);
+  ensureInsideTargetRoot(targetRoot, absoluteSourcePath);
+
+  if (!fs.existsSync(absoluteSourcePath) || !fs.statSync(absoluteSourcePath).isFile()) {
+    throw new Error(`Procedure artifact not found: ${options.filePath}`);
+  }
+
+  const markdown = fs.readFileSync(absoluteSourcePath, "utf8");
+  if (markdown.trim().length === 0) {
+    throw new Error(`Procedure artifact is empty: ${options.filePath}`);
+  }
+
+  if (options.procedureId === "plan-review") {
+    validatePlanReviewArtifact(markdown);
+  }
+
+  const contentHash = sha256Hex(markdown);
+  const hashPrefix = contentHash.slice(0, 12);
+  const timestamp = nowIso();
+  const extension = path.extname(absoluteSourcePath) || ".md";
+  const relativeArtifactPath = toPortablePath(path.join("evidence", `${options.procedureId}-${hashPrefix}${extension}`));
+  const relativeSourcePath = toRepoRelative(targetRoot, absoluteSourcePath);
+  const artifact: ArtifactRef = {
+    artifact_id: `sha256:${contentHash}`,
+    path: relativeArtifactPath,
+    kind: `procedure-artifact:${options.procedureId}`,
+    description: relativeSourcePath
+  };
+  const evidence: EvidenceRef = {
+    evidence_id: `procedure-${options.procedureId}-${hashPrefix}`,
+    kind: `procedure:${options.procedureId}`,
+    summary: options.procedureId,
+    artifact_id: artifact.artifact_id,
+    path: relativeArtifactPath
+  };
+
+  const alreadyRecorded = current.run.evidence.some((entry) =>
+    entry.evidence_id === evidence.evidence_id
+    || (entry.kind === evidence.kind && entry.artifact_id === evidence.artifact_id)
+  );
+
+  let run = current.run;
+  let recorded = !alreadyRecorded;
+  const absoluteArtifactPath = path.join(runDirectory(targetRoot, current.run.run_id), relativeArtifactPath);
+  const duplicateReviewFor = (candidateRun: Run, candidateReview: ReviewResult | undefined) => (
+    candidateReview
+      ? candidateRun.review_results.some((entry) =>
+          entry.source === candidateReview.source
+          && entry.artifact_refs.some((ref) => ref.artifact_id === artifact.artifact_id)
+        )
+      : false
+  );
+
+  if (!dryRun && !alreadyRecorded) {
+    fs.mkdirSync(path.dirname(absoluteArtifactPath), { recursive: true });
+    fs.writeFileSync(absoluteArtifactPath, markdown, "utf8");
+  }
+
+  if (dryRun) {
+    const review = buildProcedureReviewResult(run, options.procedureId, artifact, markdown, timestamp);
+    if (!alreadyRecorded) {
+      run = withUpdatedAt({
+        ...run,
+        artifacts: [...run.artifacts, artifact],
+        evidence: [...run.evidence, evidence]
+      }, timestamp);
+    }
+    if (review && !duplicateReviewFor(run, review)) {
+      run = recordReviewResult(run, review);
+    }
+  } else {
+    const staging = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
+    if (!staging.loadRun(current.run.run_id)) {
+      staging.saveRun(current.run);
+    }
+    run = staging.mutateRun(current.run.run_id, (latestRun) => {
+      const review = buildProcedureReviewResult(latestRun, options.procedureId, artifact, markdown, timestamp);
+      const duplicateEvidence = latestRun.evidence.some((entry) =>
+        entry.evidence_id === evidence.evidence_id
+        || (entry.kind === evidence.kind && entry.artifact_id === evidence.artifact_id)
+      );
+
+      recorded = !duplicateEvidence;
+      if (duplicateEvidence) {
+        if (review && !duplicateReviewFor(latestRun, review)) {
+          return recordReviewResult(latestRun, review);
+        }
+        return latestRun;
+      }
+
+      let next = withUpdatedAt({
+        ...latestRun,
+        artifacts: [...latestRun.artifacts, artifact],
+        evidence: [...latestRun.evidence, evidence]
+      }, timestamp);
+
+      if (review && !duplicateReviewFor(next, review)) {
+        next = recordReviewResult(next, review);
+      }
+
+      return next;
+    }, {
+      expectedRunInstanceId: current.run.run_instance_id,
+      expectedRunRevision: current.run.run_revision
+    });
+    writeCompatibilityRunArtifacts(targetRoot, run);
+  }
+
+  const runPath = dryRun ? current.runPath : runFilePath(targetRoot, run.run_id);
+  const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id);
+
+  return {
+    targetRoot,
+    projectRoot: roots.projectRoot,
+    dryRun,
+    run,
+    runPath,
+    projectDbPath: paths.projectDbPath,
+    stagingDbPath: paths.stagingDbPath,
+    state: dryRun && current.state === "preview" ? "preview" : "updated",
+    procedureId: options.procedureId,
+    evidence,
+    artifact,
+    recorded
+  };
+}
+
+export async function approveRuntimePlan(cwd: string, options: ApprovePlanOptions): Promise<RuntimePlanApprovalResult> {
+  const roots = resolveHarnessRoots(cwd);
+  const targetRoot = roots.targetRoot;
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  const absolutePlanPath = path.resolve(targetRoot, options.planPath);
+  ensureInsideTargetRoot(targetRoot, absolutePlanPath);
+
+  if (!fs.existsSync(absolutePlanPath) || !fs.statSync(absolutePlanPath).isFile()) {
+    throw new Error(`Approved plan artifact not found: ${options.planPath}`);
+  }
+
+  if (!options.approver.trim()) {
+    throw new Error("Plan approval requires a non-empty approver.");
+  }
+
+  const markdown = fs.readFileSync(absolutePlanPath, "utf8");
+  if (markdown.trim().length === 0) {
+    throw new Error(`Approved plan artifact is empty: ${options.planPath}`);
+  }
+
+  const contentHash = sha256Hex(markdown);
+  const hashPrefix = contentHash.slice(0, 12);
+  const timestamp = nowIso();
+  const extension = path.extname(absolutePlanPath) || ".md";
+  const relativeArtifactPath = toPortablePath(path.join("evidence", `approved-plan-${hashPrefix}${extension}`));
+  const relativeSourcePath = toRepoRelative(targetRoot, absolutePlanPath);
+  const artifact: ArtifactRef = {
+    artifact_id: `sha256:${contentHash}`,
+    path: relativeArtifactPath,
+    kind: "approved-plan-artifact",
+    description: relativeSourcePath
+  };
+  const evidence: EvidenceRef = {
+    evidence_id: `approved-plan-${hashPrefix}`,
+    kind: "approved-plan",
+    summary: "approved-plan",
+    artifact_id: artifact.artifact_id,
+    path: relativeArtifactPath
+  };
+
+  const effectivePlanArtifactId = resolveEffectivePlanApprovalArtifactId(targetRoot, current.run.run_id, current.run, artifact.artifact_id);
+
+  let run = current.run;
+  const hasArtifact = run.artifacts.some((entry) => entry.artifact_id === artifact.artifact_id);
+  const hasEvidence = run.evidence.some((entry) => entry.evidence_id === evidence.evidence_id);
+  const planApprovalReason = [
+    options.reason?.trim(),
+    `effective_plan_artifact_id=${effectivePlanArtifactId}`,
+    `approved_plan_path=${relativeSourcePath}`,
+    `approved_plan_artifact_id=${artifact.artifact_id}`
+  ].filter(Boolean).join("; ");
+  const duplicateApproval = run.approvals.find((entry) =>
+    entry.status === "approved"
+    && entry.approver === options.approver
+    && entry.title === "Reviewed plan approved"
+    && entry.reason === planApprovalReason
+  );
+
+  const approval = duplicateApproval ?? {
+    approval_id: `approval-reviewed-plan-${hashPrefix}-${current.run.approvals.length + 1}`,
+    title: "Reviewed plan approved",
+    status: "approved" as const,
+    approver: options.approver,
+    created_at: timestamp,
+    reason: planApprovalReason
+  };
+  let finalApproval = approval;
+
+  let recorded = !duplicateApproval;
+  const absoluteArtifactPath = path.join(runDirectory(targetRoot, current.run.run_id), relativeArtifactPath);
+
+  if (!dryRun && (!hasArtifact || !hasEvidence || !duplicateApproval)) {
+    fs.mkdirSync(path.dirname(absoluteArtifactPath), { recursive: true });
+    fs.writeFileSync(absoluteArtifactPath, markdown, "utf8");
+  }
+
+  if (dryRun) {
+    if (!hasArtifact || !hasEvidence || !duplicateApproval) {
+      run = withUpdatedAt({
+        ...run,
+        artifacts: hasArtifact ? run.artifacts : [...run.artifacts, artifact],
+        evidence: hasEvidence ? run.evidence : [...run.evidence, evidence]
+      }, timestamp);
+    }
+    if (!duplicateApproval) {
+      run = recordApproval(run, {
+        approvalId: approval.approval_id,
+        title: approval.title,
+        status: approval.status,
+        approver: approval.approver,
+        reason: approval.reason,
+        createdAt: approval.created_at
+      });
+    }
+  } else {
+    const staging = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
+    if (!staging.loadRun(current.run.run_id)) {
+      staging.saveRun(current.run);
+    }
+    run = staging.mutateRun(current.run.run_id, (latestRun) => {
+      const latestEffectiveArtifactId = resolveEffectivePlanApprovalArtifactId(
+        targetRoot,
+        latestRun.run_id,
+        latestRun,
+        artifact.artifact_id
+      );
+      if (latestEffectiveArtifactId !== artifact.artifact_id) {
+        throw new Error(
+          `Approved plan does not match the latest effective plan evidence. Expected ${latestEffectiveArtifactId}, got ${artifact.artifact_id}.`
+        );
+      }
+
+      const latestHasArtifact = latestRun.artifacts.some((entry) => entry.artifact_id === artifact.artifact_id);
+      const latestHasEvidence = latestRun.evidence.some((entry) => entry.evidence_id === evidence.evidence_id);
+      const latestDuplicateApproval = latestRun.approvals.find((entry) =>
+        entry.status === "approved"
+        && entry.approver === options.approver
+        && entry.title === "Reviewed plan approved"
+        && entry.reason === planApprovalReason
+      );
+      recorded = !latestDuplicateApproval;
+      const latestApproval = latestDuplicateApproval ?? {
+        ...approval,
+        approval_id: `approval-reviewed-plan-${hashPrefix}-${latestRun.approvals.length + 1}`
+      };
+      finalApproval = latestApproval;
+
+      let next = latestRun;
+      if (!latestHasArtifact || !latestHasEvidence || !latestDuplicateApproval) {
+        next = withUpdatedAt({
+          ...latestRun,
+          artifacts: latestHasArtifact ? latestRun.artifacts : [...latestRun.artifacts, artifact],
+          evidence: latestHasEvidence ? latestRun.evidence : [...latestRun.evidence, evidence]
+        }, timestamp);
+      }
+      if (!latestDuplicateApproval) {
+        next = recordApproval(next, {
+          approvalId: latestApproval.approval_id,
+          title: latestApproval.title,
+          status: latestApproval.status,
+          approver: latestApproval.approver,
+          reason: latestApproval.reason,
+          createdAt: latestApproval.created_at
+        });
+      }
+      return next;
+    }, {
+      expectedRunInstanceId: current.run.run_instance_id,
+      expectedRunRevision: current.run.run_revision
+    });
+    writeCompatibilityRunArtifacts(targetRoot, run);
+  }
+
+  const runPath = dryRun ? current.runPath : runFilePath(targetRoot, run.run_id);
+  const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id);
+
+  return {
+    targetRoot,
+    projectRoot: roots.projectRoot,
+    dryRun,
+    run,
+    runPath,
+    projectDbPath: paths.projectDbPath,
+    stagingDbPath: paths.stagingDbPath,
+    state: dryRun && current.state === "preview" ? "preview" : "updated",
+    approval: finalApproval,
+    evidence,
+    artifact,
+    recorded
+  };
+}
+
+export async function recordRuntimeNextTask(cwd: string, options: RecordNextTaskOptions): Promise<RuntimeNextTaskDecisionResult> {
+  const roots = resolveHarnessRoots(cwd);
+  const targetRoot = roots.targetRoot;
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  if (
+    current.run.lifecycle_status !== "closed"
+    && current.run.lifecycle_status !== "harvested"
+    && current.run.lifecycle_status !== "discarded"
+  ) {
+    throw new Error(
+      `Next-task decisions require closeout or harvest context. Run ${current.run.run_id} is still ${current.run.lifecycle_status}.`
+    );
+  }
+  const absoluteSourcePath = path.resolve(targetRoot, options.filePath);
+  ensureInsideTargetRoot(targetRoot, absoluteSourcePath);
+
+  if (!fs.existsSync(absoluteSourcePath) || !fs.statSync(absoluteSourcePath).isFile()) {
+    throw new Error(`Next-task decision source artifact not found: ${options.filePath}`);
+  }
+
+  const sourceMarkdown = fs.readFileSync(absoluteSourcePath, "utf8");
+  if (sourceMarkdown.trim().length === 0) {
+    throw new Error(`Next-task decision source artifact is empty: ${options.filePath}`);
+  }
+
+  const resolvedTask = resolveTaskReference(targetRoot, options.taskPath);
+  const nextTaskPath = resolvedTask.activeTaskPath ?? resolvedTask.taskPath;
+  const baseCommitSha = resolveExactCommit(targetRoot, options.baseCommit);
+  if (options.baseRef) {
+    const resolvedBaseRef = resolveExactCommit(targetRoot, options.baseRef);
+    if (resolvedBaseRef !== baseCommitSha) {
+      throw new Error(
+        `Base ref ${options.baseRef} no longer points to recorded base commit ${baseCommitSha}.`
+      );
+    }
+  }
+
+  const artifactHash = sha256Hex(sourceMarkdown);
+  const artifact: ArtifactRef = {
+    artifact_id: `sha256:${artifactHash}`,
+    path: toPortablePath(path.join("evidence", `next-task-source-${artifactHash.slice(0, 12)}.md`)),
+    kind: "next-task-decision-source",
+    description: toRepoRelative(targetRoot, absoluteSourcePath)
+  };
+  const decisionRecord: NextTaskDecisionRecord = {
+    next_task_decision_id: `sha256:${sha256Hex(canonicalJson({
+      source_run_instance_id: current.run.run_instance_id,
+      task_path: nextTaskPath,
+      base_commit_sha: baseCommitSha,
+      source_artifact_identity: artifact.artifact_id,
+      decision_record_identity: null
+    }))}`,
+    source_run_instance_id: current.run.run_instance_id ?? "",
+    task_path: nextTaskPath,
+    base_commit_sha: baseCommitSha,
+    source_artifact_identity: artifact.artifact_id,
+    decision_record_identity: null,
+    ...(options.baseRef ? { base_ref: options.baseRef } : {})
+  };
+  const evidence: EvidenceRef = {
+    evidence_id: `next-task-decision-${decisionRecord.next_task_decision_id.slice("sha256:".length, "sha256:".length + 12)}`,
+    kind: "next-task-decision",
+    summary: "next-task-decision",
+    artifact_id: artifact.artifact_id,
+    path: artifact.path
+  };
+  const decision: Decision = {
+    decision_id: decisionRecord.next_task_decision_id,
+    title: "Next task selected",
+    rationale: canonicalJson(decisionRecord),
+    created_at: nowIso()
+  };
+
+  let run = current.run;
+  let finalDecision = decision;
+  let recorded = true;
+  const absoluteArtifactPath = path.join(runDirectory(targetRoot, current.run.run_id), artifact.path);
+
+  if (!dryRun) {
+    fs.mkdirSync(path.dirname(absoluteArtifactPath), { recursive: true });
+    fs.writeFileSync(absoluteArtifactPath, sourceMarkdown, "utf8");
+  }
+
+  if (dryRun) {
+    const duplicateDecision = run.decisions.find((entry) => entry.decision_id === decision.decision_id);
+    recorded = !duplicateDecision;
+    finalDecision = duplicateDecision ?? decision;
+    if (!run.artifacts.some((entry) => entry.artifact_id === artifact.artifact_id)) {
+      run = withUpdatedAt({ ...run, artifacts: [...run.artifacts, artifact] }, decision.created_at);
+    }
+    if (!run.evidence.some((entry) => entry.evidence_id === evidence.evidence_id)) {
+      run = withUpdatedAt({ ...run, evidence: [...run.evidence, evidence] }, decision.created_at);
+    }
+    if (!duplicateDecision) {
+      run = recordDecision(run, {
+        decisionId: finalDecision.decision_id,
+        title: finalDecision.title,
+        rationale: finalDecision.rationale,
+        createdAt: finalDecision.created_at
+      });
+    }
+  } else {
+    const staging = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
+    if (!staging.loadRun(current.run.run_id)) {
+      staging.saveRun(current.run);
+    }
+    run = staging.mutateRun(current.run.run_id, (latestRun) => {
+      const duplicateDecision = latestRun.decisions.find((entry) => entry.decision_id === decision.decision_id);
+      recorded = !duplicateDecision;
+      finalDecision = duplicateDecision ?? decision;
+      let next = latestRun;
+      if (!latestRun.artifacts.some((entry) => entry.artifact_id === artifact.artifact_id)) {
+        next = withUpdatedAt({ ...next, artifacts: [...next.artifacts, artifact] }, decision.created_at);
+      }
+      if (!next.evidence.some((entry) => entry.evidence_id === evidence.evidence_id)) {
+        next = withUpdatedAt({ ...next, evidence: [...next.evidence, evidence] }, decision.created_at);
+      }
+      if (!duplicateDecision) {
+        next = recordDecision(next, {
+          decisionId: finalDecision.decision_id,
+          title: finalDecision.title,
+          rationale: finalDecision.rationale,
+          createdAt: finalDecision.created_at
+        });
+      }
+      return next;
+    }, {
+      expectedRunInstanceId: current.run.run_instance_id,
+      expectedRunRevision: current.run.run_revision
+    });
+    writeCompatibilityRunArtifacts(targetRoot, run);
+  }
+
+  const runPath = dryRun ? current.runPath : runFilePath(targetRoot, run.run_id);
+  const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id);
+  return {
+    targetRoot,
+    projectRoot: roots.projectRoot,
+    dryRun,
+    run,
+    runPath,
+    projectDbPath: paths.projectDbPath,
+    stagingDbPath: paths.stagingDbPath,
+    state: dryRun && current.state === "preview" ? "preview" : "updated",
+    decision: finalDecision,
+    evidence,
+    artifact,
+    recorded
+  };
+}
+
+export async function materializeRuntimeNextTask(
+  cwd: string,
+  options: MaterializeNextTaskOptions
+): Promise<RuntimeTaskMaterializationResult> {
+  const roots = resolveHarnessRoots(cwd);
+  const targetRoot = roots.targetRoot;
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  const { record } = readNextTaskDecision(current.run, options.decisionId);
+  const resolvedTask = resolveTaskReference(targetRoot, options.taskPath);
+  const nextTaskPath = resolvedTask.activeTaskPath ?? resolvedTask.taskPath;
+  const createMode = options.create === true;
+  const enterExistingMode = options.enterExisting === true;
+
+  if (createMode === enterExistingMode) {
+    throw new Error("Choose exactly one materialization mode: --create or --enter-existing.");
+  }
+
+  if (record.task_path !== nextTaskPath) {
+    throw new Error(`Materialization task mismatch. Decision expects ${record.task_path}, got ${nextTaskPath}.`);
+  }
+
+  if (record.base_ref) {
+    const currentBaseRefCommit = resolveExactCommit(targetRoot, record.base_ref);
+    if (currentBaseRefCommit !== record.base_commit_sha) {
+      throw new Error(
+        `Recorded base ref ${record.base_ref} moved from ${record.base_commit_sha} to ${currentBaseRefCommit}.`
+      );
+    }
+  }
+
+  const absoluteWorktreePath = path.resolve(targetRoot, options.worktreePath);
+  if (dryRun) {
+    return {
+      targetRoot,
+      projectRoot: roots.projectRoot,
+      dryRun,
+      decisionId: record.next_task_decision_id,
+      branch: options.branch,
+      worktreePath: absoluteWorktreePath,
+      taskPath: nextTaskPath,
+      created: createMode,
+      state: "preview"
+    };
+  }
+
+  let created = false;
+  let backupPath: string | undefined;
+  let branchCreated = false;
+  const taskPointerPath = path.join(absoluteWorktreePath, "TASK.md");
+
+  try {
+    if (createMode) {
+      if (fs.existsSync(absoluteWorktreePath)) {
+        throw new Error(`Materialization worktree path already exists: ${absoluteWorktreePath}`);
+      }
+      if (gitBranchExists(targetRoot, options.branch)) {
+        throw new Error(`Materialization branch already exists: ${options.branch}`);
+      }
+      fs.mkdirSync(path.dirname(absoluteWorktreePath), { recursive: true });
+      const addResult = runGitCommand(targetRoot, ["worktree", "add", "-b", options.branch, absoluteWorktreePath, record.base_commit_sha]);
+      if (addResult.error) {
+        throw addResult.error;
+      }
+      if (addResult.status !== 0) {
+        throw new Error(addResult.stderr.trim() || "git worktree add failed");
+      }
+      created = true;
+      branchCreated = true;
+    } else {
+      if (!fs.existsSync(absoluteWorktreePath)) {
+        throw new Error(`Existing worktree path does not exist: ${absoluteWorktreePath}`);
+      }
+      if (!worktreePathExistsInGit(targetRoot, absoluteWorktreePath)) {
+        throw new Error(`Existing worktree is not registered with git: ${absoluteWorktreePath}`);
+      }
+    }
+
+    if (gitCurrentBranch(absoluteWorktreePath) !== options.branch) {
+      throw new Error(`Materialized worktree branch mismatch. Expected ${options.branch}.`);
+    }
+
+    if (resolveExactCommit(absoluteWorktreePath, "HEAD") !== record.base_commit_sha) {
+      throw new Error(`Materialized worktree HEAD does not match the recorded base commit ${record.base_commit_sha}.`);
+    }
+
+    if (getGitStatusLines(absoluteWorktreePath).length > 0) {
+      throw new Error(`Materialized worktree is dirty: ${absoluteWorktreePath}`);
+    }
+
+    const absoluteTaskContractPath = path.join(absoluteWorktreePath, nextTaskPath);
+    if (!fs.existsSync(absoluteTaskContractPath) || !fs.statSync(absoluteTaskContractPath).isFile()) {
+      throw new Error(`Next task contract is missing in the materialized worktree: ${nextTaskPath}`);
+    }
+
+    if (fs.existsSync(taskPointerPath)) {
+      backupPath = `${taskPointerPath}.codex-harness.bak`;
+      fs.copyFileSync(taskPointerPath, backupPath);
+    }
+    fs.writeFileSync(taskPointerPath, buildNextTaskPointerMarkdown(nextTaskPath), "utf8");
+
+    const runStartResult = await startRuntimeRun(absoluteWorktreePath, { taskPath: "TASK.md" });
+
+    if (backupPath && fs.existsSync(backupPath)) {
+      fs.rmSync(backupPath, { force: true });
+    }
+
+    return {
+      targetRoot,
+      projectRoot: roots.projectRoot,
+      dryRun,
+      decisionId: record.next_task_decision_id,
+      branch: options.branch,
+      worktreePath: absoluteWorktreePath,
+      taskPath: nextTaskPath,
+      created,
+      newRun: runStartResult.run,
+      newRunPath: runStartResult.runPath,
+      state: "updated"
+    };
+  } catch (error) {
+    if (backupPath && fs.existsSync(backupPath)) {
+      fs.copyFileSync(backupPath, taskPointerPath);
+      fs.rmSync(backupPath, { force: true });
+    }
+
+    if (created) {
+      const removeResult = runGitCommand(targetRoot, ["worktree", "remove", "--force", absoluteWorktreePath]);
+      if (removeResult.error) {
+        throw removeResult.error;
+      }
+      if (removeResult.status !== 0) {
+        throw new Error(removeResult.stderr.trim() || "git worktree remove failed during rollback");
+      }
+
+      if (branchCreated) {
+        const deleteBranchResult = runGitCommand(targetRoot, ["branch", "-D", options.branch]);
+        if (deleteBranchResult.error) {
+          throw deleteBranchResult.error;
+        }
+        if (deleteBranchResult.status !== 0) {
+          throw new Error(deleteBranchResult.stderr.trim() || "git branch delete failed during rollback");
+        }
+      }
+    }
+
+    throw error;
+  }
+}
+
+export function getRuntimeStatus(cwd: string, options: RuntimeDryRunOptions = {}): RuntimeServiceResult {
+  const roots = resolveHarnessRoots(cwd);
+  const targetRoot = roots.targetRoot;
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(targetRoot, dryRun, options.runId, false);
   const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, current.run.run_id);
 
   return {
@@ -1781,6 +2565,173 @@ function readUtf8FileIfExists(targetPath: string): string | undefined {
   }
 
   return fs.readFileSync(targetPath, "utf8");
+}
+
+function parseReviewRecommendation(markdown: string): string | undefined {
+  const sectionMatch = /## Recommendation\s*\n([\s\S]*?)(?=\n## |\s*$)/i.exec(markdown);
+
+  if (!sectionMatch?.[1]) {
+    return undefined;
+  }
+
+  const lines = sectionMatch[1]
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const normalized = lines[index].toUpperCase();
+    if (REVIEW_RECOMMENDATION_TOKENS.has(normalized)) {
+      return normalized;
+    }
+  }
+
+  return lines[0]?.toUpperCase();
+}
+
+function validatePlanReviewArtifact(markdown: string): {
+  decisionRecord: PlanReviewDecisionRecord;
+  recommendation: string;
+  status: ReviewResultStatus;
+  summary: string;
+  blockers: string[];
+} {
+  const decisionRecord = parsePlanReviewDecisionRecord(markdown);
+  if (!decisionRecord) {
+    throw new Error("Plan review artifact is missing a complete durable decision record.");
+  }
+
+  const recommendation = parseReviewRecommendation(markdown);
+  if (!recommendation) {
+    throw new Error("Plan review artifact is missing a Recommendation section.");
+  }
+
+  const decision = interpretPlanReviewDecisionRecord(decisionRecord);
+  if (decision.route === "blocked" && decision.stopReason === "invalid_plan_review_decision_record") {
+    throw new Error("Plan review artifact durable decision record is internally inconsistent.");
+  }
+
+  const normalizedRecommendation = recommendation.toUpperCase();
+  if (decision.route === "approval" && normalizedRecommendation !== "PASS") {
+    throw new Error("Plan review artifact recommendation must be PASS when the durable decision record routes to approval.");
+  }
+
+  if (
+    decision.route === "amend"
+    && normalizedRecommendation !== "AMEND_REQUIRED"
+    && normalizedRecommendation !== "FIX_REQUIRED"
+  ) {
+    throw new Error("Plan review artifact recommendation must require follow-up when the durable decision record routes to amendment.");
+  }
+
+  if (
+    decision.route === "blocked"
+    && normalizedRecommendation !== "BLOCKED"
+    && normalizedRecommendation !== "FIX_REQUIRED"
+  ) {
+    throw new Error("Plan review artifact recommendation must remain blocked when the durable decision record routes to a blocker.");
+  }
+
+  if (decision.route === "approval") {
+    return {
+      decisionRecord,
+      recommendation: normalizedRecommendation,
+      status: "PASS",
+      summary: "Plan review approved the plan",
+      blockers: []
+    };
+  }
+
+  const summary = decisionRecord.next_allowed_action || "Plan review requires follow-up";
+  return {
+    decisionRecord,
+    recommendation: normalizedRecommendation,
+    status: "FIX_REQUIRED",
+    summary,
+    blockers: [summary]
+  };
+}
+
+function parseFixPassReviewStatuses(markdown: string): Array<"resolved" | "partially_resolved" | "unresolved"> {
+  const sectionMatch = /## Resolution Status\s*\n([\s\S]*?)(?=\n## |\s*$)/i.exec(markdown);
+  if (!sectionMatch?.[1]) {
+    return [];
+  }
+
+  const matches = [...sectionMatch[1].matchAll(/^\s*\d+\.\s*`(resolved|partially_resolved|unresolved)`/gim)];
+  return matches.map((match) => match[1] as "resolved" | "partially_resolved" | "unresolved");
+}
+
+function buildProcedureReviewResult(
+  run: Run,
+  procedureId: string,
+  artifact: ArtifactRef,
+  markdown: string,
+  timestamp: string
+): ReviewResult | undefined {
+  if (procedureId === "plan-review") {
+    const validated = validatePlanReviewArtifact(markdown);
+    return {
+      review_result_id: nextId("review", run.review_results.length),
+      status: validated.status,
+      created_at: timestamp,
+      summary: validated.summary,
+      source: `procedure:${procedureId}`,
+      blockers: validated.blockers,
+      artifact_refs: [artifact]
+    };
+  }
+
+  if (procedureId === "fix-pass-review") {
+    const statuses = parseFixPassReviewStatuses(markdown);
+    if (statuses.length === 0) {
+      return undefined;
+    }
+
+    const hasUnresolved = statuses.some((status) => status !== "resolved");
+    return {
+      review_result_id: nextId("review", run.review_results.length),
+      status: hasUnresolved ? "FIX_REQUIRED" : "PASS",
+      created_at: timestamp,
+      summary: hasUnresolved ? "Fix-pass Review requires follow-up" : "Fix-pass Review passed",
+      source: `procedure:${procedureId}`,
+      blockers: hasUnresolved ? ["Fix-pass Review requires follow-up"] : [],
+      artifact_refs: [artifact]
+    };
+  }
+
+  const recommendation = parseReviewRecommendation(markdown);
+
+  if (!recommendation) {
+    return undefined;
+  }
+
+  let status: ReviewResultStatus = "UNKNOWN";
+  let summary = `${capitalizeWords(procedureId)} review recorded.`;
+  const blockers: string[] = [];
+
+  if (recommendation === "PASS") {
+    status = "PASS";
+    summary = `${capitalizeWords(procedureId)} passed`;
+  } else if (recommendation === "FIX_REQUIRED" || recommendation === "AMEND_REQUIRED" || recommendation === "BLOCKED") {
+    status = "FIX_REQUIRED";
+    summary = `${capitalizeWords(procedureId)} requires follow-up`;
+    blockers.push(summary);
+  }
+
+  if (status === "UNKNOWN") {
+    return undefined;
+  }
+
+  return {
+    review_result_id: nextId("review", run.review_results.length),
+    status,
+    created_at: timestamp,
+    summary,
+    source: `procedure:${procedureId}`,
+    blockers,
+    artifact_refs: [artifact]
+  };
 }
 
 function resolveOperatorTaskContext(targetRoot: string): OperatorTaskContext | undefined {
@@ -2310,7 +3261,7 @@ function readProcedureEvidenceTimestampMs(runContext: OperatorRunContext, proced
       }
     }
 
-    if (evidence.artifact_id) {
+    if (!evidence.path && evidence.artifact_id) {
       const artifact = runContext.run.artifacts.find((entry) => entry.artifact_id === evidence.artifact_id);
       if (artifact?.path) {
         const artifactTimestamp = readFileTimestampMs(resolveRunLocalPath(runContext, artifact.path));
@@ -2351,6 +3302,171 @@ function isPlanApproval(approval: Approval): boolean {
   return hasPlan && hasReviewedPlanSignal && hasApprovalBoundary;
 }
 
+function readLatestEffectivePlanEvidence(run: Run): EvidenceRef | undefined {
+  for (let index = run.evidence.length - 1; index >= 0; index -= 1) {
+    const evidence = run.evidence[index];
+    if (evidence.kind === "procedure:plan-amend" || evidence.summary === "plan-amend") {
+      return evidence;
+    }
+  }
+
+  for (let index = run.evidence.length - 1; index >= 0; index -= 1) {
+    const evidence = run.evidence[index];
+    if (evidence.kind === "procedure:draft-plan" || evidence.summary === "draft-plan") {
+      return evidence;
+    }
+  }
+
+  return undefined;
+}
+
+function readLatestApprovedPlanEvidence(run: Run): EvidenceRef | undefined {
+  for (let index = run.evidence.length - 1; index >= 0; index -= 1) {
+    const evidence = run.evidence[index];
+    if (evidence.kind === "approved-plan" || evidence.summary === "approved-plan") {
+      return evidence;
+    }
+  }
+
+  return undefined;
+}
+
+function readLatestProcedureEvidenceById(run: Run, procedureId: string): EvidenceRef | undefined {
+  for (let index = run.evidence.length - 1; index >= 0; index -= 1) {
+    const evidence = run.evidence[index];
+    if (evidence.kind === `procedure:${procedureId}` || evidence.summary === procedureId) {
+      return evidence;
+    }
+  }
+
+  return undefined;
+}
+
+function resolveEffectivePlanApprovalArtifactId(
+  targetRoot: string,
+  runId: string,
+  run: Run,
+  candidateArtifactId: string
+): string {
+  const latestEffectivePlanEvidence = readLatestEffectivePlanEvidence(run);
+  if (latestEffectivePlanEvidence?.path) {
+    const effectivePlanAbsolutePath = path.join(path.dirname(runFilePath(targetRoot, runId)), latestEffectivePlanEvidence.path);
+    const effectivePlanMarkdown = fs.readFileSync(effectivePlanAbsolutePath, "utf8");
+    const effectivePlanArtifactId = `sha256:${sha256Hex(effectivePlanMarkdown)}`;
+    if (candidateArtifactId !== effectivePlanArtifactId) {
+      throw new Error(
+        `Approved plan does not match the latest effective plan evidence. Expected ${effectivePlanArtifactId}, got ${candidateArtifactId}.`
+      );
+    }
+    return effectivePlanArtifactId;
+  }
+
+  const latestPlanReviewEvidence = readLatestProcedureEvidenceById(run, "plan-review");
+  if (!latestPlanReviewEvidence?.path) {
+    throw new Error("No reviewed plan evidence is recorded for this run. Record plan-review before approving a plan.");
+  }
+
+  const latestPlanReviewMarkdown = fs.readFileSync(
+    path.join(path.dirname(runFilePath(targetRoot, runId)), latestPlanReviewEvidence.path),
+    "utf8"
+  );
+  const validatedPlanReview = validatePlanReviewArtifact(latestPlanReviewMarkdown);
+  if (interpretPlanReviewDecisionRecord(validatedPlanReview.decisionRecord).route !== "approval") {
+    throw new Error("Plan approval without a recorded plan-amend is allowed only when the latest plan-review routes directly to approval.");
+  }
+
+  return candidateArtifactId;
+}
+
+interface NextTaskDecisionRecord {
+  next_task_decision_id: string;
+  source_run_instance_id: string;
+  task_path: string;
+  base_commit_sha: string;
+  source_artifact_identity: string;
+  decision_record_identity: string | null;
+  base_ref?: string;
+}
+
+function parseNextTaskDecisionRecord(decision: Decision): NextTaskDecisionRecord | undefined {
+  try {
+    const parsed = JSON.parse(decision.rationale) as Partial<NextTaskDecisionRecord> & Record<string, unknown>;
+    if (
+      typeof parsed.next_task_decision_id !== "string"
+      || typeof parsed.source_run_instance_id !== "string"
+      || typeof parsed.task_path !== "string"
+      || typeof parsed.base_commit_sha !== "string"
+      || typeof parsed.source_artifact_identity !== "string"
+      || (parsed.decision_record_identity !== null && typeof parsed.decision_record_identity !== "string")
+      || (parsed.base_ref !== undefined && typeof parsed.base_ref !== "string")
+    ) {
+      return undefined;
+    }
+
+    return {
+      next_task_decision_id: parsed.next_task_decision_id,
+      source_run_instance_id: parsed.source_run_instance_id,
+      task_path: parsed.task_path,
+      base_commit_sha: parsed.base_commit_sha,
+      source_artifact_identity: parsed.source_artifact_identity,
+      decision_record_identity: parsed.decision_record_identity,
+      ...(parsed.base_ref ? { base_ref: parsed.base_ref } : {})
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function buildNextTaskPointerMarkdown(taskPath: string): string {
+  return [
+    "# Current Task",
+    "",
+    `Implement only: ${taskPath}`,
+    ""
+  ].join("\n");
+}
+
+function resolveExactCommit(targetRoot: string, value: string): string {
+  const result = runGitCommand(targetRoot, ["rev-parse", "--verify", `${value}^{commit}`]);
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(`Unable to resolve exact commit for ${value}.`);
+  }
+  return result.stdout.trim();
+}
+
+function gitBranchExists(targetRoot: string, branch: string): boolean {
+  const result = runGitCommand(targetRoot, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+  return result.status === 0;
+}
+
+function gitCurrentBranch(cwd: string): string {
+  const result = runGitCommand(cwd, ["branch", "--show-current"]);
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || "git branch --show-current failed");
+  }
+  return result.stdout.trim();
+}
+
+function readNextTaskDecision(run: Run, decisionId: string): { decision: Decision; record: NextTaskDecisionRecord } {
+  const decision = run.decisions.find((entry) => entry.decision_id === decisionId);
+  if (!decision) {
+    throw new Error(`Next-task decision not found: ${decisionId}`);
+  }
+
+  const record = parseNextTaskDecisionRecord(decision);
+  if (!record) {
+    throw new Error(`Decision ${decisionId} is not a valid next-task decision record.`);
+  }
+
+  return { decision, record };
+}
+
 function hasApprovedPlan(runContext: OperatorRunContext): boolean {
   const approvals = runContext.run.approvals
     .filter((approval) => isPlanApproval(approval))
@@ -2378,7 +3494,15 @@ function hasApprovedPlan(runContext: OperatorRunContext): boolean {
     return false;
   }
 
-  return true;
+  const latestEffectivePlanArtifactId = (
+    readLatestEffectivePlanEvidence(runContext.run)?.artifact_id
+    ?? readLatestApprovedPlanEvidence(runContext.run)?.artifact_id
+  );
+  if (!latestEffectivePlanArtifactId) {
+    return true;
+  }
+
+  return approvals.some(({ approval }) => approval.reason?.includes(`effective_plan_artifact_id=${latestEffectivePlanArtifactId}`));
 }
 
 function isReadOnlyActivityText(value: string): boolean {
@@ -2426,7 +3550,28 @@ function isImplementationArtifact(
   return !artifact.path || !isReadOnlyArtifactPath(artifact.path);
 }
 
-function hasImplementationEvidence(run: Run, procedureIds: Set<string>): boolean {
+function isImplementationSourcePath(relativePath: string): boolean {
+  const normalized = normalizeRepoRelativePath(relativePath);
+
+  if (isPrivateRuntimePath(normalized) || isReadOnlyArtifactPath(normalized)) {
+    return false;
+  }
+
+  if (
+    normalized.startsWith("src/") ||
+    normalized.startsWith("tests/") ||
+    normalized.startsWith("schemas/") ||
+    normalized.startsWith("migrations/")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function hasImplementationEvidence(run: Run, procedureIds: Set<string>, options: {
+  allowLiveChangeProbe?: boolean;
+} = {}): boolean {
   const implementationStepIds = new Set(run.steps.filter((step) => isImplementationStep(step)).map((step) => step.step_id));
 
   if (implementationStepIds.size > 0) {
@@ -2443,6 +3588,17 @@ function hasImplementationEvidence(run: Run, procedureIds: Set<string>): boolean
 
   if (run.evidence.some((evidence) => isImplementationArtifact(evidence, procedureIds))) {
     return true;
+  }
+
+  if (options.allowLiveChangeProbe) {
+    try {
+      const liveChangeSet = buildChangeSet(run.repository.root_path);
+      if (liveChangeSet.changed_paths.some((relativePath) => isImplementationSourcePath(relativePath))) {
+        return true;
+      }
+    } catch {
+      // If live git inspection fails, preserve the run-state-only fallback.
+    }
   }
 
   return false;
@@ -2736,7 +3892,7 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
     });
   }
 
-  if (!context.taggedProcedures.has("draft-plan") && !context.taggedProcedures.has("plan-amend")) {
+  if (!context.taggedProcedures.has("draft-plan") && !context.taggedProcedures.has("plan-amend") && !hasPlanReviewEvidence) {
     return buildOperatorStageDraft({
       current_stage: "PLAN_DRAFT_REQUIRED",
       next_procedure_id: "draft-plan",
@@ -3083,6 +4239,8 @@ function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string,
       ? runContext.run.closeout_receipts[runContext.run.closeout_receipts.length - 1]
       : undefined);
 
+  const planApproved = runContext ? hasApprovedPlan(runContext) : undefined;
+
   return {
     targetRoot,
     projectRoot,
@@ -3109,8 +4267,12 @@ function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string,
         : undefined,
       latestCloseoutReceipt,
       blockingFindings: runContext ? hasBlockingFindings(runContext.run) : undefined,
-      planApproved: runContext ? hasApprovedPlan(runContext) : undefined,
-      implementationEvidence: runContext ? hasImplementationEvidence(runContext.run, procedureIds) : undefined
+      planApproved,
+      implementationEvidence: runContext
+        ? hasImplementationEvidence(runContext.run, procedureIds, {
+            allowLiveChangeProbe: planApproved === true && runContext.quarantinedPayloadCount === 0
+          })
+        : undefined
     }
   };
 }

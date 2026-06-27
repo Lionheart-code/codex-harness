@@ -29,6 +29,10 @@ deterministically.
 ## preconditions
 - Verification commands are known.
 - Command results or failures are available for review.
+- If local evidence comes from `node bin/ch run verify --run <run-id>`, expect
+  that command to take 14 minutes or more as the acceptance suite grows. Wait
+  for real exit and do not relaunch a duplicate verification while the first
+  process is still alive.
 
 ## forbidden_scope
 - Do not fabricate command success.
@@ -40,6 +44,8 @@ deterministically.
 - Read results from the latest runtime verification record or verified snapshot.
 - Check that required commands were run.
 - Check exit status and any explicit failure output.
+- Treat a still-running `run verify` process as incomplete evidence, not as a
+  failure or a license to start a second copy.
 - Record explicit evidence gaps instead of inferring success.
 - Distinguish local verification from remote CI state.
 - Check package and release boundary commands only when the task or boundary

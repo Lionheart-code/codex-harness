@@ -15,6 +15,11 @@ import { type DatabaseLike, openSqliteDatabase } from "./sqlite";
 import { detectGitRepository } from "./git";
 import { type Run } from "./runtime";
 
+interface MutateRunOptions {
+  expectedRunInstanceId?: string;
+  expectedRunRevision?: number;
+}
+
 export interface HarnessRoots {
   targetRoot: string;
   projectRoot: string;
@@ -118,7 +123,7 @@ export function resolveMemoryDbPaths(targetRoot: string, projectRoot: string, ru
 }
 
 export function initializeMemoryDatabase(database: DatabaseLike, role: "project" | "staging"): void {
-  database.exec([
+  const statements = [
     "PRAGMA journal_mode = WAL;",
     "PRAGMA wal_autocheckpoint = 1000;",
     "PRAGMA auto_vacuum = INCREMENTAL;",
@@ -189,6 +194,34 @@ export function initializeMemoryDatabase(database: DatabaseLike, role: "project"
     "  source_snapshot TEXT NOT NULL,",
     "  details_json TEXT NOT NULL",
     ");",
+    ...(role === "project"
+      ? [
+          "CREATE TABLE IF NOT EXISTS project_run_instances (",
+          "  run_instance_id TEXT PRIMARY KEY,",
+          "  run_id TEXT NOT NULL,",
+          "  project_run_id TEXT NOT NULL UNIQUE,",
+          "  run_json TEXT NOT NULL,",
+          "  created_at TEXT NOT NULL,",
+          "  updated_at TEXT NOT NULL",
+          ");",
+          "CREATE INDEX IF NOT EXISTS idx_project_run_instances_display ON project_run_instances (run_id, updated_at);",
+          "CREATE TABLE IF NOT EXISTS project_harvest_records_exact (",
+          "  run_instance_id TEXT PRIMARY KEY,",
+          "  run_id TEXT NOT NULL,",
+          "  promoted_at TEXT NOT NULL,",
+          "  harvest_json TEXT NOT NULL",
+          ");",
+          "CREATE INDEX IF NOT EXISTS idx_project_harvest_records_display ON project_harvest_records_exact (run_id, promoted_at);",
+          "CREATE TABLE IF NOT EXISTS legacy_unresolved_runs (",
+          "  legacy_row_id TEXT PRIMARY KEY,",
+          "  run_id TEXT NOT NULL,",
+          "  run_json TEXT NOT NULL,",
+          "  blocker_reason TEXT NOT NULL,",
+          "  captured_at TEXT NOT NULL",
+          ");",
+          "CREATE INDEX IF NOT EXISTS idx_legacy_unresolved_runs_display ON legacy_unresolved_runs (run_id, captured_at);"
+        ]
+      : []),
     "CREATE TABLE IF NOT EXISTS maintenance_events (",
     "  event_id TEXT PRIMARY KEY,",
     "  db_role TEXT NOT NULL,",
@@ -242,7 +275,8 @@ export function initializeMemoryDatabase(database: DatabaseLike, role: "project"
     "  PRIMARY KEY (payload_id, parent_record_id, link_role)",
     ");",
     "CREATE INDEX IF NOT EXISTS idx_payload_run ON payload_index (source_run_id, kind, created_at);"
-  ].join("\n"));
+  ];
+  database.exec(statements.join("\n"));
 
   database.prepare("INSERT OR REPLACE INTO db_metadata (key, value) VALUES (?, ?)").run("role", role);
   database.prepare("INSERT OR REPLACE INTO db_metadata (key, value) VALUES (?, ?)").run("initialized_at", nowIso());
@@ -610,79 +644,140 @@ export class RunStagingDatabase {
     }
   }
 
+  private persistRun(database: DatabaseLike, run: Run): void {
+    const persistedRun: Run = {
+      ...run,
+      ...(typeof run.run_revision === "number" && Number.isInteger(run.run_revision) && run.run_revision >= 1
+        ? {}
+        : { run_revision: 1 })
+    };
+    database.prepare([
+      "INSERT OR REPLACE INTO runs",
+      "(run_id, task_path, active_task_path, phase_id, run_mode, lifecycle_status, created_at, updated_at, target_root, project_root, repository_json, run_json, discard_reason, manual_override_reason, harvested_at, source_snapshot)",
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ].join(" ")).run(
+      persistedRun.run_id,
+      persistedRun.task_path,
+      persistedRun.active_task_path ?? null,
+      persistedRun.phase_id ?? null,
+      persistedRun.run_mode,
+      persistedRun.lifecycle_status,
+      persistedRun.created_at,
+      persistedRun.updated_at,
+      this.roots.targetRoot,
+      this.roots.projectRoot,
+      stringify(persistedRun.repository),
+      stringify(persistedRun),
+      persistedRun.discard_reason ?? null,
+      persistedRun.manual_override_reason ?? null,
+      persistedRun.harvested_at ?? null,
+      persistedRun.source_snapshot ?? null
+    );
+    database.prepare("DELETE FROM records WHERE run_id = ?").run(persistedRun.run_id);
+    for (const row of normalizeRecordRows(persistedRun)) {
+      database.prepare([
+        "INSERT INTO records",
+        "(record_kind, record_id, run_id, phase_id, task_path, created_at, status, summary, payload_json, source_step_id, source_command, sensitivity, retention_class)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ].join(" ")).run(
+        row.recordKind,
+        row.recordId,
+        row.runId,
+        row.phaseId ?? null,
+        row.taskPath,
+        row.createdAt,
+        row.status ?? null,
+        row.summary,
+        row.payloadJson,
+        row.sourceStepId ?? null,
+        row.sourceCommand ?? null,
+        row.sensitivity,
+        row.retentionClass
+      );
+    }
+
+    database.prepare("DELETE FROM delivery_facts WHERE run_id = ?").run(persistedRun.run_id);
+    for (const fact of normalizeDeliveryFacts(persistedRun)) {
+      database.prepare([
+        "INSERT OR REPLACE INTO delivery_facts",
+        "(delivery_fact_id, run_id, fact_kind, source, status, recorded_at, summary, url, external_run_id, commit_sha, excerpt_payload_id, fact_json)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ].join(" ")).run(
+        fact.delivery_fact_id,
+        fact.run_id,
+        fact.fact_kind,
+        fact.source,
+        fact.status,
+        fact.recorded_at,
+        fact.summary,
+        fact.url ?? null,
+        fact.external_run_id ?? null,
+        fact.commit_sha ?? null,
+        fact.excerpt_payload_id ?? null,
+        stringify(fact)
+      );
+    }
+  }
+
   saveRun(run: Run): void {
     const database = this.open();
 
     try {
       database.exec("BEGIN IMMEDIATE;");
-      database.prepare([
-        "INSERT OR REPLACE INTO runs",
-        "(run_id, task_path, active_task_path, phase_id, run_mode, lifecycle_status, created_at, updated_at, target_root, project_root, repository_json, run_json, discard_reason, manual_override_reason, harvested_at, source_snapshot)",
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ].join(" ")).run(
-        run.run_id,
-        run.task_path,
-        run.active_task_path ?? null,
-        run.phase_id ?? null,
-        run.run_mode,
-        run.lifecycle_status,
-        run.created_at,
-        run.updated_at,
-        this.roots.targetRoot,
-        this.roots.projectRoot,
-        stringify(run.repository),
-        stringify(run),
-        run.discard_reason ?? null,
-        run.manual_override_reason ?? null,
-        run.harvested_at ?? null,
-        run.source_snapshot ?? null
-      );
-      database.prepare("DELETE FROM records WHERE run_id = ?").run(run.run_id);
-      for (const row of normalizeRecordRows(run)) {
-        database.prepare([
-          "INSERT INTO records",
-          "(record_kind, record_id, run_id, phase_id, task_path, created_at, status, summary, payload_json, source_step_id, source_command, sensitivity, retention_class)",
-          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        ].join(" ")).run(
-          row.recordKind,
-          row.recordId,
-          row.runId,
-          row.phaseId ?? null,
-          row.taskPath,
-          row.createdAt,
-          row.status ?? null,
-          row.summary,
-          row.payloadJson,
-          row.sourceStepId ?? null,
-          row.sourceCommand ?? null,
-          row.sensitivity,
-          row.retentionClass
-        );
-      }
-
-      database.prepare("DELETE FROM delivery_facts WHERE run_id = ?").run(run.run_id);
-      for (const fact of normalizeDeliveryFacts(run)) {
-        database.prepare([
-          "INSERT OR REPLACE INTO delivery_facts",
-          "(delivery_fact_id, run_id, fact_kind, source, status, recorded_at, summary, url, external_run_id, commit_sha, excerpt_payload_id, fact_json)",
-          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        ].join(" ")).run(
-          fact.delivery_fact_id,
-          fact.run_id,
-          fact.fact_kind,
-          fact.source,
-          fact.status,
-          fact.recorded_at,
-          fact.summary,
-          fact.url ?? null,
-          fact.external_run_id ?? null,
-          fact.commit_sha ?? null,
-          fact.excerpt_payload_id ?? null,
-          stringify(fact)
-        );
-      }
-
+      this.persistRun(database, run);
       database.exec("COMMIT;");
+    } catch (error) {
+      database.exec("ROLLBACK;");
+      throw error;
+    } finally {
+      database.close();
+    }
+  }
+
+  mutateRun(runId: string, mutator: (run: Run) => Run, options: MutateRunOptions = {}): Run {
+    const database = this.open();
+
+    try {
+      database.exec("BEGIN IMMEDIATE;");
+      const row = database.prepare("SELECT run_json FROM runs WHERE run_id = ?").get(runId) as { run_json?: string } | undefined;
+      if (!row) {
+        throw new Error(`Run not found in staging DB: ${runId}`);
+      }
+
+      const current = parseRunJson(row.run_json, runId);
+      if (
+        options.expectedRunInstanceId
+        && current.run_instance_id
+        && current.run_instance_id !== options.expectedRunInstanceId
+      ) {
+        throw new Error(
+          `Run ${runId} identity changed while applying a staged mutation. Expected ${options.expectedRunInstanceId}, got ${current.run_instance_id}.`
+        );
+      }
+      if (
+        options.expectedRunRevision !== undefined
+        && typeof current.run_revision === "number"
+        && current.run_revision !== options.expectedRunRevision
+      ) {
+        throw new Error(
+          `Run ${runId} revision changed while applying a staged mutation. Expected ${options.expectedRunRevision}, got ${current.run_revision}.`
+        );
+      }
+      const next = mutator(current);
+      const nextRevision = typeof current.run_revision === "number" && Number.isInteger(current.run_revision)
+        ? current.run_revision + 1
+        : 1;
+      this.persistRun(database, {
+        ...next,
+        ...(current.run_instance_id ? { run_instance_id: next.run_instance_id ?? current.run_instance_id } : {}),
+        run_revision: nextRevision
+      });
+      database.exec("COMMIT;");
+      return {
+        ...next,
+        ...(current.run_instance_id ? { run_instance_id: next.run_instance_id ?? current.run_instance_id } : {}),
+        run_revision: nextRevision
+      };
     } catch (error) {
       database.exec("ROLLBACK;");
       throw error;
@@ -807,6 +902,7 @@ export function writeCompatibilityRunArtifacts(targetRoot: string, run: Run, clo
     fs.writeFileSync(paths.runJsonPath, `${JSON.stringify(run, null, 2)}\n`, "utf8");
     fs.writeFileSync(path.join(targetRoot, HARNESS_DIR, "runs", "current.json"), `${JSON.stringify({
       run_id: run.run_id,
+      ...(run.run_instance_id ? { run_instance_id: run.run_instance_id } : {}),
       run_path: toPortablePath(path.relative(path.join(targetRoot, HARNESS_DIR, "runs"), paths.runJsonPath)),
       updated_at: run.updated_at
     }, null, 2)}\n`, "utf8");
