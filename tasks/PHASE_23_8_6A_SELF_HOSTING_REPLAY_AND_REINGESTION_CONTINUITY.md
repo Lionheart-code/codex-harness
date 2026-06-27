@@ -19,6 +19,10 @@ replacement exact-identity run can recover real progress without manual
 `run.json` repair, per-run patches, duplicate evidence, or stage-skipping
 hacks.
 
+That continuity must be strong enough for the recovered replacement run to
+proceed honestly through the remaining reviewed operator chain, closeout, and
+harvest when the required evidence and delivery facts already exist.
+
 ## Problem
 
 Phase 23.8.6 intentionally made mutating runtime paths fail closed when a run
@@ -36,6 +40,14 @@ the active operator chain, the harness loses honest continuity:
 
 This phase closes that continuity gap without broadening into runner
 orchestration, packet automation, or docs/model-routing policy packaging.
+
+An additional continuity gap is now confirmed in accepted/project memory:
+display `run_id` values are reused per target root/worktree, but the accepted
+project-memory layer still contains display-`run_id` keyed surfaces that can
+collapse or overwrite distinct exact run instances during harvest/replay. A
+replacement or later run that reuses `run-0001` must append under exact
+identity, not destroy or replace previously accepted authority for another
+`run_instance_id`.
 
 ## Scope
 
@@ -70,11 +82,24 @@ Required behavior:
 - Replay/re-ingestion must preserve slice-isolated mutation rules from Phase
   23.8.6: a command that repairs one derived state slice must not remove or
   rewrite unrelated run state.
+- Accepted/project memory must preserve multiple exact run instances that share
+  the same display `run_id` across different worktrees or replacement runs.
+  Reuse of `run-0001` must not overwrite prior accepted runs, prior harvest
+  records, or previously promoted evidence that belongs to a different
+  `run_instance_id`.
+- Any accepted-memory row, harvest row, replay path, or derived-state backfill
+  that is still keyed effectively by display `run_id` must be corrected so the
+  exact run instance remains the authoritative identity and display `run_id`
+  remains only a non-unique human-facing label.
 - Operator progression must remain monotonic under exact-artifact replay when
   procedure outcomes are recorded in valid order.
 - A replacement exact-identity run must be able to recover honest active-chain
   progress from already-recorded artifacts without forcing re-execution of
   unrelated completed work.
+- The phase is not complete if replay/re-ingestion only restores intermediate
+  operator stages but still leaves the recovered exact-identity run unable to
+  reach honest closeout and harvest under the existing Phase 23.5 lifecycle
+  rules when the required evidence is already present.
 - Legacy runs that still lack exact immutable identity may remain readable, but
   they must not be silently repaired into mutable authority through
   compatibility `run.json` edits.
@@ -123,9 +148,17 @@ git diff --check
   listed above, not only for isolated late-stage procedures.
 - `approve-plan` follows the same exact-artifact replay/idempotent semantics as
   the adjacent procedure surfaces.
+- Harvest/replay/accepted-memory behavior is exact-identity safe when multiple
+  distinct runs share the same display `run_id`; earlier accepted runs remain
+  queryable and their promoted evidence is not replaced or deleted by a later
+  run with the same display label.
 - Replacement exact-identity runs can recover honest active-chain progress from
   already-recorded artifacts without manual `run.json` edits or per-run repair
   code.
+- When recorded evidence is already sufficient, the recovered run can continue
+  through delivery-facts review, closeout review, closeout, and harvest
+  without manual state reconstruction, fake restart behavior, or accepted
+  memory clobbering.
 - Legacy identity-less runs still fail closed for mutation/harvest authority
   rather than being silently upgraded through compatibility projections.
 - No runner execution, packet automation, docs/model-routing packaging, or
