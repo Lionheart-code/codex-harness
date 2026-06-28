@@ -113,6 +113,16 @@ Required behavior:
   - `tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md`
   - `tasks/PHASE_30_BOUNDED_AGENT_EXPERIMENTATION_LOOP.md`
   - `tasks/PHASE_31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP.md`
+- Preserve the exact-identity rule in docs/policy packaging:
+  - display `run_id` is not a globally unique accepted-memory identity;
+  - exact `run_instance_id` remains the authoritative cross-run identity;
+  - policy/examples must not imply that later `run-0001` reuse may overwrite
+    earlier accepted/project-memory state from a different exact run instance.
+- Preserve the lifecycle-completion rule in docs/policy packaging:
+  - finishing review or local verification is not the terminal success state
+    for an active self-hosting run;
+  - the harness must continue through closeout and harvest under the existing
+    lifecycle rules unless a real gate or blocker stops it.
 
 ## Non-goals
 
@@ -159,5 +169,11 @@ git diff --check
   be recorded in the run artifact.
 - The command examples are non-interactive, review-only, artifact-producing,
   and wait for terminal completion.
+- The packaged policy/docs do not describe display `run_id` reuse as safe
+  overwrite behavior and instead preserve the exact-identity/no-clobber rule
+  for accepted/project memory.
+- The packaged policy/docs do not present review completion or local
+  verification completion as equivalent to honest run completion; closeout and
+  harvest remain explicit end-of-run lifecycle gates.
 - No runtime code, runner execution, or provider-specific lifecycle logic is
   introduced.
