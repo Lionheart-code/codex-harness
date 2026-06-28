@@ -1497,9 +1497,14 @@ function capitalizeWords(value: string): string {
     .join(" ");
 }
 
-const PHASE_23_8_6_ALLOWED_PROCEDURE_INGESTION = new Set([
+const PHASE_23_8_6A_ALLOWED_PROCEDURE_INGESTION = new Set([
+  "task-intake",
+  "task-prompt-writer",
+  "draft-plan",
   "plan-review",
   "plan-amend",
+  "architecture-review",
+  "db-storage-review",
   "implementation-review",
   "fix-pass-review",
   "verification-review",
@@ -1932,9 +1937,9 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
   if (!proceduresById.has(options.procedureId)) {
     throw new Error(`Unknown self-hosting procedure id: ${options.procedureId}`);
   }
-  if (!PHASE_23_8_6_ALLOWED_PROCEDURE_INGESTION.has(options.procedureId)) {
+  if (!PHASE_23_8_6A_ALLOWED_PROCEDURE_INGESTION.has(options.procedureId)) {
     throw new Error(
-      `Procedure ${options.procedureId} is outside the Phase 23.8.6 durable ingestion scope.`
+      `Procedure ${options.procedureId} is outside the Phase 23.8.6A replay and re-ingestion scope.`
     );
   }
 

@@ -84,14 +84,17 @@ contracts are active and implemented, this stage map remains a projection and
 must not imply manual `run.json` repair, runner invocation, background
 automation, or hook authority.
 
-If a pre-23.8.6 manual replay produces a valid procedure-shaped transcript,
-the operator should invoke the procedure through the checked-in
+If a manual replay produces a valid procedure-shaped transcript, the operator
+should invoke the procedure through the checked-in
 `prompts/self-hosting/<procedure-id>.md` wrapper. That transcript may be used to
 prepare the next operator prompt, but it does not satisfy `required_evidence`
-for this map. For example, a manual `task-intake` transcript does not make
-runtime status leave `TASK_INTAKE_REQUIRED` until a product command or
-documented ingestion path records it. Operators must name that distinction
-explicitly when continuing a manual preparation pass.
+for this map until the matching product command or documented ingestion path
+records it. For example, a manual `task-intake` transcript does not make
+runtime status leave `TASK_INTAKE_REQUIRED` until
+`run record-procedure --procedure task-intake --file ...` records it. The same
+distinction applies to `task-prompt-writer`, `draft-plan`, `plan-review`,
+`plan-amend`, and the other active-chain replay surfaces. Operators must name
+that distinction explicitly when continuing a manual preparation pass.
 
 Procedure ingestion may record that closeout/harvest selected the next task.
 New-cycle materialization is separate. Phase 23.8.6 now provides a formal

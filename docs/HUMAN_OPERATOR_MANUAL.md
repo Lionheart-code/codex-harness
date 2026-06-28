@@ -14,18 +14,21 @@ This document explains how a human operator should use `codex-harness` safely.
    operator-visible stage, required evidence, and next procedure.
 5. Continue with manual procedure execution through the documented
    self-hosting procedures; prompts are helpers, not the authority source.
-   Phase 23.8.6 adds limited product ingestion for durable pre-implementation
-   procedure state:
-   `node bin/ch run record-procedure --run <run-id> --procedure plan-review|plan-amend|implementation-review|verification-review --file <path>`
+   Phase 23.8.6 and 23.8.6A provide command-backed replay and re-ingestion for
+   the current active-chain procedure surfaces:
+   `node bin/ch run record-procedure --run <run-id> --procedure task-intake|task-prompt-writer|draft-plan|plan-review|plan-amend|architecture-review|db-storage-review|implementation-review|fix-pass-review|verification-review|delivery-facts-review|phase-closeout-review --file <path>`
    and
    `node bin/ch run approve-plan --run <run-id> --plan <path> --approver <name>`.
    For next-cycle continuity in the same phase, use
    `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`
    and then
    `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`.
-   Earlier procedures such as `task-intake`, `task-prompt-writer`, and
-   `draft-plan` remain manual transcript artifacts unless a later reviewed task
-   expands durable ingestion. The operator must not patch
+   A manual transcript alone still does not satisfy runtime evidence for any of
+   those procedures; the operator must record it through the product command.
+   Procedures outside the active replay scope, such as
+   `feature-decomposition`, `docs-consistency-review`, and `harness-audit`,
+   remain manual transcript artifacts unless a later reviewed task expands
+   durable ingestion. The operator must not patch
    `.harness/runs/**/run.json` to simulate ingestion.
 6. Run the active task acceptance commands.
    For the current self-hosting flow, `node bin/ch run verify --run <run-id>`

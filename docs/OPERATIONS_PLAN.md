@@ -34,23 +34,27 @@ operations, but harness materialization must treat them as one logical step for
 the new task context. The operator should not have to reason about them as two
 independent workflow transitions in the steady-state automated path.
 
-Until the Phase 23.8.6 transactional ingestion task is implemented, any
-operator action that requires durable procedure/run-state must either use an
-existing product command or be documented as a future precondition. Do not
-silently repair `.harness/runs/**/run.json` by hand.
+Durable procedure/run-state must advance only through product commands or
+documented ingestion paths. The active replay and re-ingestion chain now
+includes `task-intake`, `task-prompt-writer`, `draft-plan`, `plan-review`,
+`plan-amend`, `architecture-review`, `db-storage-review`,
+`implementation-review`, `fix-pass-review`, `verification-review`,
+`delivery-facts-review`, `phase-closeout-review`, and the adjacent
+`approve-plan` authority surface. Do not silently repair
+`.harness/runs/**/run.json` by hand.
 
-During that interim, a human may manually replay procedure steps to prepare the
-next implementation or review prompt, but that replay is not runtime evidence.
-The prompt should use the checked-in
-`prompts/self-hosting/<procedure-id>.md` wrapper, whose authority still comes
-from the canonical `skills/self-hosting/<procedure>/` contract and output
-format. The operator must keep the distinction clear: manual transcript can
-guide the next prompt, while durable stage advancement waits for Phase 23.8.6
-ingestion or an existing product command. Independent review procedures should
-run in a separate Codex CLI session or equivalent review-only agent session,
-with the same repo-owned procedure contract as the prompt source. Generated
-product prompts from `node bin/ch prompt ...` remain separate task-local
-artifacts and do not replace checked-in self-hosting procedure wrappers.
+A human may still manually replay procedure steps to prepare the next
+implementation or review prompt, but the transcript alone is not runtime
+evidence. The operator must record the artifact through the matching product
+command before stage advancement is durable. Procedures outside the current
+replay scope remain prompt-only preparation surfaces. The prompt should use the
+checked-in `prompts/self-hosting/<procedure-id>.md` wrapper, whose authority
+still comes from the canonical `skills/self-hosting/<procedure>/` contract and
+output format. Independent review procedures should run in a separate Codex CLI
+session or equivalent review-only agent session, with the same repo-owned
+procedure contract as the prompt source. Generated product prompts from
+`node bin/ch prompt ...` remain separate task-local artifacts and do not
+replace checked-in self-hosting procedure wrappers.
 
 The product direction is a lightweight, provider-neutral harness control plane:
 different models or runners may handle different stages only through explicit

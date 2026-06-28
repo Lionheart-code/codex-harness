@@ -497,6 +497,94 @@ test("phase 23.5 duplicate harvest promotion is explicit and does not replace pr
   );
 });
 
+test("phase 23.5 accepted memory preserves distinct exact runs that reuse one display run id and fails closed on ambiguous display-id authority", () => {
+  ensureBuiltCli();
+  const tempRepo = createInstalledPhase235Repo("codex-harness-phase23-5-display-run-id-guard-");
+  const { ProjectMemoryDatabase, AmbiguousDisplayRunIdError } = require(path.join(productRoot, "dist", "core", "project-memory-db.js"));
+  const { resolveHarnessRoots } = require(path.join(productRoot, "dist", "core", "run-staging-db.js"));
+
+  startRun(tempRepo);
+
+  const roots = resolveHarnessRoots(tempRepo);
+  const projectDb = new ProjectMemoryDatabase(roots.targetRoot, roots.projectRoot);
+  const baseRun = readJson(getRunPath(tempRepo));
+  const runA = {
+    ...baseRun,
+    run_instance_id: "run-instance-a",
+    lifecycle_status: "harvested",
+    repository: {
+      ...baseRun.repository,
+      root_path: path.join(tempRepo, "worktree-a")
+    },
+    updated_at: "2026-05-22T00:21:00.000Z",
+    harvested_at: "2026-05-22T00:21:00.000Z"
+  };
+  const runB = {
+    ...baseRun,
+    run_instance_id: "run-instance-b",
+    lifecycle_status: "harvested",
+    repository: {
+      ...baseRun.repository,
+      root_path: path.join(tempRepo, "worktree-b")
+    },
+    updated_at: "2026-05-22T00:22:00.000Z",
+    harvested_at: "2026-05-22T00:22:00.000Z"
+  };
+  const harvestA = {
+    harvest_id: "harvest-run-instance-a",
+    run_id: "run-0001",
+    project_run_id: "run-instance-a",
+    status: "promoted",
+    promoted_at: "2026-05-22T00:21:00.000Z",
+    accepted_count: 1,
+    discarded_count: 0,
+    quarantined_count: 0,
+    redacted_count: 0,
+    unresolved_count: 0,
+    source_task_path: runA.task_path,
+    source_snapshot: runA.source_snapshot ?? "unknown",
+    details: {
+      accepted_record_kinds: ["run"]
+    }
+  };
+  const harvestB = {
+    harvest_id: "harvest-run-instance-b",
+    run_id: "run-0001",
+    project_run_id: "run-instance-b",
+    status: "promoted",
+    promoted_at: "2026-05-22T00:22:00.000Z",
+    accepted_count: 1,
+    discarded_count: 0,
+    quarantined_count: 0,
+    redacted_count: 0,
+    unresolved_count: 0,
+    source_task_path: runB.task_path,
+    source_snapshot: runB.source_snapshot ?? "unknown",
+    details: {
+      accepted_record_kinds: ["run"]
+    }
+  };
+
+  projectDb.saveAcceptedRun(runA, [], harvestA);
+  projectDb.saveAcceptedRun(runB, [], harvestB);
+
+  const acceptedRuns = projectDb.listRunsByDisplayRunId("run-0001");
+  assert.equal(acceptedRuns.length, 2);
+  assert.equal(projectDb.getRunByInstanceId("run-instance-a")?.run_instance_id, "run-instance-a");
+  assert.equal(projectDb.getRunByInstanceId("run-instance-b")?.run_instance_id, "run-instance-b");
+  assert.equal(projectDb.getHarvestRecordByRunInstanceId("run-instance-a")?.project_run_id, "run-instance-a");
+  assert.equal(projectDb.getHarvestRecordByRunInstanceId("run-instance-b")?.project_run_id, "run-instance-b");
+  assert.throws(() => projectDb.getRun("run-0001"), AmbiguousDisplayRunIdError);
+  assert.throws(() => projectDb.getHarvestRecord("run-0001"), AmbiguousDisplayRunIdError);
+
+  fs.rmSync(path.join(tempRepo, ".harness", "runs", "run-0001", "staging.sqlite"), { force: true });
+  fs.rmSync(path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"), { force: true });
+
+  const harvestRetry = runCli(["memory", "harvest", "--run", "run-0001"], { cwd: tempRepo });
+  assertFailure(harvestRetry, "ambiguous display run id harvest retry");
+  assert.match(harvestRetry.stderr, /Display run id run-0001 matches multiple exact run instances/i);
+});
+
 test("phase 23.5 manual override allows deleting a closed run and records the override reason", () => {
   ensureBuiltCli();
   const tempRepo = createInstalledPhase235Repo("codex-harness-phase23-5-override-");

@@ -1,6 +1,6 @@
 import { type HarvestRecord } from "./lifecycle-types";
 import { evaluateMergeFacts } from "./merge-facts";
-import { HarvestConflictError, ProjectMemoryDatabase } from "./project-memory-db";
+import { AmbiguousDisplayRunIdError, HarvestConflictError, ProjectMemoryDatabase } from "./project-memory-db";
 import { RunStagingDatabase, writeCompatibilityRunArtifacts } from "./run-staging-db";
 import { type Run } from "./runtime";
 
@@ -66,6 +66,9 @@ export function harvestRun(
         alreadyHarvested: true
       };
     }
+    if (existingHarvests.length > 1 || existingRuns.length > 1) {
+      throw new AmbiguousDisplayRunIdError(runId);
+    }
     throw new Error(`Run not found in staging DB: ${runId}`);
   }
   if (!hasExactRunIdentity(run)) {
@@ -92,11 +95,6 @@ export function harvestRun(
       alreadyHarvested: true
     };
   }
-  const existingAcceptedRuns = project.listRunsByDisplayRunId(runId);
-  if (existingAcceptedRuns.some((existingAcceptedRun) => existingAcceptedRun.run_instance_id !== run.run_instance_id)) {
-    throw new HarvestConflictError(runId);
-  }
-
   if (run.lifecycle_status !== "closed" && run.lifecycle_status !== "discarded") {
     throw new Error(
       `Run ${runId} cannot be harvested while lifecycle status is ${run.lifecycle_status}. Close or discard it first.`
@@ -162,8 +160,8 @@ export function harvestRun(
     project.saveAcceptedRun(acceptedRun, deliveryFacts, harvest);
   } catch (error) {
     if (error instanceof HarvestConflictError) {
-      const authorityHarvest = project.getHarvestRecordByRunInstanceId(run.run_instance_id) ?? project.getHarvestRecord(runId);
-      const authorityRun = project.getRunByInstanceId(run.run_instance_id) ?? project.getRun(runId);
+      const authorityHarvest = project.getHarvestRecordByRunInstanceId(run.run_instance_id);
+      const authorityRun = project.getRunByInstanceId(run.run_instance_id);
       if (authorityHarvest && authorityRun) {
         return {
           run: authorityRun,

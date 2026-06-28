@@ -19,6 +19,7 @@ import {
 
 const require = createRequire(import.meta.url);
 const ACTIVE_TASK_PATH = "tasks/PHASE_23_8_6_TRANSACTIONAL_PROCEDURE_RESULT_INGESTION.md";
+const ACTIVE_TASK_23_8_6A_PATH = "tasks/PHASE_23_8_6A_SELF_HOSTING_REPLAY_AND_REINGESTION_CONTINUITY.md";
 const TIMESTAMP = "2026-06-24T00:00:00.000Z";
 const tempDirectories = [];
 
@@ -39,6 +40,25 @@ function activeTaskMarkdown() {
     "",
     "## Goal",
     "Make run-state mutation reliable before stage packet automation and proof.",
+    "",
+    "## Acceptance commands",
+    "",
+    "```bash",
+    "npm run build",
+    "npm test",
+    "npm run test:acceptance",
+    "git diff --check",
+    "```",
+    ""
+  ].join("\n");
+}
+
+function activeTask23_8_6AMarkdown() {
+  return [
+    "# Phase 23.8.6A - Self-Hosting Replay and Re-ingestion Continuity",
+    "",
+    "## Goal",
+    "Restore honest self-hosting continuity after exact immutable run identity is hardened.",
     "",
     "## Acceptance commands",
     "",
@@ -102,12 +122,62 @@ function createPhase2386Repo(prefix) {
   return tempRepo;
 }
 
-function createBaseRun(runtimeModule, tempRepo, runId) {
+function createPhase2386ARepo(prefix) {
+  const tempRepo = createTempDirectory(prefix);
+  tempDirectories.push(tempRepo);
+
+  assertSuccess(runCommand("git", ["init"], { cwd: tempRepo }), `git init in ${tempRepo}`);
+  configureLocalGitIdentity(tempRepo);
+  writeText(path.join(tempRepo, "README.md"), "# phase 23.8.6A\n");
+  assertSuccess(runCommand("git", ["add", "README.md"], { cwd: tempRepo }), "git add README.md");
+  assertSuccess(runCommand("git", ["commit", "-m", "init"], { cwd: tempRepo }), "git commit init");
+
+  fs.mkdirSync(path.join(tempRepo, "tasks"), { recursive: true });
+  fs.mkdirSync(path.join(tempRepo, "docs"), { recursive: true });
+  fs.mkdirSync(path.join(tempRepo, "skills"), { recursive: true });
+
+  writeText(
+    path.join(tempRepo, "TASK.md"),
+    [
+      "# Current Task",
+      "",
+      `Implement only: ${ACTIVE_TASK_23_8_6A_PATH}`,
+      "",
+      "Do not implement Phase 23.8.6B or later.",
+      ""
+    ].join("\n")
+  );
+  writeText(path.join(tempRepo, ACTIVE_TASK_23_8_6A_PATH), activeTask23_8_6AMarkdown());
+  writeText(
+    path.join(tempRepo, "docs", "IMPLEMENTATION_ROADMAP.md"),
+    [
+      "## Phase 23.8.6A — Self-Hosting Replay and Re-ingestion Continuity",
+      "",
+      "Task:",
+      `\`${ACTIVE_TASK_23_8_6A_PATH}\``,
+      ""
+    ].join("\n")
+  );
+
+  fs.cpSync(path.join(productRoot, "skills", "self-hosting"), path.join(tempRepo, "skills", "self-hosting"), {
+    recursive: true
+  });
+  fs.cpSync(path.join(productRoot, "prompts", "self-hosting"), path.join(tempRepo, "prompts", "self-hosting"), {
+    recursive: true
+  });
+
+  assertSuccess(runCommand("git", ["add", "."], { cwd: tempRepo }), "git add phase 23.8.6A scaffold");
+  assertSuccess(runCommand("git", ["commit", "-m", "phase 23.8.6A scaffold"], { cwd: tempRepo }), "git commit scaffold");
+
+  return tempRepo;
+}
+
+function createBaseRunForTask(runtimeModule, tempRepo, runId, activeTaskPath, phaseId) {
   return runtimeModule.buildRuntimeRun({
     runId,
     taskPath: "TASK.md",
-    activeTaskPath: ACTIVE_TASK_PATH,
-    phaseId: "23.8.6",
+    activeTaskPath,
+    phaseId,
     repository: {
       root_path: tempRepo,
       project_root: tempRepo,
@@ -115,6 +185,14 @@ function createBaseRun(runtimeModule, tempRepo, runId) {
     },
     timestamp: TIMESTAMP
   });
+}
+
+function createBaseRun(runtimeModule, tempRepo, runId) {
+  return createBaseRunForTask(runtimeModule, tempRepo, runId, ACTIVE_TASK_PATH, "23.8.6");
+}
+
+function createBaseRun23_8_6A(runtimeModule, tempRepo, runId) {
+  return createBaseRunForTask(runtimeModule, tempRepo, runId, ACTIVE_TASK_23_8_6A_PATH, "23.8.6A");
 }
 
 function appendProcedureEvidence(run, procedureId, index) {
@@ -319,6 +397,84 @@ function buildPostVerificationRun(runtimeModule, tempRepo, runId) {
       }
     ],
     updated_at: "2026-06-24T00:16:10.000Z"
+  };
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", "# draft-plan\n", 2);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/plan-review-4.md", buildPlanReviewArtifact(), 3);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/implementation-review-5.md", "## Recommendation\n\nPASS\n", 4);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/verification-review-6.md", "## Recommendation\n\nPASS\n", 5);
+
+  return run;
+}
+
+function buildPostVerificationRun23_8_6A(runtimeModule, tempRepo, runId) {
+  let run = createBaseRun23_8_6A(runtimeModule, tempRepo, runId);
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  run = appendProcedureEvidence(run, "plan-review", 4);
+  run = addReviewResult(runtimeModule, run, "PASS", "Plan review approved the plan", "procedure:plan-review");
+  run = addPlanApproval(runtimeModule, run);
+  run = addImplementationEvidence(runtimeModule, run);
+  run = appendProcedureEvidence(run, "implementation-review", 5);
+  run = addReviewResult(runtimeModule, run, "PASS", "Implementation review passed", "procedure:implementation-review");
+  run = addVerificationResult(runtimeModule, run, "pass", "Verification passed");
+  run = appendProcedureEvidence(run, "verification-review", 6);
+  run = runtimeModule.recordRemoteCheckResult(run, {
+    status: "pass",
+    provider: "github",
+    providerRunId: "ci-123",
+    providerUrl: "https://example.invalid/ci/123"
+  });
+  run = {
+    ...run,
+    delivery_facts: [
+      {
+        delivery_fact_id: "delivery-pr",
+        run_id: run.run_id,
+        fact_kind: "pr",
+        source: "self-hosting",
+        status: "created",
+        recorded_at: "2026-06-24T00:16:00.000Z",
+        summary: "PR exists for the recovered run."
+      },
+      {
+        delivery_fact_id: "delivery-remote-ci",
+        run_id: run.run_id,
+        fact_kind: "remote_ci",
+        source: "github",
+        status: "pass",
+        recorded_at: "2026-06-24T00:16:10.000Z",
+        summary: "Remote CI passed for the recovered run.",
+        external_run_id: "ci-123",
+        url: "https://example.invalid/ci/123",
+        commit_sha: "abc123def456abc123def456abc123def456abcd"
+      },
+      {
+        delivery_fact_id: "delivery-merge-result",
+        run_id: run.run_id,
+        fact_kind: "merge_result",
+        source: "github",
+        status: "merged",
+        recorded_at: "2026-06-24T00:16:20.000Z",
+        summary: "PR merged."
+      },
+      {
+        delivery_fact_id: "delivery-merge-commit",
+        run_id: run.run_id,
+        fact_kind: "merge_commit",
+        source: "github",
+        status: "merged",
+        recorded_at: "2026-06-24T00:16:30.000Z",
+        summary: "Merge commit recorded.",
+        commit_sha: "abc123def456abc123def456abc123def456abcd"
+      }
+    ],
+    updated_at: "2026-06-24T00:16:30.000Z"
   };
   runtimeModule.validateRuntimeRun(run);
   writeRuntimeRunFixture(tempRepo, run);
@@ -1170,13 +1326,20 @@ test("phase 23.8.6 delivery-facts replay removes stale imported unknown review r
   assert.equal(runtimeState.review_results.length, 0);
 });
 
-test("phase 23.8.6 record-procedure rejects procedures outside the approved ingestion scope", () => {
+test("phase 23.8.6A record-procedure ingests early-chain procedures and advances operator status monotonically", () => {
   const runtimeModule = loadBuiltRuntime();
-  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-scope-guard-");
-  const run = createBaseRun(runtimeModule, tempRepo, "run-0001");
+  const tempRepo = createPhase2386ARepo("codex-harness-phase23-8-6a-early-chain-");
+  const run = createBaseRun23_8_6A(runtimeModule, tempRepo, "run-0001");
   runtimeModule.validateRuntimeRun(run);
   writeRuntimeRunFixture(tempRepo, run);
+
   writeProcedureArtifact(tempRepo, run.run_id, "task-intake", "# task-intake\n");
+  writeProcedureArtifact(tempRepo, run.run_id, "task-prompt-writer", "# task-prompt-writer\n");
+  writeProcedureArtifact(tempRepo, run.run_id, "draft-plan", "# draft-plan\n");
+
+  let output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "TASK_INTAKE_REQUIRED");
+  assert.equal(output.get("next_procedure_id"), "task-intake");
 
   const recordTaskIntake = runCli(
     [
@@ -1191,8 +1354,382 @@ test("phase 23.8.6 record-procedure rejects procedures outside the approved inge
     ],
     { cwd: tempRepo }
   );
-  assertFailure(recordTaskIntake, "record task-intake outside phase scope");
-  assert.match(recordTaskIntake.stderr, /outside the Phase 23\.8\.6 durable ingestion scope/i);
+  assertSuccess(recordTaskIntake, "record task-intake in 23.8.6A");
+  assert.match(recordTaskIntake.stdout, /recorded: true/);
+
+  output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "TASK_PROMPT_REQUIRED");
+  assert.equal(output.get("next_procedure_id"), "task-prompt-writer");
+
+  const recordTaskPrompt = runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "task-prompt-writer",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/task-prompt-writer.md`
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(recordTaskPrompt, "record task-prompt-writer in 23.8.6A");
+  assert.match(recordTaskPrompt.stdout, /recorded: true/);
+
+  output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "PLAN_DRAFT_REQUIRED");
+  assert.equal(output.get("next_procedure_id"), "draft-plan");
+
+  const recordDraftPlan = runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "draft-plan",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/draft-plan.md`
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(recordDraftPlan, "record draft-plan in 23.8.6A");
+  assert.match(recordDraftPlan.stdout, /recorded: true/);
+
+  output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "PLAN_REVIEW_REQUIRED");
+  assert.equal(output.get("next_procedure_id"), "plan-review");
+});
+
+test("phase 23.8.6A record-procedure rejects excluded and unknown procedures outside the approved ingestion scope", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386ARepo("codex-harness-phase23-8-6a-scope-guard-");
+  const run = createBaseRun23_8_6A(runtimeModule, tempRepo, "run-0001");
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeProcedureArtifact(tempRepo, run.run_id, "feature-decomposition", "# feature-decomposition\n");
+  writeProcedureArtifact(tempRepo, run.run_id, "docs-consistency-review", "# docs-consistency-review\n");
+  writeProcedureArtifact(tempRepo, run.run_id, "harness-audit", "# harness-audit\n");
+
+  for (const procedureId of ["feature-decomposition", "docs-consistency-review", "harness-audit"]) {
+    const result = runCli(
+      [
+        "run",
+        "record-procedure",
+        "--run",
+        run.run_id,
+        "--procedure",
+        procedureId,
+        "--file",
+        `.harness/runs/${run.run_id}/manual/${procedureId}.md`
+      ],
+      { cwd: tempRepo }
+    );
+    assertFailure(result, `record ${procedureId} outside approved 23.8.6A scope`);
+    assert.match(result.stderr, /outside the Phase 23\.8\.6A replay and re-ingestion scope/i);
+  }
+
+  const unknownProcedure = runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "unknown-procedure",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/feature-decomposition.md`
+    ],
+    { cwd: tempRepo }
+  );
+  assertFailure(unknownProcedure, "record unknown procedure id");
+  assert.match(unknownProcedure.stderr, /Unknown self-hosting procedure id/i);
+});
+
+test("phase 23.8.6A approve-plan records and replays explicit amended-plan approval in the active task context", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386ARepo("codex-harness-phase23-8-6a-approve-plan-");
+  const run = createBaseRun23_8_6A(runtimeModule, tempRepo, "run-0001");
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeProcedureArtifact(tempRepo, run.run_id, "task-intake", "# task-intake\n");
+  writeProcedureArtifact(tempRepo, run.run_id, "task-prompt-writer", "# task-prompt-writer\n");
+  writeProcedureArtifact(tempRepo, run.run_id, "draft-plan", "# draft-plan\n");
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", "# approved plan\n");
+
+  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan", "plan-review", "plan-amend"]) {
+    const fileName = procedureId === "plan-review"
+      ? "plan-review-amended-8.md"
+      : procedureId === "plan-amend"
+        ? "plan-amend-8.md"
+        : `${procedureId}.md`;
+    assertSuccess(runCli(
+      [
+        "run",
+        "record-procedure",
+        "--run",
+        run.run_id,
+        "--procedure",
+        procedureId,
+        "--file",
+        `.harness/runs/${run.run_id}/manual/${fileName}`
+      ],
+      { cwd: tempRepo }
+    ), `record ${procedureId} before 23.8.6A plan approval`);
+  }
+
+  let output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "PLAN_APPROVAL_REQUIRED");
+
+  const approvePlan = runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(approvePlan, "approve reviewed amended plan in 23.8.6A");
+  assert.match(approvePlan.stdout, /recorded: true/);
+
+  output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "IMPLEMENTATION_READY");
+
+  const replayApproval = runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(replayApproval, "replay approved amended plan in 23.8.6A");
+  assert.match(replayApproval.stdout, /recorded: false/);
+});
+
+test("phase 23.8.6A approve-plan replay backfills missing derived approval state without duplicating evidence", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386ARepo("codex-harness-phase23-8-6a-approve-plan-backfill-");
+  const run = createBaseRun23_8_6A(runtimeModule, tempRepo, "run-0001");
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeProcedureArtifact(tempRepo, run.run_id, "task-intake", "# task-intake\n");
+  writeProcedureArtifact(tempRepo, run.run_id, "task-prompt-writer", "# task-prompt-writer\n");
+  writeProcedureArtifact(tempRepo, run.run_id, "draft-plan", "# draft-plan\n");
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", "# approved plan\n");
+
+  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan", "plan-review", "plan-amend"]) {
+    const fileName = procedureId === "plan-review"
+      ? "plan-review-amended-8.md"
+      : procedureId === "plan-amend"
+        ? "plan-amend-8.md"
+        : `${procedureId}.md`;
+    assertSuccess(runCli(
+      [
+        "run",
+        "record-procedure",
+        "--run",
+        run.run_id,
+        "--procedure",
+        procedureId,
+        "--file",
+        `.harness/runs/${run.run_id}/manual/${fileName}`
+      ],
+      { cwd: tempRepo }
+    ), `record ${procedureId} before 23.8.6A approval backfill test`);
+  }
+
+  const approvePlanArgs = [
+    "run",
+    "approve-plan",
+    "--run",
+    run.run_id,
+    "--plan",
+    `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+    "--approver",
+    "owner",
+    "--reason",
+    "Human approved the reviewed implementation plan."
+  ];
+  assertSuccess(runCli(approvePlanArgs, { cwd: tempRepo }), "seed reviewed amended plan approval in 23.8.6A");
+
+  let runtimeState = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  const approvedPlanEvidenceCount = runtimeState.evidence.filter((entry) => entry.kind === "approved-plan").length;
+  const approvedPlanArtifactCount = runtimeState.artifacts.filter((entry) => entry.kind === "approved-plan-artifact").length;
+  assert.equal(runtimeState.approvals.length, 1);
+
+  runtimeState = {
+    ...runtimeState,
+    approvals: [],
+    updated_at: "2026-06-24T00:17:00.000Z"
+  };
+  runtimeModule.validateRuntimeRun(runtimeState);
+  writeRuntimeRunFixture(tempRepo, runtimeState);
+
+  let output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "PLAN_APPROVAL_REQUIRED");
+
+  const backfillApproval = runCli(approvePlanArgs, { cwd: tempRepo });
+  assertSuccess(backfillApproval, "backfill reviewed amended plan approval in 23.8.6A");
+  assert.match(backfillApproval.stdout, /recorded: true/);
+
+  output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "IMPLEMENTATION_READY");
+
+  runtimeState = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  assert.equal(runtimeState.approvals.length, 1);
+  assert.equal(runtimeState.evidence.filter((entry) => entry.kind === "approved-plan").length, approvedPlanEvidenceCount);
+  assert.equal(runtimeState.artifacts.filter((entry) => entry.kind === "approved-plan-artifact").length, approvedPlanArtifactCount);
+});
+
+test("phase 23.8.6A record-procedure replay backfills a newly supported architecture-review result without duplicate evidence", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386ARepo("codex-harness-phase23-8-6a-architecture-review-");
+  const architectureReviewContent = ["## Recommendation", "", "PASS", ""].join("\n");
+  const architectureReviewHash = createHash("sha256").update(architectureReviewContent).digest("hex");
+  let run = createBaseRun23_8_6A(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "architecture-review", 1);
+  run = {
+    ...run,
+    artifacts: [
+      ...run.artifacts,
+      {
+        artifact_id: `sha256:${architectureReviewHash}`,
+        path: "evidence/architecture-review-1.md",
+        kind: "procedure-artifact:architecture-review"
+      }
+    ],
+    evidence: run.evidence.map((entry) => entry.kind === "procedure:architecture-review"
+      ? { ...entry, artifact_id: `sha256:${architectureReviewHash}`, path: "evidence/architecture-review-1.md" }
+      : entry)
+  };
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/architecture-review-1.md", architectureReviewContent, 0);
+  writeProcedureArtifact(tempRepo, run.run_id, "architecture-review", architectureReviewContent);
+
+  const replayArchitectureReview = runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "architecture-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/architecture-review.md`
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(replayArchitectureReview, "replay architecture-review for backfill");
+  assert.match(replayArchitectureReview.stdout, /recorded: false/);
+
+  const runtimeState = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  assert.equal(runtimeState.evidence.filter((entry) => entry.kind === "procedure:architecture-review").length, 1);
+  assert.equal(runtimeState.review_results.some((entry) => entry.source === "procedure:architecture-review"), true);
+});
+
+test("phase 23.8.6A recovered run can continue through closeout and harvest when evidence is already present", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386ARepo("codex-harness-phase23-8-6a-closeout-harvest-");
+  const run = buildPostVerificationRun23_8_6A(runtimeModule, tempRepo, "run-0001");
+
+  writeProcedureArtifact(
+    tempRepo,
+    run.run_id,
+    "delivery-facts-review",
+    [
+      "## Delivery Facts Reviewed",
+      "",
+      "- `pr`: created",
+      "- `remote_ci`: pass",
+      "- `merge_result`: merged",
+      "- `merge_commit`: merged",
+      "",
+      "## Recommendation",
+      "",
+      "PASS",
+      ""
+    ].join("\n")
+  );
+  writeProcedureArtifact(
+    tempRepo,
+    run.run_id,
+    "phase-closeout-review",
+    [
+      "## Recommendation",
+      "",
+      "PASS",
+      ""
+    ].join("\n")
+  );
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "delivery-facts-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/delivery-facts-review.md`
+    ],
+    { cwd: tempRepo }
+  ), "record delivery-facts-review in 23.8.6A continuity case");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "phase-closeout-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/phase-closeout-review.md`
+    ],
+    { cwd: tempRepo }
+  ), "record phase-closeout-review in 23.8.6A continuity case");
+
+  let output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "CLOSEOUT_REVIEW_REQUIRED");
+  assert.equal(output.get("next_procedure_id"), "none");
+  assert.equal(output.get("missing_evidence"), "[\"ready closeout receipt\"]");
+
+  const closeout = runCli(["run", "closeout", "--run", run.run_id], { cwd: tempRepo });
+  assertSuccess(closeout, "run closeout in 23.8.6A continuity case");
+  assert.match(closeout.stdout, /closeout: READY/);
+
+  output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "HARVEST_READY");
+  assert.equal(output.get("next_procedure_id"), "none");
+
+  const harvest = runCli(["memory", "harvest", "--run", run.run_id], { cwd: tempRepo });
+  assertSuccess(harvest, "memory harvest in 23.8.6A continuity case");
+  assert.match(harvest.stdout, /already harvested: false/);
+  assert.match(harvest.stdout, /harvest status: promoted/);
 });
 
 test("phase 23.8.6 closeout blocks until merged merge_result and merge_commit facts exist", () => {
