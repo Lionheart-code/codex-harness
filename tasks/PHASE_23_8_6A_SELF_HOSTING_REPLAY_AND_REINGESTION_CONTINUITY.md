@@ -2,11 +2,15 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6 Transactional Procedure Result
-Ingestion and Slice-Isolated Run Mutations is complete, reviewed, accepted,
-and merged. Before materializing this task context, local `main` must be
-fast-forwarded to fresh `origin/main`, and the new task must preserve one task
-= one branch = one worktree.
+Planned implementation phase. Starts only after Phase 23.8.6 Transactional
+Procedure Result Ingestion and Slice-Isolated Run Mutations is complete,
+reviewed, accepted, and merged. `TASK.md` currently points here as the active
+worktree operator context for adjacent docs/task-contract wiring and authority
+correction, but that pointer does not waive the Phase 23.8.6 runtime
+dependency and does not authorize implementation of Phase 23.8.6B or later
+behavior. Before materializing this task context for implementation, local
+`main` must be fast-forwarded to fresh `origin/main`, and the new task must
+preserve one task = one branch = one worktree.
 
 ## Purpose
 
@@ -120,10 +124,13 @@ Required behavior:
 
 ## Future-phase impact check
 
-- Prepares honest self-hosting continuity before Phase 23.8.7 packet/result
-  lifecycle work depends on reconstructed operator progression.
+- Prepares honest self-hosting continuity before Phase 23.8.6B, Phase 23.8.6B2,
+  Phase 23.8.6C, Phase 23.8.6D, Phase 23.8.6E, Phase 23.8.7, and Phase 23.9
+  depend on reconstructed operator progression or continuity assumptions.
 - Makes the later Phase 23.8.6B docs/policy pass able to describe real replay
-  and review-launch discipline without relying on per-run folklore.
+  and review-launch discipline without relying on per-run folklore, while the
+  later 23.8.6B2/6C/6D/6E task contracts can consume continuity facts without
+  pre-implementing them here.
 - Must not pre-implement packet automation, runner execution, proof records,
   report generation, access APIs, provider routing, or experimentation loops.
 - Requires architecture review if replay/re-ingestion turns into a generic
@@ -135,7 +142,6 @@ Required behavior:
 ```bash
 npm run build
 npm test
-npm run test:acceptance
 git diff --check
 ```
 
@@ -159,6 +165,11 @@ git diff --check
   through delivery-facts review, closeout review, closeout, and harvest
   without manual state reconstruction, fake restart behavior, or accepted
   memory clobbering.
+- If a full-pack acceptance proof is required during implementation, `npm test`
+  is the canonical command. `npm run test:acceptance` remains only a
+  compatibility alias to the same acceptance runner and must not be treated as
+  separate proof or launched concurrently with `npm test` in the same
+  workspace/runtime context.
 - Legacy identity-less runs still fail closed for mutation/harvest authority
   rather than being silently upgraded through compatibility projections.
 - No runner execution, packet automation, docs/model-routing packaging, or

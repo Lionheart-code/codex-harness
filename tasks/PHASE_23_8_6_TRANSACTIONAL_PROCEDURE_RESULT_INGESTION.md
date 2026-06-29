@@ -103,6 +103,15 @@ Required behavior:
   manual repair authority.
 - Operator `next_allowed_action` values that require durable state must map to
   product commands or documented ingestion paths.
+- Preserve room for the later adjacent task contracts without pre-implementing
+  them here:
+  - Phase 23.8.6B2 owns verification-command rationalization and duplicate
+    full-pack proof serialization policy;
+  - Phase 23.8.6C owns the self-hosting operator bootstrap entrypoint;
+  - Phase 23.8.6D owns SQL-backed procedure artifact payload storage and
+    worktree-retention durability;
+  - Phase 23.8.6E owns authority-surface freshness and downstream task
+    revalidation.
 
 ## Non-goals
 
@@ -122,8 +131,9 @@ Required behavior:
 
 ## Future-phase impact check
 
-- Prepares Phase 23.8.7 and Phase 23.9 by making procedure/stage inputs
-  durable and monotonic.
+- Prepares Phase 23.8.6A, Phase 23.8.6B, Phase 23.8.6B2, Phase 23.8.6C, Phase
+  23.8.6D, Phase 23.8.6E, Phase 23.8.7, and Phase 23.9 by making
+  procedure/stage inputs durable and monotonic.
 - Must not pre-implement packet automation, runner execution, proof records,
   reports, access APIs, domain packs, or experimentation.
 - Preserves the domain/core boundary by only hardening generic run/procedure
@@ -137,7 +147,6 @@ Required behavior:
 ```bash
 npm run build
 npm test
-npm run test:acceptance
 git diff --check
 ```
 
@@ -174,5 +183,10 @@ git diff --check
   new-cycle command path or documented runtime surface.
 - Materialization preserves one task = one branch = one worktree and does not
   attribute the new branch/worktree to the old closing or harvested run.
+- If a full-pack acceptance proof is required during implementation, `npm test`
+  is the canonical command. `npm run test:acceptance` remains only a
+  compatibility alias to the same acceptance runner and must not be treated as
+  separate proof or launched concurrently with `npm test` in the same
+  workspace/runtime context.
 - No packet automation, runner execution, proof generation, report generation,
   or access API is introduced.

@@ -2,8 +2,11 @@
 
 ## Status
 
-Active docs/task-contract phase. Starts after Phase 23.8 Agent-native
-Procedure Registry and Skill Surface is complete, reviewed, and accepted.
+Historical/accepted authority-rebase phase. Its outputs remain live roadmap
+and task-authority surfaces, but `TASK.md` currently points to Phase 23.8.6A
+as the active worktree operator context. This file may receive only narrow
+authority-correction or forward-dependency notes; it is not the active task
+pointer.
 
 ## Purpose
 
@@ -45,7 +48,9 @@ task, but it must not create, claim, or mutate the next task branch/worktree.
 
 Required changes:
 
-- Update `TASK.md` to activate this task file for the current preparation pass.
+- Historical delivered step: update `TASK.md` to activate this task file for
+  the original preparation pass. Once `TASK.md` points to a later task, that
+  prior activation text is no longer the current operator authority.
 - Add mandatory derived self-hosting procedure wrappers at
   `prompts/self-hosting/<procedure-id>.md`, with exactly one wrapper per
   `procedure_id` from `skills/self-hosting/procedure-registry.json` and no extra
@@ -57,6 +62,7 @@ Required changes:
 - Update acceptance coverage so wrapper drift fails closed, including a negative
   validator test for mismatched `prompt_wrapper_path`.
 - Update `docs/IMPLEMENTATION_ROADMAP.md` with the Phase 23.8.5 -> 23.8.6 ->
+  23.8.6A -> 23.8.6B -> 23.8.6B2 -> 23.8.6C -> 23.8.6D -> 23.8.6E ->
   23.8.7 -> 23.9 -> 24A -> 24B -> 25A -> 25B -> 26 sequence.
 - Amend roadmap/operator contracts to make this invariant explicit:
   one task = one branch = one worktree; a closing or harvested run may decide
@@ -161,9 +167,10 @@ Required changes:
 
 ## Future-phase impact check
 
-- Prepares Phase 23.8.6, Phase 23.8.7, Phase 23.9, Phase 24A/24B, Phase
-  25A/25B, Phase 26, and downstream Phases 27-31 by making dependencies
-  explicit.
+- Prepares Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase 23.8.6B2, Phase
+  23.8.6C, Phase 23.8.6D, Phase 23.8.6E, Phase 23.8.7, Phase 23.9, Phase
+  24A/24B, Phase 25A/25B, Phase 26, and downstream Phases 27-31 by making
+  dependencies explicit.
 - Must not pre-implement transactional ingestion, packet automation, proof
   generation, report builders, access APIs, planner logic, domain packs,
   prior-art discovery, or experimentation.

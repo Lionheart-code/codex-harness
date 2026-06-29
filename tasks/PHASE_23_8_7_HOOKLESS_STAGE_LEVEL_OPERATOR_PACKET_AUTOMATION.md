@@ -4,8 +4,12 @@
 
 Planned. Starts only after Phase 23.8.6 Transactional Procedure Result
 Ingestion and Slice-Isolated Run Mutations, Phase 23.8.6A Self-Hosting Replay
-and Re-ingestion Continuity, and Phase 23.8.6B Self-Hosting Model Routing
-Policy Packaging are complete, reviewed, and accepted.
+and Re-ingestion Continuity, Phase 23.8.6B Self-Hosting Model Routing Policy
+Packaging, Phase 23.8.6B2 Verification Command Rationalization and
+Serialization, Phase 23.8.6C Self-Hosting Operator Bootstrap Entrypoint,
+Phase 23.8.6D Procedure Artifact Payload Storage and Worktree Retention, and
+Phase 23.8.6E Authority Surface Freshness and Downstream Task Revalidation are
+complete, reviewed, and accepted.
 
 ## Purpose
 
@@ -95,7 +99,6 @@ Required behavior:
 ```bash
 npm run build
 npm test
-npm run test:acceptance
 git diff --check
 ```
 
@@ -111,4 +114,9 @@ git diff --check
 - Passing review fixture routes to closeout-ready or closeout packet state.
 - Missing deterministic checks block progression with typed `stop_reason`.
 - Hooks absent or disabled do not affect lifecycle.
+- If a full-pack acceptance proof is required during implementation, `npm test`
+  is the canonical command. `npm run test:acceptance` remains only a
+  compatibility alias to the same acceptance runner and must not be treated as
+  separate proof or launched concurrently with `npm test` in the same
+  workspace/runtime context.
 - No agent or runner is invoked.
