@@ -21,6 +21,13 @@ export class HarvestConflictError extends Error {
   }
 }
 
+export class AmbiguousDisplayRunIdError extends Error {
+  constructor(runId: string) {
+    super(`Display run id ${runId} matches multiple exact run instances in project memory.`);
+    this.name = "AmbiguousDisplayRunIdError";
+  }
+}
+
 interface RecordRow {
   record_kind: string;
   record_id: string;
@@ -126,6 +133,62 @@ function openProjectDatabase(projectDbPath: string): DatabaseLike {
 
 function hasExactRunIdentity(run: Run): run is Run & { run_instance_id: string } {
   return typeof run.run_instance_id === "string" && run.run_instance_id.trim().length > 0;
+}
+
+function namespaceProjectRowId(runInstanceId: string, rowId: string): string {
+  return `${runInstanceId}:${rowId}`;
+}
+
+function namespaceProjectTransferSnapshot(
+  runInstanceId: string,
+  transfer: StagingTransferSnapshot
+): StagingTransferSnapshot {
+  return {
+    records: transfer.records.map((row) => ({
+      ...row,
+      record_id: namespaceProjectRowId(runInstanceId, row.record_id),
+      run_id: runInstanceId
+    })),
+    deliveryFacts: transfer.deliveryFacts.map((row) => ({
+      ...row,
+      delivery_fact_id: namespaceProjectRowId(runInstanceId, row.delivery_fact_id),
+      run_id: runInstanceId
+    })),
+    payloadIndex: transfer.payloadIndex.map((row) => ({
+      ...row,
+      payload_id: namespaceProjectRowId(runInstanceId, row.payload_id),
+      parent_record_id: namespaceProjectRowId(runInstanceId, row.parent_record_id),
+      source_run_id: runInstanceId
+    })),
+    payloadChunks: transfer.payloadChunks.map((row) => ({
+      ...row,
+      payload_id: namespaceProjectRowId(runInstanceId, row.payload_id)
+    })),
+    payloadRedactions: transfer.payloadRedactions.map((row) => ({
+      ...row,
+      payload_id: namespaceProjectRowId(runInstanceId, row.payload_id)
+    })),
+    payloadRetention: transfer.payloadRetention.map((row) => ({
+      ...row,
+      payload_id: namespaceProjectRowId(runInstanceId, row.payload_id)
+    })),
+    payloadLinks: transfer.payloadLinks.map((row) => ({
+      ...row,
+      payload_id: namespaceProjectRowId(runInstanceId, row.payload_id),
+      parent_record_id: namespaceProjectRowId(runInstanceId, row.parent_record_id)
+    }))
+  };
+}
+
+function namespaceProjectDeliveryFacts(
+  runInstanceId: string,
+  deliveryFacts: DeliveryFactRecord[]
+): DeliveryFactRecord[] {
+  return deliveryFacts.map((fact) => ({
+    ...fact,
+    delivery_fact_id: namespaceProjectRowId(runInstanceId, fact.delivery_fact_id),
+    run_id: runInstanceId
+  }));
 }
 
 function migrateProjectExactAuthority(database: DatabaseLike): void {
@@ -396,6 +459,9 @@ export class ProjectMemoryDatabase {
       const exactRows = database.prepare(
         "SELECT harvest_json FROM project_harvest_records_exact WHERE run_id = ? ORDER BY promoted_at DESC"
       ).all(runId) as Array<{ harvest_json?: string }>;
+      if (exactRows.length > 1) {
+        throw new AmbiguousDisplayRunIdError(runId);
+      }
       if (exactRows.length === 1 && exactRows[0]?.harvest_json) {
         return JSON.parse(exactRows[0].harvest_json) as HarvestRecord;
       }
@@ -441,6 +507,9 @@ export class ProjectMemoryDatabase {
       const exactRows = database.prepare(
         "SELECT run_json FROM project_run_instances WHERE run_id = ? ORDER BY updated_at DESC"
       ).all(runId) as Array<{ run_json?: string }>;
+      if (exactRows.length > 1) {
+        throw new AmbiguousDisplayRunIdError(runId);
+      }
       if (exactRows.length === 1 && exactRows[0]?.run_json) {
         return JSON.parse(exactRows[0].run_json) as Run;
       }
@@ -460,8 +529,12 @@ export class ProjectMemoryDatabase {
       throw new Error(`Accepted run ${run.run_id} lacks exact immutable identity.`);
     }
     const transfer = run.source_staging_db_path
-      ? readStagingTransferSnapshot(run.source_staging_db_path, run.run_id)
+      ? namespaceProjectTransferSnapshot(
+          run.run_instance_id,
+          readStagingTransferSnapshot(run.source_staging_db_path, run.run_id)
+        )
       : undefined;
+    const namespacedDeliveryFacts = namespaceProjectDeliveryFacts(run.run_instance_id, deliveryFacts);
     const database = this.open();
 
     try {
@@ -507,11 +580,6 @@ export class ProjectMemoryDatabase {
         run.created_at,
         run.updated_at
       );
-
-      database.prepare("DELETE FROM records WHERE run_id = ?").run(run.run_id);
-      for (const tableName of ["records", "delivery_facts"] as const) {
-        database.prepare(`DELETE FROM ${tableName} WHERE run_id = ?`).run(run.run_id);
-      }
 
       if (transfer) {
         for (const row of transfer.records) {
@@ -614,7 +682,7 @@ export class ProjectMemoryDatabase {
           ].join(" ")).run(row.payload_id, row.parent_record_id, row.link_role, row.created_at);
         }
       } else {
-        for (const fact of deliveryFacts) {
+        for (const fact of namespacedDeliveryFacts) {
           database.prepare([
             "INSERT OR REPLACE INTO delivery_facts",
             "(delivery_fact_id, run_id, fact_kind, source, status, recorded_at, summary, url, external_run_id, commit_sha, excerpt_payload_id, fact_json)",
@@ -642,7 +710,7 @@ export class ProjectMemoryDatabase {
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ].join(" ")).run(
         harvestRecord.harvest_id,
-        harvestRecord.run_id,
+        run.run_instance_id,
         harvestRecord.project_run_id,
         harvestRecord.status,
         harvestRecord.promoted_at,
