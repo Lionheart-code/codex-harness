@@ -432,9 +432,10 @@ Required scope:
   closeout/harvest may record the next task, while the new cycle creates or
   enters the task branch/worktree, activates the task there, and starts the
   run in that task context;
-- keep the current Phase 23.8.5 self-hosting run distinct from the prohibited
-  next-cycle run: this pass may execute inside its own active task run, but it
-  must not materialize or start the next task cycle;
+- keep the historical delivered Phase 23.8.5 self-hosting run context distinct
+  from the prohibited next-cycle run: that pass could execute inside its own
+  then-active task run, but it must not materialize or start the next task
+  cycle;
 - preserve one task = one branch = one worktree and make clear that a harvested
   run never owns the next task branch/worktree;
 - amend `docs/OPERATIONS_PLAN.md` with operator-first operations where manual

@@ -160,9 +160,9 @@ Required changes:
 - No provider adapters.
 - No domain-pack behavior.
 - No process-product expansion or generic orchestration platform.
-- No new-cycle run is started during this pass. The active Phase 23.8.5
-  self-hosting run may exist for this task, but this pass must not start the
-  next task's run or claim its branch/worktree.
+- No new-cycle run is started during this pass. Historical delivered Phase
+  23.8.5 self-hosting run context may exist for this task, but that pass must
+  not start the next task's run or claim its branch/worktree.
 - No branch/worktree materialization is performed during this pass.
 
 ## Future-phase impact check
