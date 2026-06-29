@@ -315,8 +315,10 @@ discover procedure metadata without treating generated discovery targets as
 canonical source.
 
 Status:
-Complete, reviewed, and accepted. Phase 23.8.5 is now the active
-docs/task-contract authority rebase before runtime automation work.
+Complete, reviewed, and accepted. Its authority-rebase outputs remain the
+baseline for the current 23.8.5-23.9 chain, but `TASK.md` is the active
+worktree operator pointer and stale older "23.8.5 active" wording must not
+override it.
 `skills/self-hosting/**` remains canonical.
 The bounded source-of-truth and procedure-surface patch is the accepted
 pre-registry baseline. The current phase materializes the checked-in registry
@@ -402,17 +404,20 @@ Goal:
 Perform a docs/task-contract authority rebase before runtime automation work.
 
 Status:
-Active docs/task-contract phase. Phase 23.8 is complete, reviewed, and
-accepted.
+Historical/accepted authority-rebase phase. Phase 23.8 is complete, reviewed,
+and accepted, and the 23.8.5 outputs remain live roadmap/task-authority
+surfaces. `TASK.md` currently points to Phase 23.8.6A as the active worktree
+operator context, so older "23.8.5 active" wording is stale authority drift
+rather than the current operator pointer.
 Docs/task-contract and registry contract-enforcement only: no runtime
 automation code, ingestion commands, packet automation, proof generation,
 reports, access APIs, MCP, runners, hooks, provider adapters, or domain-pack
 behavior. TypeScript changes are limited to registry validator/model parity.
 
 Required scope:
-- activate this task by updating `TASK.md`, then keep this pass to
-  docs/task-contract reconciliation plus the narrow registry/schema/validator/
-  test contract-enforcement exception already allowed by the active task;
+- treat the original 23.8.5 `TASK.md` activation as historical delivered
+  context only; once `TASK.md` points to a later task, that older activation
+  sentence is no longer the live operator authority;
 - add mandatory derived self-hosting procedure wrappers at
   `prompts/self-hosting/<procedure-id>.md`, with exact one-to-one parity with
   `skills/self-hosting/procedure-registry.json`;
@@ -420,15 +425,17 @@ Required scope:
   schema, TypeScript validator/model, and acceptance tests so wrapper drift
   fails closed; keep `schema_version` unchanged because this is an atomic
   product-source registry update, not a runtime migration;
-- update this roadmap with the new sequence and a direct block before Phase
-  23.9;
+- update this roadmap with the Phase 23.8.5 -> 23.8.6 -> 23.8.6A -> 23.8.6B ->
+  23.8.6B2 -> 23.8.6C -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9 -> 24A -> 24B
+  -> 25A -> 25B -> 26 sequence and a direct block before Phase 23.9;
 - separate end-of-old-cycle decision from start-of-new-cycle materialization:
   closeout/harvest may record the next task, while the new cycle creates or
   enters the task branch/worktree, activates the task there, and starts the
   run in that task context;
-- keep the current Phase 23.8.5 self-hosting run distinct from the prohibited
-  next-cycle run: this pass may execute inside its own active task run, but it
-  must not materialize or start the next task cycle;
+- keep the historical delivered Phase 23.8.5 self-hosting run context distinct
+  from the prohibited next-cycle run: that pass could execute inside its own
+  then-active task run, but it must not materialize or start the next task
+  cycle;
 - preserve one task = one branch = one worktree and make clear that a harvested
   run never owns the next task branch/worktree;
 - amend `docs/OPERATIONS_PLAN.md` with operator-first operations where manual
@@ -444,7 +451,9 @@ Required scope:
   manual `run.json` edits;
 - amend agent boundary/security docs to split `RunnerProfile` from
   `ExecutionPolicy`;
-- create task contracts for Phases 23.8.6 and 23.8.7;
+- create or extend task contracts for Phases 23.8.6, 23.8.6A, 23.8.6B,
+  23.8.6B2, 23.8.6C, 23.8.6D, 23.8.6E, and 23.8.7 as the near-term
+  self-hosting chain becomes repo-owned authority;
 - amend Phase 23.8.7 so `StagePacket` contracts require a verifiable stopping
   condition, required validation commands/artifacts, and a bounded
   progress/result log contract without adding runner execution;
@@ -466,8 +475,9 @@ Required scope:
   created by `node bin/ch prompt ...`.
 
 Future-phase impact check:
-- prepares 23.8.6, 23.8.7, 23.9, 24A/24B, 25A/25B, 26, and downstream
-  Phases 27-31 by making dependencies explicit;
+- prepares 23.8.6, 23.8.6A, 23.8.6B, 23.8.6B2, 23.8.6C, 23.8.6D, 23.8.6E,
+  23.8.7, 23.9, 24A/24B, 25A/25B, 26, and downstream Phases 27-31 by making
+  dependencies explicit;
 - must not pre-implement transactional ingestion, packet automation, proof
   generation, report builders, access APIs, planner logic, domain packs,
   prior-art discovery, or experimentation;
@@ -529,8 +539,8 @@ Required scope:
   to real product commands or documented ingestion paths.
 
 Future-phase impact check:
-- prepares 23.8.6A, 23.8.6B, 23.8.7, and 23.9 by making procedure/stage
-  inputs durable and monotonic;
+- prepares 23.8.6A, 23.8.6B, 23.8.6B2, 23.8.6C, 23.8.6D, 23.8.6E, 23.8.7, and
+  23.9 by making procedure/stage inputs durable and monotonic;
 - must not pre-implement packet automation, runner execution, proof records,
   reports, access APIs, domain packs, or experimentation;
 - preserves the domain/core boundary by only hardening generic run/procedure
@@ -550,8 +560,11 @@ hardened, so exact already-recorded artifacts can be replayed and re-ingested
 across the full active operator chain without manual repair.
 
 Status:
-Planned. Blocked until Phase 23.8.6 is complete, reviewed, accepted, and
-merged.
+Planned implementation phase. Blocked until Phase 23.8.6 is complete,
+reviewed, accepted, and merged. `TASK.md` currently points here as the active
+worktree operator context for adjacent docs/task-contract wiring and authority
+correction, but that pointer does not waive the Phase 23.8.6 runtime
+dependency or authorize later-phase runtime implementation.
 
 Required scope:
 - generalize exact-artifact replay and idempotent re-ingestion across the full
@@ -574,8 +587,8 @@ Required scope:
   completed work.
 
 Future-phase impact check:
-- prepares 23.8.6B, 23.8.7, and 23.9 by restoring honest continuity on top of
-  exact-identity run authority;
+- prepares 23.8.6B, 23.8.6B2, 23.8.6C, 23.8.6D, 23.8.6E, 23.8.7, and 23.9 by
+  restoring honest continuity on top of exact-identity run authority;
 - must not pre-implement packet automation, runner execution, docs/model
   routing policy packaging, provider selection, or experimentation;
 - preserves the domain/core boundary by staying inside runtime continuity
@@ -612,14 +625,146 @@ Required scope:
 - add no runtime code, runner execution, or provider-specific lifecycle logic.
 
 Future-phase impact check:
-- prepares 23.8.7, 24A/24B, 30, and 31 by turning the current review-launch
-  and routing discipline into checked-in authority;
+- prepares 23.8.6B2, 23.8.6C, 23.8.6E, 23.8.7, 24A/24B, 30, and 31 by turning
+  the current review-launch and routing discipline into checked-in authority;
 - must not pre-implement runtime replay/re-ingestion repair, packet
   automation, runner execution, provider routing, or proof/report logic;
 - preserves the domain/core boundary by remaining a narrow docs/task-policy
   pass;
 - requires architecture review if this pass starts adding runtime execution
   logic or provider-specific lifecycle behavior.
+
+## Phase 23.8.6B2 — Verification Command Rationalization and Serialization
+
+Task:
+`tasks/PHASE_23_8_6B2_VERIFICATION_COMMAND_RATIONALIZATION_AND_SERIALIZATION.md`
+
+Goal:
+Rationalize full-pack verification authority so live/future task contracts use
+one canonical proof command and stop treating duplicate npm aliases as
+independent proof.
+
+Status:
+Planned. Blocked until Phase 23.8.6B is complete, reviewed, accepted, and
+merged.
+
+Required scope:
+- designate `npm test` as the canonical full-pack verification command;
+- treat `npm run test:acceptance` as a compatibility alias to the same
+  acceptance runner;
+- record that the current acceptance runner already serializes a single
+  invocation with `--test-concurrency=1`;
+- update only live/current or immediate planned/future authority surfaces that
+  still imply both aliases are required as separate proof;
+- forbid concurrent launch of the full-pack aliases in the same
+  workspace/runtime context;
+- keep this phase to verification-policy authority only.
+
+Future-phase impact check:
+- prepares 23.8.6C, 23.8.6D, 23.8.6E, 23.8.7, and 23.9 to reference one
+  canonical full-pack proof path;
+- must not change package scripts, CI, acceptance-runner behavior, or runtime
+  locking;
+- preserves the domain/core boundary by remaining a narrow docs/task-policy
+  pass.
+
+## Phase 23.8.6C — Self-Hosting Operator Bootstrap Entrypoint
+
+Task:
+`tasks/PHASE_23_8_6C_SELF_HOSTING_OPERATOR_BOOTSTRAP_ENTRYPOINT.md`
+
+Goal:
+Add a narrow command-backed bootstrap/control-plane entrypoint for starting
+self-hosting work from an already selected task context.
+
+Status:
+Planned. Blocked until Phase 23.8.6B2 is complete, reviewed, accepted, and
+merged.
+
+Required scope:
+- report bootstrap evidence for active task, branch, worktree, base-commit
+  fact, and exact run identity state;
+- report operator status and the immediate next procedure or typed blocker;
+- require task-intake/planning as the immediate next action after bootstrap
+  unless a typed blocker intervenes;
+- provide a non-mutating preview or dry-run path before durable-state
+  mutation;
+- preserve one task = one branch = one worktree;
+- keep this phase narrow: bootstrap/control-plane only.
+
+Future-phase impact check:
+- prepares 23.8.6D, 23.8.6E, 23.8.7, and 23.9 to rely on a repo-owned
+  bootstrap entrypoint instead of manual startup reconstruction;
+- must not add runner execution, review-session automation, provider/model
+  routing, or packet execution;
+- preserves the domain/core boundary by remaining a narrow operator-entry
+  surface.
+
+## Phase 23.8.6D — Procedure Artifact Payload Storage and Worktree Retention
+
+Task:
+`tasks/PHASE_23_8_6D_PROCEDURE_ARTIFACT_PAYLOAD_STORAGE_AND_WORKTREE_RETENTION.md`
+
+Goal:
+Store raw procedure artifact bodies durably in SQLite-backed payload storage
+and preserve enough worktree provenance for later audit after local markdown
+files disappear.
+
+Status:
+Planned. Blocked until Phase 23.8.6C is complete, reviewed, accepted, and
+merged.
+
+Required scope:
+- store raw recorded procedure artifact bodies in SQLite payload tables as
+  authoritative payloads rather than file-only side effects;
+- preserve exact run identity, procedure identity, and worktree/task/branch/
+  base-commit provenance alongside those payloads;
+- preserve those payloads into project DB harvest or equivalent promoted
+  authority;
+- keep run-local markdown files as non-authoritative transition artifacts only
+  if compatibility still requires them;
+- require project-DB audit or reconstruction of recorded procedure bodies
+  without relying on run-local markdown file presence.
+
+Future-phase impact check:
+- prepares 23.8.6E, 23.8.7, 23.9, and later report/proof phases to consume
+  durable procedure bodies instead of disposable worktree files;
+- must not add packet automation, runner execution, provider/model routing, or
+  domain-pack behavior;
+- preserves the domain/core boundary by staying inside storage/harvest
+  durability.
+
+## Phase 23.8.6E — Authority Surface Freshness and Downstream Task Revalidation
+
+Task:
+`tasks/PHASE_23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION.md`
+
+Goal:
+Revalidate future/live authority surfaces after the near-term 23.8.6 chain has
+changed verification policy, bootstrap assumptions, and storage/harvest facts.
+
+Status:
+Planned. Blocked until Phase 23.8.6D is complete, reviewed, accepted, and
+merged.
+
+Required scope:
+- check `TASK.md` active pointer, roadmap active/current wording, task status
+  fields, future/live task assumptions, verification guidance, bootstrap
+  assumptions, storage/harvest assumptions, and downstream dependency notes;
+- distinguish stale future/live authority surfaces from historical/accepted
+  task history;
+- update only the future/live surfaces that are stale against current code,
+  current roadmap authority, or explicitly planned future task contracts;
+- produce a bounded freshness report that records checked surfaces, confirmed
+  assumptions, stale assumptions, updated future/live files, intentionally
+  untouched files, and remaining debt/risks.
+
+Future-phase impact check:
+- prepares 23.8.7, 23.9, 24A/24B, and later live/planned authority surfaces to
+  inherit current facts rather than stale assumptions;
+- preserves Phase 30 as the future home for bounded experimentation and Phase
+  31 as the future home for reviewed runner execution;
+- must not become runtime implementation or a broad roadmap rewrite.
 
 ## Phase 23.8.7 — Hookless Stage-Level Operator Packet Automation v0
 
@@ -631,8 +776,9 @@ Prepare and ingest stage-level packet/result fixtures on top of stable
 run-state. No agents are launched.
 
 Status:
-Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, and Phase 23.8.6B are
-complete and reviewed.
+Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
+23.8.6B2, Phase 23.8.6C, Phase 23.8.6D, and Phase 23.8.6E are complete and
+reviewed.
 
 Required scope:
 - define `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,
@@ -684,8 +830,10 @@ Add a minimal proof/evidence/assumption/review mapping over stable
 procedure/stage records.
 
 Status:
-Planned. Blocked until Phase 23.8.6 and Phase 23.8.7 are complete and reviewed,
-unless a later reviewed decision explicitly defers or waives that dependency.
+Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
+23.8.6B2, Phase 23.8.6C, Phase 23.8.6D, Phase 23.8.6E, and Phase 23.8.7 are
+complete and reviewed, unless a later reviewed decision explicitly defers or
+waives that dependency.
 This phase must not become a separate lifecycle authority. Operator/proof
 schemas remain provisional sketches unless tightened during implementation.
 
