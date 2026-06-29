@@ -950,6 +950,27 @@ test("phase 23.7 operator status does not route delivery-facts review findings i
   assert.match(output.get("missing_evidence"), /delivery facts/);
 });
 
+test("phase 23.7 operator status preserves implementation continuity after later-stage evidence on a clean worktree", () => {
+  const { runtimeModule } = loadBuiltModules();
+  const tempRepo = createPhase237Repo("codex-harness-phase23-7-clean-worktree-continuity-");
+  let run = buildPostApprovalBaseRun(runtimeModule, tempRepo, "run-clean-worktree-continuity");
+
+  run = addTaggedProcedures(run, "implementation-review");
+  run = addReviewResult(runtimeModule, run, "FIX_REQUIRED", "Implementation review requires follow-up", "procedure:implementation-review");
+  run = addTaggedProcedures(run, "fix-pass-review");
+  run = addReviewResult(runtimeModule, run, "PASS", "Fix-pass Review passed", "procedure:fix-pass-review");
+  run = addVerificationResult(runtimeModule, run, "pass", "Verification passed");
+  run = addTaggedProcedures(run, "verification-review");
+
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+  materializeProcedureEvidenceFiles(tempRepo, run);
+
+  const output = runOperatorStatus(tempRepo, "--run", run.run_id);
+  assertProjectedStage(output, "DELIVERY_FACTS_REVIEW_REQUIRED", "delivery-facts-review");
+  assert.match(output.get("missing_evidence"), /delivery facts/);
+});
+
 test("phase 23.7 operator status projects RUN_QUARANTINED without creating runtime side effects", () => {
   const { runtimeModule, stagingModule } = loadBuiltModules();
   const tempRepo = createPhase237Repo("codex-harness-phase23-7-quarantined-");

@@ -3578,6 +3578,13 @@ function hasImplementationEvidence(run: Run, procedureIds: Set<string>, options:
   allowLiveChangeProbe?: boolean;
 } = {}): boolean {
   const implementationStepIds = new Set(run.steps.filter((step) => isImplementationStep(step)).map((step) => step.step_id));
+  const downstreamImplementationProcedures = [
+    "implementation-review",
+    "fix-pass-review",
+    "verification-review",
+    "delivery-facts-review",
+    "phase-closeout-review"
+  ];
 
   if (implementationStepIds.size > 0) {
     return true;
@@ -3592,6 +3599,10 @@ function hasImplementationEvidence(run: Run, procedureIds: Set<string>, options:
   }
 
   if (run.evidence.some((evidence) => isImplementationArtifact(evidence, procedureIds))) {
+    return true;
+  }
+
+  if (downstreamImplementationProcedures.some((procedureId) => readLatestProcedureEvidenceById(run, procedureId))) {
     return true;
   }
 
