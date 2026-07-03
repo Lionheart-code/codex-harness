@@ -1516,13 +1516,7 @@ const STRICT_REVIEW_RECOMMENDATION_TOKENS = new Set(["PASS", "FIX_REQUIRED", "AM
 
 const IMPLEMENTATION_REVIEW_RECOMMENDATION_VARIANTS = [
   { normalized: "FIX_REQUIRED", variant: "REJECT / FIX-PASS REQUIRED" },
-  { normalized: "FIX_REQUIRED", variant: "REJECT / FIX PASS REQUIRED" },
-  { normalized: "FIX_REQUIRED", variant: "ACCEPT WITH FIXES" },
-  { normalized: "FIX_REQUIRED", variant: "ACCEPT_WITH_FIXES" },
-  { normalized: "FIX_REQUIRED", variant: "FIX-PASS REQUIRED" },
-  { normalized: "FIX_REQUIRED", variant: "FIX PASS REQUIRED" },
   { normalized: "FIX_REQUIRED", variant: "FIX_REQUIRED" },
-  { normalized: "FIX_REQUIRED", variant: "REJECT" },
   { normalized: "PASS", variant: "ACCEPT" }
 ] as const;
 
@@ -5058,12 +5052,20 @@ function ensureRunHasVerificationAndReview(run: Run, targetRoot: string): Run {
   return next;
 }
 
+function refreshRunRepositorySnapshot(run: Run): Run {
+  return {
+    ...run,
+    repository: buildRepositoryRef(run.repository.root_path)
+  };
+}
+
 export async function closeoutRuntimeRun(cwd: string, options: RuntimeDryRunOptions = {}): Promise<RuntimeCloseoutResult> {
   const roots = resolveHarnessRoots(cwd);
   const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun, options.runId);
-  const preparedRun = ensureRunHasVerificationAndReview(current.run, targetRoot);
+  const refreshedRun = refreshRunRepositorySnapshot(current.run);
+  const preparedRun = ensureRunHasVerificationAndReview(refreshedRun, targetRoot);
   const receipt = createCloseoutReceipt(preparedRun);
   const run: Run = {
     ...preparedRun,
