@@ -120,9 +120,28 @@ Required behavior:
     earlier accepted/project-memory state from a different exact run instance.
 - Preserve the lifecycle-completion rule in docs/policy packaging:
   - finishing review or local verification is not the terminal success state
-    for an active self-hosting run;
+  for an active self-hosting run;
   - the harness must continue through closeout and harvest under the existing
-    lifecycle rules unless a real gate or blocker stops it.
+  lifecycle rules unless a real gate or blocker stops it.
+
+## B Fix-Pass Scope Correction
+
+For this Phase 23.8.6B fix-pass only, owner-approved downstream
+task-contract correction includes:
+
+- `tasks/PHASE_23_8_6C_SELF_HOSTING_OPERATOR_BOOTSTRAP_ENTRYPOINT.md`
+- `tasks/PHASE_23_8_6D_PROCEDURE_ARTIFACT_PAYLOAD_STORAGE_AND_WORKTREE_RETENTION.md`
+- `tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md`
+
+These are task-contract or dependency-wording corrections only.
+
+They do not implement Phase 23.8.6C, Phase 23.8.6D, Phase 23.8.7,
+Phase 23.9, Phase 30, or Phase 31 runtime behavior.
+
+Phase 23.8.6B2 remains separate and must not be started by this fix-pass.
+
+No runtime code, runner execution, packet execution, provider-specific
+lifecycle behavior, closeout, or harvest is allowed in Phase 23.8.6B.
 
 ## Non-goals
 

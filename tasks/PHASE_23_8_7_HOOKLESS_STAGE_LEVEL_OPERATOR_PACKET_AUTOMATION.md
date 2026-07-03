@@ -6,15 +6,15 @@ Planned. Starts only after Phase 23.8.6 Transactional Procedure Result
 Ingestion and Slice-Isolated Run Mutations, Phase 23.8.6A Self-Hosting Replay
 and Re-ingestion Continuity, Phase 23.8.6B Self-Hosting Model Routing Policy
 Packaging, Phase 23.8.6B2 Verification Command Rationalization and
-Serialization, Phase 23.8.6C Self-Hosting Operator Bootstrap Entrypoint,
+Serialization, Phase 23.8.6C Minimum Self-Hosting Orchestrator Entrypoint,
 Phase 23.8.6D Procedure Artifact Payload Storage and Worktree Retention, and
-Phase 23.8.6E Authority Surface Freshness and Downstream Task Revalidation are
-complete, reviewed, and accepted.
+Phase 23.8.6E Authority Surface Freshness and Downstream Task Revalidation
+are complete, reviewed, and accepted.
 
 ## Purpose
 
 Add stage-level packet preparation and result fixture ingestion on top of
-stable run-state.
+stable run-state after the minimum self-hosting orchestrator loop exists.
 
 The operator becomes able to prepare the next packet and interpret structured
 stage results, but it still does not launch agents or execute runners.
@@ -24,7 +24,8 @@ stage results, but it still does not launch agents or execute runners.
 Required behavior:
 
 - Add `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,
-  `ExecutionPolicy`, and `WaiverRecord` contracts.
+  `ExecutionPolicy`, `RunIssue`, `RepairPacket`, and `WaiverRecord`
+  contracts.
 - Add packet preparation command such as
   `run prepare-packet --kind auto|plan|implementation|review|fix-pass|closeout`
   or equivalent.
@@ -39,6 +40,15 @@ Required behavior:
 - Missing deterministic checks block with typed `stop_reason`.
 - Packet preparation and result ingestion use the stable run-state foundation
   from Phase 23.8.6.
+- Any advisory packet routing/model fields must inherit the checked-in policy
+  boundary from `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` without launching
+  reviewers or runners.
+- Keep the minimum lifecycle-failure fixtures explicit: self-approval
+  attempt, skipped architecture-review, skipped db-storage-review,
+  `AMEND_REQUIRED` without valid amended-plan review, missing
+  implementation-review artifact, blocker note treated as `ACCEPT`, source
+  edits before valid lifecycle approval, reviewer launch hang, failed
+  verification, scope creep, and fake closeout.
 
 ## Core interfaces
 
@@ -64,6 +74,12 @@ Required behavior:
 `evidence_refs`, `validation_results`, `progress_log_ref`,
 `result_schema_valid`.
 
+`RunIssue`: `issue_id`, `stage_id`, `severity`, `issue_kind`,
+`evidence_refs`, `blocking`, `repair_required`.
+
+`RepairPacket`: `packet_id`, `source_issue_ids`, `target_stage`,
+`required_repairs`, `validation_refs`, `stopping_condition`.
+
 `WaiverRecord`: `waiver_id`, `failed_check`, `reason`, `approver`, `scope`,
 `evidence_refs`.
 
@@ -81,6 +97,8 @@ Required behavior:
 - No report catalog.
 - No domain packs.
 - No planner execution.
+- No first implementation of the minimum self-hosting loop that belongs in
+  Phase 23.8.6C.
 
 ## Future-phase impact check
 
@@ -113,6 +131,8 @@ git diff --check
 - Failed review fixture routes to fix-pass packet state.
 - Passing review fixture routes to closeout-ready or closeout packet state.
 - Missing deterministic checks block progression with typed `stop_reason`.
+- Review failures and lifecycle anomalies become typed `RunIssue` records and
+  route to `RepairPacket` state rather than prose-only notes.
 - Hooks absent or disabled do not affect lifecycle.
 - If a full-pack acceptance proof is required during implementation, `npm test`
   is the canonical command. `npm run test:acceptance` remains only a

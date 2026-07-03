@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6C Self-Hosting Operator Bootstrap
+Planned. Starts only after Phase 23.8.6C Minimum Self-Hosting Orchestrator
 Entrypoint is complete, reviewed, accepted, and merged.
 
 ## Purpose

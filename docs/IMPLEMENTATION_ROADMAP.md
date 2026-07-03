@@ -611,7 +611,8 @@ Planned. Blocked until Phase 23.8.6 and Phase 23.8.6A are complete, reviewed,
 accepted, and merged.
 
 Required scope:
-- create or update the canonical self-hosting model-routing policy document;
+- create or update `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` as the canonical
+  self-hosting model-routing policy document;
 - probe local Codex CLI help/capabilities and treat local help output as the
   immediate source of truth for separate review launch shape;
 - encode the Codex CLI separate review launch discipline into repo-owned
@@ -668,37 +669,45 @@ Future-phase impact check:
 - preserves the domain/core boundary by remaining a narrow docs/task-policy
   pass.
 
-## Phase 23.8.6C — Self-Hosting Operator Bootstrap Entrypoint
+## Phase 23.8.6C — Minimum Self-Hosting Orchestrator Entrypoint
 
 Task:
 `tasks/PHASE_23_8_6C_SELF_HOSTING_OPERATOR_BOOTSTRAP_ENTRYPOINT.md`
 
 Goal:
-Add a narrow command-backed bootstrap/control-plane entrypoint for starting
-self-hosting work from an already selected task context.
+Add the first lightweight practical self-hosting orchestrator loop for an
+already selected task context.
 
 Status:
 Planned. Blocked until Phase 23.8.6B2 is complete, reviewed, accepted, and
 merged.
 
 Required scope:
+- read operator status and select exactly one next procedure or typed blocker;
 - report bootstrap evidence for active task, branch, worktree, base-commit
   fact, and exact run identity state;
-- report operator status and the immediate next procedure or typed blocker;
-- require task-intake/planning as the immediate next action after bootstrap
-  unless a typed blocker intervenes;
-- provide a non-mutating preview or dry-run path before durable-state
-  mutation;
+- prepare one bounded worker handoff, prompt, or packet for the selected next
+  step;
+- if a result is returned through approved manual or reviewed procedure
+  surfaces, ingest that result into typed lifecycle evidence;
+- run deterministic checks and independent reviewer/evaluator-agent steps when
+  required by review tier;
+- record every lifecycle problem as typed `RunIssue` evidence;
+- generate a `RepairPacket` before continuing when unresolved issues exist;
+- continue only until a hard blocker, configured owner gate, or budget stop;
 - preserve one task = one branch = one worktree;
-- keep this phase narrow: bootstrap/control-plane only.
+- keep this phase narrow and reviewed rather than turning it into a broad
+  workflow engine or replacement coding agent.
 
 Future-phase impact check:
 - prepares 23.8.6D, 23.8.6E, 23.8.7, and 23.9 to rely on a repo-owned
-  bootstrap entrypoint instead of manual startup reconstruction;
-- must not add runner execution, review-session automation, provider/model
-  routing, or packet execution;
-- preserves the domain/core boundary by remaining a narrow operator-entry
-  surface.
+  minimum orchestrator loop instead of manual startup reconstruction alone;
+- must not expand into external runner launch from harness runtime, runtime
+  execution enforcement, full runner execution, a replacement for Codex, a
+  generic workflow engine, auto-commit, auto-merge, provider-specific
+  lifecycle logic, or domain-pack runtime;
+- preserves the domain/core boundary by keeping the harness in the
+  supervisor/orchestrator role and external agents in the worker role.
 
 ## Phase 23.8.6D — Procedure Artifact Payload Storage and Worktree Retention
 
@@ -772,8 +781,8 @@ Task:
 `tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md`
 
 Goal:
-Prepare and ingest stage-level packet/result fixtures on top of stable
-run-state. No agents are launched.
+Formalize stage-level packet/result/execution-policy contracts on top of stable
+run-state after Phase 23.8.6C proves the minimum loop.
 
 Status:
 Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
@@ -782,7 +791,8 @@ reviewed.
 
 Required scope:
 - define `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,
-  `ExecutionPolicy`, and `WaiverRecord` contracts;
+  `ExecutionPolicy`, `RunIssue`, `RepairPacket`, and `WaiverRecord`
+  contracts;
 - add packet preparation such as
   `run prepare-packet --kind auto|plan|implementation|review|fix-pass|closeout`
   or equivalent;
@@ -795,6 +805,11 @@ Required scope:
 - route failed review fixtures to `FIX_PASS_PACKET`;
 - route passing review fixtures to `CLOSEOUT_PACKET` or closeout-ready state;
 - block missing deterministic checks with typed `stop_reason`.
+- formalize the minimum-loop failure fixtures observed during Phase 23.8.6B,
+  including self-approval attempt, skipped architecture/db review, missing
+  review artifacts, blocker-note-as-accept, source edits before valid
+  lifecycle approval, reviewer hang, failed verification, scope creep, and
+  fake closeout.
 
 Non-goals:
 - no Codex execution from operator;
@@ -810,7 +825,7 @@ Future-phase impact check:
 - must not pre-implement proof generation, report catalog, API layer, MCP
   adapter, domain packs, or planner execution;
 - preserves the domain/core boundary by keeping packets procedure/stage-oriented
-  and domain-neutral;
+  and domain-neutral after the minimum loop already exists in 23.8.6C;
 - requires architecture review if packet automation starts invoking runners,
   selecting models/providers, writing source files, making approval decisions,
   or encoding domain workflows in core.
@@ -1144,7 +1159,8 @@ Task:
 
 Goal:
 Add a bounded experimentation and eval-driven harness-improvement primitive
-after operator/procedure/proof/evaluator fixtures exist.
+after minimum lifecycle fixtures, operator/procedure records, proof, and
+evaluator fixtures exist.
 
 Status:
 Planned experimental. Blocked until Phase 23.8 is complete and reviewed.
@@ -1155,6 +1171,8 @@ replacement for architecture review.
 Required scope highlights:
 - procedure-trigger evals with negative cases, blocker semantics, and
   output-format conformance;
+- refine procedures, reviewers, routes, and packets only after the minimum
+  lifecycle loop and its baseline failure fixtures already exist;
 - findings/traces/CI failures promoted into approved eval candidates and then
   regression fixtures;
 - harness change proposals tied to evidence/eval IDs;
@@ -1162,6 +1180,8 @@ Required scope highlights:
   source-map drift, duplicate authority, and abandoned experiment notes;
 - immutable evaluator, durable experiment record, and explicit keep/revert
   decision.
+- must not make Phase 30 the first place where basic lifecycle failure
+  fixtures are introduced.
 
 ## Phase 31 — Reviewed Runner Execution and PR/CI Repair Loop
 
@@ -1177,6 +1197,9 @@ Status:
 Planned. Blocked until Phase 30 is complete and reviewed. No self-approval,
 auto-merge, unrestricted write access, provider-specific core logic, or
 domain-core execution behavior is allowed.
+This phase is the reviewed external runner-adapter boundary only. It must not
+become a coding agent, replacement Codex, or unrestricted autonomous repair
+loop. It remains the runtime execution enforcement boundary.
 
 ## Pilot — Research Ops pack
 
