@@ -1512,7 +1512,13 @@ const PHASE_23_8_6A_ALLOWED_PROCEDURE_INGESTION = new Set([
   "phase-closeout-review"
 ]);
 
-const REVIEW_RECOMMENDATION_TOKENS = new Set(["PASS", "FIX_REQUIRED", "AMEND_REQUIRED", "BLOCKED"]);
+const STRICT_REVIEW_RECOMMENDATION_TOKENS = new Set(["PASS", "FIX_REQUIRED", "AMEND_REQUIRED", "BLOCKED"]);
+
+const IMPLEMENTATION_REVIEW_RECOMMENDATION_VARIANTS = [
+  { normalized: "FIX_REQUIRED", variant: "REJECT / FIX-PASS REQUIRED" },
+  { normalized: "FIX_REQUIRED", variant: "FIX_REQUIRED" },
+  { normalized: "PASS", variant: "ACCEPT" }
+] as const;
 
 function writeJsonFile(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -2572,7 +2578,12 @@ function readUtf8FileIfExists(targetPath: string): string | undefined {
   return fs.readFileSync(targetPath, "utf8");
 }
 
-function parseReviewRecommendation(markdown: string): string | undefined {
+function parseReviewRecommendation(
+  markdown: string,
+  options: {
+    extraVariants?: ReadonlyArray<{ normalized: "PASS" | "FIX_REQUIRED"; variant: string }>;
+  } = {}
+): string | undefined {
   const sectionMatch = /## Recommendation\s*\n([\s\S]*?)(?=\n## |\s*$)/i.exec(markdown);
 
   if (!sectionMatch?.[1]) {
@@ -2585,13 +2596,50 @@ function parseReviewRecommendation(markdown: string): string | undefined {
     .filter((line) => line.length > 0);
 
   for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const normalized = lines[index].toUpperCase();
-    if (REVIEW_RECOMMENDATION_TOKENS.has(normalized)) {
+    const normalized = normalizeReviewRecommendationLine(lines[index], options.extraVariants);
+    if (normalized) {
       return normalized;
     }
   }
 
-  return lines[0]?.toUpperCase();
+  return undefined;
+}
+
+function normalizeReviewRecommendationLine(
+  line: string,
+  extraVariants: ReadonlyArray<{ normalized: "PASS" | "FIX_REQUIRED"; variant: string }> = []
+): "PASS" | "FIX_REQUIRED" | "AMEND_REQUIRED" | "BLOCKED" | undefined {
+  const normalizedLine = line.trim().toUpperCase();
+
+  if (!normalizedLine) {
+    return undefined;
+  }
+
+  if (STRICT_REVIEW_RECOMMENDATION_TOKENS.has(normalizedLine)) {
+    return normalizedLine as "PASS" | "FIX_REQUIRED" | "AMEND_REQUIRED" | "BLOCKED";
+  }
+
+  for (const entry of extraVariants) {
+    if (normalizedLine === entry.variant) {
+      return entry.normalized;
+    }
+
+    if (!normalizedLine.endsWith(entry.variant)) {
+      continue;
+    }
+
+    const prefix = normalizedLine.slice(0, -entry.variant.length).trimEnd();
+    if (prefix.length === 0) {
+      return entry.normalized;
+    }
+
+    const trailingSeparator = prefix[prefix.length - 1];
+    if (trailingSeparator && ".:;()[]/-".includes(trailingSeparator)) {
+      return entry.normalized;
+    }
+  }
+
+  return undefined;
 }
 
 function validatePlanReviewArtifact(markdown: string): {
@@ -2705,7 +2753,12 @@ function buildProcedureReviewResult(
     };
   }
 
-  const recommendation = parseReviewRecommendation(markdown);
+  const recommendation = parseReviewRecommendation(
+    markdown,
+    procedureId === "implementation-review"
+      ? { extraVariants: IMPLEMENTATION_REVIEW_RECOMMENDATION_VARIANTS }
+      : undefined
+  );
 
   if (!recommendation) {
     return undefined;
@@ -2718,7 +2771,10 @@ function buildProcedureReviewResult(
   if (recommendation === "PASS") {
     status = "PASS";
     summary = `${capitalizeWords(procedureId)} passed`;
-  } else if (recommendation === "FIX_REQUIRED" || recommendation === "AMEND_REQUIRED" || recommendation === "BLOCKED") {
+  } else if (
+    recommendation === "FIX_REQUIRED"
+    || (procedureId !== "implementation-review" && (recommendation === "AMEND_REQUIRED" || recommendation === "BLOCKED"))
+  ) {
     status = "FIX_REQUIRED";
     summary = `${capitalizeWords(procedureId)} requires follow-up`;
     blockers.push(summary);
@@ -4044,8 +4100,10 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
 
 function resolveImplementationReviewStage(context: OperatorEvaluationContext): OperatorStageDraft | undefined {
   const taggedProcedures = context.taggedProcedures ?? new Set<string>();
+  const hasImplementationReview = taggedProcedures.has("implementation-review");
+  const hasFixPassReview = taggedProcedures.has("fix-pass-review");
 
-  if (!taggedProcedures.has("implementation-review") && !taggedProcedures.has("fix-pass-review")) {
+  if (!hasImplementationReview && !hasFixPassReview) {
     return buildOperatorStageDraft({
       current_stage: "IMPLEMENTATION_REVIEW_REQUIRED",
       next_procedure_id: "implementation-review",
@@ -4064,9 +4122,24 @@ function resolveImplementationReviewStage(context: OperatorEvaluationContext): O
     });
   }
 
+  if ((hasImplementationReview || hasFixPassReview) && !context.latestImplementationChainReviewResult) {
+    return buildOperatorStageDraft({
+      current_stage: "BLOCKED",
+      next_procedure_id: "none",
+      required_inputs: ["parseable implementation/fix-pass review result"],
+      missing_inputs: [],
+      required_evidence: ["review-chain result with a recognized recommendation"],
+      missing_evidence: ["review-chain result with a recognized recommendation"],
+      stop_reason: "invalid_review_chain_evidence",
+      next_allowed_action: "record or rerun a parseable implementation-review or fix-pass-review artifact before verification can continue",
+      forbidden_actions: ["implementation", "source edits", "verification", "closeout", "phase closeout review", "harvest"],
+      notes: [...context.baseNotes, "review_chain_parseable_result_required: true"]
+    });
+  }
+
   if (
     (context.latestImplementationChainReviewResult?.status === "FIX_REQUIRED" || context.blockingFindings) &&
-    taggedProcedures.has("implementation-review")
+    hasImplementationReview
   ) {
     return buildOperatorStageDraft({
       current_stage: "FIX_PASS_REQUIRED",
@@ -4979,12 +5052,20 @@ function ensureRunHasVerificationAndReview(run: Run, targetRoot: string): Run {
   return next;
 }
 
+function refreshRunRepositorySnapshot(run: Run): Run {
+  return {
+    ...run,
+    repository: buildRepositoryRef(run.repository.root_path)
+  };
+}
+
 export async function closeoutRuntimeRun(cwd: string, options: RuntimeDryRunOptions = {}): Promise<RuntimeCloseoutResult> {
   const roots = resolveHarnessRoots(cwd);
   const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun, options.runId);
-  const preparedRun = ensureRunHasVerificationAndReview(current.run, targetRoot);
+  const refreshedRun = refreshRunRepositorySnapshot(current.run);
+  const preparedRun = ensureRunHasVerificationAndReview(refreshedRun, targetRoot);
   const receipt = createCloseoutReceipt(preparedRun);
   const run: Run = {
     ...preparedRun,

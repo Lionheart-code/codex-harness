@@ -2,14 +2,23 @@
 
 ## 1. Goal
 
-Build `codex-harness`: a reusable local control layer for software development with Codex.
+Build `codex-harness`: a reusable local control layer for software development
+with Codex.
 
-The harness should make Codex-driven development disciplined, repeatable, auditable, and portable across repositories.
+The harness should make Codex-driven development disciplined, repeatable,
+auditable, and portable across repositories.
+
+`codex-harness` is not a worker. It is a lightweight supervisor,
+orchestrator, and evaluator shell around external worker agents, with Codex as
+the first supported worker surface.
 
 Codex-first means Codex is the first supported runner, not the only future
 runner or model. Future runner/model selection must flow through explicit
 profiles, permissions, evidence contracts, and verification gates owned by the
 harness.
+Before later runner enforcement exists, self-hosting model/risk routing and
+separate review-launch discipline remain checked-in policy only; see
+`docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md`.
 
 Lightweight control remains the primary product direction. The harness should
 not become a process-product expansion, generic orchestration platform,
@@ -57,11 +66,11 @@ Harness owns:
 - report generation;
 - install/upgrade of repo-local harness layer.
 
-Codex owns:
-- reading task context;
-- editing code;
-- explaining changes;
-- optional review pass.
+External worker agents own:
+- reading bounded task or review packets;
+- performing the delegated code or review step;
+- returning evidence, results, blockers, and changed files;
+- remaining inside the reviewed execution boundary chosen by the harness.
 
 Hooks own:
 - small guardrails;
@@ -223,6 +232,7 @@ MVP:
 v0.2:
 - `codex exec` for review/report;
 - schema-bound review output.
+- checked-in self-hosting review-launch and routing policy.
 
 v0.3:
 - read-only scouts;

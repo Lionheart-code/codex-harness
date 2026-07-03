@@ -261,7 +261,7 @@ function runOperatorStatus(tempRepo, runId) {
   return parseOperatorOutput(result.stdout);
 }
 
-function buildPlanReviewArtifact() {
+function buildPlanReviewArtifact(recommendation = "PASS") {
   return [
     "## Review Tier",
     "",
@@ -304,8 +304,57 @@ function buildPlanReviewArtifact() {
     "",
     "## Recommendation",
     "",
-    "PASS"
+    recommendation
   ].join("\n");
+}
+
+function prepareApprovedImplementationReviewRun(runtimeModule, tempRepo, reviewMarkdown) {
+  let run = createBaseRun(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "draft-plan", "# approved plan\n");
+  writeProcedureArtifact(tempRepo, run.run_id, "implementation-review", reviewMarkdown);
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-amended-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record plan-review before implementation-review check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/draft-plan.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  ), "approve reviewed draft-plan before implementation-review check");
+
+  fs.mkdirSync(path.join(tempRepo, "src"), { recursive: true });
+  writeText(path.join(tempRepo, "src", "phase23-8-6.ts"), "export const phase2386 = true;\n");
+
+  return run;
 }
 
 function addPlanApproval(runtimeModule, run, reason = "Human approved the reviewed implementation plan.") {
@@ -710,6 +759,49 @@ test("phase 23.8.6 record-procedure fails closed for malformed plan-review artif
   assert.equal(runtimeState.evidence.some((entry) => entry.kind === "procedure:plan-review"), false);
 });
 
+test("phase 23.8.6 plan-review recommendation parsing remains strict outside implementation-review aliases", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-plan-review-strict-recommendation-");
+  let run = createBaseRun(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", "# draft-plan\n", 2);
+  writeProcedureArtifact(
+    tempRepo,
+    run.run_id,
+    "plan-review-accept",
+    buildPlanReviewArtifact("ACCEPT")
+  );
+
+  const aliasedPlanReview = runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-accept.md`
+    ],
+    { cwd: tempRepo }
+  );
+  assertFailure(aliasedPlanReview, "record aliased plan-review recommendation");
+  assert.match(aliasedPlanReview.stderr, /missing a Recommendation section/i);
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "PLAN_REVIEW_REQUIRED");
+
+  const runtimeState = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  assert.equal(runtimeState.evidence.some((entry) => entry.kind === "procedure:plan-review"), false);
+});
+
 test("phase 23.8.6 operator treats live task-scoped source changes as implementation evidence after plan approval", () => {
   const runtimeModule = loadBuiltRuntime();
   const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-live-implementation-evidence-");
@@ -947,6 +1039,302 @@ test("phase 23.8.6 record-procedure ingests a PASS fix-pass-review and advances 
 
   output = runOperatorStatus(tempRepo, run.run_id);
   assert.notEqual(output.get("current_stage"), "FIX_PASS_REQUIRED");
+});
+
+test("phase 23.8.6 record-procedure ingests sentence-ending implementation-review FIX_REQUIRED and routes to fix-pass", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-implementation-review-sentence-fix-required-");
+  const run = prepareApprovedImplementationReviewRun(
+    runtimeModule,
+    tempRepo,
+    [
+      "## Review Surface",
+      "",
+      "Fixture review surface.",
+      "",
+      "## Findings",
+      "",
+      "1. Example finding.",
+      "",
+      "## Recommendation",
+      "",
+      "Content-level policy wording otherwise matches the requested Phase 23.8.6B boundaries. FIX_REQUIRED",
+      ""
+    ].join("\n")
+  );
+
+  const recordImplementationReview = runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "implementation-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/implementation-review.md`
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(recordImplementationReview, "record sentence-ending implementation-review FIX_REQUIRED");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "FIX_PASS_REQUIRED");
+
+  const updatedRun = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  const implementationReview = updatedRun.review_results.find((entry) => entry.source === "procedure:implementation-review");
+  assert.equal(implementationReview?.status, "FIX_REQUIRED");
+});
+
+test("phase 23.8.6 record-procedure normalizes implementation-review ACCEPT to PASS", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-implementation-review-accept-");
+  const run = prepareApprovedImplementationReviewRun(
+    runtimeModule,
+    tempRepo,
+    [
+      "## Review Surface",
+      "",
+      "Fixture review surface.",
+      "",
+      "## Findings",
+      "",
+      "1. No blocking findings.",
+      "",
+      "## Recommendation",
+      "",
+      "ACCEPT",
+      ""
+    ].join("\n")
+  );
+
+  const recordImplementationReview = runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "implementation-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/implementation-review.md`
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(recordImplementationReview, "record ACCEPT implementation-review");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "VERIFICATION_REVIEW_REQUIRED");
+
+  const updatedRun = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  const implementationReview = updatedRun.review_results.find((entry) => entry.source === "procedure:implementation-review");
+  assert.equal(implementationReview?.status, "PASS");
+});
+
+test("phase 23.8.6 record-procedure ingests implementation-review PASS and routes to verification", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-implementation-review-pass-");
+  const run = prepareApprovedImplementationReviewRun(
+    runtimeModule,
+    tempRepo,
+    [
+      "## Review Surface",
+      "",
+      "Fixture review surface.",
+      "",
+      "## Findings",
+      "",
+      "1. No blocking findings.",
+      "",
+      "## Recommendation",
+      "",
+      "PASS",
+      ""
+    ].join("\n")
+  );
+
+  const recordImplementationReview = runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "implementation-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/implementation-review.md`
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(recordImplementationReview, "record PASS implementation-review");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "VERIFICATION_REVIEW_REQUIRED");
+
+  const updatedRun = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  const implementationReview = updatedRun.review_results.find((entry) => entry.source === "procedure:implementation-review");
+  assert.equal(implementationReview?.status, "PASS");
+});
+
+test("phase 23.8.6 record-procedure normalizes documented implementation-review REJECT / FIX-PASS REQUIRED to fix-pass", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-implementation-review-reject-fix-pass-required-");
+  const run = prepareApprovedImplementationReviewRun(
+    runtimeModule,
+    tempRepo,
+    [
+      "## Review Surface",
+      "",
+      "Fixture review surface.",
+      "",
+      "## Findings",
+      "",
+      "1. Example finding.",
+      "",
+      "## Recommendation",
+      "",
+      "REJECT / FIX-PASS REQUIRED",
+      ""
+    ].join("\n")
+  );
+
+  const recordImplementationReview = runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "implementation-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/implementation-review.md`
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(recordImplementationReview, "record REJECT / FIX-PASS REQUIRED implementation-review");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "FIX_PASS_REQUIRED");
+
+  const updatedRun = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  const implementationReview = updatedRun.review_results.find((entry) => entry.source === "procedure:implementation-review");
+  assert.equal(implementationReview?.status, "FIX_REQUIRED");
+});
+
+test("phase 23.8.6 invalid implementation-review artifacts block instead of routing to verification", () => {
+  const cases = [
+    {
+      prefix: "codex-harness-phase23-8-6-implementation-review-accept-with-fixes-",
+      reviewMarkdown: [
+        "## Review Surface",
+        "",
+        "Fixture review surface.",
+        "",
+        "## Findings",
+        "",
+        "1. Example finding.",
+        "",
+        "## Recommendation",
+        "",
+        "ACCEPT WITH FIXES",
+        ""
+      ].join("\n")
+    },
+    {
+      prefix: "codex-harness-phase23-8-6-implementation-review-fix-pass-required-",
+      reviewMarkdown: [
+        "## Review Surface",
+        "",
+        "Fixture review surface.",
+        "",
+        "## Findings",
+        "",
+        "1. Example finding.",
+        "",
+        "## Recommendation",
+        "",
+        "FIX-PASS REQUIRED",
+        ""
+      ].join("\n")
+    },
+    {
+      prefix: "codex-harness-phase23-8-6-implementation-review-reject-only-",
+      reviewMarkdown: [
+        "## Review Surface",
+        "",
+        "Fixture review surface.",
+        "",
+        "## Findings",
+        "",
+        "1. Example finding.",
+        "",
+        "## Recommendation",
+        "",
+        "REJECT",
+        ""
+      ].join("\n")
+    },
+    {
+      prefix: "codex-harness-phase23-8-6-implementation-review-unknown-verdict-",
+      reviewMarkdown: [
+        "## Review Surface",
+        "",
+        "Fixture review surface.",
+        "",
+        "## Findings",
+        "",
+        "1. Example finding.",
+        "",
+        "## Recommendation",
+        "",
+        "NEEDS OWNER DECISION",
+        ""
+      ].join("\n")
+    },
+    {
+      prefix: "codex-harness-phase23-8-6-implementation-review-blocker-note-",
+      reviewMarkdown: [
+        "## Blocker Summary",
+        "",
+        "- reviewer launch blocked",
+        "",
+        "## Recommendation",
+        "",
+        "BLOCKED",
+        ""
+      ].join("\n")
+    }
+  ];
+
+  for (const testCase of cases) {
+    const runtimeModule = loadBuiltRuntime();
+    const tempRepo = createPhase2386Repo(testCase.prefix);
+    const run = prepareApprovedImplementationReviewRun(runtimeModule, tempRepo, testCase.reviewMarkdown);
+
+    const recordImplementationReview = runCli(
+      [
+        "run",
+        "record-procedure",
+        "--run",
+        run.run_id,
+        "--procedure",
+        "implementation-review",
+        "--file",
+        `.harness/runs/${run.run_id}/manual/implementation-review.md`
+      ],
+      { cwd: tempRepo }
+    );
+    assertSuccess(recordImplementationReview, "record invalid implementation-review artifact");
+
+    const output = runOperatorStatus(tempRepo, run.run_id);
+    assert.equal(output.get("current_stage"), "BLOCKED");
+    assert.equal(output.get("next_procedure_id"), "none");
+    assert.equal(output.get("stop_reason"), "invalid_review_chain_evidence");
+
+    const updatedRun = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+    const implementationReview = updatedRun.review_results.find((entry) => entry.source === "procedure:implementation-review");
+    assert.equal(implementationReview, undefined);
+  }
 });
 
 test("phase 23.8.6 record-procedure replay backfills a newly parseable fix-pass-review result", () => {
@@ -1770,6 +2158,57 @@ test("phase 23.8.6 closeout blocks until merged merge_result and merge_commit fa
   assert.equal(receipt.status, "BLOCKED");
   assert.match(receipt.blockers.join("\n"), /missing_merge_result/);
   assert.match(receipt.blockers.join("\n"), /missing_merge_commit/);
+});
+
+test("phase 23.8.6 closeout refreshes repository snapshot to live HEAD while preserving real blockers", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-closeout-head-refresh-");
+  const staleHead = gitHead(tempRepo);
+  const branchResult = runCommand("git", ["branch", "--show-current"], { cwd: tempRepo });
+  assertSuccess(branchResult, "git branch --show-current");
+  const branch = branchResult.stdout.trim();
+
+  let run = buildPostVerificationRun(runtimeModule, tempRepo, "run-0001");
+  run = {
+    ...run,
+    repository: {
+      ...run.repository,
+      ...(branch ? { branch } : {}),
+      head_sha: staleHead,
+      dirty: false
+    }
+  };
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  fs.mkdirSync(path.join(tempRepo, "src"), { recursive: true });
+  writeText(path.join(tempRepo, "src", "closeout-head-refresh.ts"), "export const closeoutHeadRefresh = true;\n");
+  assertSuccess(runCommand("git", ["add", "src/closeout-head-refresh.ts"], { cwd: tempRepo }), "git add closeout head refresh");
+  assertSuccess(runCommand("git", ["commit", "-m", "move head after run start"], { cwd: tempRepo }), "git commit closeout head refresh");
+
+  const liveHead = gitHead(tempRepo);
+  assert.notEqual(liveHead, staleHead);
+
+  writeText(path.join(tempRepo, "README.md"), "# phase 23.8.6 dirty closeout snapshot\n");
+
+  const closeout = runCli(["run", "closeout", "--run", run.run_id], { cwd: tempRepo });
+  assertSuccess(closeout, "run closeout with refreshed repository snapshot");
+
+  const receipt = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "closeout.json"), "utf8"));
+  const updatedRun = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+
+  assert.equal(receipt.status, "BLOCKED");
+  assert.match(receipt.blockers.join("\n"), /missing_merge_result/);
+  assert.match(receipt.blockers.join("\n"), /missing_merge_commit/);
+  assert.equal(receipt.repository.head_sha, liveHead);
+  assert.equal(updatedRun.repository.head_sha, liveHead);
+  assert.equal(receipt.repository.branch, branch);
+  assert.equal(updatedRun.repository.branch, branch);
+  assert.equal(receipt.repository.dirty, true);
+  assert.equal(updatedRun.repository.dirty, true);
+  assert.equal(receipt.change_set.is_dirty, true);
+  assert.deepEqual(receipt.change_set.changed_paths, ["README.md"]);
+  assert.ok(receipt.change_set.git_status_lines.some((line) => /README\.md/.test(line)));
 });
 
 test("phase 23.8.6 record-next-task and materialize-next-task create a new task-owned worktree and run", () => {

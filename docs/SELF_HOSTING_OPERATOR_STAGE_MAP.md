@@ -95,6 +95,10 @@ runtime status leave `TASK_INTAKE_REQUIRED` until
 distinction applies to `task-prompt-writer`, `draft-plan`, `plan-review`,
 `plan-amend`, and the other active-chain replay surfaces. Operators must name
 that distinction explicitly when continuing a manual preparation pass.
+When the manual pass is a separate review session, use the checked-in launch
+discipline in `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` rather than ad hoc
+CLI guesses. A blocker note, launch hang, or missing artifact does not satisfy
+review-required evidence and must not be treated as an accepted review result.
 
 Procedure ingestion may record that closeout/harvest selected the next task.
 New-cycle materialization is separate. Phase 23.8.6 now provides a formal

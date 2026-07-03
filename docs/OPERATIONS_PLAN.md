@@ -55,20 +55,26 @@ session or equivalent review-only agent session, with the same repo-owned
 procedure contract as the prompt source. Generated product prompts from
 `node bin/ch prompt ...` remain separate task-local artifacts and do not
 replace checked-in self-hosting procedure wrappers.
+Use `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` as the checked-in source for
+review-launch discipline, local CLI probe requirements, bounded-helper policy,
+and the rule that Phase 31 is the first runtime home for child/runner
+execution enforcement.
 
 The product direction is a lightweight, provider-neutral harness control plane:
 different models or runners may handle different stages only through explicit
 runner/profile and permission contracts, while codex-harness owns validation,
 approval, evidence, rollback/recovery visibility, and delivery facts.
+`codex-harness` remains the lightweight supervisor/orchestrator/evaluator
+shell around external worker agents. Routine manual review is transitional; the
+target operating model is deterministic checks, independent read-only
+reviewer-agents, typed issue tracking, repair-first progression, and owner
+stops only for configured high-risk decisions.
 
 Near-term progression:
 
 ```text
-23.8 registry/skill-surface closeout
--> 23.8.5 roadmap/task authority rebase
--> 23.8.6 transactional procedure result ingestion
--> 23.8.7 hookless stage-level packet automation
--> 23.9 minimal proof over stable procedure/stage records
+23.8.6 -> 23.8.6A -> 23.8.6B -> 23.8.6B2 -> 23.8.6C -> 23.8.6D ->
+23.8.6E -> 23.8.7 -> 23.9
 ```
 
 Hard boundaries:

@@ -65,11 +65,16 @@ codex --help
 
 Use a separate Codex CLI session, or an equivalent independent agent session,
 for reviewer-only passes such as `plan-review` and `implementation-review`.
-For example:
+Follow `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` for the checked-in
+review-launch discipline, required probe commands, blocker categories, and
+exact artifact paths. For example:
 
 ```bash
-cd <task-worktree>
-codex -C "$PWD" --sandbox read-only --ask-for-approval never
+RUN_ID=<run-id>
+codex exec -C "$PWD" -s read-only -m gpt-5.5 \
+  -c 'model_reasoning_effort="high"' \
+  -o ".harness/runs/$RUN_ID/manual/plan-review.md" \
+  - < ".harness/runs/$RUN_ID/manual/plan-review-request.md"
 ```
 
 The prompt pasted into that session should use the checked-in
@@ -79,6 +84,12 @@ from a chat-local rewrite. The reviewer pass may inspect files and report
 findings; it must not implement, mutate runtime state, or claim a durable
 decision unless a current product command or documented ingestion path records
 that decision.
+
+Routine manual review is a transitional operating surface, not the long-term
+target model. The intended steady-state direction is deterministic checks
+first, then independent read-only reviewer-agent results, typed issue tracking,
+and repair-first packets, with owner stop only for configured high-risk
+decisions.
 
 Manual model/reasoning guidance for the current self-hosting replay flow is
 advisory operator guidance only:
@@ -95,8 +106,10 @@ advisory operator guidance only:
 - review passes such as `plan-review`, `implementation-review`,
   `fix-pass-review`, and `verification-review` should run in a separate
   reviewer session and should use a different reviewer model/profile than the
-  planning or builder pass they are checking; `gpt-5.5` with `high` reasoning
-  is the default reviewer profile;
+  planning or builder pass they are checking; Phase 23.8.6B currently treats
+  `plan-review` as `gpt-5.5` with `high` reasoning and
+  `implementation-review` as `gpt-5.5` with `medium` reasoning, or the closest
+  locally supported equivalent;
 - `gpt-5.5` with `extra high` reasoning is an escalation profile only for
   ambiguous architecture, disputed findings, repeated failed fix passes, or
   source-trace deadlocks. It is not the default daily review setting.

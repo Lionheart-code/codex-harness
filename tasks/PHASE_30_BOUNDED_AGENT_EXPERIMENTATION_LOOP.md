@@ -3,7 +3,8 @@
 ## Purpose
 
 Add a bounded experimentation and eval-driven harness-improvement primitive
-after operator/procedure/proof/evaluator fixtures exist.
+after minimum lifecycle fixtures, operator/procedure records, proof, and
+evaluator fixtures exist.
 
 ## Status
 
@@ -14,7 +15,8 @@ Roadmap continuity:
 
 Earlier phases may preserve hooks, adapters, runner comparisons, reviewer
 improvements, and packet optimization as deferred candidates. They must not run
-experimentation loops before evaluator/proof/report foundations exist.
+experimentation loops before evaluator/proof/report foundations exist or
+become the first place where base lifecycle-failure fixtures are introduced.
 
 ## Scope
 
@@ -32,12 +34,16 @@ Required behavior:
   reminders.
 - Harness change proposals created from experimentation must cite the
   motivating findings, traces, or eval IDs.
+- Improve procedures, reviewers, routes, and packets only after the minimum
+  self-hosting loop and baseline lifecycle-failure fixtures already exist.
 - Allow bounded drift/entropy cleanup candidates such as stale docs,
   wrapper/skill/registry drift, source-map drift, duplicate authority, and
   abandoned experimental notes to be surfaced as reviewed improvement
   proposals.
 - Keep experiment records, evaluator references, keep/revert decisions, and
   review outcomes durable and auditable.
+- Do not make Phase 30 the first place where basic lifecycle-failure fixtures
+  appear.
 
 ## Core pattern
 
@@ -58,6 +64,8 @@ Required behavior:
 - validate guardrails/hooks;
 - optimize task packet formats;
 - surface bounded drift/entropy cleanup opportunities.
+- evaluate whether routes or cheaper-review candidates outperform the baseline
+  assumptions recorded in `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md`.
 
 ## Non-goals
 
@@ -68,6 +76,7 @@ Required behavior:
 - Not automatic acceptance of eval candidates.
 - Not automatic cleanup or deletion of docs/artifacts.
 - Not self-approval of harness changes.
+- Not the first phase that creates base lifecycle failure fixtures.
 
 ## Future-phase impact check
 

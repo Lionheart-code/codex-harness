@@ -14,12 +14,12 @@ unknown, what assumptions were made, and what review outcome applies.
 Planned. Blocked until Phase 23.8.6 Transactional Procedure Result Ingestion,
 Phase 23.8.6A Self-Hosting Replay and Re-ingestion Continuity, Phase 23.8.6B
 Self-Hosting Model Routing Policy Packaging, Phase 23.8.6B2 Verification
-Command Rationalization and Serialization, Phase 23.8.6C Self-Hosting
-Operator Bootstrap Entrypoint, Phase 23.8.6D Procedure Artifact Payload
-Storage and Worktree Retention, Phase 23.8.6E Authority Surface Freshness and
-Downstream Task Revalidation, and Phase 23.8.7 Hookless Stage-Level Operator
-Packet Automation are complete and reviewed, unless a later reviewed decision
-explicitly defers or waives that dependency.
+Command Rationalization and Serialization, Phase 23.8.6C Minimum
+Self-Hosting Orchestrator Entrypoint, Phase 23.8.6D Procedure Artifact
+Payload Storage and Worktree Retention, Phase 23.8.6E Authority Surface
+Freshness and Downstream Task Revalidation, and Phase 23.8.7 Hookless
+Stage-Level Operator Packet Automation are complete and reviewed, unless a
+later reviewed decision explicitly defers or waives that dependency.
 
 ## Scope
 

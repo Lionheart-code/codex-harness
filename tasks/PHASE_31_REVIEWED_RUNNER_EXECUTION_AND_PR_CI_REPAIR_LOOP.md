@@ -24,7 +24,9 @@ By this point the harness should already have:
 
 This phase turns those foundations into a reviewed operational runner-execution
 surface without allowing self-approval, hidden provider logic, or unrestricted
-repair loops.
+repair loops. It is the reviewed external runner-adapter boundary only:
+`codex-harness` remains the supervisor/orchestrator shell while reviewed
+external runners remain workers.
 
 ## Scope
 
@@ -32,6 +34,8 @@ Required behavior:
 
 - Execute approved `StagePacket` instances through reviewed runner surfaces or
   equivalent formal runtime commands.
+- Keep reviewed runner execution packet-bound and adapter-like rather than
+  turning the harness into a general coding agent.
 - Enforce `ExecutionPolicy` boundaries for sandbox mode, write scope,
   approval policy, network policy, command allowlist, timeout policy, and
   path constraints.
@@ -44,6 +48,9 @@ Required behavior:
   of embedding provider-specific logic into core lifecycle behavior.
 - Preserve human review and approval boundaries for high-risk writes, merges,
   and lifecycle transitions.
+- Treat `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` as the reviewed policy
+  baseline that this phase may enforce through runtime contracts without
+  reintroducing ad hoc launch folklore into core behavior.
 
 ## Non-goals
 
@@ -55,6 +62,8 @@ Required behavior:
 - No MCP-native architecture.
 - No domain workflow execution in core.
 - No background autonomous repair loop without reviewed approval boundaries.
+- No replacement for Codex or other worker surfaces.
+- No unrestricted autonomous repair system.
 
 ## Future-phase impact check
 
@@ -73,7 +82,6 @@ Required behavior:
 ```bash
 npm run build
 npm test
-npm run test:acceptance
 git diff --check
 ```
 
@@ -84,5 +92,9 @@ git diff --check
 - Failing CI/review outcomes can produce bounded fix-pass packets.
 - Runner execution writes typed evidence/results that preserve lifecycle and
   approval boundaries.
-- No self-approval, auto-merge, unrestricted provider logic, or domain-core
-  execution behavior is introduced.
+- If full-pack proof is required, use `npm test` as the canonical command.
+  Treat `npm run test:acceptance` only as a compatibility alias to the same
+  proof path, not as independent proof and not as a separately required
+  command.
+- No self-approval, auto-merge, unrestricted provider logic, coding-agent
+  replacement behavior, or domain-core execution behavior is introduced.
