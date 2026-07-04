@@ -252,6 +252,9 @@ or later repair step resolves it.
 - Phase `23.8.6A` owns replay and re-ingestion continuity across the active
   self-hosting chain.
 - Phase `23.8.6B` owns this checked-in policy packaging pass only.
+- Phase `23.8.6B1` owns supervised review launch, blocked disposition, and
+  exact-identity-safe launch evidence for `plan-review` and
+  `implementation-review`.
 - Phase `23.8.6B2` owns verification-command rationalization and serialization.
 - Phase `23.8.6C` owns the minimum self-hosting orchestrator entrypoint:
   read operator status, select exactly one next procedure, prepare one bounded

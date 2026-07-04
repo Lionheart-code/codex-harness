@@ -2,8 +2,8 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6B Self-Hosting Model Routing Policy
-Packaging is complete, reviewed, accepted, and merged.
+Planned. Starts only after Phase 23.8.6B1 Supervised Review Launch and Blocked
+Disposition is complete, reviewed, accepted, and merged.
 
 ## Purpose
 
@@ -40,6 +40,12 @@ This is a narrow verification-policy and authority-surface phase.
   still imply both aliases are required as separate proof.
 - State that full-pack aliases must not be launched concurrently in the same
   workspace/runtime context.
+- Keep verification-command rationalization separate from the supervised review
+  launch, artifact validation, and blocked-disposition handling that belong in
+  Phase 23.8.6B1.
+- If this phase associates verification results with durable run history, key
+  or resolve those records through exact run identity rather than display
+  `run_id` alone.
 - Keep the wording tied to current repo facts rather than generic test-policy
   language.
 - Produce a narrow verification-guidance correction, not a broad test-policy
@@ -87,8 +93,9 @@ change runtime code, package scripts, CI, or acceptance-runner behavior.
 
 ## Relationship to previous and next phases
 
-- Follows Phase 23.8.6B so the verification-policy wording can align with the
-  checked-in self-hosting review/launch policy.
+- Follows Phase 23.8.6B1 so the verification-policy wording can align with the
+  checked-in self-hosting review/launch policy and consume B1 blocked
+  disposition only as upstream evidence.
 - Prepares Phase 23.8.6C, Phase 23.8.6D, Phase 23.8.6E, Phase 23.8.7, and
   Phase 23.9 to reference one canonical full-pack proof path.
 - Does not replace Phase 30 bounded experimentation or Phase 31 reviewed

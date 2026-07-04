@@ -44,6 +44,9 @@ external runners or implementing runtime runner execution enforcement.
 - If that bounded handoff returns a result through approved manual or reviewed
   procedure surfaces, ingest the result as typed lifecycle evidence rather
   than chat-only state.
+- If Phase 23.8.6B1 review-launch evidence already exists, surface the blocked
+  disposition and exact next valid action without implementing another review
+  launcher.
 - Run deterministic checks and an independent reviewer/evaluator-agent step
   when required by the review tier.
 - Record every lifecycle problem as typed `RunIssue` evidence.
@@ -53,6 +56,8 @@ external runners or implementing runtime runner execution enforcement.
   mutation.
 - Consume the task already active in the worktree. This phase must not choose a
   different task, silently rewrite `TASK.md`, or backfill authority by chat.
+- Do not treat review request files, diagnosis notes, or other run-local
+  markdown artifacts as accepted memory.
 - Preserve one task = one branch = one worktree.
 
 ## Non-goals
@@ -112,8 +117,9 @@ adapter and runtime execution enforcement planned in Phase 31.
 ## Relationship to previous and next phases
 
 - Consumes the exact-identity and slice-isolated foundations from Phase 23.8.6,
-  the replay/re-ingestion continuity from Phase 23.8.6A, and the verification
-  policy from Phase 23.8.6B2.
+  the replay/re-ingestion continuity from Phase 23.8.6A, the supervised
+  review-launch status from Phase 23.8.6B1, and the verification policy from
+  Phase 23.8.6B2.
 - Precedes Phase 23.8.6D so minimum-loop procedure/state evidence can later
   rely on durable SQL-backed artifact storage.
 - Precedes Phase 23.8.7, which should formalize packet/result/policy contracts

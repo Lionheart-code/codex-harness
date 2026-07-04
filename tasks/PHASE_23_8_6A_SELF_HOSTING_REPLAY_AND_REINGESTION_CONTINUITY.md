@@ -4,13 +4,13 @@
 
 Planned implementation phase. Starts only after Phase 23.8.6 Transactional
 Procedure Result Ingestion and Slice-Isolated Run Mutations is complete,
-reviewed, accepted, and merged. `TASK.md` currently points here as the active
-worktree operator context for adjacent docs/task-contract wiring and authority
-correction, but that pointer does not waive the Phase 23.8.6 runtime
-dependency and does not authorize implementation of Phase 23.8.6B or later
-behavior. Before materializing this task context for implementation, local
-`main` must be fast-forwarded to fresh `origin/main`, and the new task must
-preserve one task = one branch = one worktree.
+reviewed, accepted, and merged. Earlier adjacent docs/task-contract wiring used
+this file as the active worktree operator context, but that historical pointer
+did not waive the Phase 23.8.6 runtime dependency and did not authorize
+implementation of Phase 23.8.6B or later behavior. Before materializing this
+task context for implementation, local `main` must be fast-forwarded to fresh
+`origin/main`, and the new task must preserve one task = one branch = one
+worktree.
 
 ## Purpose
 

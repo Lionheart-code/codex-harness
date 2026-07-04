@@ -406,9 +406,9 @@ Perform a docs/task-contract authority rebase before runtime automation work.
 Status:
 Historical/accepted authority-rebase phase. Phase 23.8 is complete, reviewed,
 and accepted, and the 23.8.5 outputs remain live roadmap/task-authority
-surfaces. `TASK.md` currently points to Phase 23.8.6A as the active worktree
-operator context, so older "23.8.5 active" wording is stale authority drift
-rather than the current operator pointer.
+surfaces. A previous adjacent wiring pass used Phase 23.8.6A as the active
+worktree operator context; older "23.8.5 active" wording is historical
+delivery context rather than the current operator pointer.
 Docs/task-contract and registry contract-enforcement only: no runtime
 automation code, ingestion commands, packet automation, proof generation,
 reports, access APIs, MCP, runners, hooks, provider adapters, or domain-pack
@@ -426,8 +426,9 @@ Required scope:
   fails closed; keep `schema_version` unchanged because this is an atomic
   product-source registry update, not a runtime migration;
 - update this roadmap with the Phase 23.8.5 -> 23.8.6 -> 23.8.6A -> 23.8.6B ->
-  23.8.6B2 -> 23.8.6C -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9 -> 24A -> 24B
-  -> 25A -> 25B -> 26 sequence and a direct block before Phase 23.9;
+  23.8.6B1 -> 23.8.6B2 -> 23.8.6C -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9
+  -> 24A -> 24B -> 25A -> 25B -> 26 sequence and a direct block before Phase
+  23.9;
 - separate end-of-old-cycle decision from start-of-new-cycle materialization:
   closeout/harvest may record the next task, while the new cycle creates or
   enters the task branch/worktree, activates the task there, and starts the
@@ -452,7 +453,7 @@ Required scope:
 - amend agent boundary/security docs to split `RunnerProfile` from
   `ExecutionPolicy`;
 - create or extend task contracts for Phases 23.8.6, 23.8.6A, 23.8.6B,
-  23.8.6B2, 23.8.6C, 23.8.6D, 23.8.6E, and 23.8.7 as the near-term
+  23.8.6B1, 23.8.6B2, 23.8.6C, 23.8.6D, 23.8.6E, and 23.8.7 as the near-term
   self-hosting chain becomes repo-owned authority;
 - amend Phase 23.8.7 so `StagePacket` contracts require a verifiable stopping
   condition, required validation commands/artifacts, and a bounded
@@ -475,9 +476,9 @@ Required scope:
   created by `node bin/ch prompt ...`.
 
 Future-phase impact check:
-- prepares 23.8.6, 23.8.6A, 23.8.6B, 23.8.6B2, 23.8.6C, 23.8.6D, 23.8.6E,
-  23.8.7, 23.9, 24A/24B, 25A/25B, 26, and downstream Phases 27-31 by making
-  dependencies explicit;
+- prepares 23.8.6, 23.8.6A, 23.8.6B, 23.8.6B1, 23.8.6B2, 23.8.6C, 23.8.6D,
+  23.8.6E, 23.8.7, 23.9, 24A/24B, 25A/25B, 26, and downstream Phases 27-31 by
+  making dependencies explicit;
 - must not pre-implement transactional ingestion, packet automation, proof
   generation, report builders, access APIs, planner logic, domain packs,
   prior-art discovery, or experimentation;
@@ -539,8 +540,8 @@ Required scope:
   to real product commands or documented ingestion paths.
 
 Future-phase impact check:
-- prepares 23.8.6A, 23.8.6B, 23.8.6B2, 23.8.6C, 23.8.6D, 23.8.6E, 23.8.7, and
-  23.9 by making procedure/stage inputs durable and monotonic;
+- prepares 23.8.6A, 23.8.6B, 23.8.6B1, 23.8.6B2, 23.8.6C, 23.8.6D, 23.8.6E,
+  23.8.7, and 23.9 by making procedure/stage inputs durable and monotonic;
 - must not pre-implement packet automation, runner execution, proof records,
   reports, access APIs, domain packs, or experimentation;
 - preserves the domain/core boundary by only hardening generic run/procedure
@@ -561,10 +562,10 @@ across the full active operator chain without manual repair.
 
 Status:
 Planned implementation phase. Blocked until Phase 23.8.6 is complete,
-reviewed, accepted, and merged. `TASK.md` currently points here as the active
-worktree operator context for adjacent docs/task-contract wiring and authority
-correction, but that pointer does not waive the Phase 23.8.6 runtime
-dependency or authorize later-phase runtime implementation.
+reviewed, accepted, and merged. Earlier task-contract wiring used this phase as
+the active worktree operator context, but that historical pointer did not
+waive the Phase 23.8.6 runtime dependency or authorize later-phase runtime
+implementation.
 
 Required scope:
 - generalize exact-artifact replay and idempotent re-ingestion across the full
@@ -587,8 +588,9 @@ Required scope:
   completed work.
 
 Future-phase impact check:
-- prepares 23.8.6B, 23.8.6B2, 23.8.6C, 23.8.6D, 23.8.6E, 23.8.7, and 23.9 by
-  restoring honest continuity on top of exact-identity run authority;
+- prepares 23.8.6B, 23.8.6B1, 23.8.6B2, 23.8.6C, 23.8.6D, 23.8.6E, 23.8.7,
+  and 23.9 by restoring honest continuity on top of exact-identity run
+  authority;
 - must not pre-implement packet automation, runner execution, docs/model
   routing policy packaging, provider selection, or experimentation;
 - preserves the domain/core boundary by staying inside runtime continuity
@@ -619,21 +621,74 @@ Required scope:
   policy;
 - package no-silent-degradation, bounded-helper/subagent limits, and explicit
   wait discipline for child runs;
-- keep 23.8.7 advisory only and Phase 31 as the first home for runtime
-  execution enforcement;
+- keep 23.8.7 advisory only and Phase 31 as the first home for general
+  reviewed runner execution and packet-bound child/runner execution
+  enforcement beyond the narrow supervised review-launch surface planned in
+  Phase 23.8.6B1;
 - make only narrow consistency updates in the authoritative docs and future
   task contracts that need to reference that policy;
 - add no runtime code, runner execution, or provider-specific lifecycle logic.
 
 Future-phase impact check:
-- prepares 23.8.6B2, 23.8.6C, 23.8.6E, 23.8.7, 24A/24B, 30, and 31 by turning
-  the current review-launch and routing discipline into checked-in authority;
+- prepares 23.8.6B1, 23.8.6B2, 23.8.6C, 23.8.6E, 23.8.7, 24A/24B, 30, and 31
+  by turning the current review-launch and routing discipline into checked-in
+  authority;
 - must not pre-implement runtime replay/re-ingestion repair, packet
   automation, runner execution, provider routing, or proof/report logic;
 - preserves the domain/core boundary by remaining a narrow docs/task-policy
   pass;
 - requires architecture review if this pass starts adding runtime execution
   logic or provider-specific lifecycle behavior.
+
+## Phase 23.8.6B1 — Supervised Review Launch and Blocked Disposition
+
+Task:
+`tasks/PHASE_23_8_6B1_SUPERVISED_REVIEW_LAUNCH_AND_BLOCKED_DISPOSITION.md`
+
+Goal:
+Turn the checked-in manual review-launch discipline into a supervised runtime
+surface for `plan-review` and `implementation-review`, with honest blocked
+disposition and exact-identity-safe launch evidence.
+
+Status:
+Active task-contract alignment phase. Phase 23.8.6B is already complete,
+reviewed, accepted, merged, harvested, and pulled into fresh `main`, so B1 is
+the current task-authority target. The current B1 pass is docs/task-authority
+only; runtime implementation for this same phase begins after this source
+authority is reviewed, accepted, and merged.
+
+Required scope:
+- add a narrow `run launch-review` runtime surface for `plan-review` and
+  `implementation-review`;
+- resolve display `run_id` to exact run identity before durable evidence
+  mutation and fail closed when exact identity is ambiguous or unavailable;
+- keep launch supervision, artifact validation, provenance classification,
+  blocked disposition, and operator-status projection inside a generic
+  supervisor layer;
+- keep Codex-specific launch construction, local CLI probing, and flag/output
+  handling inside a narrow `codex_cli` adapter;
+- classify the launch surface as bounded `process_execution` with read-only
+  sandboxing, no source-file writes, mandatory timeout/stale limits, and no
+  automatic relaunch loop;
+- record structured launch-attempt evidence and immutable artifact references
+  without turning this phase into the storage-normalization owner;
+- return a structured launch observation with bounded output, failure
+  classification, artifact/blocker refs, and next valid action for every
+  success, dry-run, failure, or blocked path;
+- accept review artifacts only from a valid expected artifact file or unchanged
+  validated captured output persisted as the artifact;
+- keep review request files, blocker notes, and other run-local notes out of
+  accepted review-artifact status.
+
+Future-phase impact check:
+- prepares 23.8.6B2, 23.8.6C, 23.8.6D, 23.8.6E, 23.8.7, 23.9, 30, and 31 to
+  consume exact-identity review-launch evidence without duplicating review
+  launch supervision;
+- must not pre-implement verification-command rationalization, storage
+  normalization, packet execution, proof generation, experimentation, or
+  reviewed general runner execution;
+- preserves the domain/core boundary by keeping B1 limited to supervised review
+  launch and blocked disposition.
 
 ## Phase 23.8.6B2 — Verification Command Rationalization and Serialization
 
@@ -646,7 +701,7 @@ one canonical proof command and stop treating duplicate npm aliases as
 independent proof.
 
 Status:
-Planned. Blocked until Phase 23.8.6B is complete, reviewed, accepted, and
+Planned. Blocked until Phase 23.8.6B1 is complete, reviewed, accepted, and
 merged.
 
 Required scope:
@@ -659,6 +714,12 @@ Required scope:
   still imply both aliases are required as separate proof;
 - forbid concurrent launch of the full-pack aliases in the same
   workspace/runtime context;
+- keep verification-command rationalization separate from review-launch
+  supervision, review-artifact validity, and blocked disposition;
+- allow B2 to consume B1 blocked disposition or review-launch status only as
+  upstream evidence;
+- keep durable verification-result association exact-identity safe rather than
+  relying on display `run_id` alone;
 - keep this phase to verification-policy authority only.
 
 Future-phase impact check:
@@ -688,6 +749,9 @@ Required scope:
   fact, and exact run identity state;
 - prepare one bounded worker handoff, prompt, or packet for the selected next
   step;
+- allow bootstrap/status output to surface B1 review-launch blocked
+  disposition and next valid action when already recorded, without
+  implementing another review launcher;
 - if a result is returned through approved manual or reviewed procedure
   surfaces, ingest that result into typed lifecycle evidence;
 - run deterministic checks and independent reviewer/evaluator-agent steps when
@@ -696,6 +760,9 @@ Required scope:
 - generate a `RepairPacket` before continuing when unresolved issues exist;
 - continue only until a hard blocker, configured owner gate, or budget stop;
 - preserve one task = one branch = one worktree;
+- keep review request files, diagnosis notes, and run-local markdown out of
+  accepted-memory authority unless a later storage phase explicitly promotes
+  them;
 - keep this phase narrow and reviewed rather than turning it into a broad
   workflow engine or replacement coding agent.
 
@@ -728,12 +795,25 @@ Required scope:
   authoritative payloads rather than file-only side effects;
 - preserve exact run identity, procedure identity, and worktree/task/branch/
   base-commit provenance alongside those payloads;
+- require exact-instance keyed or exact-instance resolvable storage for
+  procedure artifacts, review artifacts, plan artifacts, verification results,
+  delivery facts, closeout receipts, harvest records, payload index entries,
+  and artifact references;
+- address the known storage finding that generic project tables queried only by
+  display `run_id` can mix old and new run instances;
 - preserve those payloads into project DB harvest or equivalent promoted
   authority;
 - keep run-local markdown files as non-authoritative transition artifacts only
   if compatibility still requires them;
 - require project-DB audit or reconstruction of recorded procedure bodies
   without relying on run-local markdown file presence.
+- distinguish artifact body, artifact reference, payload chunk/ref, structured
+  lifecycle record, manual request file, diagnosis/reconciliation note, and
+  accepted durable project memory;
+- define which artifact types become promoted structured project records and
+  which remain file-backed run-local evidence;
+- do not treat every `*-request.md`, launch blocker, diagnosis snapshot, or
+  reconciliation note as a promoted project record by default.
 
 Future-phase impact check:
 - prepares 23.8.6E, 23.8.7, 23.9, and later report/proof phases to consume
@@ -760,6 +840,11 @@ Required scope:
 - check `TASK.md` active pointer, roadmap active/current wording, task status
   fields, future/live task assumptions, verification guidance, bootstrap
   assumptions, storage/harvest assumptions, and downstream dependency notes;
+- include a lightweight mechanical authority-drift check, implemented as a
+  repo-owned command if one exists or as a bounded scripted/search checklist
+  otherwise, that covers stale current-pointer claims, skipped phase ordering,
+  duplicate active-task claims, broad B1-vs-Phase-31 runner wording, and
+  display-`run_id` authority misuse;
 - distinguish stale future/live authority surfaces from historical/accepted
   task history;
 - update only the future/live surfaces that are stale against current code,
@@ -786,8 +871,8 @@ run-state after Phase 23.8.6C proves the minimum loop.
 
 Status:
 Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
-23.8.6B2, Phase 23.8.6C, Phase 23.8.6D, and Phase 23.8.6E are complete and
-reviewed.
+23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6D, and Phase 23.8.6E
+are complete and reviewed.
 
 Required scope:
 - define `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,
@@ -805,6 +890,8 @@ Required scope:
 - route failed review fixtures to `FIX_PASS_PACKET`;
 - route passing review fixtures to `CLOSEOUT_PACKET` or closeout-ready state;
 - block missing deterministic checks with typed `stop_reason`.
+- keep B1 launch-attempt evidence compatible with exact-instance packet/result
+  design rather than ambiguous display-`run_id` readback.
 - formalize the minimum-loop failure fixtures observed during Phase 23.8.6B,
   including self-approval attempt, skipped architecture/db review, missing
   review artifacts, blocker-note-as-accept, source edits before valid
@@ -846,9 +933,9 @@ procedure/stage records.
 
 Status:
 Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
-23.8.6B2, Phase 23.8.6C, Phase 23.8.6D, Phase 23.8.6E, and Phase 23.8.7 are
-complete and reviewed, unless a later reviewed decision explicitly defers or
-waives that dependency.
+23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6D, Phase 23.8.6E, and
+Phase 23.8.7 are complete and reviewed, unless a later reviewed decision
+explicitly defers or waives that dependency.
 This phase must not become a separate lifecycle authority. Operator/proof
 schemas remain provisional sketches unless tightened during implementation.
 
@@ -861,12 +948,18 @@ Must preserve:
 - review verdict mapping;
 - model/provider metadata fields where available;
 - deterministic evidence outranks model opinion;
+- B1 review-launch evidence remains distinct from review-artifact validity,
+  review verdict, verification proof, blocked disposition, artifact refs,
+  payload refs, exact run identity, and accepted memory;
 - proof can be produced from a completed or reviewed run;
 - proof states what was verified, reviewed, assumed, and missing;
 - proof format supports Phase 24A packets later.
 
 Must not:
 - implement run-state ingestion;
+- use display `run_id` alone as proof identity;
+- depend on scraping ambiguous run-local markdown histories as authoritative
+  proof;
 - generate reports or proposal drafts;
 - expose access APIs or MCP;
 - create domain-specific proof records;
@@ -1178,8 +1271,11 @@ Required scope highlights:
 - harness change proposals tied to evidence/eval IDs;
 - bounded drift/entropy cleanup proposals for stale docs, wrapper drift,
   source-map drift, duplicate authority, and abandoned experiment notes;
+- recurring mechanically checkable authority-drift patterns nominated by Phase
+  23.8.6E freshness reports may become eval or cleanup candidates only after
+  explicit review;
 - immutable evaluator, durable experiment record, and explicit keep/revert
-  decision.
+  decision;
 - must not make Phase 30 the first place where basic lifecycle failure
   fixtures are introduced.
 

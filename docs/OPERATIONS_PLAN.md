@@ -57,8 +57,9 @@ procedure contract as the prompt source. Generated product prompts from
 replace checked-in self-hosting procedure wrappers.
 Use `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` as the checked-in source for
 review-launch discipline, local CLI probe requirements, bounded-helper policy,
-and the rule that Phase 31 is the first runtime home for child/runner
-execution enforcement.
+and the rule that Phase 31 is the first runtime home for general reviewed
+runner execution and packet-bound child/runner execution enforcement beyond
+the narrow supervised review-launch surface planned in Phase 23.8.6B1.
 
 The product direction is a lightweight, provider-neutral harness control plane:
 different models or runners may handle different stages only through explicit
@@ -73,7 +74,8 @@ stops only for configured high-risk decisions.
 Near-term progression:
 
 ```text
-23.8.6 -> 23.8.6A -> 23.8.6B -> 23.8.6B2 -> 23.8.6C -> 23.8.6D ->
+23.8.6 -> 23.8.6A -> 23.8.6B -> 23.8.6B1 -> 23.8.6B2 -> 23.8.6C ->
+23.8.6D ->
 23.8.6E -> 23.8.7 -> 23.9
 ```
 

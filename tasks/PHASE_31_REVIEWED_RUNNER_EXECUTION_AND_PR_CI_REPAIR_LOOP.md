@@ -41,11 +41,16 @@ Required behavior:
   path constraints.
 - Record structured runner invocation results and map them back to
   `StageResult`, delivery facts, or equivalent typed evidence.
+- Key runner execution records by, or explicitly resolve them through, exact
+  run identity rather than display `run_id` alone.
 - Ingest CI and review outcomes as typed facts/evidence rather than free-form
   chat state.
 - Prepare bounded fix-pass packets when CI or review fails.
 - Keep provider/host adapters behind shared runner/access boundaries instead
   of embedding provider-specific logic into core lifecycle behavior.
+- Reuse the supervised child-process pattern from Phase 23.8.6B1 only through
+  reviewed generic runner boundaries; the B1 `codex_cli` review-launch adapter
+  must not imply general runner permission.
 - Preserve human review and approval boundaries for high-risk writes, merges,
   and lifecycle transitions.
 - Treat `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` as the reviewed policy
@@ -91,7 +96,8 @@ git diff --check
   explicit `RunnerProfile` and `ExecutionPolicy` boundaries.
 - Failing CI/review outcomes can produce bounded fix-pass packets.
 - Runner execution writes typed evidence/results that preserve lifecycle and
-  approval boundaries.
+  approval boundaries and exact-instance-safe identity plus artifact/payload
+  references.
 - If full-pack proof is required, use `npm test` as the canonical command.
   Treat `npm run test:acceptance` only as a compatibility alias to the same
   proof path, not as independent proof and not as a separately required

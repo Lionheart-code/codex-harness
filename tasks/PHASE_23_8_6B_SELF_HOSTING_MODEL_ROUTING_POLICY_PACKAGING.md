@@ -36,8 +36,8 @@ Required behavior:
   - explicit wait discipline for child runs;
   - cheap orchestrator as a later controlled target only;
   - Codex CLI separate review launch discipline;
-  - phase placement across 23.8.6, 23.8.6A, 23.8.6B, 23.8.6B2, 23.8.6C,
-    23.8.6D, 23.8.6E, 23.8.7, 24A/24B, 30, and 31.
+  - phase placement across 23.8.6, 23.8.6A, 23.8.6B, 23.8.6B1, 23.8.6B2,
+    23.8.6C, 23.8.6D, 23.8.6E, 23.8.7, 24A/24B, 30, and 31.
 - Perform a read-only local Codex CLI capability probe before drafting the
   implementation plan:
   - `codex --version || true`
@@ -159,11 +159,12 @@ lifecycle behavior, closeout, or harvest is allowed in Phase 23.8.6B.
 
 - Packages the policy boundary needed before later packet metadata, reports,
   eval calibration, and reviewed runner execution phases.
-- Prepares the immediate later 23.8.6B2/6C/6E docs/task surfaces to consume
-  checked-in review-launch and policy assumptions without moving runtime
-  behavior into those phases.
-- Keeps Phase 23.8.7 advisory only and Phase 31 as the first home for
-  runtime-enforced child/runner execution.
+- Prepares the immediate later 23.8.6B1/6B2/6C/6E docs/task surfaces to
+  consume checked-in review-launch and policy assumptions without moving
+  runtime behavior into those phases.
+- Keeps Phase 23.8.7 advisory only and Phase 31 as the first home for general
+  reviewed runner execution and runtime-enforced child/runner execution beyond
+  the narrow supervised review-launch surface planned in Phase 23.8.6B1.
 - Must not pre-implement runtime replay/re-ingestion repair, packet
   automation, runner execution, provider routing, proof generation, or reports.
 - Requires architecture review if this pass starts adding runtime launch logic,
