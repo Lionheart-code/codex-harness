@@ -3,10 +3,10 @@
 ## Status
 
 Historical/accepted authority-rebase phase. Its outputs remain live roadmap
-and task-authority surfaces, but `TASK.md` currently points to Phase 23.8.6A
-as the active worktree operator context. This file may receive only narrow
-authority-correction or forward-dependency notes; it is not the active task
-pointer.
+and task-authority surfaces, but the then-current Phase 23.8.6A pointer was
+only adjacent wiring context rather than permanent current-state authority.
+This file may receive only narrow authority-correction or forward-dependency
+notes; it is not the active task pointer.
 
 ## Purpose
 
@@ -62,8 +62,8 @@ Required changes:
 - Update acceptance coverage so wrapper drift fails closed, including a negative
   validator test for mismatched `prompt_wrapper_path`.
 - Update `docs/IMPLEMENTATION_ROADMAP.md` with the Phase 23.8.5 -> 23.8.6 ->
-  23.8.6A -> 23.8.6B -> 23.8.6B2 -> 23.8.6C -> 23.8.6D -> 23.8.6E ->
-  23.8.7 -> 23.9 -> 24A -> 24B -> 25A -> 25B -> 26 sequence.
+  23.8.6A -> 23.8.6B -> 23.8.6B1 -> 23.8.6B2 -> 23.8.6C -> 23.8.6D ->
+  23.8.6E -> 23.8.7 -> 23.9 -> 24A -> 24B -> 25A -> 25B -> 26 sequence.
 - Amend roadmap/operator contracts to make this invariant explicit:
   one task = one branch = one worktree; a closing or harvested run may decide
   the next task, but the new branch/worktree belongs to the new active task and

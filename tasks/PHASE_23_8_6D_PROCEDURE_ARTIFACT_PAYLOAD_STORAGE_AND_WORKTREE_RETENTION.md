@@ -19,6 +19,11 @@ paths. That leaves a durability gap: once the local worktree or compatibility
 markdown files disappear, the project DB cannot reconstruct or audit the actual
 recorded procedure body.
 
+The storage gap is not only file-vs-payload durability. Generic project
+records queried only by display `run_id` can mix old and new run instances
+that reuse the same display identity, which is not safe for durable review,
+verification, closeout, harvest, or proof readback.
+
 ## Scope
 
 This phase owns raw procedure artifact payload storage, exact-identity harvest
@@ -31,6 +36,9 @@ artifacts later.
   authoritative structured payloads, not as file-only side effects.
 - Preserve exact run identity, procedure identity, and artifact provenance
   alongside those payloads.
+- Key or explicitly resolve durable project records through exact run identity
+  such as `run_instance_id` and `project_run_id`, never by display `run_id`
+  alone.
 - Preserve enough worktree retention metadata to audit where the recorded
   artifact came from even after the original worktree is pruned or unavailable.
 - Preserve exact-identity payloads into the project DB during harvest or
@@ -39,6 +47,36 @@ artifacts later.
   artifacts when compatibility requires them.
 - Make project-DB readback able to reconstruct or audit recorded procedure
   artifact bodies without relying on run-local file presence.
+- Cover exact-instance keyed or exact-instance resolvable storage for:
+
+  ```text
+  procedure artifacts
+  review artifacts
+  plan artifacts
+  verification results
+  delivery facts
+  closeout receipts
+  harvest records
+  payload index entries
+  artifact references
+  ```
+
+- Distinguish clearly between:
+
+  ```text
+  artifact body
+  artifact reference
+  payload chunk/ref
+  structured lifecycle record
+  manual request file
+  diagnosis/reconciliation note
+  accepted durable project memory
+  ```
+
+- Define which artifact types are promoted as structured project records and
+  which remain file-backed run-local evidence.
+- Do not treat every `*-request.md`, launch blocker, diagnosis snapshot, or
+  reconciliation note as a promoted project record by default.
 - Keep storage and harvest behavior append-only and exact-identity safe.
 
 ## Non-goals
@@ -92,6 +130,9 @@ behavior.
 
 - Follows Phase 23.8.6C so bootstrap/runtime entrypoints have a stable identity
   surface before artifact durability is widened.
+- Takes supervised review-launch evidence from Phase 23.8.6B1 once that phase
+  exists, but B1 itself must fail closed instead of inventing an interim
+  global storage layer.
 - Prepares Phase 23.8.6E to revalidate storage/harvest assumptions against real
   implementation facts.
 - Prepares Phase 23.8.7, Phase 23.9, and later report/proof phases to consume

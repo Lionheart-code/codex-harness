@@ -40,8 +40,14 @@ Required behavior:
   wrapper/skill/registry drift, source-map drift, duplicate authority, and
   abandoned experimental notes to be surfaced as reviewed improvement
   proposals.
+- Allow recurring mechanically checkable authority-drift patterns nominated by
+  Phase 23.8.6E freshness reports to become eval or cleanup candidates only
+  after explicit review.
 - Keep experiment records, evaluator references, keep/revert decisions, and
   review outcomes durable and auditable.
+- When experimentation consumes supervised review-launch evidence from
+  Phase 23.8.6B1, keep that telemetry keyed by or explicitly resolvable
+  through exact run identity rather than display `run_id` alone.
 - Do not make Phase 30 the first place where basic lifecycle-failure fixtures
   appear.
 
@@ -63,7 +69,9 @@ Required behavior:
 - test decomposer variants;
 - validate guardrails/hooks;
 - optimize task packet formats;
-- surface bounded drift/entropy cleanup opportunities.
+- surface bounded drift/entropy cleanup opportunities;
+- turn approved recurring authority-drift patterns into regression checks or
+  cleanup proposals;
 - evaluate whether routes or cheaper-review candidates outperform the baseline
   assumptions recorded in `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md`.
 
@@ -77,6 +85,8 @@ Required behavior:
 - Not automatic cleanup or deletion of docs/artifacts.
 - Not self-approval of harness changes.
 - Not the first phase that creates base lifecycle failure fixtures.
+- Not conversion of kept experiment output into accepted project truth without
+  review and harvest.
 
 ## Future-phase impact check
 
@@ -95,6 +105,8 @@ Required behavior:
   than only happy paths.
 - Eval candidates from findings/traces/CI failures require explicit review
   before becoming regression fixtures.
+- Authority-drift candidates from Phase 23.8.6E require explicit review before
+  becoming regression checks, eval fixtures, or cleanup proposals.
 - Accepted harness changes cite the motivating evidence and eval IDs.
 - Drift/entropy issues may become reviewed cleanup proposals, but nothing is
   deleted or rewritten automatically.

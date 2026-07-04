@@ -5,11 +5,12 @@
 Planned. Starts only after Phase 23.8.6 Transactional Procedure Result
 Ingestion and Slice-Isolated Run Mutations, Phase 23.8.6A Self-Hosting Replay
 and Re-ingestion Continuity, Phase 23.8.6B Self-Hosting Model Routing Policy
-Packaging, Phase 23.8.6B2 Verification Command Rationalization and
-Serialization, Phase 23.8.6C Minimum Self-Hosting Orchestrator Entrypoint,
-Phase 23.8.6D Procedure Artifact Payload Storage and Worktree Retention, and
-Phase 23.8.6E Authority Surface Freshness and Downstream Task Revalidation
-are complete, reviewed, and accepted.
+Packaging, Phase 23.8.6B1 Supervised Review Launch and Blocked Disposition,
+Phase 23.8.6B2 Verification Command Rationalization and Serialization, Phase
+23.8.6C Minimum Self-Hosting Orchestrator Entrypoint, Phase 23.8.6D Procedure
+Artifact Payload Storage and Worktree Retention, and Phase 23.8.6E Authority
+Surface Freshness and Downstream Task Revalidation are complete, reviewed, and
+accepted.
 
 ## Purpose
 
@@ -40,6 +41,10 @@ Required behavior:
 - Missing deterministic checks block with typed `stop_reason`.
 - Packet preparation and result ingestion use the stable run-state foundation
   from Phase 23.8.6.
+- Treat supervised review-launch evidence from Phase 23.8.6B1 as
+  exact-instance evidence rather than ambiguous display-`run_id` evidence.
+- Keep stage status, procedure artifact, artifact refs, payload refs, exact
+  run identity, blocked disposition, and next allowed action distinct.
 - Any advisory packet routing/model fields must inherit the checked-in policy
   boundary from `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` without launching
   reviewers or runners.
@@ -52,14 +57,17 @@ Required behavior:
 
 ## Core interfaces
 
-`StageState`: `task_id`, `run_id`, `current_stage`,
-`allowed_next_stages`, `missing_inputs`, `missing_evidence`, `blockers`,
+`StageState`: `task_id`, `run_id`, `run_instance_id`,
+`project_run_id`, `current_stage`, `allowed_next_stages`,
+`missing_inputs`, `missing_evidence`, `blockers`, `blocked_disposition`,
 `stop_reason`, `human_action_required`, `next_allowed_action`.
 
-`StagePacket`: `packet_id`, `packet_kind`, `task_id`, `run_id`, `stage_id`,
-`procedure_id`, `effective_plan_ref`, `evidence_refs`, `input_refs`,
-`output_contract`, `required_result_schema`, `stopping_condition`,
-`validation_refs`, `progress_log_contract`, `execution_policy_ref`.
+`StagePacket`: `packet_id`, `packet_kind`, `task_id`, `run_id`,
+`run_instance_id`, `project_run_id`, `stage_id`, `procedure_id`,
+`effective_plan_ref`, `procedure_artifact_ref`, `payload_refs`,
+`evidence_refs`, `input_refs`, `output_contract`, `required_result_schema`,
+`stopping_condition`, `validation_refs`, `progress_log_contract`,
+`execution_policy_ref`.
 
 `RunnerProfile`: `runner_id`, `runner_kind`, `supported_roles`,
 `supported_packet_kinds`, `structured_output_support`, `write_capability`,
@@ -69,9 +77,10 @@ Required behavior:
 `network_policy`, `command_policy`, `timeout_policy`, `allowed_paths`,
 `forbidden_paths`.
 
-`StageResult`: `result_id`, `packet_id`, `runner_id`, `runner_metadata`,
-`files_changed`, `commands_run`, `outputs`, `declared_blockers`,
-`evidence_refs`, `validation_results`, `progress_log_ref`,
+`StageResult`: `result_id`, `packet_id`, `run_instance_id`,
+`project_run_id`, `runner_id`, `runner_metadata`, `files_changed`,
+`commands_run`, `outputs`, `declared_blockers`, `blocked_disposition`,
+`payload_refs`, `evidence_refs`, `validation_results`, `progress_log_ref`,
 `result_schema_valid`.
 
 `RunIssue`: `issue_id`, `stage_id`, `severity`, `issue_kind`,

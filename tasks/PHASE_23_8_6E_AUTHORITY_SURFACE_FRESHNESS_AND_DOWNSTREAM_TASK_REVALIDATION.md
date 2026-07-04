@@ -39,6 +39,19 @@ are still supposed to guide current or future work.
   - storage/harvest assumptions;
   - bootstrap/operator assumptions;
   - downstream dependency notes.
+- Include a lightweight mechanical authority-drift check. If a repo-owned
+  docs/task validation command exists in the implementation context, use it;
+  otherwise produce a bounded scripted/search checklist that checks at least:
+  - stale present-tense `TASK.md currently points...` claims;
+  - near-term phase ordering that skips an inserted active phase such as
+    direct `23.8.6B -> 23.8.6B2` wording;
+  - duplicate or conflicting "active/current task" authority claims;
+  - broad wording that makes Phase 23.8.6B1 look like general Phase 31 runner
+    execution;
+  - future/live surfaces that treat display `run_id` alone as durable or
+    accepted-memory identity; and
+  - future/live surfaces that treat request files, blocker notes, or diagnosis
+    notes as accepted review artifacts or accepted memory.
 - Distinguish future/live authority surfaces from historical/accepted task
   history.
 - Update only future/live authority surfaces that are stale against current
@@ -47,6 +60,9 @@ are still supposed to guide current or future work.
   already allows a narrow annotation.
 - Produce a bounded freshness/revalidation report rather than a broad roadmap
   rewrite.
+- Record repeated authority-drift patterns as Phase 30 eval or cleanup
+  candidates when they are recurring and mechanically checkable; do not turn
+  this phase into an experimentation loop.
 
 ## Non-goals
 
@@ -69,6 +85,9 @@ git diff --check
 
 - The revalidation pass checks every required authority surface category listed
   above.
+- The mechanical authority-drift check or checklist records the exact patterns
+  checked, the matching files, and whether each match is stale future/live
+  authority, acceptable historical context, or unrelated text.
 - The implementation clearly distinguishes stale future/live authority surfaces
   from historical/accepted task history.
 - Only future/live files that are actually stale are updated.
@@ -114,3 +133,5 @@ The implementation report for this phase must include:
 - the files intentionally left untouched and why;
 - verification results;
 - remaining debt or risk.
+- any recurring mechanically checkable drift patterns proposed as Phase 30 eval
+  or cleanup candidates.

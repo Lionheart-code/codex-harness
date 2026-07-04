@@ -13,13 +13,14 @@ unknown, what assumptions were made, and what review outcome applies.
 
 Planned. Blocked until Phase 23.8.6 Transactional Procedure Result Ingestion,
 Phase 23.8.6A Self-Hosting Replay and Re-ingestion Continuity, Phase 23.8.6B
-Self-Hosting Model Routing Policy Packaging, Phase 23.8.6B2 Verification
-Command Rationalization and Serialization, Phase 23.8.6C Minimum
-Self-Hosting Orchestrator Entrypoint, Phase 23.8.6D Procedure Artifact
-Payload Storage and Worktree Retention, Phase 23.8.6E Authority Surface
-Freshness and Downstream Task Revalidation, and Phase 23.8.7 Hookless
-Stage-Level Operator Packet Automation are complete and reviewed, unless a
-later reviewed decision explicitly defers or waives that dependency.
+Self-Hosting Model Routing Policy Packaging, Phase 23.8.6B1 Supervised Review
+Launch and Blocked Disposition, Phase 23.8.6B2 Verification Command
+Rationalization and Serialization, Phase 23.8.6C Minimum Self-Hosting
+Orchestrator Entrypoint, Phase 23.8.6D Procedure Artifact Payload Storage and
+Worktree Retention, Phase 23.8.6E Authority Surface Freshness and Downstream
+Task Revalidation, and Phase 23.8.7 Hookless Stage-Level Operator Packet
+Automation are complete and reviewed, unless a later reviewed decision
+explicitly defers or waives that dependency.
 
 ## Scope
 
@@ -49,11 +50,19 @@ approval.
 - Proof consumes procedure outcomes, stage state, packets, stage results,
   deterministic checks, review verdicts, and waiver refs.
 - Proof records provenance and gaps.
+- Proof may reference Phase 23.8.6B1 review-launch evidence, but it must keep
+  review-launch proof, review artifact validity, review verdict, verification
+  proof, blocked disposition, artifact body, artifact ref, payload ref, exact
+  run identity, and accepted memory distinct.
 - Proof does not decide lifecycle.
 - Proof does not implement run-state ingestion.
 - Proof does not override deterministic failures.
 - Deterministic failure requires an explicit waiver record.
 - Waivers are referenced by proof; proof does not create waivers.
+- Proof records must be keyed by or explicitly resolvable through exact run
+  identity rather than display `run_id` alone.
+- Proof must not depend on scraping ambiguous markdown histories from run-local
+  files as authoritative evidence.
 
 ## Use existing repo foundations
 
@@ -85,6 +94,8 @@ These may be added later once the minimal proof record is useful.
 - Waivers are referenced, not created by proof.
 - The format supports Phase 24A packets later.
 - Proof is not a new lifecycle authority.
+- Proof identity does not collapse distinct exact run instances that reuse the
+  same display `run_id`.
 
 ## Future-phase impact check
 
