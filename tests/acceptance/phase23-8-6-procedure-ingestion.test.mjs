@@ -20,6 +20,7 @@ import {
 const require = createRequire(import.meta.url);
 const ACTIVE_TASK_PATH = "tasks/PHASE_23_8_6_TRANSACTIONAL_PROCEDURE_RESULT_INGESTION.md";
 const ACTIVE_TASK_23_8_6A_PATH = "tasks/PHASE_23_8_6A_SELF_HOSTING_REPLAY_AND_REINGESTION_CONTINUITY.md";
+const ACTIVE_TASK_23_8_6B2_PATH = "tasks/PHASE_23_8_6B2_VERIFICATION_COMMAND_RATIONALIZATION_AND_SERIALIZATION.md";
 const TIMESTAMP = "2026-06-24T00:00:00.000Z";
 const tempDirectories = [];
 
@@ -70,6 +71,39 @@ function activeTask23_8_6AMarkdown() {
     "```",
     ""
   ].join("\n");
+}
+
+function activeTask23_8_6B2Markdown() {
+  return [
+    "# Phase 23.8.6B2 - Verification Command Rationalization and Serialization",
+    "",
+    "## Scope",
+    "",
+    "This is a narrow verification-policy and authority-surface phase.",
+    "",
+    "## Non-goals",
+    "",
+    "- No runtime feature implementation.",
+    "- No package-script changes.",
+    "- No CI changes.",
+    "- No acceptance-runner code changes.",
+    "",
+    "## Source/runtime boundary",
+    "",
+    "This phase is docs/task/verification-guidance authority only. It must not",
+    "change runtime code, package scripts, CI, or acceptance-runner behavior.",
+    "",
+    "## Acceptance commands",
+    "",
+    "```bash",
+    "git diff --check",
+    "```",
+    ""
+  ].join("\n");
+}
+
+function readProductText(relativePath) {
+  return fs.readFileSync(path.join(productRoot, relativePath), "utf8");
 }
 
 function createPhase2386Repo(prefix) {
@@ -172,6 +206,114 @@ function createPhase2386ARepo(prefix) {
   return tempRepo;
 }
 
+function createPhase2386B2Repo(prefix) {
+  const tempRepo = createTempDirectory(prefix);
+  tempDirectories.push(tempRepo);
+
+  assertSuccess(runCommand("git", ["init"], { cwd: tempRepo }), `git init in ${tempRepo}`);
+  configureLocalGitIdentity(tempRepo);
+  writeText(path.join(tempRepo, "README.md"), "# phase 23.8.6B2\n");
+  assertSuccess(runCommand("git", ["add", "README.md"], { cwd: tempRepo }), "git add README.md");
+  assertSuccess(runCommand("git", ["commit", "-m", "init"], { cwd: tempRepo }), "git commit init");
+
+  fs.mkdirSync(path.join(tempRepo, "tasks"), { recursive: true });
+  fs.mkdirSync(path.join(tempRepo, "docs"), { recursive: true });
+  fs.mkdirSync(path.join(tempRepo, "skills"), { recursive: true });
+
+  writeText(
+    path.join(tempRepo, "TASK.md"),
+    [
+      "# Current Task",
+      "",
+      `Implement only: ${ACTIVE_TASK_23_8_6B2_PATH}`,
+      "",
+      "Do not implement Phase 23.8.6C or later.",
+      ""
+    ].join("\n")
+  );
+  writeText(path.join(tempRepo, ACTIVE_TASK_23_8_6B2_PATH), activeTask23_8_6B2Markdown());
+  writeText(
+    path.join(tempRepo, "docs", "IMPLEMENTATION_ROADMAP.md"),
+    [
+      "## Phase 23.8.6B2 — Verification Command Rationalization and Serialization",
+      "",
+      "Task:",
+      `\`${ACTIVE_TASK_23_8_6B2_PATH}\``,
+      ""
+    ].join("\n")
+  );
+
+  fs.cpSync(path.join(productRoot, "skills", "self-hosting"), path.join(tempRepo, "skills", "self-hosting"), {
+    recursive: true
+  });
+  fs.cpSync(path.join(productRoot, "prompts", "self-hosting"), path.join(tempRepo, "prompts", "self-hosting"), {
+    recursive: true
+  });
+
+  assertSuccess(runCommand("git", ["add", "."], { cwd: tempRepo }), "git add phase 23.8.6B2 scaffold");
+  assertSuccess(runCommand("git", ["commit", "-m", "phase 23.8.6B2 scaffold"], { cwd: tempRepo }), "git commit scaffold");
+
+  return tempRepo;
+}
+
+function createPhase2386B2AuthorityBaselineRepo(prefix) {
+  const tempRepo = createTempDirectory(prefix);
+  tempDirectories.push(tempRepo);
+
+  assertSuccess(runCommand("git", ["init"], { cwd: tempRepo }), `git init in ${tempRepo}`);
+  configureLocalGitIdentity(tempRepo);
+
+  fs.mkdirSync(path.join(tempRepo, "docs"), { recursive: true });
+  fs.mkdirSync(path.join(tempRepo, "tasks"), { recursive: true });
+
+  writeText(path.join(tempRepo, "README.md"), "# phase 23.8.6B1\n");
+  writeText(
+    path.join(tempRepo, "TASK.md"),
+    [
+      "# Current Task",
+      "",
+      "Implement only: tasks/PHASE_23_8_6B1_SUPERVISED_REVIEW_LAUNCH_AND_BLOCKED_DISPOSITION.md",
+      "",
+      "Do not implement Phase 23.8.6B2 or later.",
+      ""
+    ].join("\n")
+  );
+  writeText(path.join(tempRepo, ACTIVE_TASK_23_8_6B2_PATH), "# planned B2 task\n");
+  writeText(
+    path.join(tempRepo, "docs", "IMPLEMENTATION_ROADMAP.md"),
+    [
+      "## Phase 23.8.6B1 — Supervised Review Launch and Blocked Disposition",
+      "",
+      "Status:",
+      "Active implementation phase.",
+      "",
+      "## Phase 23.8.6B2 — Verification Command Rationalization and Serialization",
+      "",
+      "Status:",
+      "Planned. Blocked until Phase 23.8.6B1 is complete, reviewed, accepted, and merged.",
+      ""
+    ].join("\n")
+  );
+  writeText(path.join(tempRepo, "docs", "PLATFORM_COMPATIBILITY_AND_COMMAND_EXECUTION.md"), "# platform old\n");
+  writeText(path.join(tempRepo, "docs", "RELEASE_AND_SUPPLY_CHAIN_SECURITY.md"), "# release old\n");
+  writeText(path.join(tempRepo, "docs", "SELF_HOSTING_PLAN_REVIEW_WORKFLOW.md"), "# plan review old\n");
+  writeText(path.join(tempRepo, "tasks", "PHASE_23_8_6C_SELF_HOSTING_OPERATOR_BOOTSTRAP_ENTRYPOINT.md"), "# b2c old\n");
+  writeText(path.join(tempRepo, "tasks", "PHASE_23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION.md"), "# b2e old\n");
+
+  fs.cpSync(path.join(productRoot, "skills", "self-hosting"), path.join(tempRepo, "skills", "self-hosting"), {
+    recursive: true
+  });
+  fs.cpSync(path.join(productRoot, "prompts", "self-hosting"), path.join(tempRepo, "prompts", "self-hosting"), {
+    recursive: true
+  });
+  writeText(path.join(tempRepo, "skills", "self-hosting", "phase-closeout-review", "SKILL.md"), "# closeout old\n");
+
+  assertSuccess(runCommand("git", ["add", "."], { cwd: tempRepo }), "git add phase 23.8.6B2 authority baseline");
+  assertSuccess(runCommand("git", ["commit", "-m", "phase 23.8.6B2 authority baseline"], { cwd: tempRepo }), "git commit authority baseline");
+
+  return tempRepo;
+}
+
 function createBaseRunForTask(runtimeModule, tempRepo, runId, activeTaskPath, phaseId) {
   return runtimeModule.buildRuntimeRun({
     runId,
@@ -193,6 +335,10 @@ function createBaseRun(runtimeModule, tempRepo, runId) {
 
 function createBaseRun23_8_6A(runtimeModule, tempRepo, runId) {
   return createBaseRunForTask(runtimeModule, tempRepo, runId, ACTIVE_TASK_23_8_6A_PATH, "23.8.6A");
+}
+
+function createBaseRun23_8_6B2(runtimeModule, tempRepo, runId) {
+  return createBaseRunForTask(runtimeModule, tempRepo, runId, ACTIVE_TASK_23_8_6B2_PATH, "23.8.6B2");
 }
 
 function appendProcedureEvidence(run, procedureId, index) {
@@ -576,6 +722,184 @@ function buildClosedRun(runtimeModule, tempRepo, runId) {
   return run;
 }
 
+function buildPhase2386B2DocsOnlyPlanAmendArtifact() {
+  return [
+    "## Effective Plan Status",
+    "",
+    "approved",
+    "",
+    "## Allowed Authority Surfaces",
+    "",
+    "- `TASK.md`",
+    "- `README.md`",
+    "- `docs/IMPLEMENTATION_ROADMAP.md`",
+    "- `docs/PLATFORM_COMPATIBILITY_AND_COMMAND_EXECUTION.md`",
+    "- `tasks/PHASE_23_8_6B2_VERIFICATION_COMMAND_RATIONALIZATION_AND_SERIALIZATION.md`",
+    "- `tasks/PHASE_23_8_6C_SELF_HOSTING_OPERATOR_BOOTSTRAP_ENTRYPOINT.md`",
+    "- `skills/self-hosting/phase-closeout-review/SKILL.md`",
+    "",
+    "## Scope Notes",
+    "",
+    "- Update the active B2 task and roadmap surfaces as needed.",
+    "- Inspect near downstream planned/future task contracts only where this B2 slice requires it.",
+    "- Keep this pass docs/task/policy authority only.",
+    ""
+  ].join("\n");
+}
+
+function buildPhase2386B2MentionOnlyFuturePhasePlanAmendArtifact() {
+  return [
+    "## Effective Plan Status",
+    "",
+    "approved",
+    "",
+    "## Allowed Authority Surfaces",
+    "",
+    "- `TASK.md`",
+    "- `README.md`",
+    "- `docs/PLATFORM_COMPATIBILITY_AND_COMMAND_EXECUTION.md`",
+    "- `tasks/PHASE_23_8_6B2_VERIFICATION_COMMAND_RATIONALIZATION_AND_SERIALIZATION.md`",
+    "",
+    "## Scope Notes",
+    "",
+    "- Keep this pass docs/task/policy authority only.",
+    "- Inspect near downstream planned/future task contracts only where this B2 slice requires it.",
+    "- Relationship notes may mention Phase `23.8.6C`, but that mention alone does not approve its task file as an implementation surface.",
+    ""
+  ].join("\n");
+}
+
+function buildPhase2386B2NonApprovedExplicitPathPlanAmendArtifact() {
+  return [
+    "## Effective Plan Status",
+    "",
+    "approved",
+    "",
+    "## Allowed Authority Surfaces",
+    "",
+    "- `TASK.md`",
+    "- `tasks/PHASE_23_8_6B2_VERIFICATION_COMMAND_RATIONALIZATION_AND_SERIALIZATION.md`",
+    "",
+    "## Effective Scope",
+    "",
+    "- Keep this pass docs/task/policy authority only.",
+    "",
+    "## Background Notes",
+    "",
+    "- Historical notes may still reference `skills/self-hosting/phase-closeout-review/SKILL.md`, but that path is not part of the approved implementation surface for this test.",
+    ""
+  ].join("\n");
+}
+
+function buildPhase2386B2SupersededDraftPlanArtifact() {
+  return [
+    "## Included",
+    "",
+    "- `TASK.md`",
+    "- `tasks/PHASE_23_8_6B2_VERIFICATION_COMMAND_RATIONALIZATION_AND_SERIALIZATION.md`",
+    "- `skills/self-hosting/phase-closeout-review/SKILL.md`",
+    "",
+    "## Risks And Open Questions",
+    "",
+    "- This draft is superseded once an amended or approved plan exists.",
+    ""
+  ].join("\n");
+}
+
+function buildPhase2386B2CurrentApprovedPlanAmendArtifact() {
+  return [
+    "## Review Finding Disposition",
+    "",
+    "- Finding 1: incomplete live-surface classification for `.github/workflows/ci.yml` and `README.md` — accepted.",
+    "  Resolution:",
+    "  - `README.md` is treated as live/current docs authority and must be inspected and updated in B2 if it implies separate proof rather than shared-runner compatibility.",
+    "  - `.github/workflows/ci.yml` is treated as live current operational behavior that must be inspected and explicitly classified, but not edited in B2 because the active task forbids CI changes.",
+    "  - The implementation report must state that CI still runs both aliases today if that remains true after the pass, and that this B2 slice changes authority wording only.",
+    "",
+    "- Finding 2: missing skill-risk classification for `skills/self-hosting/phase-closeout-review/SKILL.md` — accepted.",
+    "  Resolution:",
+    "  - Keep the existing `phase-closeout-review` skill edit in scope as a narrow B2 authority correction because it prevents stale active/blocked phase-status drift from surviving closeout freshness review.",
+    "  - Do not broaden that skill change into procedure redesign, runtime enforcement, or unrelated workflow edits.",
+    "",
+    "## Effective Plan Status",
+    "",
+    "This amended plan supersedes `.harness/runs/run-0001/manual/draft-plan.md` for execution in `run-0001`.",
+    "",
+    "Recommended path remains docs/task/policy authority only.",
+    "",
+    "No real operator choice remains for the next execution path:",
+    "",
+    "- inspect hidden and top-level live authority surfaces;",
+    "- edit live/current docs and immediate planned/future task contracts only where B2 requires it;",
+    "- leave CI behavior unchanged;",
+    "- keep the `phase-closeout-review` skill tweak only as the already-bounded freshness correction.",
+    "",
+    "## Effective Scope",
+    "",
+    "- Keep B2 limited to verification-policy and authority-surface wording.",
+    "- Treat `npm test` as the canonical full-pack verification command for required proof.",
+    "- Treat `npm run test:acceptance` as a compatibility alias only.",
+    "- Preserve the repo fact that both aliases still map to `node scripts/run-acceptance.mjs`, and that the runner invokes Node with `--test-concurrency=1`.",
+    "- Inspect and classify `README.md` and `.github/workflows/ci.yml` explicitly.",
+    "- Update `README.md` if its wording currently implies separate required proof rather than shared-runner compatibility.",
+    "- Do not edit `.github/workflows/ci.yml` in B2; classify it as current operational behavior and report it as untouched when appropriate.",
+    "- Keep the current `phase-closeout-review` skill edit only as a narrow authority-freshness correction tied to this exact stale-status failure mode.",
+    "- Leave historical accepted task history and old test fixtures broadly untouched unless one of them still acts as live authority for this phase.",
+    "",
+    "## Effective Steps",
+    "",
+    "1. Re-run the alias/serialization search including hidden workflow and top-level doc surfaces, then classify each hit as:",
+    "   - live/current docs authority to update now;",
+    "   - live current operational behavior to inspect/report only;",
+    "   - immediate planned/future task authority to update now; or",
+    "   - historical accepted context to leave untouched.",
+    "",
+    "2. Update the active B2 task and roadmap surfaces as needed so they remain aligned with the canonical-command rule and no-concurrent-alias rule.",
+    "",
+    "3. Inspect `README.md`.",
+    "   - If it only states the current shared-runner fact, keep it.",
+    "   - If it implies separate required proof, patch it so it reflects canonical `npm test`, compatibility-alias `npm run test:acceptance`, and any untouched CI behavior accurately.",
+    "",
+    "4. Inspect `.github/workflows/ci.yml`.",
+    "   - Record it as current operational behavior if it still runs both aliases.",
+    "   - Do not edit it in B2.",
+    "   - If its existence creates a documentation contradiction, resolve that contradiction in docs/reporting rather than by changing CI.",
+    "",
+    "5. Inspect near downstream planned/future task contracts and live docs for duplicate-proof wording.",
+    "   - Patch only the immediate planned/future authority surfaces that still contradict B2.",
+    "   - Do not broaden into older phases or unrelated future tasks.",
+    "",
+    "6. Preserve the existing `skills/self-hosting/phase-closeout-review/SKILL.md` change only as a narrow freshness/authority safeguard.",
+    "   - Do not add more procedure/skill changes unless a touched live authority surface would otherwise remain inconsistent.",
+    "",
+    "7. Validate with `git diff --check`.",
+    "   - Run `npm test` once only if a touched live/current sentence cannot be justified from repo-owned evidence alone.",
+    "   - Otherwise state explicitly that full-pack execution was unnecessary for this docs-only pass.",
+    ""
+  ].join("\n");
+}
+
+function applyCurrentB2OnlyAuthorityDiff(tempRepo) {
+  const currentPaths = [
+    "README.md",
+    "TASK.md",
+    "docs/IMPLEMENTATION_ROADMAP.md",
+    "docs/PLATFORM_COMPATIBILITY_AND_COMMAND_EXECUTION.md",
+    "docs/RELEASE_AND_SUPPLY_CHAIN_SECURITY.md",
+    "docs/SELF_HOSTING_PLAN_REVIEW_WORKFLOW.md",
+    "skills/self-hosting/phase-closeout-review/SKILL.md",
+    "tasks/PHASE_23_8_6B2_VERIFICATION_COMMAND_RATIONALIZATION_AND_SERIALIZATION.md",
+    "tasks/PHASE_23_8_6C_SELF_HOSTING_OPERATOR_BOOTSTRAP_ENTRYPOINT.md",
+    "tasks/PHASE_23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION.md"
+  ];
+
+  for (const relativePath of currentPaths) {
+    const absolutePath = path.join(tempRepo, relativePath);
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    writeText(absolutePath, readProductText(relativePath));
+  }
+}
+
 test("phase 23.8.6 record-procedure ingests a durable plan-review artifact and is idempotent", () => {
   const runtimeModule = loadBuiltRuntime();
   const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-plan-review-");
@@ -868,6 +1192,764 @@ test("phase 23.8.6 operator treats live task-scoped source changes as implementa
   const output = runOperatorStatus(tempRepo, run.run_id);
   assert.equal(output.get("current_stage"), "IMPLEMENTATION_REVIEW_REQUIRED");
   assert.equal(output.get("next_procedure_id"), "implementation-review");
+});
+
+test("phase 23.8.6B2 docs/task-only phases treat allowed authority-surface diffs as implementation evidence after plan approval", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386B2Repo("codex-harness-phase23-8-6b2-docs-implementation-evidence-");
+  let run = createBaseRun23_8_6B2(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", "# draft-plan\n", 2);
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", buildPhase2386B2DocsOnlyPlanAmendArtifact());
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-amended-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record plan-review before docs-only implementation evidence");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-amend",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record effective amended plan before docs-only implementation evidence");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  ), "approve reviewed plan before docs-only implementation evidence");
+
+  fs.mkdirSync(path.join(tempRepo, "docs"), { recursive: true });
+  fs.mkdirSync(path.join(tempRepo, "tasks"), { recursive: true });
+  fs.mkdirSync(path.join(tempRepo, "skills", "self-hosting"), { recursive: true });
+  writeText(path.join(tempRepo, "TASK.md"), "# Current Task\n\nImplement only: tasks/PHASE_23_8_6B2_VERIFICATION_COMMAND_RATIONALIZATION_AND_SERIALIZATION.md\n\nDo not implement Phase 23.8.6C or later.\n");
+  writeText(path.join(tempRepo, "README.md"), "# updated readme\n");
+  writeText(path.join(tempRepo, "docs", "PLATFORM_COMPATIBILITY_AND_COMMAND_EXECUTION.md"), "# platform\n");
+  writeText(path.join(tempRepo, "tasks", "PHASE_23_8_6C_SELF_HOSTING_OPERATOR_BOOTSTRAP_ENTRYPOINT.md"), "# downstream task\n");
+  writeText(path.join(tempRepo, "skills", "self-hosting", "phase-closeout-review", "SKILL.md"), "# skill\n");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "IMPLEMENTATION_REVIEW_REQUIRED");
+  assert.equal(output.get("next_procedure_id"), "implementation-review");
+});
+
+test("phase 23.8.6B2 docs/task-only phases do not advance on forbidden source changes", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386B2Repo("codex-harness-phase23-8-6b2-docs-forbidden-src-");
+  let run = createBaseRun23_8_6B2(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", "# draft-plan\n", 2);
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", buildPhase2386B2DocsOnlyPlanAmendArtifact());
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-amended-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record plan-review before forbidden source diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-amend",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record effective amended plan before forbidden source diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  ), "approve reviewed plan before forbidden source diff check");
+
+  fs.mkdirSync(path.join(tempRepo, "src"), { recursive: true });
+  writeText(path.join(tempRepo, "src", "forbidden.ts"), "export const forbidden = true;\n");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "IMPLEMENTATION_READY");
+  assert.equal(output.get("next_procedure_id"), "none");
+});
+
+test("phase 23.8.6B2 docs/task-only phases do not advance on forbidden CI changes", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386B2Repo("codex-harness-phase23-8-6b2-docs-forbidden-ci-");
+  let run = createBaseRun23_8_6B2(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", "# draft-plan\n", 2);
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", buildPhase2386B2DocsOnlyPlanAmendArtifact());
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-amended-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record plan-review before forbidden CI diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-amend",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record effective amended plan before forbidden CI diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  ), "approve reviewed plan before forbidden CI diff check");
+
+  fs.mkdirSync(path.join(tempRepo, ".github", "workflows"), { recursive: true });
+  writeText(path.join(tempRepo, ".github", "workflows", "ci.yml"), "name: ci\n");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "IMPLEMENTATION_READY");
+  assert.equal(output.get("next_procedure_id"), "none");
+});
+
+test("phase 23.8.6B2 docs/task-only phases do not advance on forbidden package-script changes", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386B2Repo("codex-harness-phase23-8-6b2-docs-forbidden-package-");
+  let run = createBaseRun23_8_6B2(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", "# draft-plan\n", 2);
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", buildPhase2386B2DocsOnlyPlanAmendArtifact());
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-amended-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record plan-review before forbidden package diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-amend",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record effective amended plan before forbidden package diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  ), "approve reviewed plan before forbidden package diff check");
+
+  writeText(path.join(tempRepo, "package.json"), "{\n  \"name\": \"forbidden\"\n}\n");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "IMPLEMENTATION_READY");
+  assert.equal(output.get("next_procedure_id"), "none");
+});
+
+test("phase 23.8.6B2 docs/task-only phases do not advance on forbidden runner changes", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386B2Repo("codex-harness-phase23-8-6b2-docs-forbidden-runner-");
+  let run = createBaseRun23_8_6B2(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", "# draft-plan\n", 2);
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", buildPhase2386B2DocsOnlyPlanAmendArtifact());
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-amended-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record plan-review before forbidden runner diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-amend",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record effective amended plan before forbidden runner diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  ), "approve reviewed plan before forbidden runner diff check");
+
+  fs.mkdirSync(path.join(tempRepo, "scripts"), { recursive: true });
+  writeText(path.join(tempRepo, "scripts", "run-acceptance.mjs"), "console.log('forbidden');\n");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "IMPLEMENTATION_READY");
+  assert.equal(output.get("next_procedure_id"), "none");
+});
+
+test("phase 23.8.6B2 docs/task-only phases do not advance when a future phase task is only mentioned, not explicitly allowed", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386B2Repo("codex-harness-phase23-8-6b2-docs-mentioned-future-task-");
+  let run = createBaseRun23_8_6B2(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", "# draft-plan\n", 2);
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(
+    tempRepo,
+    run.run_id,
+    "plan-amend-8",
+    buildPhase2386B2MentionOnlyFuturePhasePlanAmendArtifact()
+  );
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-amended-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record plan-review before mentioned future task diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-amend",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record effective amended plan before mentioned future task diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  ), "approve reviewed plan before mentioned future task diff check");
+
+  fs.mkdirSync(path.join(tempRepo, "tasks"), { recursive: true });
+  writeText(path.join(tempRepo, "tasks", "PHASE_23_8_6C_SELF_HOSTING_OPERATOR_BOOTSTRAP_ENTRYPOINT.md"), "# downstream task\n");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "IMPLEMENTATION_READY");
+  assert.equal(output.get("next_procedure_id"), "none");
+});
+
+test("phase 23.8.6B2 docs/task-only phases do not authorize explicit paths mentioned outside approved scope sections", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386B2Repo("codex-harness-phase23-8-6b2-non-approved-explicit-path-");
+  let run = createBaseRun23_8_6B2(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", "# draft-plan\n", 2);
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", buildPhase2386B2NonApprovedExplicitPathPlanAmendArtifact());
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-amended-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record plan-review before non-approved explicit path diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-amend",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record effective amended plan before non-approved explicit path diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  ), "approve reviewed plan before non-approved explicit path diff check");
+
+  fs.mkdirSync(path.join(tempRepo, "skills", "self-hosting", "phase-closeout-review"), { recursive: true });
+  writeText(path.join(tempRepo, "skills", "self-hosting", "phase-closeout-review", "SKILL.md"), "# skill\n");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "IMPLEMENTATION_READY");
+  assert.equal(output.get("next_procedure_id"), "none");
+});
+
+test("phase 23.8.6B2 docs/task-only phases ignore superseded draft-plan path mentions once an amended plan exists", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386B2Repo("codex-harness-phase23-8-6b2-superseded-draft-path-");
+  let run = createBaseRun23_8_6B2(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", buildPhase2386B2SupersededDraftPlanArtifact(), 2);
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", buildPhase2386B2NonApprovedExplicitPathPlanAmendArtifact());
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-amended-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record plan-review before superseded draft-path diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-amend",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record effective amended plan before superseded draft-path diff check");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  ), "approve reviewed plan before superseded draft-path diff check");
+
+  fs.mkdirSync(path.join(tempRepo, "skills", "self-hosting", "phase-closeout-review"), { recursive: true });
+  writeText(path.join(tempRepo, "skills", "self-hosting", "phase-closeout-review", "SKILL.md"), "# skill\n");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "IMPLEMENTATION_READY");
+  assert.equal(output.get("next_procedure_id"), "none");
+});
+
+test("phase 23.8.6B2 real B2-only changed-path set routes to implementation review against the approved B2 authority", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386B2AuthorityBaselineRepo("codex-harness-phase23-8-6b2-live-authority-proof-");
+  let run = createBaseRun23_8_6B2(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", "# draft-plan\n", 2);
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", buildPhase2386B2CurrentApprovedPlanAmendArtifact());
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-amended-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record plan-review before live B2-only authority proof");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-amend",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record effective amended plan before live B2-only authority proof");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  ), "approve reviewed plan before live B2-only authority proof");
+
+  applyCurrentB2OnlyAuthorityDiff(tempRepo);
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "IMPLEMENTATION_REVIEW_REQUIRED");
+  assert.equal(output.get("next_procedure_id"), "implementation-review");
+});
+
+test("phase 23.8.6B2 actual approved B2 authority does not authorize unrelated future task files", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386B2AuthorityBaselineRepo("codex-harness-phase23-8-6b2-unrelated-future-task-");
+  let run = createBaseRun23_8_6B2(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", "# draft-plan\n", 2);
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", buildPhase2386B2CurrentApprovedPlanAmendArtifact());
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-amended-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record plan-review before unrelated future task proof");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-amend",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record effective amended plan before unrelated future task proof");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  ), "approve reviewed plan before unrelated future task proof");
+
+  applyCurrentB2OnlyAuthorityDiff(tempRepo);
+  writeText(path.join(tempRepo, "tasks", "PHASE_23_8_7_PACKET_RESULT_LIFECYCLE_CONTRACT.md"), "# unrelated future task\n");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "IMPLEMENTATION_READY");
+  assert.equal(output.get("next_procedure_id"), "none");
+});
+
+test("phase 23.8.6B2 mixed B2 plus B2A worktree still does not count as B2 implementation-review-ready", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386B2AuthorityBaselineRepo("codex-harness-phase23-8-6b2-live-mixed-proof-");
+  let run = createBaseRun23_8_6B2(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", "# draft-plan\n", 2);
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", buildPhase2386B2CurrentApprovedPlanAmendArtifact());
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-amended-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record plan-review before mixed B2 and B2A proof");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-amend",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`
+    ],
+    { cwd: tempRepo }
+  ), "record effective amended plan before mixed B2 and B2A proof");
+
+  assertSuccess(runCli(
+    [
+      "run",
+      "approve-plan",
+      "--run",
+      run.run_id,
+      "--plan",
+      `.harness/runs/${run.run_id}/manual/plan-amend-8.md`,
+      "--approver",
+      "owner",
+      "--reason",
+      "Human approved the reviewed implementation plan."
+    ],
+    { cwd: tempRepo }
+  ), "approve reviewed plan before mixed B2 and B2A proof");
+
+  applyCurrentB2OnlyAuthorityDiff(tempRepo);
+  fs.mkdirSync(path.join(tempRepo, "src", "core"), { recursive: true });
+  writeText(path.join(tempRepo, "src", "core", "runtime.ts"), "export const b2aMixed = true;\n");
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "IMPLEMENTATION_READY");
+  assert.equal(output.get("next_procedure_id"), "none");
 });
 
 test("phase 23.8.6 TASK.md-only diffs do not count as implementation evidence", () => {
