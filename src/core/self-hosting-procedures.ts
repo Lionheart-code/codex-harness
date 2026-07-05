@@ -24,6 +24,16 @@ export interface SelfHostingOperatorContract {
   latest_amendment_supersedes_prior_plan?: boolean;
 }
 
+export interface SelfHostingReviewLaunchProfile {
+  adapter_id: "codex_cli";
+  model: string;
+  reasoning_effort: string;
+  sandbox_mode: "read-only";
+  output_mode: "file";
+  timeout_seconds: number;
+  stale_after_seconds: number;
+}
+
 export interface SelfHostingProcedureDescriptor {
   procedure_id: string;
   title: string;
@@ -41,6 +51,7 @@ export interface SelfHostingProcedureDescriptor {
   authority_level: SelfHostingProcedureAuthorityLevel;
   generated_or_install_targets_non_authoritative: boolean;
   operator_contract?: SelfHostingOperatorContract;
+  review_launch_profile?: SelfHostingReviewLaunchProfile;
 }
 
 export interface SelfHostingProcedureRegistry {
@@ -173,6 +184,53 @@ function assertOperatorContract(value: unknown, label: string): SelfHostingOpera
   };
 }
 
+function assertPositiveInteger(value: unknown, field: string, label: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`${label} has invalid ${field}.`);
+  }
+
+  return value;
+}
+
+function assertReviewLaunchProfile(
+  value: unknown,
+  procedureId: string,
+  label: string
+): SelfHostingReviewLaunchProfile | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (procedureId !== "plan-review" && procedureId !== "implementation-review") {
+    throw new Error(`${label} review_launch_profile is only allowed for plan-review and implementation-review.`);
+  }
+
+  const record = assertObject(value, `${label} review_launch_profile`);
+  const adapterId = assertString(record.adapter_id, "adapter_id", `${label} review_launch_profile`);
+  const sandboxMode = assertString(record.sandbox_mode, "sandbox_mode", `${label} review_launch_profile`);
+  const outputMode = assertString(record.output_mode, "output_mode", `${label} review_launch_profile`);
+
+  if (adapterId !== "codex_cli") {
+    throw new Error(`${label} review_launch_profile adapter_id must be codex_cli.`);
+  }
+  if (sandboxMode !== "read-only") {
+    throw new Error(`${label} review_launch_profile sandbox_mode must be read-only.`);
+  }
+  if (outputMode !== "file") {
+    throw new Error(`${label} review_launch_profile output_mode must be file.`);
+  }
+
+  return {
+    adapter_id: adapterId,
+    model: assertString(record.model, "model", `${label} review_launch_profile`),
+    reasoning_effort: assertString(record.reasoning_effort, "reasoning_effort", `${label} review_launch_profile`),
+    sandbox_mode: sandboxMode,
+    output_mode: outputMode,
+    timeout_seconds: assertPositiveInteger(record.timeout_seconds, "timeout_seconds", `${label} review_launch_profile`),
+    stale_after_seconds: assertPositiveInteger(record.stale_after_seconds, "stale_after_seconds", `${label} review_launch_profile`)
+  };
+}
+
 export function validateSelfHostingProcedureRegistry(value: unknown): SelfHostingProcedureRegistry {
   const record = assertObject(value, "self-hosting procedure registry");
   assertSupportedSchemaVersion(record.schema_version, SELF_HOSTING_PROCEDURE_REGISTRY_PATH);
@@ -216,6 +274,11 @@ export function validateSelfHostingProcedureRegistry(value: unknown): SelfHostin
 
     const operatorContract = assertOperatorContract(
       item.operator_contract,
+      `self-hosting procedure registry procedure ${procedureId}`
+    );
+    const reviewLaunchProfile = assertReviewLaunchProfile(
+      item.review_launch_profile,
+      procedureId,
       `self-hosting procedure registry procedure ${procedureId}`
     );
 
@@ -279,7 +342,8 @@ export function validateSelfHostingProcedureRegistry(value: unknown): SelfHostin
         "generated_or_install_targets_non_authoritative",
         `self-hosting procedure registry procedures[${index}]`
       ),
-      ...(operatorContract ? { operator_contract: operatorContract } : {})
+      ...(operatorContract ? { operator_contract: operatorContract } : {}),
+      ...(reviewLaunchProfile ? { review_launch_profile: reviewLaunchProfile } : {})
     };
   });
 

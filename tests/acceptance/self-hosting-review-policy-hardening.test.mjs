@@ -118,8 +118,15 @@ test("global self-hosting review policy is consistent across task docs prompts a
 
   assert.match(draftPlanSkill, /Check task\/docs\/prompt\/skill consistency when authoritative behavior\s+changes\./i);
   assert.match(draftPlanSkill, /reject future-phase leakage/i);
+  assert.match(draftPlanSkill, /Identify the source files, runtime state, CLI surfaces, docs, tests, and\s+procedure artifacts/i);
+  assert.match(draftPlanSkill, /validation matrix/i);
+  assert.match(draftPlanSkill, /stop conditions/i);
   assert.match(draftPlanSkill, /`docs_consistency`/);
   assert.match(draftPlanFormat, /## Reviewer Policy Checks/);
+  assert.match(draftPlanFormat, /## Source Inputs And Surfaces/);
+  assert.match(draftPlanFormat, /## Implementation Surfaces/);
+  assert.match(draftPlanFormat, /## Validation Matrix/);
+  assert.match(draftPlanFormat, /## Stop Conditions And Handoff/);
   for (const marker of [
     /anti_slop:/,
     /design_invariant:/,
@@ -133,6 +140,7 @@ test("global self-hosting review policy is consistent across task docs prompts a
   }
 
   assert.match(planReviewSkill, /Check `anti_slop`, `design_invariant`, `scope_legality`, `evidence_gap`,\s+`docs_consistency`, and `future_phase_leakage` explicitly\./i);
+  assert.match(planReviewSkill, /Confirm the plan identifies source inputs, implementation surfaces, open\s+engineering questions, validation matrix entries, stop conditions, and\s+handoff criteria\./i);
   assert.match(planReviewSkill, /Confirm `review_tier_controls` are named/i);
   assert.match(planReviewSkill, /durable decision record/i);
   assert.match(planReviewSkill, /real operator choices/i);

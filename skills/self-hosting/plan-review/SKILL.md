@@ -42,6 +42,9 @@ Independently review a draft plan before implementation begins.
 - Compare the plan against the task and non-goals.
 - Treat the task as the boundary contract and the draft plan as a proposed
   concretization inside that boundary.
+- Confirm the plan identifies source inputs, implementation surfaces, open
+  engineering questions, validation matrix entries, stop conditions, and
+  handoff criteria.
 - Check for later-phase creep and authority-boundary violations.
 - Check `anti_slop`, `design_invariant`, `scope_legality`, `evidence_gap`,
   `docs_consistency`, and `future_phase_leakage` explicitly.
@@ -70,6 +73,9 @@ Return the exact section order documented in
 
 ## blocker_conditions
 - The plan is missing key implementation or validation details.
+- The plan omits source inputs, implementation surfaces, open engineering
+  questions, validation matrix entries, stop conditions, or handoff criteria
+  needed for a safe implementation pass.
 - The review intensity tier is unknown for a high-risk task.
 - The review surface cannot be derived safely.
 - Source trace is unclear for an authoritative behavior change.

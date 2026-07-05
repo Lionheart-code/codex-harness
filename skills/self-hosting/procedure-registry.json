@@ -150,13 +150,14 @@
     {
       "procedure_id": "draft-plan",
       "title": "Draft Plan",
-      "purpose": "Produce a decision-complete candidate execution plan without editing files or starting execution.",
+      "purpose": "Produce a decision-complete, agent-legible candidate execution plan without editing files or starting execution.",
       "canonical_source_path": "skills/self-hosting/draft-plan/",
       "skill_path": "skills/self-hosting/draft-plan/SKILL.md",
       "source_notes_path": "skills/self-hosting/draft-plan/references/source-notes.md",
       "output_format_path": "skills/self-hosting/draft-plan/references/output-format.md",
       "required_inputs": [
         "normalized task contract",
+        "prior procedure artifacts for the current run",
         "relevant roadmap and boundary docs",
         "validation commands and acceptance expectations",
         "known risks, assumptions, and open questions"
@@ -164,13 +165,17 @@
       "blocker_conditions": [
         "acceptance or boundary rules are too ambiguous to plan safely",
         "key implementation choices depend on missing repo facts",
-        "the task already requires decomposition instead of direct planning"
+        "the task already requires decomposition instead of direct planning",
+        "required source surfaces, validation signals, or stop conditions cannot be identified from repo-owned inputs"
       ],
       "evidence_to_record": [
         "draft plan",
+        "implementation surfaces",
+        "open engineering questions",
         "assumptions and risks",
         "reviewer policy checks",
-        "validation commands",
+        "validation matrix",
+        "stop conditions and implementation handoff criteria",
         "explicit out-of-scope items"
       ],
       "phase_24_packet_dependencies": [
@@ -181,6 +186,9 @@
       "operator_contract": {
         "primary_outputs": [
           "candidate execution plan",
+          "implementation surfaces",
+          "validation matrix",
+          "stop conditions and implementation handoff criteria",
           "recommended defaults",
           "real operator choices only when needed"
         ],
@@ -251,6 +259,15 @@
           "future_phase_deferrals"
         ],
         "real_operator_choices_only": true
+      },
+      "review_launch_profile": {
+        "adapter_id": "codex_cli",
+        "model": "gpt-5.5",
+        "reasoning_effort": "high",
+        "sandbox_mode": "read-only",
+        "output_mode": "file",
+        "timeout_seconds": 1800,
+        "stale_after_seconds": 300
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 lifecycle and accepted-memory authority stay unchanged during pre-implementation planning."
@@ -432,6 +449,15 @@
           "fix_required",
           "blocked"
         ]
+      },
+      "review_launch_profile": {
+        "adapter_id": "codex_cli",
+        "model": "gpt-5.5",
+        "reasoning_effort": "medium",
+        "sandbox_mode": "read-only",
+        "output_mode": "file",
+        "timeout_seconds": 1800,
+        "stale_after_seconds": 300
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 delivery facts, closeout, and harvest remain downstream authority boundaries."

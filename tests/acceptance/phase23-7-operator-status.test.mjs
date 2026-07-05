@@ -550,6 +550,11 @@ test("phase 23.7 operator status accepts split phase ids from task and roadmap",
       activeTaskPath: "tasks/PHASE_24A_MINIMAL_EVIDENCE_REPORT_AND_REVIEW_PACKET.md",
       taskHeading: "# Phase 24A - Minimal Evidence Report and Review Packet",
       roadmapHeading: "## Phase 24A — Minimal Evidence Report and Review Packet"
+    },
+    {
+      activeTaskPath: "tasks/PHASE_23_8_6B1_SUPERVISED_REVIEW_LAUNCH_AND_BLOCKED_DISPOSITION.md",
+      taskHeading: "# Phase 23.8.6B1 - Supervised Review Launch and Blocked Disposition",
+      roadmapHeading: "## Phase 23.8.6B1 — Supervised Review Launch and Blocked Disposition"
     }
   ];
 
@@ -600,6 +605,14 @@ test("phase 23.7 operator status accepts split phase ids from task and roadmap",
     const output = runOperatorStatus(tempRepo);
     assertProjectedStage(output, "NO_ACTIVE_RUN", "none");
     assert.notEqual(output.get("current_stage"), "STALE_TASK_ROADMAP_CONFLICT");
+
+    const start = runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo });
+    assertSuccess(start, `run start for ${phaseCase.activeTaskPath}`);
+
+    const currentRun = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", "current.json"), "utf8"));
+    const run = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", currentRun.run_id, "run.json"), "utf8"));
+    const expectedPhaseId = /^# Phase ([^ ]+)/.exec(phaseCase.taskHeading)?.[1];
+    assert.equal(run.phase_id, expectedPhaseId);
   }
 });
 

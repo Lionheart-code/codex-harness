@@ -2,14 +2,14 @@
 
 ## Status
 
-Active task-contract alignment phase. Phase 23.8.6B Self-Hosting Model Routing
+Active implementation phase. Phase 23.8.6B Self-Hosting Model Routing
 Policy Packaging is already complete, reviewed, accepted, merged, harvested,
-and pulled into fresh `main`, so B1 is now the active task-authority target.
+and pulled into fresh `main`, so B1 is now the active implementation target.
 
-The current B1 pass is source-authority only. Runtime/code implementation for
-this same phase begins after the B1 contract is reviewed, accepted, and merged.
+The current B1 pass implements the runtime/code behavior defined by this task
+contract.
 
-Before materializing this task context for implementation:
+Before continuing implementation:
 
 - local `main` must be fast-forwarded to fresh `origin/main`;
 - one task = one branch = one worktree must be preserved.
@@ -375,11 +375,10 @@ git diff --check
 
 ## Source/runtime boundary
 
-This task contract is repo-owned source authority during the current alignment
+This task contract is repo-owned implementation authority for the current B1
 pass. Because `TASK.md` already points here, B1 is the active task authority
-now, but the current diff remains docs/task-authority only. Runtime/code
-surfaces belong to the dedicated B1 implementation pass that follows once this
-contract-only update is reviewed, accepted, and merged.
+now, and the current diff may add the runtime/code surfaces required by this
+task.
 
 This phase may produce structured review-launch evidence and immutable artifact
 references, but it must not absorb the broader storage-normalization work that
