@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
+import { spawn } from "node:child_process";
 import { type VerifierRecord, validateVerifierRecord } from "./checks";
 import { ArtifactStore as EvidenceArtifactStore } from "./artifact-store";
 import { formatCommandForDisplay, runStructuredCommand } from "./command-runner";
@@ -31,6 +32,7 @@ import { detectInstalledLayer } from "./install";
 import {
   type DeliveryFactRecord,
   type LifecycleStatus,
+  type PayloadRecord,
   type RunMode
 } from "./lifecycle-types";
 import { evaluateMergeFacts } from "./merge-facts";
@@ -55,7 +57,8 @@ import {
   indexSelfHostingProceduresById,
   readSelfHostingProcedureRegistry,
   type SelfHostingProcedureDescriptor,
-  type SelfHostingProcedureRegistry
+  type SelfHostingProcedureRegistry,
+  type SelfHostingReviewLaunchProfile
 } from "./self-hosting-procedures";
 import { listTasks } from "./tasks";
 
@@ -355,6 +358,73 @@ export interface RuntimeTaskMaterializationResult {
   state: "preview" | "updated";
 }
 
+export type ReviewLaunchStatus =
+  | "success"
+  | "dry_run"
+  | "denied"
+  | "failed"
+  | "timeout"
+  | "blocked"
+  | "invalid_artifact";
+
+export interface ReviewLaunchObservation {
+  status: ReviewLaunchStatus;
+  attempt_id?: string;
+  procedure_id: string;
+  run_id: string;
+  run_instance_id?: string;
+  project_run_id?: string;
+  adapter_id: "codex_cli";
+  model?: string;
+  reasoning_effort?: string;
+  sandbox_mode: "read-only";
+  output_mode?: "file";
+  timeout_seconds?: number;
+  stale_after_seconds?: number;
+  request_path?: string;
+  request_artifact_hash?: string;
+  expected_output_path?: string;
+  output_path: string;
+  launch_command?: string;
+  working_directory?: string;
+  pid?: number;
+  start_time?: string;
+  last_output_time?: string;
+  terminal_exit_code?: number;
+  terminal_signal?: string;
+  artifact_path?: string;
+  artifact_id?: string;
+  artifact_present?: boolean;
+  artifact_valid?: boolean;
+  artifact_hash?: string;
+  provenance?: "expected_output_file" | "stdout_fallback" | "final_message_fallback";
+  provenance_source?: string;
+  exit_code?: number;
+  failure_classification?: string;
+  blocked_reason?: string;
+  summary: string;
+  next_valid_action: string;
+  stdout_tail?: string;
+  stderr_tail?: string;
+  payload_refs?: ReviewLaunchPayloadRef[];
+}
+
+export interface ReviewLaunchPayloadRef {
+  payload_id: string;
+  parent_record_id: string;
+  kind: string;
+  media_type: string;
+  summary: string;
+  content_hash: string;
+  source_run_id: string;
+  source_phase_id?: string;
+  retention_class: string;
+}
+
+export interface RuntimeReviewLaunchResult extends RuntimeServiceResult {
+  observation: ReviewLaunchObservation;
+}
+
 export interface RuntimeCloseoutResult extends RuntimeServiceResult {
   receipt: CloseoutReceipt;
   closeoutPath?: string;
@@ -419,6 +489,14 @@ export interface MarkDiscardableOptions extends RuntimeDryRunOptions {
 export interface RecordProcedureOptions extends RuntimeDryRunOptions {
   procedureId: string;
   filePath: string;
+}
+
+export interface LaunchReviewOptions extends RuntimeDryRunOptions {
+  procedureId: string;
+  requestPath: string;
+  outputPath: string;
+  timeoutSeconds?: number;
+  staleAfterSeconds?: number;
 }
 
 export interface ApprovePlanOptions extends RuntimeDryRunOptions {
@@ -924,13 +1002,13 @@ function buildTaskAcceptanceVerificationCommand(commandLine: string): RuntimeVer
 }
 
 function inferPhaseIdFromText(markdown: string): string | undefined {
-  const headingMatch = /^#\s*Phase\s+([0-9]+(?:\.[0-9]+)*(?:[A-Z])?)/im.exec(markdown);
+  const headingMatch = /^#\s*Phase\s+([0-9]+(?:\.[0-9]+)*(?:[A-Z][0-9]*)?)/im.exec(markdown);
   return headingMatch?.[1];
 }
 
 function inferPhaseIdFromPath(taskPath: string): string | undefined {
   const basename = path.basename(taskPath);
-  const match = /^PHASE_([0-9]+(?:_[0-9]+)*(?:[A-Z])?)/.exec(basename);
+  const match = /^PHASE_([0-9]+(?:_[0-9]+)*(?:[A-Z][0-9]*)?)/.exec(basename);
 
   if (!match) {
     return undefined;
@@ -1928,6 +2006,706 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
   };
 }
 
+function requireReviewLaunchProfile(
+  proceduresById: Map<string, SelfHostingProcedureDescriptor>,
+  procedureId: string
+): SelfHostingReviewLaunchProfile {
+  if (procedureId !== "plan-review" && procedureId !== "implementation-review") {
+    throw new Error("--procedure must be one of: plan-review, implementation-review.");
+  }
+
+  const descriptor = proceduresById.get(procedureId);
+  if (!descriptor) {
+    throw new Error(`Unknown self-hosting procedure id: ${procedureId}`);
+  }
+
+  if (!descriptor.review_launch_profile) {
+    throw new Error(`Procedure ${procedureId} has no review_launch_profile.`);
+  }
+
+  return descriptor.review_launch_profile;
+}
+
+function validateLaunchSeconds(value: number | undefined, fallback: number, field: string): number {
+  const resolved = value ?? fallback;
+  if (!Number.isInteger(resolved) || resolved <= 0) {
+    throw new Error(`${field} must be a positive integer.`);
+  }
+
+  return resolved;
+}
+
+function resolveLaunchRequestPath(targetRoot: string, requestPath: string): string {
+  const absolutePath = path.resolve(targetRoot, requestPath);
+  ensureInsideTargetRoot(targetRoot, absolutePath);
+
+  if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) {
+    throw new Error(`Review request artifact not found: ${requestPath}`);
+  }
+
+  return absolutePath;
+}
+
+function resolveLaunchOutputPath(targetRoot: string, run: Run, outputPath: string): string {
+  const absolutePath = path.resolve(targetRoot, outputPath);
+  ensureInsideTargetRoot(targetRoot, absolutePath);
+  const relativePath = normalizeRepoRelativePath(toRepoRelative(targetRoot, absolutePath));
+  const allowedPrefixes = [
+    `.harness/runs/${run.run_id}/manual/`,
+    `.harness/runs/${run.run_id}/evidence/`
+  ];
+
+  if (!allowedPrefixes.some((prefix) => relativePath.startsWith(prefix))) {
+    throw new Error(`Review output path must stay under .harness/runs/${run.run_id}/manual or evidence.`);
+  }
+
+  return absolutePath;
+}
+
+function boundedTail(value: string, maxLength = 4000): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return value.length <= maxLength ? value : value.slice(value.length - maxLength);
+}
+
+function classifyReviewProcessFailure(exitCode: number | undefined, stdout: string, stderr: string): string {
+  const combined = `${stdout}\n${stderr}`.toLowerCase();
+  if (/\b(auth|unauthori[sz]ed|forbidden|api key|model|not found)\b/u.test(combined)) {
+    return "REVIEW_MODEL_OR_AUTH_FAILURE";
+  }
+
+  return exitCode === undefined ? "REVIEW_UNKNOWN_RUNTIME_FAILURE" : "REVIEW_COMMAND_FAILED";
+}
+
+function classifyInvalidReviewArtifact(reason: string | undefined, artifactPresent: boolean): string {
+  if (!artifactPresent) {
+    return "REVIEW_COMPLETED_ARTIFACT_MISSING";
+  }
+
+  const normalized = (reason ?? "").toLowerCase();
+  if (normalized.includes("missing required section")) {
+    return "REVIEW_ARTIFACT_CONTRACT_MISMATCH";
+  }
+  if (normalized.includes("recommendation") || normalized.includes("verdict")) {
+    return "REVIEW_ARTIFACT_VERDICT_UNRECOGNIZED";
+  }
+
+  return "REVIEW_ARTIFACT_INVALID";
+}
+
+function extractMarkdownFromJsonLine(stdout: string): string | undefined {
+  for (const line of stdout.split(/\r?\n/u).reverse()) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (!parsed || typeof parsed !== "object") {
+        continue;
+      }
+      const record = parsed as Record<string, unknown>;
+      for (const key of ["final_message", "finalMessage", "message", "content", "output"]) {
+        if (typeof record[key] === "string" && record[key].trim().length > 0) {
+          return record[key];
+        }
+      }
+    } catch {
+      // Keep looking for a supported final-message line.
+    }
+  }
+
+  return undefined;
+}
+
+function readValidLaunchArtifact(procedureId: string, outputPath: string, stdout: string): {
+  markdown?: string;
+  provenance?: "expected_output_file" | "stdout_fallback" | "final_message_fallback";
+  invalidReason?: string;
+} {
+  if (fs.existsSync(outputPath) && fs.statSync(outputPath).isFile()) {
+    const markdown = fs.readFileSync(outputPath, "utf8");
+    try {
+      validateReviewLaunchArtifact(procedureId, markdown);
+      return { markdown, provenance: "expected_output_file" };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { invalidReason: message };
+    }
+  }
+
+  const finalMessage = extractMarkdownFromJsonLine(stdout);
+  if (finalMessage) {
+    try {
+      validateReviewLaunchArtifact(procedureId, finalMessage);
+      return { markdown: finalMessage, provenance: "final_message_fallback" };
+    } catch {
+      // Fall through to raw stdout.
+    }
+  }
+
+  try {
+    validateReviewLaunchArtifact(procedureId, stdout);
+    return { markdown: stdout, provenance: "stdout_fallback" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { invalidReason: message };
+  }
+}
+
+function runCodexCliReview(profile: SelfHostingReviewLaunchProfile, input: {
+  targetRoot: string;
+  requestMarkdown: string;
+  outputPath: string;
+  timeoutSeconds: number;
+  staleAfterSeconds: number;
+}): Promise<{
+  exitCode?: number;
+  signal?: string;
+  pid?: number;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  stale: boolean;
+  startTime: string;
+  lastOutputTime?: string;
+  completedTime?: string;
+  launchCommand: string;
+}> {
+  return new Promise((resolve) => {
+    const args = [
+      "exec",
+      "-C",
+      input.targetRoot,
+      "-s",
+      profile.sandbox_mode,
+      "-m",
+      profile.model,
+      "-c",
+      `model_reasoning_effort="${profile.reasoning_effort}"`,
+      "-o",
+      input.outputPath,
+      "-"
+    ];
+    const launchCommand = formatCommandForDisplay("codex", args);
+    const startTime = nowIso();
+    let lastOutputAt = Date.now();
+    let lastOutputTime: string | undefined;
+    const child = spawn("codex", args, {
+      cwd: input.targetRoot,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let completed = false;
+    let timedOut = false;
+    let stale = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, input.timeoutSeconds * 1000);
+    const staleTimer = setInterval(() => {
+      if (Date.now() - lastOutputAt >= input.staleAfterSeconds * 1000) {
+        stale = true;
+        child.kill("SIGTERM");
+      }
+    }, Math.max(100, Math.min(1000, input.staleAfterSeconds * 1000)));
+
+    const markOutput = () => {
+      lastOutputAt = Date.now();
+      lastOutputTime = nowIso();
+    };
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      markOutput();
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      markOutput();
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (error) => {
+      if (completed) {
+        return;
+      }
+      completed = true;
+      clearTimeout(timeout);
+      clearInterval(staleTimer);
+      resolve({
+        stdout,
+        stderr: `${stderr}${error.message}`,
+        timedOut,
+        stale,
+        startTime,
+        lastOutputTime,
+        completedTime: nowIso(),
+        launchCommand
+      });
+    });
+    child.on("close", (code, signal) => {
+      if (completed) {
+        return;
+      }
+      completed = true;
+      clearTimeout(timeout);
+      clearInterval(staleTimer);
+      resolve({
+        exitCode: code ?? undefined,
+        signal: signal ?? undefined,
+        pid: child.pid,
+        stdout,
+        stderr,
+        timedOut,
+        stale,
+        startTime,
+        lastOutputTime,
+        completedTime: nowIso(),
+        launchCommand
+      });
+    });
+
+    child.stdin?.end(input.requestMarkdown);
+  });
+}
+
+function buildReviewLaunchAttemptArtifact(targetRoot: string, run: Run, observation: ReviewLaunchObservation): {
+  artifact: ArtifactRef;
+  evidence: EvidenceRef;
+  content: string;
+  absolutePath: string;
+} {
+  const content = `${JSON.stringify({
+    ...observation,
+    recorded_at: nowIso()
+  }, null, 2)}\n`;
+  const hash = sha256Hex(content);
+  const prefix = hash.slice(0, 12);
+  const relativePath = toPortablePath(path.join("evidence", `review-launch-attempt-${observation.procedure_id}-${prefix}.json`));
+  const artifact: ArtifactRef = {
+    artifact_id: `sha256:${hash}`,
+    path: relativePath,
+    kind: `review-launch-attempt:${observation.procedure_id}`,
+    description: observation.summary
+  };
+  const evidence: EvidenceRef = {
+    evidence_id: `review-launch-attempt-${observation.procedure_id}-${prefix}`,
+    kind: `review-launch-attempt:${observation.procedure_id}`,
+    summary: observation.summary,
+    artifact_id: artifact.artifact_id,
+    path: relativePath
+  };
+
+  return {
+    artifact,
+    evidence,
+    content,
+    absolutePath: path.join(runDirectory(targetRoot, run.run_id), relativePath)
+  };
+}
+
+function buildProcedureArtifactFromMarkdown(targetRoot: string, run: Run, procedureId: string, sourcePath: string, markdown: string): {
+  artifact: ArtifactRef;
+  evidence: EvidenceRef;
+  absolutePath: string;
+} {
+  const contentHash = sha256Hex(markdown);
+  const hashPrefix = contentHash.slice(0, 12);
+  const relativeArtifactPath = toPortablePath(path.join("evidence", `${procedureId}-${hashPrefix}.md`));
+  const artifact: ArtifactRef = {
+    artifact_id: `sha256:${contentHash}`,
+    path: relativeArtifactPath,
+    kind: `procedure-artifact:${procedureId}`,
+    description: toRepoRelative(targetRoot, sourcePath)
+  };
+  const evidence: EvidenceRef = {
+    evidence_id: `procedure-${procedureId}-${hashPrefix}`,
+    kind: `procedure:${procedureId}`,
+    summary: procedureId,
+    artifact_id: artifact.artifact_id,
+    path: relativeArtifactPath
+  };
+
+  return {
+    artifact,
+    evidence,
+    absolutePath: path.join(runDirectory(targetRoot, run.run_id), relativeArtifactPath)
+  };
+}
+
+function toReviewLaunchPayloadRef(record: PayloadRecord): ReviewLaunchPayloadRef {
+  return {
+    payload_id: record.payload_id,
+    parent_record_id: record.parent_record_id,
+    kind: record.kind,
+    media_type: record.media_type,
+    summary: record.summary,
+    content_hash: `sha256:${record.content_hash}`,
+    source_run_id: record.source_run_id,
+    ...(record.source_phase_id ? { source_phase_id: record.source_phase_id } : {}),
+    retention_class: record.retention_class
+  };
+}
+
+function appendArtifactAndEvidence(run: Run, artifact: ArtifactRef, evidence: EvidenceRef, timestamp: string): Run {
+  const hasArtifact = run.artifacts.some((entry) => entry.artifact_id === artifact.artifact_id && entry.path === artifact.path);
+  const hasEvidence = run.evidence.some((entry) =>
+    entry.evidence_id === evidence.evidence_id
+    || (entry.kind === evidence.kind && entry.artifact_id === evidence.artifact_id)
+  );
+
+  return withUpdatedAt({
+    ...run,
+    artifacts: hasArtifact ? run.artifacts : [...run.artifacts, artifact],
+    evidence: hasEvidence ? run.evidence : [...run.evidence, evidence]
+  }, timestamp);
+}
+
+function recordLaunchAttempt(
+  targetRoot: string,
+  rootsProjectRoot: string,
+  currentRun: Run,
+  observation: ReviewLaunchObservation,
+  accepted?: {
+    artifact: ArtifactRef;
+    evidence: EvidenceRef;
+    markdown: string;
+    absoluteArtifactPath: string;
+  }
+): Run {
+  const timestamp = nowIso();
+  const staging = new RunStagingDatabase(targetRoot, rootsProjectRoot, currentRun.run_id);
+  if (!staging.loadRun(currentRun.run_id)) {
+    staging.saveRun(currentRun);
+  }
+  const parentRecordId = `review-launch-attempt:${observation.attempt_id ?? randomUUID()}`;
+  const payloadRefs: ReviewLaunchPayloadRef[] = [];
+
+  if (observation.stdout_tail) {
+    payloadRefs.push(toReviewLaunchPayloadRef(staging.storePayload({
+      parentRecordId,
+      sourceRunId: currentRun.run_id,
+      sourcePhaseId: currentRun.phase_id,
+      kind: "review-launch-stdout",
+      mediaType: "text/plain",
+      summary: `${observation.procedure_id} launch stdout tail`,
+      content: observation.stdout_tail,
+      searchableText: observation.stdout_tail.slice(0, 4000),
+      boundedExcerpt: observation.stdout_tail.slice(0, 500),
+      retentionClass: "audit"
+    })));
+  }
+
+  if (observation.stderr_tail) {
+    payloadRefs.push(toReviewLaunchPayloadRef(staging.storePayload({
+      parentRecordId,
+      sourceRunId: currentRun.run_id,
+      sourcePhaseId: currentRun.phase_id,
+      kind: "review-launch-stderr",
+      mediaType: "text/plain",
+      summary: `${observation.procedure_id} launch stderr tail`,
+      content: observation.stderr_tail,
+      searchableText: observation.stderr_tail.slice(0, 4000),
+      boundedExcerpt: observation.stderr_tail.slice(0, 500),
+      retentionClass: "audit"
+    })));
+  }
+
+  if (accepted && observation.provenance && observation.provenance !== "expected_output_file") {
+    payloadRefs.push(toReviewLaunchPayloadRef(staging.storePayload({
+      parentRecordId,
+      sourceRunId: currentRun.run_id,
+      sourcePhaseId: currentRun.phase_id,
+      kind: `review-launch-${observation.provenance}`,
+      mediaType: "text/markdown",
+      summary: `${observation.procedure_id} ${observation.provenance} source`,
+      content: accepted.markdown,
+      searchableText: accepted.markdown.slice(0, 4000),
+      boundedExcerpt: accepted.markdown.slice(0, 500),
+      retentionClass: "audit"
+    })));
+  }
+
+  const observationWithPayloadRefs: ReviewLaunchObservation = payloadRefs.length > 0
+    ? { ...observation, payload_refs: payloadRefs }
+    : observation;
+  const attempt = buildReviewLaunchAttemptArtifact(targetRoot, currentRun, observationWithPayloadRefs);
+  fs.mkdirSync(path.dirname(attempt.absolutePath), { recursive: true });
+  fs.writeFileSync(attempt.absolutePath, attempt.content, "utf8");
+
+  if (accepted) {
+    fs.mkdirSync(path.dirname(accepted.absoluteArtifactPath), { recursive: true });
+    fs.writeFileSync(accepted.absoluteArtifactPath, accepted.markdown, "utf8");
+  }
+
+  const run = staging.mutateRun(currentRun.run_id, (latestRun) => {
+    let next = appendArtifactAndEvidence(latestRun, attempt.artifact, attempt.evidence, timestamp);
+
+    if (accepted) {
+      next = appendArtifactAndEvidence(next, accepted.artifact, accepted.evidence, timestamp);
+      const review = buildProcedureReviewResult(next, accepted.evidence.summary, accepted.artifact, accepted.markdown, timestamp);
+      if (review && !next.review_results.some((entry) =>
+        entry.source === review.source
+        && entry.artifact_refs.some((ref) => ref.artifact_id === accepted.artifact.artifact_id)
+      )) {
+        next = recordReviewResult(next, review);
+      }
+    }
+
+    return next;
+  }, {
+    expectedRunInstanceId: currentRun.run_instance_id,
+    expectedRunRevision: currentRun.run_revision
+  });
+
+  writeCompatibilityRunArtifacts(targetRoot, run);
+  return run;
+}
+
+export async function launchRuntimeReview(cwd: string, options: LaunchReviewOptions): Promise<RuntimeReviewLaunchResult> {
+  const roots = resolveHarnessRoots(cwd);
+  const targetRoot = roots.targetRoot;
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  const registry = readSelfHostingProcedureRegistry(targetRoot);
+
+  if (!registry) {
+    throw new Error("Self-hosting procedure registry not found.");
+  }
+
+  const proceduresById = indexSelfHostingProceduresById(registry);
+  const profile = requireReviewLaunchProfile(proceduresById, options.procedureId);
+  const timeoutSeconds = validateLaunchSeconds(options.timeoutSeconds, profile.timeout_seconds, "--timeout-seconds");
+  const staleAfterSeconds = validateLaunchSeconds(options.staleAfterSeconds, profile.stale_after_seconds, "--stale-after-seconds");
+  const requestPath = resolveLaunchRequestPath(targetRoot, options.requestPath);
+  const outputPath = resolveLaunchOutputPath(targetRoot, current.run, options.outputPath);
+  const requestMarkdown = fs.readFileSync(requestPath, "utf8");
+  const requestHash = sha256Hex(requestMarkdown);
+
+  if (path.resolve(requestPath) === path.resolve(outputPath)) {
+    throw new Error("Review request and output paths must be different.");
+  }
+
+  const baseObservation = {
+    procedure_id: options.procedureId,
+    run_id: current.run.run_id,
+    run_instance_id: current.run.run_instance_id,
+    ...(current.run.run_instance_id ? { project_run_id: current.run.run_instance_id } : {}),
+    adapter_id: profile.adapter_id,
+    model: profile.model,
+    reasoning_effort: profile.reasoning_effort,
+    sandbox_mode: profile.sandbox_mode,
+    output_mode: profile.output_mode,
+    timeout_seconds: timeoutSeconds,
+    stale_after_seconds: staleAfterSeconds,
+    request_path: toRepoRelative(targetRoot, requestPath),
+    request_artifact_hash: `sha256:${requestHash}`,
+    expected_output_path: toRepoRelative(targetRoot, outputPath),
+    output_path: toRepoRelative(targetRoot, outputPath)
+  } satisfies Omit<ReviewLaunchObservation, "status" | "summary" | "next_valid_action">;
+
+  if (dryRun) {
+    const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, current.run.run_id);
+    return {
+      targetRoot,
+      projectRoot: roots.projectRoot,
+      dryRun,
+      run: current.run,
+      runPath: current.runPath,
+      projectDbPath: paths.projectDbPath,
+      stagingDbPath: paths.stagingDbPath,
+      state: current.state,
+      observation: {
+        ...baseObservation,
+        status: "dry_run",
+        summary: "Review launch is valid; dry-run did not spawn a child process or write artifacts.",
+        next_valid_action: "rerun without --dry-run to launch the supervised review"
+      }
+    };
+  }
+
+  const preExistingOutput = fs.existsSync(outputPath) && fs.statSync(outputPath).isFile()
+    ? {
+        mtimeMs: fs.statSync(outputPath).mtimeMs,
+        hash: sha256Hex(fs.readFileSync(outputPath, "utf8"))
+      }
+    : undefined;
+  const startedAtMs = Date.now();
+  const child = await runCodexCliReview(profile, {
+    targetRoot,
+    requestMarkdown,
+    outputPath,
+    timeoutSeconds,
+    staleAfterSeconds
+  });
+
+  let observation: ReviewLaunchObservation;
+  let accepted: Parameters<typeof recordLaunchAttempt>[4] | undefined;
+
+  if (child.timedOut) {
+    observation = {
+      ...baseObservation,
+      status: "timeout",
+      attempt_id: randomUUID(),
+      exit_code: child.exitCode,
+      terminal_exit_code: child.exitCode,
+      terminal_signal: child.signal,
+      pid: child.pid,
+      launch_command: child.launchCommand,
+      working_directory: targetRoot,
+      start_time: child.startTime,
+      last_output_time: child.lastOutputTime,
+      artifact_present: fs.existsSync(outputPath),
+      artifact_valid: false,
+      failure_classification: "REVIEW_PROCESS_TIMEOUT",
+      blocked_reason: "review process timed out",
+      summary: `${options.procedureId} launch timed out.`,
+      next_valid_action: "rerun launch-review after resolving the review process timeout",
+      stdout_tail: boundedTail(child.stdout),
+      stderr_tail: boundedTail(child.stderr)
+    };
+  } else if (child.stale) {
+    observation = {
+      ...baseObservation,
+      status: "timeout",
+      attempt_id: randomUUID(),
+      exit_code: child.exitCode,
+      terminal_exit_code: child.exitCode,
+      terminal_signal: child.signal,
+      pid: child.pid,
+      launch_command: child.launchCommand,
+      working_directory: targetRoot,
+      start_time: child.startTime,
+      last_output_time: child.lastOutputTime,
+      artifact_present: fs.existsSync(outputPath),
+      artifact_valid: false,
+      failure_classification: "REVIEW_PROCESS_STALE_NO_OUTPUT",
+      blocked_reason: "review process produced no output within stale-after window",
+      summary: `${options.procedureId} launch became stale without output.`,
+      next_valid_action: "rerun launch-review after resolving the stale review process",
+      stdout_tail: boundedTail(child.stdout),
+      stderr_tail: boundedTail(child.stderr)
+    };
+  } else if (child.exitCode !== 0) {
+    observation = {
+      ...baseObservation,
+      status: "failed",
+      attempt_id: randomUUID(),
+      exit_code: child.exitCode,
+      terminal_exit_code: child.exitCode,
+      terminal_signal: child.signal,
+      pid: child.pid,
+      launch_command: child.launchCommand,
+      working_directory: targetRoot,
+      start_time: child.startTime,
+      last_output_time: child.lastOutputTime,
+      artifact_present: fs.existsSync(outputPath),
+      artifact_valid: false,
+      failure_classification: classifyReviewProcessFailure(child.exitCode, child.stdout, child.stderr),
+      blocked_reason: "review process exited without accepted artifact",
+      summary: `${options.procedureId} review process failed before producing an accepted artifact.`,
+      next_valid_action: "resolve the child review process failure and rerun launch-review",
+      stdout_tail: boundedTail(child.stdout),
+      stderr_tail: boundedTail(child.stderr)
+    };
+  } else {
+    const outputAfter = fs.existsSync(outputPath) && fs.statSync(outputPath).isFile()
+      ? {
+          mtimeMs: fs.statSync(outputPath).mtimeMs,
+          hash: sha256Hex(fs.readFileSync(outputPath, "utf8"))
+        }
+      : undefined;
+    const staleOutput = preExistingOutput
+      && outputAfter
+      && outputAfter.hash === preExistingOutput.hash
+      && outputAfter.mtimeMs < startedAtMs;
+    const artifact = staleOutput
+      ? { invalidReason: "Review output file is stale." }
+      : readValidLaunchArtifact(options.procedureId, outputPath, child.stdout);
+
+    if (!artifact.markdown || !artifact.provenance) {
+      const artifactPresent = !!outputAfter;
+      observation = {
+        ...baseObservation,
+        status: "invalid_artifact",
+        attempt_id: randomUUID(),
+        exit_code: child.exitCode,
+        terminal_exit_code: child.exitCode,
+        terminal_signal: child.signal,
+        pid: child.pid,
+        launch_command: child.launchCommand,
+        working_directory: targetRoot,
+        start_time: child.startTime,
+        last_output_time: child.lastOutputTime,
+        artifact_present: artifactPresent,
+        artifact_valid: false,
+        artifact_hash: outputAfter ? `sha256:${outputAfter.hash}` : undefined,
+        failure_classification: staleOutput
+          ? "REVIEW_PROCESS_STALE_NO_OUTPUT"
+          : classifyInvalidReviewArtifact(artifact.invalidReason, artifactPresent),
+        blocked_reason: artifact.invalidReason ?? "review artifact was missing or invalid",
+        summary: artifact.invalidReason ?? `${options.procedureId} did not produce a valid review artifact.`,
+        next_valid_action: "fix the review artifact or rerun launch-review with a valid output path",
+        stdout_tail: boundedTail(child.stdout),
+        stderr_tail: boundedTail(child.stderr)
+      };
+    } else {
+      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+      fs.writeFileSync(outputPath, artifact.markdown, "utf8");
+      const acceptedArtifact = buildProcedureArtifactFromMarkdown(targetRoot, current.run, options.procedureId, outputPath, artifact.markdown);
+      observation = {
+        ...baseObservation,
+        status: "success",
+        attempt_id: randomUUID(),
+        exit_code: child.exitCode,
+        terminal_exit_code: child.exitCode,
+        terminal_signal: child.signal,
+        pid: child.pid,
+        launch_command: child.launchCommand,
+        working_directory: targetRoot,
+        start_time: child.startTime,
+        last_output_time: child.lastOutputTime,
+        artifact_path: acceptedArtifact.artifact.path,
+        artifact_id: acceptedArtifact.artifact.artifact_id,
+        artifact_present: true,
+        artifact_valid: true,
+        artifact_hash: acceptedArtifact.artifact.artifact_id,
+        provenance: artifact.provenance,
+        provenance_source: artifact.provenance,
+        failure_classification: "REVIEW_COMPLETED_ARTIFACT_PRESENT",
+        summary: `${options.procedureId} review launch produced a valid artifact.`,
+        next_valid_action: "re-check operator status",
+        stdout_tail: boundedTail(child.stdout),
+        stderr_tail: boundedTail(child.stderr)
+      };
+      accepted = {
+        artifact: acceptedArtifact.artifact,
+        evidence: acceptedArtifact.evidence,
+        markdown: artifact.markdown,
+        absoluteArtifactPath: acceptedArtifact.absolutePath
+      };
+    }
+  }
+
+  const run = recordLaunchAttempt(targetRoot, roots.projectRoot, current.run, observation, accepted);
+  const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id);
+
+  return {
+    targetRoot,
+    projectRoot: roots.projectRoot,
+    dryRun,
+    run,
+    runPath: runFilePath(targetRoot, run.run_id),
+    projectDbPath: paths.projectDbPath,
+    stagingDbPath: paths.stagingDbPath,
+    state: "updated",
+    observation
+  };
+}
+
 export async function recordRuntimeProcedure(cwd: string, options: RecordProcedureOptions): Promise<RuntimeProcedureResult> {
   const roots = resolveHarnessRoots(cwd);
   const targetRoot = roots.targetRoot;
@@ -2705,6 +3483,67 @@ function validatePlanReviewArtifact(markdown: string): {
   };
 }
 
+const IMPLEMENTATION_REVIEW_REQUIRED_SECTIONS = [
+  "Review Surface",
+  "Findings",
+  "Task And Plan Compliance",
+  "Verification Coverage",
+  "Policy Findings",
+  "Source Trace",
+  "Skill Risk Check",
+  "Scope Creep Check",
+  "Recommendation"
+] as const;
+
+function markdownHasSection(markdown: string, sectionName: string): boolean {
+  const pattern = new RegExp(`^##\\s+${escapeRegExpPattern(sectionName)}\\s*$`, "im");
+  return pattern.test(markdown);
+}
+
+function validateImplementationReviewArtifact(markdown: string): {
+  recommendation: "PASS" | "FIX_REQUIRED";
+  status: ReviewResultStatus;
+  summary: string;
+  blockers: string[];
+} {
+  for (const sectionName of IMPLEMENTATION_REVIEW_REQUIRED_SECTIONS) {
+    if (!markdownHasSection(markdown, sectionName)) {
+      throw new Error(`Implementation review artifact is missing required section: ${sectionName}.`);
+    }
+  }
+
+  const recommendation = parseReviewRecommendation(markdown, {
+    extraVariants: IMPLEMENTATION_REVIEW_RECOMMENDATION_VARIANTS
+  });
+
+  if (recommendation !== "PASS" && recommendation !== "FIX_REQUIRED") {
+    throw new Error("Implementation review artifact Recommendation must end with PASS or FIX_REQUIRED.");
+  }
+
+  return {
+    recommendation,
+    status: recommendation,
+    summary: recommendation === "PASS" ? "Implementation Review passed" : "Implementation Review requires follow-up",
+    blockers: recommendation === "PASS" ? [] : ["Implementation Review requires follow-up"]
+  };
+}
+
+function validateReviewLaunchArtifact(procedureId: string, markdown: string): {
+  status: ReviewResultStatus;
+  summary: string;
+  blockers: string[];
+} {
+  if (procedureId === "plan-review") {
+    return validatePlanReviewArtifact(markdown);
+  }
+
+  if (procedureId === "implementation-review") {
+    return validateImplementationReviewArtifact(markdown);
+  }
+
+  throw new Error(`Unsupported review launch procedure: ${procedureId}`);
+}
+
 function parseFixPassReviewStatuses(markdown: string): Array<"resolved" | "partially_resolved" | "unresolved"> {
   const sectionMatch = /## Resolution Status\s*\n([\s\S]*?)(?=\n## |\s*$)/i.exec(markdown);
   if (!sectionMatch?.[1]) {
@@ -2846,7 +3685,7 @@ function readRoadmapTaskPathForPhase(targetRoot: string, phaseId: string): strin
     return undefined;
   }
 
-  const headingPattern = /^##\s+Phase\s+([0-9]+(?:\.[0-9]+)*(?:[A-Z])?)\b.*$/gm;
+  const headingPattern = /^##\s+Phase\s+([0-9]+(?:\.[0-9]+)*(?:[A-Z][0-9]*)?)\b.*$/gm;
   const headings = [...roadmap.matchAll(headingPattern)];
   const currentHeadingIndex = headings.findIndex((match) => match[1] === phaseId);
 
@@ -3267,6 +4106,72 @@ function findLatestProcedureEvidence(
   }
 
   return undefined;
+}
+
+function findLatestReviewLaunchAttemptEvidence(run: Run, procedureId: string): EvidenceRef | undefined {
+  for (let index = run.evidence.length - 1; index >= 0; index -= 1) {
+    const evidence = run.evidence[index];
+    if (evidence.kind === `review-launch-attempt:${procedureId}`) {
+      return evidence;
+    }
+  }
+
+  return undefined;
+}
+
+function readLatestReviewLaunchAttempt(
+  runContext: OperatorRunContext,
+  procedureId: string
+): ReviewLaunchObservation | undefined {
+  const evidence = findLatestReviewLaunchAttemptEvidence(runContext.run, procedureId);
+
+  if (!evidence?.path) {
+    return undefined;
+  }
+
+  try {
+    const artifactPath = resolveRunLocalPath(runContext, evidence.path);
+    const parsed = JSON.parse(fs.readFileSync(artifactPath, "utf8")) as unknown;
+    const record = assertObject(parsed, `review launch attempt ${procedureId}`);
+    if (
+      typeof record.status !== "string"
+      || typeof record.procedure_id !== "string"
+      || record.procedure_id !== procedureId
+    ) {
+      return undefined;
+    }
+
+    return record as unknown as ReviewLaunchObservation;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildBlockedReviewLaunchStage(
+  context: OperatorEvaluationContext,
+  procedureId: "plan-review" | "implementation-review",
+  attempt: ReviewLaunchObservation
+): OperatorStageDraft | undefined {
+  if (attempt.status === "success" || attempt.status === "dry_run") {
+    return undefined;
+  }
+
+  return buildOperatorStageDraft({
+    current_stage: "REVIEW_LAUNCH_BLOCKED",
+    next_procedure_id: procedureId,
+    required_inputs: getProcedureRequiredInputs(context, procedureId, ["review request", "review launch profile"]),
+    missing_inputs: [],
+    required_evidence: [`valid ${procedureId} review artifact`],
+    missing_evidence: [`valid ${procedureId} review artifact`],
+    stop_reason: attempt.failure_classification ?? "review_launch_failed",
+    next_allowed_action: attempt.next_valid_action,
+    forbidden_actions: ["implementation", "source edits", "closeout", "phase closeout review", "harvest"],
+    notes: [
+      ...context.baseNotes,
+      `review_launch_status: ${attempt.status}`,
+      `review_launch_attempt_id: ${attempt.attempt_id ?? "(none)"}`
+    ]
+  });
 }
 
 function readLatestPlanReviewDecisionRecord(
@@ -3984,6 +4889,16 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
   }
 
   if (!hasPlanReviewEvidence || !durablePlanReviewOutcomeRecorded) {
+    if (context.runContext && !hasPlanReviewEvidence) {
+      const latestLaunchAttempt = readLatestReviewLaunchAttempt(context.runContext, "plan-review");
+      const blockedLaunch = latestLaunchAttempt
+        ? buildBlockedReviewLaunchStage(context, "plan-review", latestLaunchAttempt)
+        : undefined;
+      if (blockedLaunch) {
+        return blockedLaunch;
+      }
+    }
+
     return buildOperatorStageDraft({
       current_stage: "PLAN_REVIEW_REQUIRED",
       next_procedure_id: "plan-review",
@@ -4104,6 +5019,16 @@ function resolveImplementationReviewStage(context: OperatorEvaluationContext): O
   const hasFixPassReview = taggedProcedures.has("fix-pass-review");
 
   if (!hasImplementationReview && !hasFixPassReview) {
+    if (context.runContext) {
+      const latestLaunchAttempt = readLatestReviewLaunchAttempt(context.runContext, "implementation-review");
+      const blockedLaunch = latestLaunchAttempt
+        ? buildBlockedReviewLaunchStage(context, "implementation-review", latestLaunchAttempt)
+        : undefined;
+      if (blockedLaunch) {
+        return blockedLaunch;
+      }
+    }
+
     return buildOperatorStageDraft({
       current_stage: "IMPLEMENTATION_REVIEW_REQUIRED",
       next_procedure_id: "implementation-review",
@@ -4141,6 +5066,10 @@ function resolveImplementationReviewStage(context: OperatorEvaluationContext): O
     (context.latestImplementationChainReviewResult?.status === "FIX_REQUIRED" || context.blockingFindings) &&
     hasImplementationReview
   ) {
+    const latestFixPassReviewStillRequiresFix = context.latestImplementationChainReviewResult
+      ? reviewSourceMatchesProcedure(context.latestImplementationChainReviewResult.source, "fix-pass-review")
+        && context.latestImplementationChainReviewResult.status === "FIX_REQUIRED"
+      : false;
     return buildOperatorStageDraft({
       current_stage: "FIX_PASS_REQUIRED",
       next_procedure_id: "fix-pass-review",
@@ -4150,10 +5079,16 @@ function resolveImplementationReviewStage(context: OperatorEvaluationContext): O
         ["implementation review findings", "fix-pass diff", "fix-pass tests"]
       ),
       missing_inputs: [],
-      required_evidence: ["fix-pass-review"],
-      missing_evidence: ["fix-pass-review"],
+      required_evidence: latestFixPassReviewStillRequiresFix
+        ? ["resolved fix-pass-review after a scoped fix-pass diff"]
+        : ["fix-pass-review"],
+      missing_evidence: latestFixPassReviewStillRequiresFix
+        ? ["scoped fix-pass diff and resolved fix-pass-review"]
+        : ["fix-pass-review"],
       stop_reason: "unresolved_review_findings",
-      next_allowed_action: buildReviewStageAction("fix-pass-review"),
+      next_allowed_action: latestFixPassReviewStillRequiresFix
+        ? "perform a scoped fix pass for the unresolved findings, then run fix-pass-review"
+        : buildReviewStageAction("fix-pass-review"),
       forbidden_actions: ["closeout", "phase closeout review", "harvest"],
       notes: context.baseNotes
     });

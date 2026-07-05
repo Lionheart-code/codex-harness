@@ -371,10 +371,23 @@ test("phase 23.8 registry is canonical, schema-backed, and preserves procedure s
   const draftPlan = registry.procedures.find((procedure) => procedure.procedure_id === "draft-plan");
   const planReview = registry.procedures.find((procedure) => procedure.procedure_id === "plan-review");
   const planAmend = registry.procedures.find((procedure) => procedure.procedure_id === "plan-amend");
+  const implementationReview = registry.procedures.find((procedure) => procedure.procedure_id === "implementation-review");
   assert.ok(draftPlan?.operator_contract?.real_operator_choices_only);
+  assert.ok(draftPlan?.operator_contract?.primary_outputs?.includes("implementation surfaces"));
+  assert.ok(draftPlan?.operator_contract?.primary_outputs?.includes("validation matrix"));
+  assert.ok(draftPlan?.operator_contract?.primary_outputs?.includes("stop conditions and implementation handoff criteria"));
   assert.ok(planReview?.operator_contract?.durable_decision_fields?.includes("outcome_state"));
   assert.ok(planReview?.operator_contract?.allowed_outcome_states?.includes("needs_contract_surface_update"));
   assert.equal(planAmend?.operator_contract?.latest_amendment_supersedes_prior_plan, true);
+  assert.equal(planReview?.review_launch_profile?.adapter_id, "codex_cli");
+  assert.equal(planReview?.review_launch_profile?.sandbox_mode, "read-only");
+  assert.equal(implementationReview?.review_launch_profile?.adapter_id, "codex_cli");
+  assert.equal(implementationReview?.review_launch_profile?.sandbox_mode, "read-only");
+  assert.deepEqual(
+    registry.procedures.filter((procedure) => procedure.review_launch_profile).map((procedure) => procedure.procedure_id).sort(),
+    ["implementation-review", "plan-review"],
+    "review_launch_profile must stay limited to B1 review procedures"
+  );
 
   const registrySchema = JSON.parse(fs.readFileSync(path.join(productRoot, "schemas", "self-hosting-procedure-registry.schema.json"), "utf8"));
   assert.ok(
@@ -388,6 +401,10 @@ test("phase 23.8 registry is canonical, schema-backed, and preserves procedure s
   assert.equal(
     registrySchema.properties?.procedures?.items?.properties?.prompt_wrapper_path?.pattern,
     "^prompts/self-hosting/[a-z0-9-]+\\.md$"
+  );
+  assert.equal(
+    registrySchema.properties?.procedures?.items?.properties?.review_launch_profile?.properties?.adapter_id?.const,
+    "codex_cli"
   );
 });
 

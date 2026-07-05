@@ -6,8 +6,10 @@ import {
   type MaterializeNextTaskOptions,
   type RecordNextTaskOptions,
   type RecordProcedureOptions,
+  type LaunchReviewOptions,
   type RecordRemoteStatusOptions,
   type RemoteGateStatus,
+  type RuntimeReviewLaunchResult,
   type RuntimeNextTaskDecisionResult,
   type RuntimeOperatorStatusResult,
   type RuntimePlanApprovalResult,
@@ -18,6 +20,7 @@ import {
   closeoutRuntimeRun,
   getRuntimeOperatorStatus,
   getRuntimeStatus,
+  launchRuntimeReview,
   materializeRuntimeNextTask,
   markRuntimeRunDiscardable,
   recordRuntimeNextTask,
@@ -40,6 +43,7 @@ function printRunHelp(): void {
     "  node bin/ch run verify [--run <run-id>] [--dry-run]",
     "  node bin/ch run closeout [--run <run-id>] [--dry-run]",
     "  node bin/ch run record-procedure --run <run-id> --procedure <id> --file <path> [--dry-run]",
+    "  node bin/ch run launch-review --run <run-id> --procedure <plan-review|implementation-review> --request <path> --output <path> [--timeout-seconds <n>] [--stale-after-seconds <n>] [--dry-run]",
     "  node bin/ch run approve-plan --run <run-id> --plan <path> --approver <name> [--reason <text>] [--dry-run]",
     "  node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>] [--dry-run]",
     "  node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing) [--dry-run]",
@@ -52,6 +56,7 @@ function printRunHelp(): void {
     "  verify        Run current verification commands or record installed verifier output.",
     "  closeout      Create a structured closeout receipt for the current runtime run.",
     "  record-procedure Record a self-hosting procedure artifact as durable run evidence.",
+    "  launch-review Supervise a read-only review launch and record structured launch evidence.",
     "  approve-plan  Record explicit human approval of the reviewed plan.",
     "  record-next-task Record the next task decision with exact base-commit authority.",
     "  materialize-next-task Create or enter the next task branch/worktree and start its run.",
@@ -196,6 +201,45 @@ function renderProcedureLines(result: RuntimeProcedureResult): string[] {
   return output;
 }
 
+function renderReviewLaunchLines(result: RuntimeReviewLaunchResult): string[] {
+  const output = renderRunLines("codex-harness run launch-review", result);
+  const observation = result.observation;
+  output.push(`launch status: ${observation.status}`);
+  output.push(`procedure: ${observation.procedure_id}`);
+  output.push(`adapter: ${observation.adapter_id}`);
+  output.push(`sandbox: ${observation.sandbox_mode}`);
+  output.push(`output path: ${observation.output_path}`);
+  if (observation.attempt_id) {
+    output.push(`attempt id: ${observation.attempt_id}`);
+  }
+  if (observation.artifact_path) {
+    output.push(`artifact path: ${observation.artifact_path}`);
+  }
+  if (observation.artifact_id) {
+    output.push(`artifact id: ${observation.artifact_id}`);
+  }
+  if (observation.failure_classification) {
+    output.push(`failure classification: ${observation.failure_classification}`);
+  }
+  output.push(`summary: ${observation.summary}`);
+  output.push(`next valid action: ${observation.next_valid_action}`);
+  return output;
+}
+
+function parsePositiveIntegerOption(options: ParsedOptions, name: string): number | undefined {
+  const value = stringOption(options, name);
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || String(parsed) !== value || parsed <= 0) {
+    throw new Error(`--${name} must be a positive integer.`);
+  }
+
+  return parsed;
+}
+
 function renderPlanApprovalLines(result: RuntimePlanApprovalResult): string[] {
   const output = renderRunLines("codex-harness run approve-plan", result);
   output.push(`approval id: ${result.approval.approval_id}`);
@@ -331,6 +375,35 @@ async function runRecordProcedure(args: string[]): Promise<number> {
   } satisfies RecordProcedureOptions);
   lines(renderProcedureLines(result));
   return 0;
+}
+
+async function runLaunchReview(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run", "procedure", "request", "output", "timeout-seconds", "stale-after-seconds"]));
+  const procedureId = stringOption(options, "procedure");
+  const requestPath = stringOption(options, "request");
+  const outputPath = stringOption(options, "output");
+
+  if (!procedureId) {
+    throw new Error("--procedure is required.");
+  }
+  if (!requestPath) {
+    throw new Error("--request is required.");
+  }
+  if (!outputPath) {
+    throw new Error("--output is required.");
+  }
+
+  const result = await launchRuntimeReview(process.cwd(), {
+    dryRun: dryRunOption(options),
+    runId: stringOption(options, "run"),
+    procedureId,
+    requestPath,
+    outputPath,
+    timeoutSeconds: parsePositiveIntegerOption(options, "timeout-seconds"),
+    staleAfterSeconds: parsePositiveIntegerOption(options, "stale-after-seconds")
+  } satisfies LaunchReviewOptions);
+  lines(renderReviewLaunchLines(result));
+  return result.observation.status === "success" || result.observation.status === "dry_run" ? 0 : 1;
 }
 
 async function runApprovePlan(args: string[]): Promise<number> {
@@ -499,6 +572,8 @@ export async function runRuntime(args: string[]): Promise<number> {
         return runCloseout(commandArgs);
       case "record-procedure":
         return runRecordProcedure(commandArgs);
+      case "launch-review":
+        return runLaunchReview(commandArgs);
       case "approve-plan":
         return runApprovePlan(commandArgs);
       case "record-next-task":

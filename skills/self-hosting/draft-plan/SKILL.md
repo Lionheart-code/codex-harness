@@ -12,8 +12,8 @@ description: Use this skill when the active codex-harness task is ready for a pl
 Draft Plan
 
 ## purpose
-Produce a decision-complete implementation plan without editing files or
-starting execution.
+Produce a decision-complete, agent-legible implementation plan without editing
+files or starting execution.
 
 ## when_to_use
 - The active task has been normalized and is ready for planning.
@@ -23,6 +23,7 @@ starting execution.
 
 ## required_inputs
 - Normalized task contract
+- Prior procedure artifacts for the current run
 - Relevant roadmap and boundary docs
 - Validation commands and acceptance expectations
 - Known risks, assumptions, and open questions
@@ -38,10 +39,20 @@ starting execution.
 
 ## checklist
 - State the intended outcome and success criteria.
+- Identify the source files, runtime state, CLI surfaces, docs, tests, and
+  procedure artifacts the implementation will inspect or change.
+- Turn broad task requirements into concrete implementation surfaces and
+  engineering questions.
 - Define the smallest safe implementation steps.
 - Distinguish deterministic decisions from true operator choices.
 - Recommend one concrete execution path and avoid fake alternatives where repo
   context already determines the answer.
+- Include a validation matrix that maps acceptance behavior to concrete
+  commands, focused tests, or review evidence.
+- Include stop conditions for blockers, storage gaps, authority conflicts,
+  permission escalation, or scope drift.
+- Include a handoff condition that states what must be true before
+  implementation may begin.
 - Explain how the plan avoids unnecessary abstraction or one-use generic
   helpers.
 - Preserve design invariants and source-of-truth boundaries explicitly.
@@ -68,15 +79,20 @@ Return the exact section order documented in
   path.
 - Key implementation choices depend on missing repo facts.
 - The task already requires decomposition instead of direct planning.
+- Required source surfaces, validation signals, or stop conditions cannot be
+  identified from repo-owned inputs.
 
 ## evidence_to_record
 - Draft plan
+- Implementation surfaces
+- Open engineering questions
 - Assumptions and risks
 - Recommended defaults and any real operator-choice points that remain
 - Reviewer policy checks for `anti_slop`, `design_invariant`,
   `scope_legality`, `evidence_gap`, `docs_consistency`,
   `future_phase_leakage`, and `review_tier_controls` when applicable
-- Validation commands
+- Validation matrix
+- Stop conditions and implementation handoff criteria
 - Explicit out-of-scope items
 
 ## phase_23_5_dependencies

@@ -93,6 +93,10 @@ Mandatory rules:
   check `anti_slop`, `design_invariant`, `scope_legality`, `evidence_gap`,
   `docs_consistency`, `future_phase_leakage`, and `review_tier_controls` when
   they apply.
+- `draft-plan` must be agent-legible for the later implementation pass: it must
+  identify source inputs and implementation surfaces, preserve open
+  engineering questions, map validation signals to acceptance behavior, and
+  state stop conditions and handoff criteria.
 - If the active task contract, authoritative docs, prompt wrappers, and
   canonical skill contracts diverge, reconcile those surfaces before
   implementation or review continues when authoritative behavior changed.

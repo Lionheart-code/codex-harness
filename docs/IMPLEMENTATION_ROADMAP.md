@@ -651,11 +651,9 @@ surface for `plan-review` and `implementation-review`, with honest blocked
 disposition and exact-identity-safe launch evidence.
 
 Status:
-Active task-contract alignment phase. Phase 23.8.6B is already complete,
-reviewed, accepted, merged, harvested, and pulled into fresh `main`, so B1 is
-the current task-authority target. The current B1 pass is docs/task-authority
-only; runtime implementation for this same phase begins after this source
-authority is reviewed, accepted, and merged.
+Active implementation phase. Phase 23.8.6B is already complete, reviewed,
+accepted, merged, harvested, and pulled into fresh `main`, so B1 is the current
+runtime/code implementation target.
 
 Required scope:
 - add a narrow `run launch-review` runtime surface for `plan-review` and
