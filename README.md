@@ -110,9 +110,12 @@ node bin/ch prompt scout --role tests
 npm install
 npm run build
 npm test
-npm run test:acceptance
 npm run release:dry-run
 ```
+
+`npm test` is the canonical full-pack proof command for the current harness
+workflow. `npm run test:acceptance` remains only as a compatibility alias to
+the same acceptance runner and is not separate proof.
 
 ## Phase 22 release hardening behavior
 
@@ -121,7 +124,7 @@ npm run release:dry-run
 - The packed tarball must include `bin/ch`, `dist/cli/index.js`, the built runtime files under `dist/**`, and the product schemas required by install and upgrade behavior.
 - The packed tarball must exclude development, task, docs, scripts, runtime-local, and secret-like files such as `src/**`, `tests/**`, `TASK.md`, `.harness/**`, `.codex/**`, `.agents/**`, and generated tarballs.
 - The packed-install smoke gate installs the generated tarball into a temporary project and runs `ch --help`, `ch doctor platform`, and `ch doctor commands` through the packaged `bin/ch` path.
-- `.github/workflows/ci.yml` is a verify-only workflow for `pull_request` and `push` to `main`. It uses `permissions: contents: read`, runs `npm ci`, `npm run build`, `npm test`, `npm run test:acceptance`, and `npm run release:dry-run`, and does not publish or use npm tokens.
+- `.github/workflows/ci.yml` is a verify-only workflow for `pull_request` and `push` to `main`. It uses `permissions: contents: read`, runs `npm ci`, `npm run build`, `npm test`, `npm run test:acceptance`, and `npm run release:dry-run`, and does not publish or use npm tokens. In that workflow, `npm test` is the canonical full-pack proof command; `npm run test:acceptance` is a compatibility invocation of the same runner rather than separate proof.
 - Future trusted publishing and provenance remain documented only. Phase 22 does not activate public npm publishing.
 
 ## Phase 21 platform, security, eval, and context behavior

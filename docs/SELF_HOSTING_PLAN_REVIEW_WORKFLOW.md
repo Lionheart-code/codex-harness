@@ -160,12 +160,16 @@ It must check:
 
 - whether current behavior changed;
 - whether task or roadmap boundaries changed;
+- whether a phase acceptance/merge changed which phase is current, active, or
+  blocked in live authority;
 - whether entrypoint or command flow changed;
 - whether procedure contracts changed;
 - whether future-phase boundaries changed;
 - whether README, AGENTS, Human Operator Manual, SELF_HOSTING docs, prompts,
   skills, and output formats still match current project truth;
 - whether stale docs were updated, removed, or explicitly marked;
+- whether `TASK.md`, roadmap active/current wording, and immediate downstream
+  task status lines were advanced together when the accepted phase changed;
 - whether advisory sources were recorded.
 
 Required closeout outcomes:

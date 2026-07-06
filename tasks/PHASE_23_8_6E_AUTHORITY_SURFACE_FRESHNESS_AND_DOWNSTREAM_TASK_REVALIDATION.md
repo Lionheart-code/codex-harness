@@ -43,6 +43,9 @@ are still supposed to guide current or future work.
   docs/task validation command exists in the implementation context, use it;
   otherwise produce a bounded scripted/search checklist that checks at least:
   - stale present-tense `TASK.md currently points...` claims;
+  - accepted/merged near-term phases that still leave the previous phase marked
+    active/current or the immediate next phase marked blocked in live
+    authority;
   - near-term phase ordering that skips an inserted active phase such as
     direct `23.8.6B -> 23.8.6B2` wording;
   - duplicate or conflicting "active/current task" authority claims;

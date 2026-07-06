@@ -89,13 +89,18 @@ For Phase 21 specifically:
 
 ## Acceptance command policy
 
-Task files may contain shell examples, but durable acceptance must run through the shared Node-based runner:
+Task files may contain shell examples, but durable full-pack proof must run
+through the shared Node-based runner with one canonical command:
 
 ```bash
 npm test
 npm run test:acceptance
 node scripts/run-acceptance.mjs
 ```
+
+`npm test` is the canonical full-pack proof command. `npm run
+test:acceptance` remains a compatibility alias to the same runner, and `node
+scripts/run-acceptance.mjs` is the underlying shared runner path.
 
 The runner must:
 
