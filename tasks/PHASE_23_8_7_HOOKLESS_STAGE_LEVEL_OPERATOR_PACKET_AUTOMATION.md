@@ -45,15 +45,27 @@ Required behavior:
   exact-instance evidence rather than ambiguous display-`run_id` evidence.
 - Keep stage status, procedure artifact, artifact refs, payload refs, exact
   run identity, blocked disposition, and next allowed action distinct.
+- Keep verification evidence, `verification-review`, delivery-facts import,
+  `delivery-facts-review`, PR draft/open state, merge facts,
+  `phase-closeout-review`, and ready closeout receipt as distinct typed
+  states/refs. Packet/result contracts must not let one later stage masquerade
+  as another.
+- When later evidence supersedes earlier placeholder or incomplete
+  review/delivery facts, preserve both references but mark which result is
+  current versus superseded.
 - Any advisory packet routing/model fields must inherit the checked-in policy
   boundary from `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` without launching
   reviewers or runners.
 - Keep the minimum lifecycle-failure fixtures explicit: self-approval
   attempt, skipped architecture-review, skipped db-storage-review,
   `AMEND_REQUIRED` without valid amended-plan review, missing
-  implementation-review artifact, blocker note treated as `ACCEPT`, source
-  edits before valid lifecycle approval, reviewer launch hang, failed
-  verification, scope creep, and fake closeout.
+  implementation-review artifact, blocker note treated as `ACCEPT`,
+  verification evidence treated as accepted `verification-review`,
+  delivery-facts import treated as accepted `delivery-facts-review`, draft/open
+  PR or missing merge facts treated as closeout-ready, superseded placeholder
+  delivery facts treated as current closeout evidence, source edits before
+  valid lifecycle approval, reviewer launch hang, failed verification, scope
+  creep, and fake closeout.
 
 ## Core interfaces
 
@@ -142,6 +154,9 @@ git diff --check
 - Missing deterministic checks block progression with typed `stop_reason`.
 - Review failures and lifecycle anomalies become typed `RunIssue` records and
   route to `RepairPacket` state rather than prose-only notes.
+- Packet fixtures and lifecycle-anomaly fixtures keep verification, delivery,
+  merge, and closeout states distinct, including current-versus-superseded
+  evidence.
 - Hooks absent or disabled do not affect lifecycle.
 - If a full-pack acceptance proof is required during implementation, `npm test`
   is the canonical command. `npm run test:acceptance` remains only a

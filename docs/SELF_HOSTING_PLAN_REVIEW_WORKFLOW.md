@@ -127,6 +127,33 @@ If the review surface cannot be determined safely, do not guess. Return:
 BLOCKED_REVIEW_SURFACE_UNCLEAR
 ```
 
+## Future-debt placement
+
+If review or audit work discovers real implementation debt outside the active
+task, do not leave that finding only in run-local markdown, chat notes, or a
+roadmap summary.
+
+Final source-owned placement must be exactly one of:
+
+- current blocker for the active task;
+- explicit existing future task owner;
+- new future task;
+- historical or already resolved; or
+- explicit owner decision/report-only outcome when no implementation work is
+  being assigned.
+
+The allocation must also say whether the finding is:
+
+- a current blocker;
+- near-term debt that is already distorting operator/review work and should be
+  pulled forward into the earliest honest owner; or
+- later debt that is real but must wait for its upstream task foundations.
+
+If an existing future task owns the finding only by implication, amend that
+task file before calling the allocation complete. The roadmap may summarize
+phase ownership, but it is not the sole placement surface for executable
+future implementation debt.
+
 ## Fix-pass and re-review protocol
 
 After `FIX_REQUIRED`, `ACCEPT_WITH_FIXES`, or any blocking implementation

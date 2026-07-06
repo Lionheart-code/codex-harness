@@ -45,6 +45,10 @@ Required behavior:
   run identity rather than display `run_id` alone.
 - Ingest CI and review outcomes as typed facts/evidence rather than free-form
   chat state.
+- If CI still invokes equivalent compatibility aliases for one proof path,
+  this phase may rationalize reviewed PR/CI execution to one canonical
+  required invocation plus compatibility classification. Equivalent aliases
+  must not remain separate required proof in reviewed runner/CI execution.
 - Prepare bounded fix-pass packets when CI or review fails.
 - Keep provider/host adapters behind shared runner/access boundaries instead
   of embedding provider-specific logic into core lifecycle behavior.
@@ -100,7 +104,8 @@ git diff --check
   references.
 - If full-pack proof is required, use `npm test` as the canonical command.
   Treat `npm run test:acceptance` only as a compatibility alias to the same
-  proof path, not as independent proof and not as a separately required
-  command.
+  proof path, not as independent proof, not as a separately required command,
+  and not as a duplicate reviewed CI obligation once a canonical invocation is
+  available.
 - No self-approval, auto-merge, unrestricted provider logic, coding-agent
   replacement behavior, or domain-core execution behavior is introduced.

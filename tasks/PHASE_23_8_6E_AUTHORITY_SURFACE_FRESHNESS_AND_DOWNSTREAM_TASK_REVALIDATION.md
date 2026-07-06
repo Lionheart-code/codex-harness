@@ -55,6 +55,11 @@ are still supposed to guide current or future work.
     accepted-memory identity; and
   - future/live surfaces that treat request files, blocker notes, or diagnosis
     notes as accepted review artifacts or accepted memory.
+  - future/live surfaces that treat dirty local diffs, draft PR text, or
+    run-local audit markdown as permission to advance `TASK.md`, current phase
+    status, or downstream task readiness; and
+  - future/live surfaces that collapse historical supporting-fix or
+    adjacent-slice artifacts into current active-task authority.
 - Distinguish future/live authority surfaces from historical/accepted task
   history.
 - Update only future/live authority surfaces that are stale against current

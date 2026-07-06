@@ -54,6 +54,13 @@ approval.
   review-launch proof, review artifact validity, review verdict, verification
   proof, blocked disposition, artifact body, artifact ref, payload ref, exact
   run identity, and accepted memory distinct.
+- When one branch or PR carries an active task plus an approved supporting fix
+  or adjacent slice, proof must distinguish active-task evidence from
+  supporting-slice delivery history rather than collapsing them into one proof
+  claim.
+- Proof must preserve commit/delivery slice classification and mark
+  current-versus-superseded review or delivery artifacts when multiple exact
+  records exist for the same run.
 - Proof does not decide lifecycle.
 - Proof does not implement run-state ingestion.
 - Proof does not override deterministic failures.
@@ -96,6 +103,8 @@ These may be added later once the minimal proof record is useful.
 - Proof is not a new lifecycle authority.
 - Proof identity does not collapse distinct exact run instances that reuse the
   same display `run_id`.
+- Proof can distinguish active-task evidence from supporting-slice or
+  combined-delivery history without promoting run-local markdown to authority.
 
 ## Future-phase impact check
 

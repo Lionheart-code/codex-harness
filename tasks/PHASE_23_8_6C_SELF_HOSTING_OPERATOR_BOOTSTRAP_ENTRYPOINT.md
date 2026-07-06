@@ -51,6 +51,15 @@ external runners or implementing runtime runner execution enforcement.
   when required by the review tier.
 - Record every lifecycle problem as typed `RunIssue` evidence.
 - Generate a `RepairPacket` before continuing when unresolved issues exist.
+- If the active task or approved plan cannot complete honestly without
+  supporting runtime/operator work outside current scope, stop and record a
+  typed `RunIssue` that distinguishes:
+  - bounded fix-pass inside current scope;
+  - plan/task amendment within current scope; or
+  - separate supporting-fix or new-task requirement.
+- Emit the matching `RepairPacket`, amendment recommendation, or new-task
+  recommendation instead of silently broadening the active diff or treating
+  chat-only notes as authority.
 - Continue only until a hard blocker, configured owner gate, or budget stop.
 - Provide a non-mutating preview or dry-run path before any durable state
   mutation.
@@ -58,6 +67,11 @@ external runners or implementing runtime runner execution enforcement.
   different task, silently rewrite `TASK.md`, or backfill authority by chat.
 - Do not treat review request files, diagnosis notes, or other run-local
   markdown artifacts as accepted memory.
+- Surface review procedures that remain outside Phase 23.8.6B1 supervised
+  launch, such as `fix-pass-review`, `verification-review`,
+  `delivery-facts-review`, `phase-closeout-review`, and `harness-audit`, as
+  manual or blocked next actions until a reviewed product surface exists for
+  them.
 - Preserve one task = one branch = one worktree.
 
 ## Non-goals
