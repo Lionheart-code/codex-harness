@@ -23,6 +23,9 @@ This document explains how a human operator should use `codex-harness` safely.
    `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`
    and then
    `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`.
+   That command path stores a next-task decision and materializes the new task
+   branch/worktree, but the next task is not active source authority until the
+   new task worktree has a commit-backed `TASK.md` activation and clean git.
    A manual transcript alone still does not satisfy runtime evidence for any of
    those procedures; the operator must record it through the product command.
    Procedures outside the active replay scope, such as
@@ -39,12 +42,15 @@ This document explains how a human operator should use `codex-harness` safely.
    satisfied.
 
 A closing or harvested run may record which task should come next. It does not
-own the new task branch/worktree. The next cycle starts only when `TASK.md` is
-activated in that task's own branch/worktree and a new run is opened there.
-Phase 23.8.6 now provides a formal product path for this:
-record the next-task decision, materialize the new task branch/worktree, then
-let `materialize-next-task` write the new `TASK.md` pointer there and start the
-new run.
+own the new task branch/worktree and it must not edit `TASK.md` for that next
+task. The next cycle becomes authoritative only when `TASK.md` is written in
+that task's own branch/worktree, the activation/materialization change is
+committed there as the first commit, clean git is confirmed, and only then the
+new run is treated as active task context. If the current narrow runtime path
+opens the new run earlier, treat it as provisional and non-authoritative until
+that commit-backed activation gate succeeds. Broader self-hosting
+bootstrap/orchestrator behavior and later authority-freshness revalidation
+remain owned by downstream tasks.
 Preserve one task = one branch = one worktree. `run start` by itself still does
 not create the new task branch/worktree; that ownership stays on the explicit
 `materialize-next-task` step.
@@ -338,9 +344,13 @@ Only after commit and closeout/harvest decision:
 2. materialize the new task context with
    `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`;
 3. confirm the new task worktree and active `TASK.md` pointer are correct;
-4. continue from the new run already opened in that task worktree;
-5. commit the task pointer/materialization change if desired;
-6. start fresh `/plan`.
+4. commit the task pointer/materialization change as the first commit in that
+   new task branch/worktree;
+5. verify clean `git status` in that new task context;
+6. only then continue from the new run in that task worktree. If the current
+   narrow runtime path opened it earlier, treat it as provisional and
+   non-authoritative until steps 4-5 succeed;
+7. start fresh `/plan`.
 
 ## Emergency rollback
 

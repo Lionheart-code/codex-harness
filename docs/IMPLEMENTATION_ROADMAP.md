@@ -385,8 +385,16 @@ Task-cycle materialization invariant:
   closing or harvested run;
 - start-of-new-cycle materialization belongs to the new task context; Phase
   23.8.6 now provides an explicit command path for recording the next-task
-  decision and materializing that new task branch/worktree before the new run
-  starts;
+  decision and materializing that new task branch/worktree, but activated
+  source authority exists only after `TASK.md` is written there, the
+  activation/materialization change is committed as the first commit in that
+  branch/worktree, clean git is re-established, and the new run starts after
+  those gates succeed;
+- DB/staging state stores the next-task decision, git stores the activated
+  source state, and a new run starts only when those agree and git is clean;
+- if the activation commit cannot be created, or clean git cannot be
+  re-established after it, materialization must fail closed and must not start
+  a new run;
 - branch/worktree ownership remains explicit and task-scoped in the current
   manual flow and must not be treated as implicit in `run start`;
 - git branch creation and git worktree creation remain distinct primitives, but
@@ -528,8 +536,13 @@ Required scope:
   after harvest without reopening or manually repairing the run;
 - add a formal product command sequence or equivalent documented runtime
   surface for start-of-new-cycle materialization that preserves the new task
-  context: create or enter the task branch/worktree, activate the decided next
-  task there, and start the new run in that task worktree;
+  context: create or enter the task branch/worktree, write the decided next
+  `TASK.md` pointer there, commit the activation/materialization change as the
+  first commit in that task branch/worktree, verify clean git, and only then
+  start the new run in that task worktree;
+- keep a recorded next-task decision as recorded decision state only until an
+  explicit status or equivalent typed distinction marks the committed source
+  activation as complete;
 - ensure a harvested/closing run may record the next task decision but cannot
   create, claim, or mutate the new task branch/worktree;
 - forbid accepted/project readback from acting as implicit repair authority
@@ -749,6 +762,8 @@ Required scope:
 - read operator status and select exactly one next procedure or typed blocker;
 - report bootstrap evidence for active task, branch, worktree, base-commit
   fact, and exact run identity state;
+- treat uncommitted task activation or `TASK.md`/base-commit/worktree/git-state
+  misalignment as a typed blocker rather than a valid startup context;
 - prepare one bounded worker handoff, prompt, or packet for the selected next
   step;
 - allow bootstrap/status output to surface B1 review-launch blocked
@@ -1335,6 +1350,9 @@ After every phase:
    applicable.
    Use the Phase 23.8.6 runtime command path for this.
 5. In the new cycle, materialize the new branch/worktree for that task and let
-   that step activate the next task in `TASK.md` there and start the new run in
-   that task worktree.
-6. Start a new `/plan` run for the new active task.
+   that step write the next `TASK.md` pointer there.
+6. Create the activation/materialization change as the first commit in that
+   new task branch/worktree.
+7. Verify clean git in that new task context.
+8. Start the new run in that clean activated task worktree.
+9. Start a new `/plan` run for the new active task.

@@ -90,6 +90,16 @@ Daily review should be cheap and mostly deterministic.
 
 Deep review may use a stronger model.
 
+## Style and static-hygiene policy
+
+The product may rely on TypeScript strictness, deterministic tests, and review
+discipline without automatically requiring a repo-wide lint or formatter stack.
+
+Introducing repo-level lint, formatter, or other static-hygiene gates is a
+governance decision, not an automatic default. Add those gates only when
+evidence shows that they improve correctness or maintainability enough to
+justify the extra cost, noise, and CI/runtime surface.
+
 ## Harness Enhancement Proposal
 
 Each proposed harness change should include:
