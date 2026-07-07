@@ -135,7 +135,7 @@ The committed CI workflow should use a single verify job with a
 `timeout-minutes: 45` guard unless a shorter bound is proven sufficient by the
 implemented suite.
 
-The workflow must run:
+The workflow currently runs:
 
 ```bash
 npm ci
@@ -144,6 +144,10 @@ npm test
 npm run test:acceptance
 npm run release:dry-run
 ```
+
+For current proof semantics, `npm test` is the canonical full-pack proof
+command. `npm run test:acceptance` is a compatibility invocation of the same
+acceptance runner rather than separate proof.
 
 The CI workflow must not publish, must not use npm tokens, and must not require
 long-lived secrets.
@@ -264,8 +268,9 @@ and must:
 Before any future release:
 
 - run `npm run build`;
-- run `npm test`;
-- run `npm run test:acceptance`;
+- run `npm test` as the canonical full-pack proof command;
+- if the compatibility alias is invoked, treat `npm run test:acceptance` as
+  the same runner path rather than separate proof;
 - run `npm run release:dry-run`;
 - inspect `npm pack --dry-run --json`;
 - install the generated tarball into a temporary test project;

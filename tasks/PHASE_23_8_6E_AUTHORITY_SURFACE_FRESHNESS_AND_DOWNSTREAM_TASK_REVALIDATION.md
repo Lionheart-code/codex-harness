@@ -43,6 +43,9 @@ are still supposed to guide current or future work.
   docs/task validation command exists in the implementation context, use it;
   otherwise produce a bounded scripted/search checklist that checks at least:
   - stale present-tense `TASK.md currently points...` claims;
+  - accepted/merged near-term phases that still leave the previous phase marked
+    active/current or the immediate next phase marked blocked in live
+    authority;
   - near-term phase ordering that skips an inserted active phase such as
     direct `23.8.6B -> 23.8.6B2` wording;
   - duplicate or conflicting "active/current task" authority claims;
@@ -52,6 +55,11 @@ are still supposed to guide current or future work.
     accepted-memory identity; and
   - future/live surfaces that treat request files, blocker notes, or diagnosis
     notes as accepted review artifacts or accepted memory.
+  - future/live surfaces that treat dirty local diffs, draft PR text, or
+    run-local audit markdown as permission to advance `TASK.md`, current phase
+    status, or downstream task readiness; and
+  - future/live surfaces that collapse historical supporting-fix or
+    adjacent-slice artifacts into current active-task authority.
 - Distinguish future/live authority surfaces from historical/accepted task
   history.
 - Update only future/live authority surfaces that are stale against current

@@ -651,9 +651,10 @@ surface for `plan-review` and `implementation-review`, with honest blocked
 disposition and exact-identity-safe launch evidence.
 
 Status:
-Active implementation phase. Phase 23.8.6B is already complete, reviewed,
-accepted, merged, harvested, and pulled into fresh `main`, so B1 is the current
-runtime/code implementation target.
+Accepted historical phase. Phase 23.8.6B is already complete, reviewed,
+accepted, merged, harvested, and pulled into fresh `main`, and Phase 23.8.6B1
+is complete enough that the current task pointer may advance to the next
+near-term phase.
 
 Required scope:
 - add a narrow `run launch-review` runtime surface for `plan-review` and
@@ -699,8 +700,9 @@ one canonical proof command and stop treating duplicate npm aliases as
 independent proof.
 
 Status:
-Planned. Blocked until Phase 23.8.6B1 is complete, reviewed, accepted, and
-merged.
+Active implementation phase. Phase 23.8.6B1 is already complete enough for the
+current task pointer and roadmap authority to advance, so B2 is now the active
+verification-guidance/docs implementation target.
 
 Required scope:
 - designate `npm test` as the canonical full-pack verification command;
@@ -710,6 +712,8 @@ Required scope:
   invocation with `--test-concurrency=1`;
 - update only live/current or immediate planned/future authority surfaces that
   still imply both aliases are required as separate proof;
+- update any live/current roadmap or operator-facing wording that still leaves
+  the completed prior phase marked active or leaves this phase marked blocked;
 - forbid concurrent launch of the full-pack aliases in the same
   workspace/runtime context;
 - keep verification-command rationalization separate from review-launch

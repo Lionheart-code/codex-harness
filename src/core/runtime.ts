@@ -4297,6 +4297,32 @@ function readLatestApprovedPlanEvidence(run: Run): EvidenceRef | undefined {
   return undefined;
 }
 
+function isPlanAmendEvidence(evidence: EvidenceRef | undefined): boolean {
+  if (!evidence) {
+    return false;
+  }
+
+  return evidence.kind === "procedure:plan-amend" || evidence.summary === "plan-amend";
+}
+
+function readPlanScopeMarkdown(runContext: OperatorRunContext): string | undefined {
+  const latestEffectivePlan = readLatestEffectivePlanEvidence(runContext.run);
+  if (isPlanAmendEvidence(latestEffectivePlan) && latestEffectivePlan?.path) {
+    return readUtf8FileIfExists(resolveRunLocalPath(runContext, latestEffectivePlan.path));
+  }
+
+  const latestApprovedPlan = readLatestApprovedPlanEvidence(runContext.run);
+  if (latestApprovedPlan?.path) {
+    return readUtf8FileIfExists(resolveRunLocalPath(runContext, latestApprovedPlan.path));
+  }
+
+  if (latestEffectivePlan?.path) {
+    return readUtf8FileIfExists(resolveRunLocalPath(runContext, latestEffectivePlan.path));
+  }
+
+  return undefined;
+}
+
 function readLatestProcedureEvidenceById(run: Run, procedureId: string): EvidenceRef | undefined {
   for (let index = run.evidence.length - 1; index >= 0; index -= 1) {
     const evidence = run.evidence[index];
@@ -4535,8 +4561,324 @@ function isImplementationSourcePath(relativePath: string): boolean {
   return false;
 }
 
+function extractRepoRelativeMarkdownPaths(markdown: string): Set<string> {
+  const paths = new Set<string>();
+  const pattern = /(?:^|[\s`"'(])((?:docs|tasks|skills)\/[A-Za-z0-9._/-]+|README\.md|TASK\.md)(?=$|[\s`"'.,:;)\]])/gm;
+
+  for (const match of markdown.matchAll(pattern)) {
+    const value = match[1]?.trim();
+    if (!value) {
+      continue;
+    }
+
+    paths.add(normalizeRepoRelativePath(value));
+  }
+
+  return paths;
+}
+
+interface MarkdownSection {
+  heading: string;
+  body: string;
+}
+
+interface DocsTaskPolicyScopeRules {
+  allowedPaths: Set<string>;
+  forbiddenPaths: Set<string>;
+  allowLiveCurrentDocs: boolean;
+  allowImmediateFutureTaskContracts: boolean;
+  allowedFutureTaskPaths: Set<string>;
+}
+
+const APPROVED_PLAN_SCOPE_HEADINGS = new Set([
+  "allowed authority surfaces",
+  "effective scope",
+  "effective steps",
+  "included",
+  "source files or modules likely to change",
+  "implementation surfaces"
+]);
+
+const TASK_SCOPE_HEADINGS = new Set([
+  "required behavior",
+  "acceptance behavior"
+]);
+
+const FORBIDDEN_SCOPE_HEADINGS = new Set([
+  "non-goals",
+  "source/runtime boundary",
+  "excluded"
+]);
+
+function listMarkdownLevelTwoSections(markdown: string): MarkdownSection[] {
+  const lines = markdown.split(/\r?\n/u);
+  const sections: MarkdownSection[] = [];
+  let currentHeading: string | undefined;
+  let currentLines: string[] = [];
+
+  for (const line of lines) {
+    const headingMatch = /^##\s+(.+?)\s*$/u.exec(line.trim());
+    if (headingMatch) {
+      if (currentHeading !== undefined) {
+        sections.push({ heading: currentHeading, body: currentLines.join("\n") });
+      }
+
+      currentHeading = headingMatch[1].trim();
+      currentLines = [];
+      continue;
+    }
+
+    if (currentHeading !== undefined) {
+      currentLines.push(line);
+    }
+  }
+
+  if (currentHeading !== undefined) {
+    sections.push({ heading: currentHeading, body: currentLines.join("\n") });
+  }
+
+  return sections;
+}
+
+interface RoadmapPhaseTaskEntry {
+  phaseId: string;
+  taskPath?: string;
+}
+
+function inferPhaseFamilyId(phaseId: string): string {
+  const match = /^([0-9]+(?:\.[0-9]+)*)[A-Z]/u.exec(phaseId);
+  return match?.[1] ?? phaseId;
+}
+
+function listRoadmapPhaseTaskEntries(targetRoot: string): RoadmapPhaseTaskEntry[] {
+  const roadmapPath = path.join(targetRoot, "docs", "IMPLEMENTATION_ROADMAP.md");
+  const roadmap = readUtf8FileIfExists(roadmapPath);
+
+  if (!roadmap) {
+    return [];
+  }
+
+  const headingPattern = /^##\s+Phase\s+([0-9]+(?:\.[0-9]+)*(?:[A-Z][0-9]*)?)\b.*$/gm;
+  const headings = [...roadmap.matchAll(headingPattern)];
+  const entries: RoadmapPhaseTaskEntry[] = [];
+
+  for (let index = 0; index < headings.length; index += 1) {
+    const heading = headings[index];
+    const sectionStart = heading.index;
+    if (sectionStart === undefined) {
+      continue;
+    }
+
+    const sectionEnd = headings[index + 1]?.index ?? roadmap.length;
+    const section = roadmap.slice(sectionStart, sectionEnd);
+    const taskPath = /Task:\s*`([^`]+)`/m.exec(section)?.[1]?.trim();
+    entries.push({
+      phaseId: heading[1],
+      ...(taskPath ? { taskPath } : {})
+    });
+  }
+
+  return entries;
+}
+
+function collectImmediateFutureTaskContractPaths(targetRoot: string, activePhaseId: string): Set<string> {
+  const entries = listRoadmapPhaseTaskEntries(targetRoot);
+  const currentIndex = entries.findIndex((entry) => entry.phaseId === activePhaseId);
+  if (currentIndex === -1) {
+    return new Set<string>();
+  }
+
+  const activeFamilyId = inferPhaseFamilyId(activePhaseId);
+  const allowedPaths = new Set<string>();
+
+  for (let index = currentIndex + 1; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (inferPhaseFamilyId(entry.phaseId) !== activeFamilyId) {
+      break;
+    }
+
+    if (entry.taskPath) {
+      allowedPaths.add(normalizeRepoRelativePath(entry.taskPath));
+    }
+  }
+
+  return allowedPaths;
+}
+
+function parseScopeSectionRules(
+  rules: DocsTaskPolicyScopeRules,
+  section: MarkdownSection,
+  explicitPathSectionHeadings: Set<string>
+): void {
+  const normalizedHeading = section.heading.trim().toLowerCase();
+  const explicitPathHeading = explicitPathSectionHeadings.has(normalizedHeading);
+
+  for (const line of section.body.split(/\r?\n/u)) {
+    const trimmedLine = line.trim();
+    if (trimmedLine.length === 0) {
+      continue;
+    }
+
+    const lineLower = trimmedLine.toLowerCase();
+    const explicitPaths = extractRepoRelativeMarkdownPaths(trimmedLine);
+    const negativePathSignal = /\b(do not edit|must not change|must not implement|no [a-z0-9/_-]+ changes|forbidden)\b/.test(lineLower);
+    const positivePathSignal = explicitPathHeading
+      || /\b(update|patch|keep\b.*\bin scope|keep the current\b.*\bchange in scope|source files or modules likely to change|allowed authority surfaces|implementation surfaces)\b/.test(lineLower);
+
+    if (/\blive\/current\b.*\bauthority surfaces?\b/.test(lineLower) || /\blive\/current docs?\b/.test(lineLower) || /\boperator-facing wording\b/.test(lineLower)) {
+      rules.allowLiveCurrentDocs = true;
+    }
+
+    if (/\bimmediate planned\/future\b.*\bauthority surfaces?\b/.test(lineLower) || /\bplanned\/future task contracts?\b/.test(lineLower) || /\bnear downstream planned\/future task contracts?\b/.test(lineLower)) {
+      rules.allowImmediateFutureTaskContracts = true;
+    }
+
+    if (/\broadmap\b/.test(lineLower) && /\b(update|active|current|surface|surfaces|wording)\b/.test(lineLower)) {
+      rules.allowedPaths.add("docs/IMPLEMENTATION_ROADMAP.md");
+    }
+
+    for (const explicitPath of explicitPaths) {
+      if (negativePathSignal) {
+        rules.forbiddenPaths.add(explicitPath);
+        continue;
+      }
+
+      if (positivePathSignal) {
+        rules.allowedPaths.add(explicitPath);
+      }
+    }
+  }
+}
+
+function buildDocsTaskPolicyScopeRules(
+  targetRoot: string,
+  taskMarkdown: string,
+  effectivePlanMarkdown?: string,
+  activeTaskPath?: string,
+  activePhaseId?: string
+): DocsTaskPolicyScopeRules {
+  const rules: DocsTaskPolicyScopeRules = {
+    allowedPaths: new Set<string>(["TASK.md"]),
+    forbiddenPaths: new Set<string>(),
+    allowLiveCurrentDocs: false,
+    allowImmediateFutureTaskContracts: false,
+    allowedFutureTaskPaths: new Set<string>()
+  };
+
+  if (activeTaskPath) {
+    rules.allowedPaths.add(normalizeRepoRelativePath(activeTaskPath));
+  }
+
+  for (const section of listMarkdownLevelTwoSections(taskMarkdown)) {
+    const normalizedHeading = section.heading.trim().toLowerCase();
+    if (TASK_SCOPE_HEADINGS.has(normalizedHeading)) {
+      parseScopeSectionRules(rules, section, new Set<string>());
+      continue;
+    }
+
+    if (FORBIDDEN_SCOPE_HEADINGS.has(normalizedHeading)) {
+      parseScopeSectionRules(rules, section, new Set<string>());
+    }
+  }
+
+  if (effectivePlanMarkdown) {
+    for (const section of listMarkdownLevelTwoSections(effectivePlanMarkdown)) {
+      const normalizedHeading = section.heading.trim().toLowerCase();
+      if (APPROVED_PLAN_SCOPE_HEADINGS.has(normalizedHeading)) {
+        parseScopeSectionRules(rules, section, APPROVED_PLAN_SCOPE_HEADINGS);
+        continue;
+      }
+
+      if (FORBIDDEN_SCOPE_HEADINGS.has(normalizedHeading)) {
+        parseScopeSectionRules(rules, section, new Set<string>());
+      }
+    }
+  }
+
+  if (rules.allowImmediateFutureTaskContracts && activePhaseId) {
+    for (const taskPath of collectImmediateFutureTaskContractPaths(targetRoot, activePhaseId)) {
+      rules.allowedFutureTaskPaths.add(taskPath);
+    }
+  }
+
+  return rules;
+}
+
+function isDocsTaskPolicyOnlyImplementationScope(taskMarkdown: string, effectivePlanMarkdown?: string): boolean {
+  const combined = `${taskMarkdown}\n${effectivePlanMarkdown ?? ""}`.toLowerCase();
+  const docsAuthoritySignals = [
+    "docs/task/verification-guidance authority only",
+    "docs/task/policy authority only",
+    "docs/task/procedure/policy authority only",
+    "docs/task/procedure/policy authority",
+    "verification-policy and authority-surface phase"
+  ];
+  const docsBoundarySignals = [
+    "no runtime feature implementation",
+    "must not change runtime code",
+    "must not implement runtime features",
+    "no package-script changes",
+    "no ci changes",
+    "no acceptance-runner code changes"
+  ];
+
+  return docsAuthoritySignals.some((signal) => combined.includes(signal))
+    && docsBoundarySignals.some((signal) => combined.includes(signal));
+}
+
+function isAllowedDocsTaskPolicyImplementationPath(relativePath: string, rules: DocsTaskPolicyScopeRules): boolean {
+  const normalized = normalizeRepoRelativePath(relativePath);
+
+  if (rules.allowedPaths.has(normalized)) {
+    return true;
+  }
+
+  if (rules.allowLiveCurrentDocs && (normalized === "README.md" || normalized.startsWith("docs/"))) {
+    return true;
+  }
+
+  if (rules.allowedFutureTaskPaths.has(normalized)) {
+    return true;
+  }
+
+  return false;
+}
+
+function classifyDocsTaskPolicyImplementationPaths(relativePaths: string[], rules: DocsTaskPolicyScopeRules): {
+  allowedPaths: string[];
+  forbiddenPaths: string[];
+} {
+  const allowedPaths: string[] = [];
+  const forbiddenPaths: string[] = [];
+
+  for (const relativePath of relativePaths) {
+    const normalized = normalizeRepoRelativePath(relativePath);
+
+    if (isPrivateRuntimePath(normalized) || isReadOnlyArtifactPath(normalized)) {
+      continue;
+    }
+
+    if (rules.forbiddenPaths.has(normalized)) {
+      forbiddenPaths.push(normalized);
+      continue;
+    }
+
+    if (isAllowedDocsTaskPolicyImplementationPath(normalized, rules)) {
+      allowedPaths.push(normalized);
+      continue;
+    }
+
+    forbiddenPaths.push(normalized);
+  }
+
+  return { allowedPaths, forbiddenPaths };
+}
+
 function hasImplementationEvidence(run: Run, procedureIds: Set<string>, options: {
   allowLiveChangeProbe?: boolean;
+  taskMarkdown?: string;
+  effectivePlanMarkdown?: string;
+  activeTaskPath?: string;
 } = {}): boolean {
   const implementationStepIds = new Set(run.steps.filter((step) => isImplementationStep(step)).map((step) => step.step_id));
   const downstreamImplementationProcedures = [
@@ -4570,6 +4912,25 @@ function hasImplementationEvidence(run: Run, procedureIds: Set<string>, options:
   if (options.allowLiveChangeProbe) {
     try {
       const liveChangeSet = buildChangeSet(run.repository.root_path);
+      if (
+        options.taskMarkdown
+        && isDocsTaskPolicyOnlyImplementationScope(options.taskMarkdown, options.effectivePlanMarkdown)
+      ) {
+        const scopeRules = buildDocsTaskPolicyScopeRules(
+          run.repository.root_path,
+          options.taskMarkdown,
+          options.effectivePlanMarkdown,
+          options.activeTaskPath,
+          run.phase_id
+        );
+        const classifiedPaths = classifyDocsTaskPolicyImplementationPaths(liveChangeSet.changed_paths, scopeRules);
+        if (classifiedPaths.forbiddenPaths.length > 0) {
+          return false;
+        }
+
+        return classifiedPaths.allowedPaths.length > 0;
+      }
+
       if (liveChangeSet.changed_paths.some((relativePath) => isImplementationSourcePath(relativePath))) {
         return true;
       }
@@ -5294,7 +5655,10 @@ function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string,
       planApproved,
       implementationEvidence: runContext
         ? hasImplementationEvidence(runContext.run, procedureIds, {
-            allowLiveChangeProbe: planApproved === true && runContext.quarantinedPayloadCount === 0
+            allowLiveChangeProbe: planApproved === true && runContext.quarantinedPayloadCount === 0,
+            taskMarkdown: taskContext.activeTaskMarkdown,
+            effectivePlanMarkdown: runContext ? readPlanScopeMarkdown(runContext) : undefined,
+            activeTaskPath: taskContext.activeTaskPath
           })
         : undefined
     }

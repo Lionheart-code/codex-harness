@@ -2,8 +2,9 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6B1 Supervised Review Launch and Blocked
-Disposition is complete, reviewed, accepted, and merged.
+Active implementation phase. Phase 23.8.6B1 is already complete enough that
+the current task pointer and roadmap authority may advance, so this B2 task is
+the live verification-guidance/docs implementation target.
 
 ## Purpose
 
@@ -38,6 +39,8 @@ This is a narrow verification-policy and authority-surface phase.
   single invocation with `--test-concurrency=1`.
 - Update only live/current or immediate planned/future authority surfaces that
   still imply both aliases are required as separate proof.
+- Update live/current roadmap and task-status wording when the completed prior
+  phase is still marked active or this phase is still marked blocked.
 - State that full-pack aliases must not be launched concurrently in the same
   workspace/runtime context.
 - Keep verification-command rationalization separate from the supervised review
@@ -77,6 +80,8 @@ git diff --check
 - No edited authority surface requires both aliases as separate proof.
 - No edited authority surface permits concurrent launch of full-pack aliases in
   the same workspace/runtime context.
+- Live/current phase-status wording no longer leaves the completed prior phase
+  marked active or this active phase marked blocked.
 - Historical/accepted task history is not broadly rewritten just to clean old
   wording.
 - If a lightweight repo-owned docs/task validation command exists in the
@@ -110,4 +115,9 @@ The implementation report for this phase must state:
 - the confirmed `npm test` vs `npm run test:acceptance` repo finding;
 - whether any lightweight docs/task validation command exists;
 - verification results;
-- remaining debt or downstream surfaces intentionally deferred.
+- remaining debt or downstream surfaces intentionally deferred;
+- whether docs/task/policy-only implementation evidence still leaves operator
+  status at `IMPLEMENTATION_READY` because current implementation-evidence
+  routing is code-path-biased; and
+- the deferred follow-up requirement carried into Phase `23.8.6C` if that
+  ORCHESTRATOR_GAP remains unresolved.

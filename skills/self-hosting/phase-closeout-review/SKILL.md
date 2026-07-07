@@ -43,6 +43,9 @@ rules.
 - Check deletion safety rules separately from closeout readiness.
 - Run Source-of-Truth Refresh / Documentation Garbage Collection checks for the
   affected task/docs/prompt/skill/output-format surfaces.
+- Confirm that any accepted phase transition advanced the live `TASK.md`
+  pointer, roadmap active/current wording, and immediate downstream blocked
+  status together.
 - Return explicit blockers and unresolved risks.
 
 ## expected_output_format
