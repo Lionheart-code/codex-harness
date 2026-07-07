@@ -37,6 +37,14 @@ external runners or implementing runtime runner execution enforcement.
   - current worktree root;
   - base commit or reviewed merge-base fact;
   - exact run identity allocation or bootstrap status.
+- If active task authority depends on an uncommitted `TASK.md` activation, or
+  if `TASK.md`, base commit, worktree, and git state are misaligned, return a
+  typed blocker instead of trusting or continuing the new task run.
+- Resolve the active task from current `TASK.md`, exact run context, or
+  explicit task/worktree inputs rather than assuming the repository contains
+  exactly one task-state record. Historical task accumulation must not make the
+  active self-hosting bootstrap, capture, check, or adjacent task/worktree
+  helper surfaces unusable.
 - Read operator status and select exactly one next procedure or next allowed
   action.
 - Prepare exactly one bounded worker handoff, prompt, or packet for an
@@ -69,9 +77,9 @@ external runners or implementing runtime runner execution enforcement.
   markdown artifacts as accepted memory.
 - Surface review procedures that remain outside Phase 23.8.6B1 supervised
   launch, such as `fix-pass-review`, `verification-review`,
-  `delivery-facts-review`, `phase-closeout-review`, and `harness-audit`, as
-  manual or blocked next actions until a reviewed product surface exists for
-  them.
+  `delivery-facts-review`, `phase-closeout-review`,
+  `docs-consistency-review`, and `harness-audit`, as manual or blocked next
+  actions until a reviewed product surface exists for them.
 - Preserve one task = one branch = one worktree.
 
 ## Non-goals
@@ -101,6 +109,12 @@ git diff --check
 
 - Bootstrap output proves the active task, branch, worktree, base-commit fact,
   and run-identity fact without requiring manual `run.json` repair.
+- Bootstrap proves committed task authority rather than only a working-tree
+  pointer, and fails closed when activation is uncommitted or git remains
+  dirty after task activation.
+- Bootstrap and adjacent task/worktree-aware helper behavior remain usable when
+  historical task-state records exist; the active task is resolved from live
+  authority rather than a singleton-task assumption.
 - Bootstrap output includes operator status and the immediate next procedure or
   typed blocker.
 - The implementation can prepare one bounded worker handoff, prompt, or packet

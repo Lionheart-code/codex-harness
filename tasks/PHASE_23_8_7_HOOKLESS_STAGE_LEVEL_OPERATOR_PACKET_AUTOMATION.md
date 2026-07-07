@@ -50,6 +50,11 @@ Required behavior:
   `phase-closeout-review`, and ready closeout receipt as distinct typed
   states/refs. Packet/result contracts must not let one later stage masquerade
   as another.
+- If manual-only procedures such as `docs-consistency-review` or
+  `harness-audit` are later promoted into operator-visible lifecycle surfaces,
+  packet/result contracts must keep them typed distinctly from the active-chain
+  review stages and must not treat transcript presence alone as accepted stage
+  evidence.
 - When later evidence supersedes earlier placeholder or incomplete
   review/delivery facts, preserve both references but mark which result is
   current versus superseded.

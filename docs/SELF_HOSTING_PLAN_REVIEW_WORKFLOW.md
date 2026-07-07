@@ -133,6 +133,13 @@ If review or audit work discovers real implementation debt outside the active
 task, do not leave that finding only in run-local markdown, chat notes, or a
 roadmap summary.
 
+Manual-only procedures such as `docs-consistency-review` and `harness-audit`
+remain transcript artifacts until a later reviewed phase promotes them. If
+that promotion happens, Phase 23.8.6D owns durable artifact-body storage and
+exact-identity retention for those artifacts, while Phase 23.8.7 owns any
+lifecycle/stage-result contract that makes them operator-visible. Transcript
+presence alone is not accepted stage evidence.
+
 Final source-owned placement must be exactly one of:
 
 - current blocker for the active task;

@@ -43,6 +43,9 @@ artifacts later.
   artifact came from even after the original worktree is pruned or unavailable.
 - Preserve exact-identity payloads into the project DB during harvest or
   equivalent promotion.
+- If a staged mutation, authoritative readback, or later promoted review
+  artifact cannot prove exact run identity, it must fail closed instead of
+  mutating or resolving by display `run_id` alone.
 - Keep run-local markdown files available only as non-authoritative transition
   artifacts when compatibility requires them.
 - Make project-DB readback able to reconstruct or audit recorded procedure
@@ -75,6 +78,10 @@ artifacts later.
 
 - Define which artifact types are promoted as structured project records and
   which remain file-backed run-local evidence.
+- If manual-only procedures such as `docs-consistency-review` or
+  `harness-audit` are later promoted into durable surfaces, their artifact
+  bodies must follow the same payload-storage and exact-identity rules rather
+  than bypassing durable storage as ad hoc markdown.
 - Do not treat every `*-request.md`, launch blocker, diagnosis snapshot, or
   reconciliation note as a promoted project record by default.
 - Keep storage and harvest behavior append-only and exact-identity safe.
@@ -101,6 +108,8 @@ git diff --check
 
 - Raw recorded procedure artifact bodies are durably stored in SQLite-backed
   payload tables with exact-identity provenance.
+- Mutating or authoritative readback paths fail closed when exact run identity
+  cannot be proven, instead of accepting display-`run_id` fallback behavior.
 - Project-harvest promotion preserves those payloads into project DB authority.
 - Compatibility markdown files may exist, but they are explicitly documented as
   non-authoritative transition artifacts.

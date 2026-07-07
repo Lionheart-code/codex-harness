@@ -22,8 +22,10 @@ allocation, harvest, retries, or compatibility projections.
 This phase also owns the future productized materialization path for moving
 from a recorded next-task decision into a new active task cycle. That path must
 preserve the new task context: create or enter the new branch/worktree,
-activate the next task there, and start the new run in that task worktree,
-through formal product commands or equivalent documented runtime surfaces.
+write `TASK.md` there, commit the activation/materialization change as the
+first commit in that task branch/worktree, verify clean git, and only then
+start the new run in that task worktree, through formal product commands or
+equivalent documented runtime surfaces.
 
 ## Problem
 
@@ -67,13 +69,18 @@ Required behavior:
 - Delivery-fact ingestion covers PR, remote CI/check, review, `merge` result,
   merge commit, and closeout approval facts without manual `run.json` repair.
 - End-of-old-cycle ingestion may record the decided next task as a closeout or
-  harvest fact, but it must not create, claim, or mutate the next task
-  branch/worktree.
+  harvest fact, but it must not create, claim, mutate, or edit `TASK.md` in
+  the next task branch/worktree.
 - Add a formal product command sequence or equivalent documented runtime
   surface for start-of-new-cycle materialization that preserves the new task
   context:
-  create or enter the branch/worktree, activate next task there, and start the
-  new run in that task worktree.
+  create or enter the branch/worktree, write `TASK.md` there, commit the
+  activation/materialization change as the first commit in that task
+  branch/worktree, verify clean git, and only then start the new run in that
+  task worktree.
+- A recorded next-task decision remains recorded decision state only until an
+  explicit status or equivalent typed distinction marks the committed source
+  activation as complete. A working-tree-only `TASK.md` change is not enough.
 - That productized materialization path must own branch/worktree creation
   directly instead of assuming an undocumented pre-created branch context.
 - Even if the implementation uses separate git primitives underneath, the
@@ -181,8 +188,15 @@ git diff --check
   migration/blocker result until an exact authoritative identity path exists.
 - A recorded next-task decision can be materialized only by the formal
   new-cycle command path or documented runtime surface.
-- Materialization preserves one task = one branch = one worktree and does not
-  attribute the new branch/worktree to the old closing or harvested run.
+- Materialization preserves one task = one branch = one worktree, does not
+  attribute the new branch/worktree to the old closing or harvested run, and
+  does not treat a working-tree-only `TASK.md` change as active task
+  authority.
+- The old closing or harvested run records the decision only. Only the new
+  task materialization path may write `TASK.md` in the new task worktree.
+- No new run begins from an uncommitted `TASK.md` activation.
+- Activation-commit failure or dirty post-commit state fails closed and leaves
+  no authoritative new-task run.
 - If a full-pack acceptance proof is required during implementation, `npm test`
   is the canonical command. `npm run test:acceptance` remains only a
   compatibility alias to the same acceptance runner and must not be treated as

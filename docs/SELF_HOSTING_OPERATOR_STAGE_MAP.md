@@ -34,7 +34,7 @@ Non-procedure transitions belong in `next_allowed_action`.
 | `CLOSEOUT_REVIEW_REQUIRED` | `phase-closeout-review` | run phase-closeout-review procedure | accepted implementation review, verification, delivery facts | `missing_closeout_review` | harvest |
 | `CLOSEOUT_READY` | `none` | perform closeout lifecycle command under Phase 23.5 rules | accepted closeout review | `closeout_ready` | new implementation in same run |
 | `HARVEST_READY` | `none` | perform harvest lifecycle command under Phase 23.5 rules | closeout receipt and harvest candidates | `harvest_ready` | direct accepted-memory writes without harvest |
-| `RUN_HARVESTED` | `none` | record next-task decision or begin separate new-cycle materialization if needed | identity-matched harvested run/closeout record | `run_already_harvested` | new work in same run, claiming next task branch/worktree from harvested run |
+| `RUN_HARVESTED` | `none` | record next-task decision, or if one is already recorded, begin separate new-cycle materialization through commit-backed activation | identity-matched harvested run/closeout record | `run_already_harvested` | new work in same run, claiming next task branch/worktree from harvested run |
 | `RUN_DISCARDED` | `none` | require explicit recovery/reopen decision | discarded run/staging state | `run_discarded` | resume without explicit recovery/reopen decision |
 | `RUN_QUARANTINED` | `none` | manual/review decision before transition | quarantined run/evidence/state | `run_quarantined` | implementation, harvest, accepted-memory writes |
 | `BLOCKED` | `none` | resolve blocker-specific condition | blocker-specific evidence | blocker-specific stop reason such as `harvest_identity_collision` | any transition not resolving blocker |
@@ -101,10 +101,15 @@ CLI guesses. A blocker note, launch hang, or missing artifact does not satisfy
 review-required evidence and must not be treated as an accepted review result.
 
 Procedure ingestion may record that closeout/harvest selected the next task.
-New-cycle materialization is separate. Phase 23.8.6 now provides a formal
+New-cycle materialization is separate. Phase 23.8.6 now provides the current
+narrow
 command path for it: `run record-next-task` followed by
-`run materialize-next-task`. The harvested run still must not create, claim, or
-mutate the next task branch/worktree as old-run-owned state.
+`run materialize-next-task`. That sequence is not complete until the new task
+worktree writes `TASK.md`, the activation/materialization change is committed
+as the first commit in that branch/worktree, and clean git is confirmed. A
+working-tree-only `TASK.md` change is not enough to treat the new task as
+active. The harvested run still must not create, claim, or mutate the next
+task branch/worktree as old-run-owned state.
 
 Once Phase 23.8.6 is active, `RUN_HARVESTED` must refer to identity-matched
 harvest evidence for the same immutable run instance. If project memory matches

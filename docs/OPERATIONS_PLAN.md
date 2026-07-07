@@ -22,12 +22,18 @@ operator stage
 Task-cycle boundaries are explicit. End-of-old-cycle closeout/harvest may
 determine and record the next task, but it must not create or claim the next
 task branch/worktree. Start-of-new-cycle materialization belongs to the new
-task context. Phase 23.8.6 now provides an explicit command path for that:
-record the next-task decision, then materialize the new task branch/worktree.
+task context. Phase 23.8.6 now provides the current narrow command path for
+that:
+record the next-task decision, materialize the new task branch/worktree, write
+`TASK.md` there, commit the activation/materialization change as the first
+commit in that task branch/worktree, verify clean git, and only then start the
+new run. Activation is not complete until that first commit exists and git is
+clean. A dirty `TASK.md` activation is not trustworthy new-task authority. If
+the current narrow runtime path opens the run earlier, that remains a Phase
+23.8.6 implementation gap rather than valid steady-state lifecycle behavior.
 `run start` by itself still does not create the task branch/worktree. Later
-productized materialization must wrap that
-same sequence in one formal command path. The invariant is one task = one
-branch = one worktree.
+bootstrap/orchestrator work may wrap that same sequence in one formal command
+path. The invariant is one task = one branch = one worktree.
 
 Git branch creation and git worktree creation are distinct low-level
 operations, but harness materialization must treat them as one logical step for
@@ -171,10 +177,16 @@ After commit:
    Use `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`.
 2. Create or enter the branch/worktree owned by that task with
    `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`.
-3. Let that materialization step activate `TASK.md` for the next task in the task worktree.
-4. Continue from the new run that materialization already opened in that task worktree.
-5. Run `/plan` again.
-6. Implement the active task only.
+3. Let that materialization step write `TASK.md` for the next task in the task
+   worktree.
+4. Commit the resulting `TASK.md` activation/materialization change as the
+   first commit in that new task branch/worktree.
+5. Verify clean git in that new task context.
+6. Only then continue from the new run in that task worktree. If the current
+   narrow runtime path opened it earlier, treat it as provisional and
+   non-authoritative until steps 4-5 succeed.
+7. Run `/plan` again.
+8. Implement the active task only.
 
 
 ## Product vs target project
