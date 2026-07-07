@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_23_8_6B2_VERIFICATION_COMMAND_RATIONALIZATION_AND_SERIALIZATION.md
+Implement only: tasks/PHASE_23_8_6C_SELF_HOSTING_OPERATOR_BOOTSTRAP_ENTRYPOINT.md
 
-Do not implement Phase 23.8.6C or later.
+Do not implement Phase 23.8.6D or later.
