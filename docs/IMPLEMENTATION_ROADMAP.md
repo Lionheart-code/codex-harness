@@ -793,6 +793,18 @@ Future-phase impact check:
 - preserves the domain/core boundary by keeping the harness in the
   supervisor/orchestrator role and external agents in the worker role.
 
+## Phase 23.8.6C1 — Post-Bootstrap Audit and Task-Contract Rebase
+
+Task:
+`tasks/PHASE_23_8_6C1_POST_BOOTSTRAP_AUDIT_AND_TASK_CONTRACT_REBASE.md`
+
+Goal:
+Convert the reviewed post-23.8.6C audit into a coherent next-task contract and
+rebase the affected near-term authority surfaces before runtime work resumes.
+
+Status:
+Active. Owns task-contract and authoritative-document changes only.
+
 ## Phase 23.8.6D — Procedure Artifact Payload Storage and Worktree Retention
 
 Task:
