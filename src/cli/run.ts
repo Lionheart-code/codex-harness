@@ -15,6 +15,7 @@ import {
   type RuntimePlanApprovalResult,
   type RuntimeProcedureResult,
   type RuntimeServiceResult,
+  type RuntimeBootstrapResult,
   type RuntimeTaskMaterializationResult,
   approveRuntimePlan,
   closeoutRuntimeRun,
@@ -165,6 +166,37 @@ function renderRunLines(title: string, result: RuntimeServiceResult): string[] {
   return output;
 }
 
+function renderBootstrapLines(bootstrap: RuntimeBootstrapResult): string[] {
+  const output = [
+    `bootstrap status: ${bootstrap.status}`,
+    `operator stage: ${bootstrap.operator.current_stage}`,
+    `operator next procedure: ${bootstrap.operator.next_procedure_id}`,
+    `operator next action: ${bootstrap.operator.next_allowed_action}`
+  ];
+
+  for (const fact of bootstrap.facts) {
+    output.push(`bootstrap fact ${fact.label}: ${fact.value} (${fact.source})`);
+  }
+
+  if (bootstrap.handoff) {
+    output.push(`handoff kind: ${bootstrap.handoff.kind}`);
+    output.push(`handoff procedure: ${bootstrap.handoff.procedure_id}`);
+    output.push(`handoff prompt: ${bootstrap.handoff.prompt}`);
+  }
+
+  if (bootstrap.repairPacket) {
+    output.push(`repair packet id: ${bootstrap.repairPacket.packet_id}`);
+    output.push(`repair route: ${bootstrap.repairPacket.route}`);
+    output.push(`repair next action: ${bootstrap.repairPacket.next_action}`);
+  }
+
+  for (const issue of bootstrap.issues) {
+    output.push(`run issue ${issue.issue_type}: ${issue.summary}`);
+  }
+
+  return output;
+}
+
 function renderOperatorLines(result: RuntimeOperatorStatusResult): string[] {
   const output = [
     "codex-harness run status --operator",
@@ -289,7 +321,11 @@ async function runStart(args: string[]): Promise<number> {
     dryRun: dryRunOption(options)
   });
 
-  lines(renderRunLines("codex-harness run start", result));
+  const output = renderRunLines("codex-harness run start", result);
+  if (result.bootstrap) {
+    output.push(...renderBootstrapLines(result.bootstrap));
+  }
+  lines(output);
   return 0;
 }
 

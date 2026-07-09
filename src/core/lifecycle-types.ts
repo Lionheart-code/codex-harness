@@ -1,5 +1,6 @@
 export type RunMode = "normal" | "bootstrap";
 export type LifecycleStatus = "active" | "blocked" | "closed" | "harvested" | "discarded";
+export type BootstrapStatus = "ready" | "blocked";
 export type PayloadCompressionStatus = "identity" | "gzip";
 export type RedactionState = "not_redacted" | "redacted" | "not_applicable";
 export type RetentionClass = "accepted" | "audit" | "quarantine" | "discarded" | "sensitive";
@@ -22,6 +23,14 @@ export type DeliveryFactStatus =
   | "closed"
   | "unknown";
 export type HarvestStatus = "promoted" | "discarded" | "quarantined";
+export type RunIssueStatus = "open" | "resolved";
+export type RunIssueRoute = "fix_pass" | "plan_amend" | "supporting_fix" | "new_task";
+export type RunIssueType =
+  | "uncommitted_task_activation"
+  | "dirty_git_after_task_activation"
+  | "task_worktree_authority_mismatch"
+  | "task_branch_authority_mismatch"
+  | "bootstrap_authority_ambiguous";
 
 export interface PayloadRecord {
   payload_id: string;
@@ -57,6 +66,30 @@ export interface DeliveryFactRecord {
   commit_sha?: string;
   excerpt_payload_id?: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface RunIssue {
+  issue_id: string;
+  phase_id: "23.8.6C";
+  issue_type: RunIssueType;
+  status: RunIssueStatus;
+  blocking: true;
+  created_at: string;
+  source: "bootstrap";
+  summary: string;
+  details?: string;
+  recommended_route: RunIssueRoute;
+}
+
+export interface RepairPacket {
+  packet_id: string;
+  phase_id: "23.8.6C";
+  created_at: string;
+  route: RunIssueRoute;
+  summary: string;
+  next_action: string;
+  issue_ids: string[];
+  prompt: string;
 }
 
 export interface HarvestRecord {

@@ -372,12 +372,28 @@ test("phase 23.8 registry is canonical, schema-backed, and preserves procedure s
   const planReview = registry.procedures.find((procedure) => procedure.procedure_id === "plan-review");
   const planAmend = registry.procedures.find((procedure) => procedure.procedure_id === "plan-amend");
   const implementationReview = registry.procedures.find((procedure) => procedure.procedure_id === "implementation-review");
+  const planReviewOutputFormat = fs.readFileSync(
+    path.join(productRoot, "skills", "self-hosting", "plan-review", "references", "output-format.md"),
+    "utf8"
+  );
   assert.ok(draftPlan?.operator_contract?.real_operator_choices_only);
   assert.ok(draftPlan?.operator_contract?.primary_outputs?.includes("implementation surfaces"));
   assert.ok(draftPlan?.operator_contract?.primary_outputs?.includes("validation matrix"));
   assert.ok(draftPlan?.operator_contract?.primary_outputs?.includes("stop conditions and implementation handoff criteria"));
   assert.ok(planReview?.operator_contract?.durable_decision_fields?.includes("outcome_state"));
   assert.ok(planReview?.operator_contract?.allowed_outcome_states?.includes("needs_contract_surface_update"));
+  assert.deepEqual(
+    planReview?.operator_contract?.allowed_outcome_states,
+    ["ready_for_implementation", "decision_required", "needs_contract_surface_update", "blocked"]
+  );
+  for (const outcomeState of planReview?.operator_contract?.allowed_outcome_states ?? []) {
+    assert.match(
+      planReviewOutputFormat,
+      new RegExp(`\\\`${outcomeState}\\\``),
+      `plan-review output format must publish canonical outcome_state ${outcomeState}`
+    );
+  }
+  assert.match(planReviewOutputFormat, /Do not invent aliases or human-readable variants for `outcome_state`/);
   assert.equal(planAmend?.operator_contract?.latest_amendment_supersedes_prior_plan, true);
   assert.equal(planReview?.review_launch_profile?.adapter_id, "codex_cli");
   assert.equal(planReview?.review_launch_profile?.sandbox_mode, "read-only");

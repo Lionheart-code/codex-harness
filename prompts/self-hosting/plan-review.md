@@ -17,6 +17,9 @@ Run only the `plan-review` procedure. Return the exact output format from
 `references/output-format.md`, or the procedure's blocker format if the required
 inputs are missing.
 
+Use only the canonical `outcome_state` tokens listed in the output format. Do
+not invent aliases or more human-readable replacements.
+
 Do not broaden scope, implement files, repair `.harness/runs/**/run.json`, start
 a run, launch a runner, create or claim a worktree, or treat this wrapper as
 runtime authority.

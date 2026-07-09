@@ -38,3 +38,23 @@ include these labels in order:
 - `validation_required:`
 - `source_trace:`
 - `future_phase_deferrals:`
+
+Allowed `outcome_state` values:
+
+- `ready_for_implementation`
+- `needs_contract_surface_update`
+- `decision_required`
+- `blocked`
+
+Required mapping:
+
+- Use `ready_for_implementation` only when `verdict: PASS` and
+  `required_amendments: none`.
+- Use `needs_contract_surface_update` when the plan needs `plan-amend` before
+  approval.
+- Use `decision_required` when the reviewer cannot safely choose the route and
+  an owner/operator decision is required.
+- Use `blocked` when the review cannot safely proceed.
+
+Do not invent aliases or human-readable variants for `outcome_state`. The
+durable decision record must use the canonical runtime/registry tokens above.
