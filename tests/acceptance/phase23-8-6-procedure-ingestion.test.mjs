@@ -879,11 +879,49 @@ function buildPhase2386B2CurrentApprovedPlanAmendArtifact() {
   ].join("\n");
 }
 
+function buildPhase2386B2CurrentTaskPointerMarkdown() {
+  return [
+    "# Current Task",
+    "",
+    `Implement only: ${ACTIVE_TASK_23_8_6B2_PATH}`,
+    "",
+    "Do not implement Phase 23.8.6C or later.",
+    ""
+  ].join("\n");
+}
+
+function buildPhase2386B2CurrentRoadmapMarkdown() {
+  return [
+    "## Phase 23.8.6B2 — Verification Command Rationalization and Serialization",
+    "",
+    "Task:",
+    `\`${ACTIVE_TASK_23_8_6B2_PATH}\``,
+    "",
+    "Status:",
+    "Active implementation phase.",
+    "",
+    "## Phase 23.8.6C — Minimum Self-Hosting Orchestrator Entrypoint",
+    "",
+    "Task:",
+    "`tasks/PHASE_23_8_6C_SELF_HOSTING_OPERATOR_BOOTSTRAP_ENTRYPOINT.md`",
+    "",
+    "Status:",
+    "Planned.",
+    "",
+    "## Phase 23.8.6E — Authority Surface Freshness And Downstream Task Revalidation",
+    "",
+    "Task:",
+    "`tasks/PHASE_23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION.md`",
+    "",
+    "Status:",
+    "Planned.",
+    ""
+  ].join("\n");
+}
+
 function applyCurrentB2OnlyAuthorityDiff(tempRepo) {
   const currentPaths = [
     "README.md",
-    "TASK.md",
-    "docs/IMPLEMENTATION_ROADMAP.md",
     "docs/PLATFORM_COMPATIBILITY_AND_COMMAND_EXECUTION.md",
     "docs/RELEASE_AND_SUPPLY_CHAIN_SECURITY.md",
     "docs/SELF_HOSTING_PLAN_REVIEW_WORKFLOW.md",
@@ -898,6 +936,9 @@ function applyCurrentB2OnlyAuthorityDiff(tempRepo) {
     fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
     writeText(absolutePath, readProductText(relativePath));
   }
+
+  writeText(path.join(tempRepo, "TASK.md"), buildPhase2386B2CurrentTaskPointerMarkdown());
+  writeText(path.join(tempRepo, "docs", "IMPLEMENTATION_ROADMAP.md"), buildPhase2386B2CurrentRoadmapMarkdown());
 }
 
 test("phase 23.8.6 record-procedure ingests a durable plan-review artifact and is idempotent", () => {
@@ -1118,6 +1159,52 @@ test("phase 23.8.6 plan-review recommendation parsing remains strict outside imp
   );
   assertFailure(aliasedPlanReview, "record aliased plan-review recommendation");
   assert.match(aliasedPlanReview.stderr, /missing a Recommendation section/i);
+
+  const output = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(output.get("current_stage"), "PLAN_REVIEW_REQUIRED");
+
+  const runtimeState = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  assert.equal(runtimeState.evidence.some((entry) => entry.kind === "procedure:plan-review"), false);
+});
+
+test("phase 23.8.6 plan-review rejects non-canonical outcome_state tokens even when recommendation is PASS", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-plan-review-invalid-outcome-state-");
+  let run = createBaseRun(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  run = appendProcedureEvidence(run, "draft-plan", 3);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/draft-plan-3.md", "# draft-plan\n", 2);
+  writeProcedureArtifact(
+    tempRepo,
+    run.run_id,
+    "plan-review-invalid-outcome-state",
+    buildPlanReviewArtifact().replace(
+      "outcome_state: ready_for_implementation",
+      "outcome_state: PLAN_ACCEPTABLE_AFTER_AMENDMENT"
+    )
+  );
+
+  const invalidOutcomeState = runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/plan-review-invalid-outcome-state.md`
+    ],
+    { cwd: tempRepo }
+  );
+  assertFailure(invalidOutcomeState, "record plan-review with invalid outcome_state token");
+  assert.match(invalidOutcomeState.stderr, /durable decision record is internally inconsistent/i);
 
   const output = runOperatorStatus(tempRepo, run.run_id);
   assert.equal(output.get("current_stage"), "PLAN_REVIEW_REQUIRED");

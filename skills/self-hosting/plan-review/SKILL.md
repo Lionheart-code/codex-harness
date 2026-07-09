@@ -58,6 +58,8 @@ Independently review a draft plan before implementation begins.
 - Preserve two layers of output:
   - a human-readable review report for auditability;
   - a durable decision record for operator/runtime progression.
+- Use only the canonical `outcome_state` tokens defined by the checked-in
+  output format and runtime/registry contract.
 - Return findings clearly enough for `plan-amend` to act on them.
 
 ## manual_invocation_guidance

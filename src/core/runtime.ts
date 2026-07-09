@@ -30,8 +30,11 @@ import { detectGitRepository, getGitStatusLines, getGitStatusPaths, runGitComman
 import { harvestRun } from "./harvest";
 import { detectInstalledLayer } from "./install";
 import {
+  type BootstrapStatus,
   type DeliveryFactRecord,
   type LifecycleStatus,
+  type RepairPacket,
+  type RunIssue,
   type PayloadRecord,
   type RunMode
 } from "./lifecycle-types";
@@ -60,10 +63,12 @@ import {
   type SelfHostingProcedureRegistry,
   type SelfHostingReviewLaunchProfile
 } from "./self-hosting-procedures";
-import { listTasks } from "./tasks";
+import { listTasks, type TaskState } from "./tasks";
 
 export const RUNTIME_CONTRACT_NAMES = [
   "Run",
+  "RunIssue",
+  "RepairPacket",
   "PhaseRun",
   "Step",
   "ArtifactRef",
@@ -93,6 +98,22 @@ export type ApprovalStatus = "approved" | "rejected" | "pending";
 export type RemoteGateStatus = "pass" | "failed" | "skipped" | "missing" | "unknown";
 export type CloseoutStatus = "READY" | "BLOCKED";
 type LegacyRunStatus = "running" | "ready" | "blocked" | "closed";
+
+export interface BootstrapFact {
+  fact_id: string;
+  label: "active_task_path" | "branch" | "worktree_root" | "base_commit" | "run_identity";
+  value: string;
+  source: "task_pointer" | "git" | "task_state" | "runtime";
+}
+
+export interface WorkerHandoff {
+  handoff_id: string;
+  phase_id: "23.8.6C";
+  kind: "procedure" | "implementation";
+  procedure_id: string;
+  next_action: string;
+  prompt: string;
+}
 
 export interface RepositoryRef {
   root_path: string;
@@ -286,6 +307,11 @@ export interface Run {
   remote_checks: RemoteCheckResult[];
   delivery_facts: DeliveryFactRecord[];
   closeout_receipts: CloseoutReceipt[];
+  bootstrap_status?: BootstrapStatus;
+  bootstrap_facts?: BootstrapFact[];
+  bootstrap_handoff?: WorkerHandoff;
+  run_issues: RunIssue[];
+  repair_packets: RepairPacket[];
   discard_reason?: string;
   manual_override_reason?: string;
   harvested_at?: string;
@@ -309,10 +335,20 @@ export interface RuntimeServiceResult {
   projectRoot: string;
   dryRun: boolean;
   run: Run;
+  bootstrap?: RuntimeBootstrapResult;
   runPath?: string;
   projectDbPath?: string;
   stagingDbPath?: string;
   state: "created" | "loaded" | "preview" | "updated";
+}
+
+export interface RuntimeBootstrapResult {
+  status: BootstrapStatus;
+  facts: BootstrapFact[];
+  operator: RuntimeOperatorStatus;
+  issues: RunIssue[];
+  repairPacket?: RepairPacket;
+  handoff?: WorkerHandoff;
 }
 
 export interface RuntimeVerificationResult extends RuntimeServiceResult {
@@ -631,6 +667,10 @@ interface OperatorEvaluationContext {
   implementationEvidence?: boolean;
 }
 
+interface OperatorEvaluationOptions extends RuntimeDryRunOptions {
+  runOverride?: Run;
+}
+
 type OperatorStageDraft = Omit<RuntimeOperatorStatus, "review_tier" | "next_procedure_id"> & {
   next_procedure_id: string;
 };
@@ -661,6 +701,16 @@ const RUN_FILE = "run.json";
 const CLOSEOUT_FILE = "closeout.json";
 const DEFAULT_REMOTE_GATE_ID = "remote-ci";
 const DEFAULT_REMOTE_GATE_NAME = "Remote CI";
+const CURRENT_PHASE_RUN_ISSUE_PHASE_ID = "23.8.6C";
+
+interface MatchingTaskStateSelection {
+  task?: TaskState;
+  selectedBy?: "sole" | "worktree" | "branch";
+  ambiguity?: {
+    reason: "worktree" | "branch";
+    taskIds: string[];
+  };
+}
 
 function cloneRun(run: Run): Run {
   return JSON.parse(JSON.stringify(run)) as Run;
@@ -683,6 +733,18 @@ function toPortablePath(targetPath: string): string {
 
 function toRepoRelative(targetRoot: string, absolutePath: string): string {
   return toPortablePath(path.relative(targetRoot, absolutePath) || ".");
+}
+
+function normalizePathForComparison(targetPath: string): string {
+  let resolved: string;
+
+  try {
+    resolved = fs.realpathSync.native(targetPath);
+  } catch {
+    resolved = path.resolve(targetPath);
+  }
+
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
 function requireGitTargetRoot(cwd: string): string {
@@ -756,13 +818,76 @@ function buildChangeSet(targetRoot: string): ChangeSet {
   };
 }
 
+function selectTaskStateForCheckout(projectRoot: string, targetRoot: string, branch?: string): MatchingTaskStateSelection {
+  if (!detectInstalledLayer(projectRoot)) {
+    return {};
+  }
+
+  const taskList = listTasks(projectRoot);
+  const tasks = taskList.tasks;
+
+  if (tasks.length === 0) {
+    return {};
+  }
+
+  if (tasks.length === 1) {
+    return {
+      task: tasks[0],
+      selectedBy: "sole"
+    };
+  }
+
+  const normalizedTargetRoot = normalizePathForComparison(targetRoot);
+  const worktreeMatches = tasks.filter((task) =>
+    typeof task.worktree === "string" && normalizePathForComparison(task.worktree) === normalizedTargetRoot
+  );
+
+  if (worktreeMatches.length > 1) {
+    return {
+      ambiguity: {
+        reason: "worktree",
+        taskIds: worktreeMatches.map((task) => task.task_id)
+      }
+    };
+  }
+
+  if (worktreeMatches.length === 1) {
+    return {
+      task: worktreeMatches[0],
+      selectedBy: "worktree"
+    };
+  }
+
+  const branchMatches = typeof branch === "string" && branch.trim().length > 0
+    ? tasks.filter((task) => task.branch === branch)
+    : [];
+
+  if (branchMatches.length > 1) {
+    return {
+      ambiguity: {
+        reason: "branch",
+        taskIds: branchMatches.map((task) => task.task_id)
+      }
+    };
+  }
+
+  if (branchMatches.length === 1) {
+    return {
+      task: branchMatches[0],
+      selectedBy: "branch"
+    };
+  }
+
+  return {};
+}
+
 function buildRepositoryRef(targetRoot: string): RepositoryRef {
   const roots = resolveHarnessRoots(targetRoot);
   const changeSet = buildChangeSet(targetRoot);
   const branch = readGitValue(targetRoot, ["branch", "--show-current"]);
   const headSha = readGitValue(targetRoot, ["rev-parse", "--verify", "HEAD"]);
-  const taskList = detectInstalledLayer(roots.projectRoot) ? listTasks(roots.projectRoot) : undefined;
-  const taskWorktree = taskList && taskList.tasks.length === 1 ? taskList.tasks[0].worktree : undefined;
+  const taskSelection = selectTaskStateForCheckout(roots.projectRoot, targetRoot, branch);
+  const taskWorktree = taskSelection.task?.worktree;
 
   return {
     root_path: targetRoot,
@@ -1054,6 +1179,166 @@ function resolveTaskReference(targetRoot: string, taskPath: string): {
   };
 }
 
+function buildBootstrapFacts(run: Run): BootstrapFact[] {
+  const facts: BootstrapFact[] = [];
+  const activeTaskPath = run.active_task_path ?? run.task_path;
+
+  facts.push({
+    fact_id: `bootstrap-fact-${facts.length + 1}`,
+    label: "active_task_path",
+    value: activeTaskPath,
+    source: "task_pointer"
+  });
+
+  facts.push({
+    fact_id: `bootstrap-fact-${facts.length + 1}`,
+    label: "branch",
+    value: run.repository.branch ?? "(detached)",
+    source: "git"
+  });
+
+  facts.push({
+    fact_id: `bootstrap-fact-${facts.length + 1}`,
+    label: "worktree_root",
+    value: run.repository.root_path,
+    source: run.repository.task_worktree_path ? "task_state" : "git"
+  });
+
+  facts.push({
+    fact_id: `bootstrap-fact-${facts.length + 1}`,
+    label: "base_commit",
+    value: run.source_snapshot ?? run.repository.head_sha ?? "(unknown)",
+    source: "git"
+  });
+
+  facts.push({
+    fact_id: `bootstrap-fact-${facts.length + 1}`,
+    label: "run_identity",
+    value: `${run.run_id}:${run.run_instance_id ?? "pending"}:${run.bootstrap_status ?? "pending"}`,
+    source: "runtime"
+  });
+
+  return facts;
+}
+
+function buildRunIssue(
+  run: Run,
+  issues: RunIssue[],
+  input: {
+    issueType: RunIssue["issue_type"];
+    summary: string;
+    details?: string;
+    recommendedRoute?: RunIssue["recommended_route"];
+  }
+): RunIssue {
+  return {
+    issue_id: nextId("run-issue", issues.length),
+    phase_id: CURRENT_PHASE_RUN_ISSUE_PHASE_ID,
+    issue_type: input.issueType,
+    status: "open",
+    blocking: true,
+    created_at: run.created_at,
+    source: "bootstrap",
+    summary: input.summary,
+    ...(input.details ? { details: input.details } : {}),
+    recommended_route: input.recommendedRoute ?? "fix_pass"
+  };
+}
+
+function evaluateBootstrapIssues(targetRoot: string, run: Run): RunIssue[] {
+  const issues: RunIssue[] = [];
+  const changeSet = buildChangeSet(targetRoot);
+  const changedPaths = new Set(changeSet.changed_paths);
+
+  if (changedPaths.has("TASK.md")) {
+    issues.push(buildRunIssue(run, issues, {
+      issueType: "uncommitted_task_activation",
+      summary: "TASK.md activation is uncommitted.",
+      details: "Commit the active TASK.md pointer before starting or continuing the bootstrap run."
+    }));
+  }
+
+  const nonTaskDirtyPaths = changeSet.changed_paths.filter((entry) => entry !== "TASK.md");
+  if (nonTaskDirtyPaths.length > 0) {
+    issues.push(buildRunIssue(run, issues, {
+      issueType: "dirty_git_after_task_activation",
+      summary: "Git is dirty after task activation.",
+      details: `Clean or commit the active checkout before continuing: ${nonTaskDirtyPaths.join(", ")}`
+    }));
+  }
+
+  const taskSelection = selectTaskStateForCheckout(run.repository.project_root, targetRoot, run.repository.branch);
+  if (taskSelection.ambiguity) {
+    issues.push(buildRunIssue(run, issues, {
+      issueType: "bootstrap_authority_ambiguous",
+      summary: "Multiple installed task records claim the current checkout authority.",
+      details: `Ambiguous ${taskSelection.ambiguity.reason} matches: ${taskSelection.ambiguity.taskIds.join(", ")}`
+    }));
+  }
+
+  const selectedTask = taskSelection.task;
+  if (selectedTask?.worktree && normalizePathForComparison(selectedTask.worktree) !== normalizePathForComparison(targetRoot)) {
+    issues.push(buildRunIssue(run, issues, {
+      issueType: "task_worktree_authority_mismatch",
+      summary: "Installed task worktree metadata does not match the current checkout.",
+      details: `Task ${selectedTask.task_id} records ${selectedTask.worktree}, but bootstrap is running from ${targetRoot}.`
+    }));
+  }
+
+  if (
+    selectedTask?.branch
+    && run.repository.branch
+    && selectedTask.branch !== run.repository.branch
+  ) {
+    issues.push(buildRunIssue(run, issues, {
+      issueType: "task_branch_authority_mismatch",
+      summary: "Installed task branch metadata does not match the current checkout.",
+      details: `Task ${selectedTask.task_id} records branch ${selectedTask.branch}, but bootstrap is running from ${run.repository.branch}.`
+    }));
+  }
+
+  return issues;
+}
+
+function buildRepairPacket(run: Run, issues: RunIssue[]): RepairPacket | undefined {
+  if (issues.length === 0) {
+    return undefined;
+  }
+
+  return {
+    packet_id: nextId("repair-packet", run.repair_packets.length),
+    phase_id: CURRENT_PHASE_RUN_ISSUE_PHASE_ID,
+    created_at: run.created_at,
+    route: issues.some((issue) => issue.recommended_route === "new_task")
+      ? "new_task"
+      : issues.some((issue) => issue.recommended_route === "supporting_fix")
+        ? "supporting_fix"
+        : issues.some((issue) => issue.recommended_route === "plan_amend")
+          ? "plan_amend"
+          : "fix_pass",
+    summary: "Repair the recorded bootstrap authority issues before continuing.",
+    next_action: "repair the recorded bootstrap issues, commit the authority surface, then restart the run bootstrap",
+    issue_ids: issues.map((issue) => issue.issue_id),
+    prompt: "Repair the recorded bootstrap authority issues only. Do not broaden scope. Commit the task authority change, restore a clean checkout, then restart bootstrap."
+  };
+}
+
+function buildWorkerHandoff(run: Run, operator: RuntimeOperatorStatus): WorkerHandoff {
+  const procedureId = operator.next_procedure_id === "none" ? "implementation" : operator.next_procedure_id;
+  const kind = operator.next_procedure_id === "none" ? "implementation" : "procedure";
+
+  return {
+    handoff_id: `handoff-${run.run_id}`,
+    phase_id: CURRENT_PHASE_RUN_ISSUE_PHASE_ID,
+    kind,
+    procedure_id: procedureId,
+    next_action: operator.next_allowed_action,
+    prompt: operator.next_procedure_id === "none"
+      ? `Perform the approved implementation work for ${run.run_id} inside ${run.active_task_path ?? run.task_path}.`
+      : `Run ${operator.next_procedure_id} for ${run.run_id} and record the result through the approved harness surface only.`
+  };
+}
+
 export function buildRuntimeRun(input: BuildRuntimeRunInput): Run {
   const timestamp = input.timestamp ?? nowIso();
   const repository: RepositoryRef = {
@@ -1087,7 +1372,9 @@ export function buildRuntimeRun(input: BuildRuntimeRunInput): Run {
     required_gates: input.requiredGates ? [...input.requiredGates] : defaultRequiredGates(),
     remote_checks: [],
     delivery_facts: [],
-    closeout_receipts: []
+    closeout_receipts: [],
+    run_issues: [],
+    repair_packets: []
   };
 }
 
@@ -1164,6 +1451,30 @@ export function validateRuntimeRun(value: unknown): Run {
       : (() => {
           throw new Error("runtime run is missing required array field: delivery_facts.");
         })();
+  const runIssues = record.run_issues === undefined
+    ? []
+    : Array.isArray(record.run_issues)
+      ? (record.run_issues as RunIssue[])
+      : (() => {
+          throw new Error("runtime run has invalid run_issues.");
+        })();
+  const repairPackets = record.repair_packets === undefined
+    ? []
+    : Array.isArray(record.repair_packets)
+      ? (record.repair_packets as RepairPacket[])
+      : (() => {
+          throw new Error("runtime run has invalid repair_packets.");
+        })();
+  const bootstrapFacts = record.bootstrap_facts === undefined
+    ? undefined
+    : Array.isArray(record.bootstrap_facts)
+      ? (record.bootstrap_facts as BootstrapFact[])
+      : (() => {
+          throw new Error("runtime run has invalid bootstrap_facts.");
+        })();
+  const bootstrapHandoff = record.bootstrap_handoff === undefined
+    ? undefined
+    : assertObject(record.bootstrap_handoff, "runtime run bootstrap_handoff") as unknown as WorkerHandoff;
 
   return {
     schema_version: CURRENT_SCHEMA_VERSION,
@@ -1197,6 +1508,13 @@ export function validateRuntimeRun(value: unknown): Run {
     remote_checks: record.remote_checks as RemoteCheckResult[],
     delivery_facts: deliveryFacts,
     closeout_receipts: record.closeout_receipts as CloseoutReceipt[],
+    ...(record.bootstrap_status === "ready" || record.bootstrap_status === "blocked"
+      ? { bootstrap_status: record.bootstrap_status as BootstrapStatus }
+      : {}),
+    ...(bootstrapFacts ? { bootstrap_facts: bootstrapFacts } : {}),
+    ...(bootstrapHandoff ? { bootstrap_handoff: bootstrapHandoff } : {}),
+    run_issues: runIssues,
+    repair_packets: repairPackets,
     ...(typeof record.discard_reason === "string" ? { discard_reason: record.discard_reason } : {}),
     ...(typeof record.manual_override_reason === "string" ? { manual_override_reason: record.manual_override_reason } : {}),
     ...(typeof record.harvested_at === "string" ? { harvested_at: record.harvested_at } : {}),
@@ -1962,13 +2280,44 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
     source_staging_db_path: seededPaths.stagingDbPath,
     source_snapshot: seedRun.repository.head_sha
   };
+  const runIssues = evaluateBootstrapIssues(targetRoot, run);
+  const repairPacket = buildRepairPacket(run, runIssues);
+  const runWithBootstrap: Run = {
+    ...run,
+    bootstrap_status: runIssues.length > 0 ? "blocked" : "ready",
+    bootstrap_facts: buildBootstrapFacts({
+      ...run,
+      bootstrap_status: runIssues.length > 0 ? "blocked" : "ready"
+    }),
+    run_issues: runIssues,
+    repair_packets: repairPacket ? [repairPacket] : []
+  };
+  const operatorStatus = resolveRuntimeOperatorStatus(targetRoot, {
+    dryRun: true,
+    runId: runWithBootstrap.run_id,
+    runOverride: runWithBootstrap
+  });
+  const bootstrapResult: RuntimeBootstrapResult = {
+    status: runWithBootstrap.bootstrap_status ?? "ready",
+    facts: runWithBootstrap.bootstrap_facts ?? [],
+    operator: operatorStatus.operator,
+    issues: runWithBootstrap.run_issues,
+    ...(repairPacket
+      ? { repairPacket }
+      : { handoff: buildWorkerHandoff(runWithBootstrap, operatorStatus.operator) })
+  };
+  const finalRun: Run = {
+    ...runWithBootstrap,
+    ...(bootstrapResult.handoff ? { bootstrap_handoff: bootstrapResult.handoff } : {})
+  };
 
   if (dryRun) {
     return {
       targetRoot,
       projectRoot: roots.projectRoot,
       dryRun,
-      run,
+      run: finalRun,
+      bootstrap: bootstrapResult,
       projectDbPath: seededPaths.projectDbPath,
       stagingDbPath: seededPaths.stagingDbPath,
       state: "preview"
@@ -1977,19 +2326,22 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
 
   const projectDb = new ProjectMemoryDatabase(targetRoot, roots.projectRoot);
   projectDb.ensureInitialized();
-  const runPath = writeRuntimeRun(targetRoot, run);
+  const runPath = writeRuntimeRun(targetRoot, finalRun);
   await appendRuntimeEvidence(
     targetRoot,
-    run,
+    finalRun,
     "run",
     {
-      summary: `Started runtime run ${run.run_id}.`,
-      run_id: run.run_id,
-      task_path: run.task_path,
-      active_task_path: run.active_task_path,
-      phase_id: run.phase_id,
-      run_mode: run.run_mode,
-      lifecycle_status: run.lifecycle_status
+      summary: `Started runtime run ${finalRun.run_id}.`,
+      run_id: finalRun.run_id,
+      task_path: finalRun.task_path,
+      active_task_path: finalRun.active_task_path,
+      phase_id: finalRun.phase_id,
+      run_mode: finalRun.run_mode,
+      lifecycle_status: finalRun.lifecycle_status,
+      bootstrap_status: bootstrapResult.status,
+      bootstrap_issue_count: bootstrapResult.issues.length,
+      bootstrap_handoff_procedure: bootstrapResult.handoff?.procedure_id
     },
     "node bin/ch run start"
   );
@@ -1998,7 +2350,8 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
     targetRoot,
     projectRoot: roots.projectRoot,
     dryRun,
-    run,
+    run: finalRun,
+    bootstrap: bootstrapResult,
     runPath,
     projectDbPath: seededPaths.projectDbPath,
     stagingDbPath: seededPaths.stagingDbPath,
@@ -3816,8 +4169,18 @@ function readQuarantinedPayloadCountReadOnly(databasePath: string): { count: num
   }
 }
 
-function loadOperatorRunContext(targetRoot: string, projectRoot: string, runId?: string): OperatorRunContext | undefined {
-  const resolvedRun = runId
+function loadOperatorRunContext(
+  targetRoot: string,
+  projectRoot: string,
+  runId?: string,
+  runOverride?: Run
+): OperatorRunContext | undefined {
+  const resolvedRun = runOverride
+    ? {
+        run: runOverride,
+        runPath: runFilePath(targetRoot, runOverride.run_id)
+      }
+    : runId
     ? readRunJsonForOperator(targetRoot, runId)
     : (() => {
         const current = readCurrentRunPointer(targetRoot);
@@ -5156,6 +5519,41 @@ function resolveTerminalRunStage(context: OperatorEvaluationContext): OperatorSt
   return undefined;
 }
 
+function resolveBootstrapRepairStage(context: OperatorEvaluationContext): OperatorStageDraft | undefined {
+  const run = context.runContext?.run;
+
+  if (!run) {
+    return undefined;
+  }
+
+  const openIssues = run.run_issues.filter((issue) => issue.status === "open");
+  if (openIssues.length === 0) {
+    return undefined;
+  }
+
+  const latestRepairPacket = run.repair_packets.length > 0
+    ? run.repair_packets[run.repair_packets.length - 1]
+    : undefined;
+
+  return buildOperatorStageDraft({
+    current_stage: "BOOTSTRAP_REPAIR_REQUIRED",
+    next_procedure_id: "none",
+    required_inputs: ["committed task authority", "clean checkout", "aligned task/worktree facts"],
+    missing_inputs: [],
+    required_evidence: ["resolved bootstrap run issues", "repair packet"],
+    missing_evidence: ["resolved bootstrap run issues"],
+    stop_reason: "bootstrap_repair_required",
+    next_allowed_action: latestRepairPacket?.next_action
+      ?? "repair the recorded bootstrap authority issues before planning or implementation continues",
+    forbidden_actions: ["implementation", "closeout"],
+    notes: [
+      ...context.baseNotes,
+      ...openIssues.map((issue) => `run_issue:${issue.issue_type}`),
+      ...(latestRepairPacket ? [`repair_packet:${latestRepairPacket.packet_id}`] : [])
+    ]
+  });
+}
+
 function resolvePreImplementationStage(context: OperatorEvaluationContext): OperatorStageDraft | undefined {
   if (!context.runContext || !context.taggedProcedures) {
     return undefined;
@@ -5589,7 +5987,7 @@ function resolvePostImplementationStage(context: OperatorEvaluationContext): Ope
     ?? resolveCloseoutLifecycleStage(context);
 }
 
-function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string, options: RuntimeDryRunOptions): {
+function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string, options: OperatorEvaluationOptions): {
   targetRoot: string;
   projectRoot: string;
   dryRun: boolean;
@@ -5617,7 +6015,7 @@ function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string,
 
   const { tier, notes } = classifyOperatorReviewTier(taskContext.activeTaskMarkdown);
   const roadmapTaskPath = readRoadmapTaskPathForPhase(targetRoot, taskContext.phaseId);
-  const runContext = loadOperatorRunContext(targetRoot, projectRoot, options.runId);
+  const runContext = loadOperatorRunContext(targetRoot, projectRoot, options.runId, options.runOverride);
   const taggedProcedures = runContext ? collectTaggedProcedureEvidence(runContext.run, procedureIds) : undefined;
   const latestCloseoutReceipt = runContext?.closeoutReceipt
     ?? (runContext && runContext.run.closeout_receipts.length > 0
@@ -5665,7 +6063,7 @@ function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string,
   };
 }
 
-export function getRuntimeOperatorStatus(cwd: string, options: RuntimeDryRunOptions = {}): RuntimeOperatorStatusResult {
+function resolveRuntimeOperatorStatus(cwd: string, options: OperatorEvaluationOptions = {}): RuntimeOperatorStatusResult {
   const roots = resolveHarnessRoots(cwd);
   const evaluation = buildOperatorEvaluationContext(roots.targetRoot, roots.projectRoot, options);
 
@@ -5718,6 +6116,20 @@ export function getRuntimeOperatorStatus(cwd: string, options: RuntimeDryRunOpti
     };
   }
 
+  const bootstrapRepairStage = resolveBootstrapRepairStage(evaluation.context);
+
+  if (bootstrapRepairStage) {
+    return {
+      targetRoot: evaluation.targetRoot,
+      projectRoot: evaluation.projectRoot,
+      dryRun: evaluation.dryRun,
+      run: evaluation.context.runContext.run,
+      runPath: evaluation.context.runContext.runPath,
+      closeoutPath: evaluation.context.runContext.closeoutPath,
+      operator: buildOperatorStatus(evaluation.procedureIds, evaluation.reviewTier, bootstrapRepairStage)
+    };
+  }
+
   const preImplementationStage = resolvePreImplementationStage(evaluation.context);
   const stage = preImplementationStage ?? resolvePostImplementationStage(evaluation.context);
 
@@ -5728,8 +6140,12 @@ export function getRuntimeOperatorStatus(cwd: string, options: RuntimeDryRunOpti
     run: evaluation.context.runContext.run,
     runPath: evaluation.context.runContext.runPath,
     closeoutPath: evaluation.context.runContext.closeoutPath,
-    operator: buildOperatorStatus(evaluation.procedureIds, evaluation.reviewTier, stage)
+      operator: buildOperatorStatus(evaluation.procedureIds, evaluation.reviewTier, stage)
   };
+}
+
+export function getRuntimeOperatorStatus(cwd: string, options: RuntimeDryRunOptions = {}): RuntimeOperatorStatusResult {
+  return resolveRuntimeOperatorStatus(cwd, options);
 }
 
 function buildVerifierArtifact(targetRoot: string, taskId: string): ArtifactRef {
