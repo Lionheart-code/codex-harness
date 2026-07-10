@@ -81,9 +81,14 @@ Near-term progression:
 
 ```text
 23.8.6 -> 23.8.6A -> 23.8.6B -> 23.8.6B1 -> 23.8.6B2 -> 23.8.6C ->
-23.8.6D ->
-23.8.6E -> 23.8.7 -> 23.9
+23.8.6C1 -> 23.8.6C2 -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9
 ```
+
+Phase 23.8.6C1 is the post-bootstrap task-contract rebase. Phase 23.8.6C2 is
+narrow correctness hardening for the existing `run start --task TASK.md` and
+`run status --operator` surfaces; it is not a new orchestrator layer. Durable
+procedure payload storage follows in 23.8.6D, authority freshness in 23.8.6E,
+and normalized stage packet/result contracts in 23.8.7.
 
 Hard boundaries:
 

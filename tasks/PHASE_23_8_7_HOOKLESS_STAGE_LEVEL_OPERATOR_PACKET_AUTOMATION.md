@@ -7,10 +7,10 @@ Ingestion and Slice-Isolated Run Mutations, Phase 23.8.6A Self-Hosting Replay
 and Re-ingestion Continuity, Phase 23.8.6B Self-Hosting Model Routing Policy
 Packaging, Phase 23.8.6B1 Supervised Review Launch and Blocked Disposition,
 Phase 23.8.6B2 Verification Command Rationalization and Serialization, Phase
-23.8.6C Minimum Self-Hosting Orchestrator Entrypoint, Phase 23.8.6D Procedure
-Artifact Payload Storage and Worktree Retention, and Phase 23.8.6E Authority
-Surface Freshness and Downstream Task Revalidation are complete, reviewed, and
-accepted.
+23.8.6C Minimum Self-Hosting Orchestrator Entrypoint, Phase 23.8.6C2 Bootstrap
+Authority Correctness, Phase 23.8.6D Procedure Artifact Payload Storage and
+Worktree Retention, and Phase 23.8.6E Authority Surface Freshness and
+Downstream Task Revalidation are complete, reviewed, and accepted.
 
 ## Purpose
 
@@ -25,8 +25,10 @@ stage results, but it still does not launch agents or execute runners.
 Required behavior:
 
 - Add `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,
-  `ExecutionPolicy`, `RunIssue`, `RepairPacket`, and `WaiverRecord`
-  contracts.
+  `ExecutionPolicy`, and `WaiverRecord` contracts.
+- Extend and normalize the existing Phase 23.8.6C `RunIssue` and
+  `RepairPacket` records for stage-level use. Do not create competing issue or
+  repair types with ambiguous ownership.
 - Add packet preparation command such as
   `run prepare-packet --kind auto|plan|implementation|review|fix-pass|closeout`
   or equivalent.
@@ -55,6 +57,13 @@ Required behavior:
   packet/result contracts must keep them typed distinctly from the active-chain
   review stages and must not treat transcript presence alone as accepted stage
   evidence.
+- Derive required review procedures from the review tier and changed-surface
+  policy as typed packet inputs. A required architecture, storage, docs,
+  verification, delivery, harness, or closeout review must not be droppable by
+  prompt omission.
+- Represent promotion of a currently manual procedure into operator-visible
+  lifecycle state as an explicit typed contract and evidence transition, not a
+  filename convention or transcript scan.
 - When later evidence supersedes earlier placeholder or incomplete
   review/delivery facts, preserve both references but mark which result is
   current versus superseded.
@@ -100,11 +109,13 @@ Required behavior:
 `payload_refs`, `evidence_refs`, `validation_results`, `progress_log_ref`,
 `result_schema_valid`.
 
-`RunIssue`: `issue_id`, `stage_id`, `severity`, `issue_kind`,
-`evidence_refs`, `blocking`, `repair_required`.
+`RunIssue`: extend the current Phase 23.8.6C record with `stage_id`, `severity`,
+`issue_kind`, `evidence_refs`, and `repair_required` while preserving a
+compatible source issue identity and explicit migration/normalization rule.
 
-`RepairPacket`: `packet_id`, `source_issue_ids`, `target_stage`,
-`required_repairs`, `validation_refs`, `stopping_condition`.
+`RepairPacket`: extend the current Phase 23.8.6C record with `target_stage`,
+`required_repairs`, `validation_refs`, and `stopping_condition` while
+preserving source issue links and an explicit migration/normalization rule.
 
 `WaiverRecord`: `waiver_id`, `failed_check`, `reason`, `approver`, `scope`,
 `evidence_refs`.
@@ -125,6 +136,8 @@ Required behavior:
 - No planner execution.
 - No first implementation of the minimum self-hosting loop that belongs in
   Phase 23.8.6C.
+- No reimplementation of Phase 23.8.6C2 task/base authority or current-record
+  validation.
 
 ## Future-phase impact check
 
