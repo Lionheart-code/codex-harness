@@ -2,8 +2,9 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6D Procedure Artifact Payload Storage
-and Worktree Retention is complete, reviewed, accepted, and merged.
+Planned. Starts only after Phase 23.8.6C2 Bootstrap Authority Correctness and
+Phase 23.8.6D Procedure Artifact Payload Storage and Worktree Retention are
+complete, reviewed, accepted, and merged.
 
 ## Purpose
 
@@ -33,6 +34,8 @@ are still supposed to guide current or future work.
   - future/live task assumptions;
   - procedure docs;
   - review-tier and model-policy docs;
+  - model/profile registry defaults versus manual invocation guidance;
+  - context-budget, compaction, and handoff guidance;
   - operator/manual docs;
   - packet/report docs;
   - verification guidance;
@@ -43,6 +46,8 @@ are still supposed to guide current or future work.
   docs/task validation command exists in the implementation context, use it;
   otherwise produce a bounded scripted/search checklist that checks at least:
   - stale present-tense `TASK.md currently points...` claims;
+  - stale present-tense phase status claims such as planned/blocked wording for
+    already accepted or merged phases;
   - accepted/merged near-term phases that still leave the previous phase marked
     active/current or the immediate next phase marked blocked in live
     authority;
@@ -60,6 +65,12 @@ are still supposed to guide current or future work.
     status, or downstream task readiness; and
   - future/live surfaces that collapse historical supporting-fix or
     adjacent-slice artifacts into current active-task authority.
+- Reconcile checked-in reviewer/model profile authority with live manual and
+  operator guidance. Record intentional deviations as explicit operator
+  choices rather than silent lower-cost defaults.
+- Reconcile context-budget, compaction, and handoff guidance so active task,
+  effective plan, approval state, source authority, and validation obligations
+  cannot be dropped or replaced by conversational summaries.
 - Distinguish future/live authority surfaces from historical/accepted task
   history.
 - Update only future/live authority surfaces that are stale against current
@@ -123,8 +134,9 @@ provider/model routing, packet execution, or domain-pack behavior.
 
 ## Relationship to previous and next phases
 
-- Follows Phase 23.8.6D so the revalidation can incorporate real
-  verification/bootstrap/storage discoveries rather than planning guesses.
+- Follows Phase 23.8.6C2 and Phase 23.8.6D so the revalidation can incorporate
+  real bootstrap-authority, verification, and storage discoveries rather than
+  planning guesses.
 - Prepares Phase 23.8.7, Phase 23.9, Phase 24A/24B, and later live/planned
   authority surfaces to inherit current facts instead of stale assumptions.
 - Preserves Phase 30 as the future home for bounded experimentation and Phase

@@ -2,8 +2,8 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6C Minimum Self-Hosting Orchestrator
-Entrypoint is complete, reviewed, accepted, and merged.
+Planned. Starts only after Phase 23.8.6C2 Bootstrap Authority Correctness is
+complete, reviewed, accepted, and merged.
 
 ## Purpose
 
@@ -26,9 +26,9 @@ verification, closeout, harvest, or proof readback.
 
 ## Scope
 
-This phase owns raw procedure artifact payload storage, exact-identity harvest
-preservation, and the worktree/base-commit provenance needed to audit those
-artifacts later.
+This phase owns raw procedure artifact payload storage, canonical procedure
+identity, exact plan/evidence binding, exact-identity harvest preservation, and
+the worktree/base-commit provenance needed to audit those artifacts later.
 
 ## Required behavior
 
@@ -36,6 +36,15 @@ artifacts later.
   authoritative structured payloads, not as file-only side effects.
 - Preserve exact run identity, procedure identity, and artifact provenance
   alongside those payloads.
+- Store the canonical procedure ID and reject payload ingestion or readback
+  when a supplied procedure identity cannot be resolved through the checked-in
+  registry contract.
+- Preserve a stable recorded timestamp and content hash for each authoritative
+  procedure body so later readback can distinguish exact content from a newer
+  file at the same compatibility path.
+- Bind plan approvals and review/evidence results to the exact immutable plan
+  or evidence artifact identity they reviewed. Path, display `run_id`, or
+  procedure name alone is insufficient authority.
 - Key or explicitly resolve durable project records through exact run identity
   such as `run_instance_id` and `project_run_id`, never by display `run_id`
   alone.
@@ -50,6 +59,9 @@ artifacts later.
   artifacts when compatibility requires them.
 - Make project-DB readback able to reconstruct or audit recorded procedure
   artifact bodies without relying on run-local file presence.
+- Deep-validate storage-owned payload, procedure identity, exact-plan binding,
+  and exact-evidence binding records on ingestion and authoritative readback.
+  Do not accept shallow object/container casts as durable storage authority.
 - Cover exact-instance keyed or exact-instance resolvable storage for:
 
   ```text
@@ -95,6 +107,8 @@ artifacts later.
 - No broad report-generation layer.
 - No raw SQL surface for agents.
 - No replacement of runtime/closeout/harvest authority with loose file scans.
+- No reimplementation of Phase 23.8.6C2 current-bootstrap task, base-commit,
+  `RunIssue`, `RepairPacket`, fact, or handoff parsing.
 
 ## Acceptance commands
 
@@ -108,6 +122,8 @@ git diff --check
 
 - Raw recorded procedure artifact bodies are durably stored in SQLite-backed
   payload tables with exact-identity provenance.
+- Canonical procedure identity, recorded timestamp, content hash, and exact
+  reviewed plan/evidence bindings survive authoritative readback.
 - Mutating or authoritative readback paths fail closed when exact run identity
   cannot be proven, instead of accepting display-`run_id` fallback behavior.
 - Project-harvest promotion preserves those payloads into project DB authority.
@@ -137,8 +153,9 @@ behavior.
 
 ## Relationship to previous and next phases
 
-- Follows Phase 23.8.6C so bootstrap/runtime entrypoints have a stable identity
-  surface before artifact durability is widened.
+- Follows Phase 23.8.6C2 so bootstrap/runtime entrypoints have truthful task,
+  checkout, source-snapshot, base, and current-record authority before
+  artifact durability is widened.
 - Takes supervised review-launch evidence from Phase 23.8.6B1 once that phase
   exists, but B1 itself must fail closed instead of inventing an interim
   global storage layer.

@@ -434,9 +434,9 @@ Required scope:
   fails closed; keep `schema_version` unchanged because this is an atomic
   product-source registry update, not a runtime migration;
 - update this roadmap with the Phase 23.8.5 -> 23.8.6 -> 23.8.6A -> 23.8.6B ->
-  23.8.6B1 -> 23.8.6B2 -> 23.8.6C -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9
-  -> 24A -> 24B -> 25A -> 25B -> 26 sequence and a direct block before Phase
-  23.9;
+  23.8.6B1 -> 23.8.6B2 -> 23.8.6C -> 23.8.6C1 -> 23.8.6C2 -> 23.8.6D ->
+  23.8.6E -> 23.8.7 -> 23.9 -> 24A -> 24B -> 25A -> 25B -> 26 sequence and
+  a direct block before Phase 23.9;
 - separate end-of-old-cycle decision from start-of-new-cycle materialization:
   closeout/harvest may record the next task, while the new cycle creates or
   enters the task branch/worktree, activates the task there, and starts the
@@ -461,8 +461,8 @@ Required scope:
 - amend agent boundary/security docs to split `RunnerProfile` from
   `ExecutionPolicy`;
 - create or extend task contracts for Phases 23.8.6, 23.8.6A, 23.8.6B,
-  23.8.6B1, 23.8.6B2, 23.8.6C, 23.8.6D, 23.8.6E, and 23.8.7 as the near-term
-  self-hosting chain becomes repo-owned authority;
+  23.8.6B1, 23.8.6B2, 23.8.6C, 23.8.6C1, 23.8.6C2, 23.8.6D, 23.8.6E, and
+  23.8.7 as the near-term self-hosting chain becomes repo-owned authority;
 - amend Phase 23.8.7 so `StagePacket` contracts require a verifiable stopping
   condition, required validation commands/artifacts, and a bounded
   progress/result log contract without adding runner execution;
@@ -484,9 +484,9 @@ Required scope:
   created by `node bin/ch prompt ...`.
 
 Future-phase impact check:
-- prepares 23.8.6, 23.8.6A, 23.8.6B, 23.8.6B1, 23.8.6B2, 23.8.6C, 23.8.6D,
-  23.8.6E, 23.8.7, 23.9, 24A/24B, 25A/25B, 26, and downstream Phases 27-31 by
-  making dependencies explicit;
+- prepares 23.8.6, 23.8.6A, 23.8.6B, 23.8.6B1, 23.8.6B2, 23.8.6C,
+  23.8.6C1, 23.8.6C2, 23.8.6D, 23.8.6E, 23.8.7, 23.9, 24A/24B, 25A/25B,
+  26, and downstream Phases 27-31 by making dependencies explicit;
 - must not pre-implement transactional ingestion, packet automation, proof
   generation, report builders, access APIs, planner logic, domain packs,
   prior-art discovery, or experimentation;
@@ -738,8 +738,8 @@ Required scope:
 - keep this phase to verification-policy authority only.
 
 Future-phase impact check:
-- prepares 23.8.6C, 23.8.6D, 23.8.6E, 23.8.7, and 23.9 to reference one
-  canonical full-pack proof path;
+- prepares 23.8.6C, 23.8.6C1, 23.8.6C2, 23.8.6D, 23.8.6E, 23.8.7, and
+  23.9 to reference one canonical full-pack proof path;
 - must not change package scripts, CI, acceptance-runner behavior, or runtime
   locking;
 - preserves the domain/core boundary by remaining a narrow docs/task-policy
@@ -755,8 +755,7 @@ Add the first lightweight practical self-hosting orchestrator loop for an
 already selected task context.
 
 Status:
-Planned. Blocked until Phase 23.8.6B2 is complete, reviewed, accepted, and
-merged.
+Complete, reviewed, accepted, and merged.
 
 Required scope:
 - read operator status and select exactly one next procedure or typed blocker;
@@ -784,8 +783,9 @@ Required scope:
   workflow engine or replacement coding agent.
 
 Future-phase impact check:
-- prepares 23.8.6D, 23.8.6E, 23.8.7, and 23.9 to rely on a repo-owned
-  minimum orchestrator loop instead of manual startup reconstruction alone;
+- prepares 23.8.6C1, 23.8.6C2, 23.8.6D, 23.8.6E, 23.8.7, and 23.9 to rely
+  on a repo-owned minimum orchestrator loop instead of manual startup
+  reconstruction alone;
 - must not expand into external runner launch from harness runtime, runtime
   execution enforcement, full runner execution, a replacement for Codex, a
   generic workflow engine, auto-commit, auto-merge, provider-specific
@@ -805,6 +805,62 @@ rebase the affected near-term authority surfaces before runtime work resumes.
 Status:
 Active. Owns task-contract and authoritative-document changes only.
 
+Required scope:
+- revalidate the merged Phase 23.8.6C implementation before retaining audit
+  findings;
+- create one narrow Phase 23.8.6C2 Bootstrap Authority Correctness task;
+- rebase D, E, and 23.8.7 dependencies and ownership without implementing
+  those phases;
+- publish the exact near-term sequence through 23.9 in roadmap and operations
+  authority;
+- add focused contract tests for task completeness, sequence, dependency, and
+  lightweight-harness boundaries;
+- keep this phase to task contracts, authoritative docs, and focused tests.
+
+Future-phase impact check:
+- prepares one implementation-ready C2 task and removes ambiguity from D/E/7
+  ownership;
+- must not change runtime, storage, schema, procedure, prompt, skill, package,
+  CI, or runner behavior;
+- preserves one operator oracle and rejects MOW or a broad orchestration layer.
+
+## Phase 23.8.6C2 — Bootstrap Authority Correctness
+
+Task:
+`tasks/PHASE_23_8_6C2_BOOTSTRAP_AUTHORITY_CORRECTNESS.md`
+
+Goal:
+Make the existing bootstrap fail closed when task, checkout, base-commit, or
+persisted current-bootstrap authority cannot be proven.
+
+Status:
+Planned. Blocked until Phase 23.8.6C1 is complete, reviewed, accepted, and
+merged.
+
+Required scope:
+- reject missing, unreadable, escaping, or non-file active task references
+  before durable run creation;
+- block when multiple installed tasks exist but no exact worktree/branch match
+  owns the checkout, while preserving exact-match historical accumulation;
+- distinguish current source snapshot/HEAD from task-owned base commit or
+  configured-upstream merge-base authority and never guess a default branch;
+- validate base ancestry and emit a typed blocker when base authority is
+  missing, moved, unrelated, or unresolvable;
+- deep-validate persisted current-bootstrap facts, handoff, `RunIssue`,
+  `RepairPacket`, and issue/packet links on authoritative readback;
+- preserve dry-run non-mutation and exactly-one-next-action behavior;
+- prefer enriching existing `run start --task` and `run status --operator`
+  surfaces over adding another command.
+
+Future-phase impact check:
+- prepares D to store durable procedure payloads on truthful bootstrap
+  authority and prepares 23.8.7 to extend validated current issue/repair
+  records;
+- must not add generalized stage packets/results, durable procedure payload
+  storage, authority freshness work, runner execution, provider routing,
+  auto-commit, or auto-merge;
+- preserves the lightweight single-loop operator model.
+
 ## Phase 23.8.6D — Procedure Artifact Payload Storage and Worktree Retention
 
 Task:
@@ -816,7 +872,7 @@ and preserve enough worktree provenance for later audit after local markdown
 files disappear.
 
 Status:
-Planned. Blocked until Phase 23.8.6C is complete, reviewed, accepted, and
+Planned. Blocked until Phase 23.8.6C2 is complete, reviewed, accepted, and
 merged.
 
 Required scope:
@@ -824,6 +880,8 @@ Required scope:
   authoritative payloads rather than file-only side effects;
 - preserve exact run identity, procedure identity, and worktree/task/branch/
   base-commit provenance alongside those payloads;
+- preserve canonical registry procedure identity, recorded timestamp, content
+  hash, and exact reviewed plan/evidence binding alongside payloads;
 - require exact-instance keyed or exact-instance resolvable storage for
   procedure artifacts, review artifacts, plan artifacts, verification results,
   delivery facts, closeout receipts, harvest records, payload index entries,
@@ -835,7 +893,9 @@ Required scope:
 - keep run-local markdown files as non-authoritative transition artifacts only
   if compatibility still requires them;
 - require project-DB audit or reconstruction of recorded procedure bodies
-  without relying on run-local markdown file presence.
+  without relying on run-local markdown file presence;
+- deep-validate storage-owned payload, procedure-identity, plan-binding, and
+  evidence-binding records on ingestion and authoritative readback;
 - distinguish artifact body, artifact reference, payload chunk/ref, structured
   lifecycle record, manual request file, diagnosis/reconciliation note, and
   accepted durable project memory;
@@ -862,13 +922,15 @@ Revalidate future/live authority surfaces after the near-term 23.8.6 chain has
 changed verification policy, bootstrap assumptions, and storage/harvest facts.
 
 Status:
-Planned. Blocked until Phase 23.8.6D is complete, reviewed, accepted, and
-merged.
+Planned. Blocked until Phase 23.8.6C2 and Phase 23.8.6D are complete, reviewed,
+accepted, and merged.
 
 Required scope:
 - check `TASK.md` active pointer, roadmap active/current wording, task status
   fields, future/live task assumptions, verification guidance, bootstrap
   assumptions, storage/harvest assumptions, and downstream dependency notes;
+- reconcile stale present-tense phase claims, checked-in model/profile policy
+  versus manual guidance, and context-budget/compaction/handoff authority;
 - include a lightweight mechanical authority-drift check, implemented as a
   repo-owned command if one exists or as a bounded scripted/search checklist
   otherwise, that covers stale current-pointer claims, skipped phase ordering,
@@ -896,17 +958,19 @@ Task:
 
 Goal:
 Formalize stage-level packet/result/execution-policy contracts on top of stable
-run-state after Phase 23.8.6C proves the minimum loop.
+run-state after Phase 23.8.6C proves the minimum loop and Phase 23.8.6C2
+hardens its authority.
 
 Status:
 Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
-23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6D, and Phase 23.8.6E
-are complete and reviewed.
+23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C2, Phase 23.8.6D, and
+Phase 23.8.6E are complete and reviewed.
 
 Required scope:
 - define `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,
-  `ExecutionPolicy`, `RunIssue`, `RepairPacket`, and `WaiverRecord`
-  contracts;
+  `ExecutionPolicy`, and `WaiverRecord` contracts;
+- extend and normalize the existing Phase 23.8.6C `RunIssue` and
+  `RepairPacket` records rather than defining competing types;
 - add packet preparation such as
   `run prepare-packet --kind auto|plan|implementation|review|fix-pass|closeout`
   or equivalent;
@@ -918,9 +982,12 @@ Required scope:
 - report `human_action_required` separately from `next_allowed_action`;
 - route failed review fixtures to `FIX_PASS_PACKET`;
 - route passing review fixtures to `CLOSEOUT_PACKET` or closeout-ready state;
-- block missing deterministic checks with typed `stop_reason`.
+- block missing deterministic checks with typed `stop_reason`;
+- derive required reviews from tier/changed-surface policy as typed packet
+  inputs and represent manual-procedure promotion as an explicit typed
+  evidence transition;
 - keep B1 launch-attempt evidence compatible with exact-instance packet/result
-  design rather than ambiguous display-`run_id` readback.
+  design rather than ambiguous display-`run_id` readback;
 - formalize the minimum-loop failure fixtures observed during Phase 23.8.6B,
   including self-approval attempt, skipped architecture/db review, missing
   review artifacts, blocker-note-as-accept, source edits before valid
@@ -962,9 +1029,9 @@ procedure/stage records.
 
 Status:
 Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
-23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6D, Phase 23.8.6E, and
-Phase 23.8.7 are complete and reviewed, unless a later reviewed decision
-explicitly defers or waives that dependency.
+23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C2, Phase 23.8.6D,
+Phase 23.8.6E, and Phase 23.8.7 are complete and reviewed, unless a later
+reviewed decision explicitly defers or waives that dependency.
 This phase must not become a separate lifecycle authority. Operator/proof
 schemas remain provisional sketches unless tightened during implementation.
 
