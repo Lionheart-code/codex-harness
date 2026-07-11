@@ -122,6 +122,11 @@ operator-facing README, and focused acceptance tests. It must not change
 `src/`, `schemas/`, `migrations/`, `bin/`, package scripts, CI, `.harness/`, or
 runtime/project databases.
 
+Owner-approved compatibility exception: the smallest existing phase-ID parser
+and focused operator regression test may change only to recognize compound
+phase suffixes such as `23.8.6C1A`. This exception must not alter lifecycle,
+storage, routing, provider, packet, or execution behavior.
+
 ## Review requirements
 
 - Treat this phase as `extra-high`.

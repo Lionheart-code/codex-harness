@@ -1127,13 +1127,13 @@ function buildTaskAcceptanceVerificationCommand(commandLine: string): RuntimeVer
 }
 
 function inferPhaseIdFromText(markdown: string): string | undefined {
-  const headingMatch = /^#\s*Phase\s+([0-9]+(?:\.[0-9]+)*(?:[A-Z][0-9]*)?)/im.exec(markdown);
+  const headingMatch = /^#\s*Phase\s+([0-9]+(?:\.[0-9]+)*(?:[A-Z][0-9]*)*)/im.exec(markdown);
   return headingMatch?.[1];
 }
 
 function inferPhaseIdFromPath(taskPath: string): string | undefined {
   const basename = path.basename(taskPath);
-  const match = /^PHASE_([0-9]+(?:_[0-9]+)*(?:[A-Z][0-9]*)?)/.exec(basename);
+  const match = /^PHASE_([0-9]+(?:_[0-9]+)*(?:[A-Z][0-9]*)*)/.exec(basename);
 
   if (!match) {
     return undefined;
@@ -4038,7 +4038,7 @@ function readRoadmapTaskPathForPhase(targetRoot: string, phaseId: string): strin
     return undefined;
   }
 
-  const headingPattern = /^##\s+Phase\s+([0-9]+(?:\.[0-9]+)*(?:[A-Z][0-9]*)?)\b.*$/gm;
+  const headingPattern = /^##\s+Phase\s+([0-9]+(?:\.[0-9]+)*(?:[A-Z][0-9]*)*)\b.*$/gm;
   const headings = [...roadmap.matchAll(headingPattern)];
   const currentHeadingIndex = headings.findIndex((match) => match[1] === phaseId);
 
@@ -5021,7 +5021,7 @@ function listRoadmapPhaseTaskEntries(targetRoot: string): RoadmapPhaseTaskEntry[
     return [];
   }
 
-  const headingPattern = /^##\s+Phase\s+([0-9]+(?:\.[0-9]+)*(?:[A-Z][0-9]*)?)\b.*$/gm;
+  const headingPattern = /^##\s+Phase\s+([0-9]+(?:\.[0-9]+)*(?:[A-Z][0-9]*)*)\b.*$/gm;
   const headings = [...roadmap.matchAll(headingPattern)];
   const entries: RoadmapPhaseTaskEntry[] = [];
 
