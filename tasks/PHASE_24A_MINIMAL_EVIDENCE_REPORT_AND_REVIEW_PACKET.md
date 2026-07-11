@@ -16,7 +16,22 @@ broader Phase 24 report catalog is attempted.
 Implement only:
 
 - one deterministic run evidence or closeout report;
-- one bounded implementation-review or handoff packet.
+- one deterministic shared `ContextCore`/`ContextManifest`;
+- one bounded implementation-review packet using a distinct `ReviewOverlay`.
+
+The shared core contains task identity/contract refs, effective approved plan
+refs, procedure-contract refs, review tier, surface/risk classes, exact
+run/worktree/source/base identity, and architectural invariants. The review
+overlay contains diff and changed-file manifests, implementation claims,
+verification summary, prior `FIX_REQUIRED` findings, required lenses, missing
+evidence, and bounded payload references.
+
+The manifest records a stable ID and content hash, deterministic ordering,
+size budget, truncation/redaction facts, and source provenance. Identical
+authoritative inputs produce identical ordering/hash. Missing mandatory
+context blocks generation, and mandatory context is never removed for budget.
+Independent reviewers receive the packet plus read-only retrieval, not builder
+transcript authority.
 
 Required behavior preserved from the original Phase 24 task:
 

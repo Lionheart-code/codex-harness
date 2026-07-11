@@ -31,6 +31,18 @@ Write-capable agents require explicit task worktree boundaries.
 API is optional, not required.
 Codex-first does not mean Codex-only.
 
+Core lifecycle contracts describe capabilities and policy rather than brands.
+Codex CLI/Desktop, Claude, Gemini, local models, and future workers bind only
+behind reviewed adapter/profile boundaries. App Server is optional, not a core
+dependency. Subagents are optional adapter capabilities, not lifecycle
+authority. Parallel work is opt-in, bounded, and normally read-only; one writer
+owns one worktree.
+
+Context transport is explicit: independent review uses `fresh_packet` or
+`packet_plus_retrieval`; `resume_same_role` is limited to same-role amendment
+or bounded fix-pass; `fork_non_authoritative` output remains observational
+until independently reviewed and promoted.
+
 ## Agent profile
 
 Each agent profile must define:

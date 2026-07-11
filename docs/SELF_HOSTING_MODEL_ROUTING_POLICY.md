@@ -60,15 +60,82 @@ The current working method stays simple:
 Current temporary model guidance is advisory only:
 
 - main builder session: strong builder profile matched to task complexity;
-- `plan-review`: `gpt-5.5` with `high` reasoning or the closest locally
-  supported equivalent;
-- `implementation-review`: `gpt-5.5` with `medium` reasoning or the closest
-  locally supported equivalent;
-- escalation only: `gpt-5.5` with `xhigh` reasoning for ambiguous or disputed
-  review situations.
+- `plan-review`: `gpt-5.6-sol` with `high` reasoning;
+- `implementation-review`: `gpt-5.6-sol` with `medium` reasoning;
+- GPT-5.5 is a transitional baseline only, not automatic fallback or
+  long-term route authority.
 
 This guidance does not create provider/model routing, runtime profile
 selection, or self-approval logic.
+
+## Provider-Neutral Route Authority
+
+The steady-state router is deterministic and policy-first. It runs no-model
+checks first, derives a provider-neutral floor from typed facts, selects the
+cheapest approved binding satisfying every floor, preserves review
+independence and context transport, escalates only through typed triggers, and
+blocks when no safe approved route exists. The default router is not an LLM.
+
+Authoritative route classes:
+
+```text
+deterministic_no_model
+mechanical_low_cost
+routine_balanced
+complex_judgment
+critical_escalation
+parallel_audit_leaf
+parallel_audit_arbiter
+```
+
+Route precedence is:
+
+```text
+procedure_id
+-> review_tier
+-> changed_surface_classes
+-> risk_classes
+-> deterministic_evidence_state
+-> prior review/fix-pass failures
+-> independence requirement
+-> context reconstruction cost
+-> budget among safe profiles
+```
+
+Budget never weakens a profile floor, safety invariant, or independence
+requirement. A route policy represents `profile_floor`, `reasoning_default`,
+`reasoning_ceiling`, `escalation_triggers`,
+`downgrade_forbidden_conditions`, and `verbosity_default` separately. A
+procedure name alone never fixes one reasoning level.
+
+Provisional bindings are not lifecycle authority:
+
+```text
+mechanical_low_cost: GPT-5.6 Luna
+routine_balanced: GPT-5.6 Terra
+complex_judgment: GPT-5.6 Sol
+critical_escalation: GPT-5.6 Sol with higher reasoning
+```
+
+Luna and Terra remain evaluation candidates until Phase 30 promotes them.
+Core contracts describe capabilities, while provider/model bindings remain
+behind adapter/profile boundaries for Codex, Claude, Gemini, local models, and
+future reviewed workers.
+
+## Context Transport And Independence
+
+Allowed transport modes are `fresh_packet`, `resume_same_role`,
+`packet_plus_retrieval`, and `fork_non_authoritative`.
+
+- planner-to-amendment and builder-to-bounded-fix-pass may resume the same role;
+- independent review uses a fresh packet or packet plus read-only retrieval;
+- forks and subagents are non-authoritative scouts or experiments unless a
+  later contract promotes their result through review;
+- transcript and hidden reasoning are not authority;
+- prompt caching is an execution optimization, not memory, proof, or authority;
+- raw logs stay bounded, referenced, and provenance-linked;
+- a deterministic shared context core may feed separate semantic overlays, but
+  each review keeps its own rubric, verdict, evidence trail, and independence.
 
 ## Two-Factor Routing Rule
 
@@ -170,7 +237,7 @@ Preferred non-interactive review launch shape for `plan-review`:
 
 ```bash
 RUN_ID=<run-id>
-codex exec -C "$PWD" -s read-only -m gpt-5.5 \
+codex exec -C "$PWD" -s read-only -m gpt-5.6-sol \
   -c 'model_reasoning_effort="high"' \
   -o ".harness/runs/$RUN_ID/manual/plan-review.md" \
   - < ".harness/runs/$RUN_ID/manual/plan-review-request.md"
@@ -180,7 +247,7 @@ Preferred non-interactive review launch shape for `implementation-review`:
 
 ```bash
 RUN_ID=<run-id>
-codex exec -C "$PWD" -s read-only -m gpt-5.5 \
+codex exec -C "$PWD" -s read-only -m gpt-5.6-sol \
   -c 'model_reasoning_effort="medium"' \
   -o ".harness/runs/$RUN_ID/manual/implementation-review.md" \
   - < ".harness/runs/$RUN_ID/manual/implementation-review-request.md"

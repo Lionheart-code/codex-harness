@@ -81,14 +81,25 @@ Near-term progression:
 
 ```text
 23.8.6 -> 23.8.6A -> 23.8.6B -> 23.8.6B1 -> 23.8.6B2 -> 23.8.6C ->
-23.8.6C1 -> 23.8.6C2 -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9
+23.8.6C1 -> 23.8.6C1A -> 23.8.6C2 -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9
 ```
 
-Phase 23.8.6C1 is the post-bootstrap task-contract rebase. Phase 23.8.6C2 is
-narrow correctness hardening for the existing `run start --task TASK.md` and
-`run status --operator` surfaces; it is not a new orchestrator layer. Durable
-procedure payload storage follows in 23.8.6D, authority freshness in 23.8.6E,
-and normalized stage packet/result contracts in 23.8.7.
+Phase 23.8.6C1 is the completed post-bootstrap task-contract rebase. Phase
+23.8.6C1A publishes provider-neutral routing, reasoning, context-transport,
+independence, and downstream ownership authority without implementing runtime
+routing. Phase 23.8.6C2 then performs narrow correctness hardening for the
+existing `run start --task TASK.md` and `run status --operator` surfaces; it is
+not a new orchestrator layer. Durable procedure payload storage follows in
+23.8.6D, authority freshness in 23.8.6E, and normalized provider-neutral stage
+packet/result and route-intent contracts in 23.8.7. Phase 31 remains the first
+general runtime provider-binding and runner-execution boundary.
+
+For a newly inserted phase, materialization is not complete when only
+`TASK.md` changes. Update the task contract, `TASK.md`, roadmap/operations
+order, and every required live authority/policy surface coherently; commit that
+complete activation in the task branch/worktree; verify clean git; only then
+start the authoritative Harness run. Any run opened before that commit is
+provisional and must be marked discardable before a fresh run is started.
 
 Hard boundaries:
 

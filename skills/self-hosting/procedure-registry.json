@@ -262,7 +262,7 @@
       },
       "review_launch_profile": {
         "adapter_id": "codex_cli",
-        "model": "gpt-5.5",
+        "model": "gpt-5.6-sol",
         "reasoning_effort": "high",
         "sandbox_mode": "read-only",
         "output_mode": "file",
@@ -452,7 +452,7 @@
       },
       "review_launch_profile": {
         "adapter_id": "codex_cli",
-        "model": "gpt-5.5",
+        "model": "gpt-5.6-sol",
         "reasoning_effort": "medium",
         "sandbox_mode": "read-only",
         "output_mode": "file",

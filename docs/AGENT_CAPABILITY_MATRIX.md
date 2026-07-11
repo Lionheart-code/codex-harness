@@ -22,6 +22,12 @@ This document defines the Phase 6 role matrix for permissions, working-directory
 - No role implies trusted output without verification.
 - Write-capable roles require explicit task worktree boundaries.
 - API is optional, not required.
+- App Server and provider-specific session mechanics are optional adapters, not
+  mandatory core dependencies.
+- Parallel leaves are opt-in and read-only by default; parallel writers must
+  never share one worktree.
+- Forked/subagent output is non-authoritative until a distinct review promotes
+  it through repo-owned evidence contracts.
 
 ## Agent-family implications
 

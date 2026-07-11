@@ -28,6 +28,13 @@ Possible additions moved from the original Phase 24 broad catalog:
 - additional self-hosting packet types: planner, plan-review,
   implementation-review, closeout-review, architecture-review,
   DB/storage-review, docs-consistency.
+- fix-pass and review-disagreement packets;
+- routing-decision and cost/quality regression reports;
+- parallel-audit synthesis packet and portable handoff summary.
+
+All additions reuse the Phase 24A shared context core. Distinct semantic
+reviews retain separate rubrics, verdicts, evidence trails, and independence;
+24B must not merge them into one mega-verdict.
 
 Required preserved constraints:
 

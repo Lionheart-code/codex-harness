@@ -12,6 +12,32 @@ Raw logs are not prompt context.
 
 Prompt context should be selected, compact, and task-relevant.
 
+Budget is subordinate to correctness. Mandatory task, plan, procedure,
+identity, risk, independence, and deterministic-evidence context cannot be
+dropped to meet a size or cost target. Missing mandatory context blocks packet
+generation or execution.
+
+## Context transport authority
+
+```text
+fresh_packet
+resume_same_role
+packet_plus_retrieval
+fork_non_authoritative
+```
+
+- independent review uses `fresh_packet` or `packet_plus_retrieval`;
+- same-role amendment or bounded fix-pass may use `resume_same_role`;
+- forked sessions are non-authoritative unless later reviewed contracts
+  explicitly promote their result;
+- transcript, hidden reasoning, and cache state are never authority;
+- prompt caching is optimization only and does not satisfy memory, proof,
+  provenance, or independence requirements.
+
+Phase 24A owns the first deterministic shared `ContextCore`/`ContextManifest`,
+including stable ordering and hash, explicit size budget, truncation/redaction
+facts, and source provenance. Raw logs remain bounded references.
+
 ## Context layers
 
 ```text

@@ -131,10 +131,13 @@ Required controls:
 ## Routing responsibility
 
 Phase 23.7 may expose a suggested review tier for the current stage. It must
-not implement full provider/model routing. Later provider/host adapter work
-owns model selection and second-review orchestration. CLI remains the current
-baseline access surface; App Server is a future candidate only until a later
-phase proves otherwise.
+not implement full provider/model routing. Review tier contributes a
+provider-neutral `profile_floor`; changed surfaces, risk, deterministic
+evidence, prior failures, independence, and context reconstruction cost may
+raise that floor. Budget may choose only among bindings that already satisfy
+the floor and must never weaken review independence. Phase 31 owns general
+runtime binding and execution. CLI remains the current baseline access
+surface; App Server is optional and never a mandatory core dependency.
 
 ## Implementation requirement
 

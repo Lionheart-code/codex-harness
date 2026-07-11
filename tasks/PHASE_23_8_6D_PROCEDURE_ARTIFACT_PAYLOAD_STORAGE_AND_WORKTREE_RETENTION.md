@@ -103,12 +103,24 @@ the worktree/base-commit provenance needed to audit those artifacts later.
 - No packet automation.
 - No runner execution.
 - No provider/model routing.
+- No context bundle, `ContextCore`, or `ContextManifest` construction.
+- No route telemetry, provider execution, or hidden transcript/reasoning
+  storage as authority.
 - No domain-pack behavior.
 - No broad report-generation layer.
 - No raw SQL surface for agents.
 - No replacement of runtime/closeout/harvest authority with loose file scans.
 - No reimplementation of Phase 23.8.6C2 current-bootstrap task, base-commit,
   `RunIssue`, `RepairPacket`, fact, or handoff parsing.
+
+## Future-compatible payload contract
+
+Storage primitives must preserve immutable payload identity, exact run
+identity, stable content hash, recorded timestamp, MIME/type or equivalent
+classification, bounded payload/chunk references, authoritative readback, and
+worktree/source/base provenance. Reference semantics must remain generic enough
+for later `ContextManifest`, packet, and proof phases without implementing
+those phases here.
 
 ## Acceptance commands
 
