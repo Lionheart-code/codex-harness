@@ -44,9 +44,20 @@ bindings.
   of authority. Treat caching as an execution optimization only.
 - Keep core contracts provider-neutral and capability-based. Concrete models
   are provisional bindings behind adapter/profile boundaries.
-- Refresh only `plan-review` and `implementation-review` to `gpt-5.6-sol` with
-  `high` and `medium` reasoning respectively after a read-only local capability
-  probe. Do not add automatic fallback.
+- Apply one bounded current cost-control bridge after a read-only local
+  capability probe: `plan-review` uses `gpt-5.6-sol` with `high` reasoning and
+  `implementation-review` uses `gpt-5.6-terra` with `high` reasoning. Do not
+  add automatic fallback.
+- Treat `extra-high` as a control/review strictness tier, not a reasoning level.
+  It must not automatically imply `xhigh`, `max`, or `ultra`.
+- For the C1A chain, use Sol High only for architecture/authority judgment,
+  Terra High for implementation review, Terra Medium for docs-consistency or
+  mechanical semantic review, and deterministic-first verification,
+  delivery-facts, and closeout. Escalate to Sol High only for conflicting
+  evidence, a critical authority/lifecycle finding, or a repeated failed
+  fix-pass.
+- Prohibit `xhigh`, `max`, and `ultra` as defaults. Each requires a separately
+  recorded escalation reason.
 - Publish the exact sequence:
   `23.8.6C -> 23.8.6C1 -> 23.8.6C1A -> 23.8.6C2 -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9`.
 - Rebase C2, D, E, 23.8.7, 23.9, 24A, 24B, 30, and 31 ownership without
@@ -111,7 +122,9 @@ git status --short
 - Transcript, cache, hidden reasoning, and unbounded raw logs are not authority.
 - Phase 31 remains the first general runtime provider-binding and execution
   boundary.
-- Only the two current supervised review profiles use the approved Sol bindings.
+- Only the two current supervised launch profiles use the approved bounded
+  bindings: Sol High for `plan-review` and Terra High for
+  `implementation-review`.
 - No runtime, schema, migration, generated state, or database file changes.
 
 ## Source/runtime boundary

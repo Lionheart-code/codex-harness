@@ -85,7 +85,7 @@ test("Phase 30 rejects unsafe candidates and Phase 31 remains first runtime bind
   assert.match(files.phase31, /write-capable\s+parallel leaves sharing a worktree/);
 });
 
-test("current registry pins only the two approved Sol review bindings", () => {
+test("current registry pins the bounded Sol and Terra review bindings", () => {
   const registry = JSON.parse(read("skills/self-hosting/procedure-registry.json"));
   const profiles = registry.procedures
     .filter((procedure) => procedure.review_launch_profile)
@@ -104,12 +104,22 @@ test("current registry pins only the two approved Sol review bindings", () => {
     {
       id: "implementation-review",
       adapter_id: "codex_cli",
-      model: "gpt-5.6-sol",
-      reasoning_effort: "medium",
+      model: "gpt-5.6-terra",
+      reasoning_effort: "high",
       sandbox_mode: "read-only",
       output_mode: "file",
       timeout_seconds: 1800,
       stale_after_seconds: 300
     }
   ]);
+});
+
+test("extra-high review controls do not default to extreme reasoning", () => {
+  const reviewPolicy = read("docs/SELF_HOSTING_REVIEW_TIER_POLICY.md");
+  assert.match(reviewPolicy, /extra-high.*control and review strictness tier[\s\S]*does not automatically\s+imply.*xhigh.*max.*ultra/is);
+  assert.match(files.routing, /Sol High only for the architecture\/authority judgment pass/);
+  assert.match(files.routing, /Terra High for `implementation-review`/);
+  assert.match(files.routing, /Terra Medium for docs-consistency or mechanical semantic review/);
+  assert.match(files.routing, /`xhigh`, `max`, and `ultra` are prohibited as defaults/);
+  assert.match(files.routing, /separately recorded escalation reason/);
 });

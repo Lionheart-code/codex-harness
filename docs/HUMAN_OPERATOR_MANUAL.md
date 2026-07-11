@@ -111,9 +111,11 @@ advisory operator guidance only:
   reviewer session and should use a different reviewer model/profile than the
   planning or builder pass they are checking; current bindings are
   `plan-review` on `gpt-5.6-sol` with `high` reasoning and
-  `implementation-review` on `gpt-5.6-sol` with `medium` reasoning;
-- GPT-5.5 is transitional only, not an automatic fallback. Luna and Terra
-  remain Phase 30 evaluation candidates.
+  `implementation-review` on `gpt-5.6-terra` with `high` reasoning;
+- docs-consistency and mechanical semantic review use Terra Medium, while
+  verification, delivery-facts, and closeout run deterministic-first;
+- `xhigh`, `max`, and `ultra` are not defaults and require a separately
+  recorded escalation reason. Phase 31 retains generalized routing ownership.
 
 Independent review receives a fresh packet or packet plus read-only retrieval,
 not the builder transcript. Cache state and hidden reasoning are not authority.

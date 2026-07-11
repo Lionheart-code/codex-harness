@@ -50,9 +50,10 @@ guidance without turning it into runtime routing.
   session and a different reviewer model/profile from the planning or builder
   pass they are checking; the current supervised `plan-review` binding is
   `gpt-5.6-sol` with `high` reasoning and `implementation-review` is
-  `gpt-5.6-sol` with `medium` reasoning;
-- Luna and Terra are future route candidates that require Phase 30 evaluation;
-  GPT-5.5 is transitional only and is not an automatic fallback.
+  `gpt-5.6-terra` with `high` reasoning;
+- docs-consistency/mechanical semantic review uses Terra Medium;
+- `xhigh`, `max`, and `ultra` are escalation-only with separately recorded
+  reasons; Phase 31 retains generalized routing ownership.
 
 This guidance is operator advisory only. It must not be implemented as current
 provider/model routing, runtime profile selection, or self-approval logic.

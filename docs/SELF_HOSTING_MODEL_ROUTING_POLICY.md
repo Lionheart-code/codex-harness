@@ -61,12 +61,32 @@ Current temporary model guidance is advisory only:
 
 - main builder session: strong builder profile matched to task complexity;
 - `plan-review`: `gpt-5.6-sol` with `high` reasoning;
-- `implementation-review`: `gpt-5.6-sol` with `medium` reasoning;
+- `implementation-review`: `gpt-5.6-terra` with `high` reasoning;
 - GPT-5.5 is a transitional baseline only, not automatic fallback or
   long-term route authority.
 
 This guidance does not create provider/model routing, runtime profile
 selection, or self-approval logic.
+
+## Transitional C1A Cost-Control Bridge
+
+Review tier and model reasoning are separate. `extra-high` controls review
+strictness, required lenses, evidence, independence, and stop conditions; it
+does not automatically select extreme reasoning.
+
+For the current C1A review chain:
+
+- use Sol High only for the architecture/authority judgment pass;
+- use Terra High for `implementation-review`;
+- use Terra Medium for docs-consistency or mechanical semantic review;
+- run verification, delivery-facts, and closeout deterministic-first;
+- escalate to Sol High only for conflicting evidence, a critical
+  authority/lifecycle finding, or a repeated failed fix-pass.
+
+`xhigh`, `max`, and `ultra` are prohibited as defaults. Each requires a
+separately recorded escalation reason. This is a bounded current binding and
+cost-control bridge only; Phase 31 remains the owner of generalized dynamic
+routing and runtime enforcement.
 
 ## Provider-Neutral Route Authority
 
@@ -247,8 +267,8 @@ Preferred non-interactive review launch shape for `implementation-review`:
 
 ```bash
 RUN_ID=<run-id>
-codex exec -C "$PWD" -s read-only -m gpt-5.6-sol \
-  -c 'model_reasoning_effort="medium"' \
+codex exec -C "$PWD" -s read-only -m gpt-5.6-terra \
+  -c 'model_reasoning_effort="high"' \
   -o ".harness/runs/$RUN_ID/manual/implementation-review.md" \
   - < ".harness/runs/$RUN_ID/manual/implementation-review-request.md"
 ```

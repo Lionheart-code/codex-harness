@@ -96,6 +96,11 @@ Use for authority, lifecycle, storage, and external-agent boundary work:
 - domain ingestion and runtime data classification;
 - bounded experimentation that can keep/revert source changes.
 
+`extra-high` is a control and review strictness tier. It does not automatically
+imply `xhigh`, `max`, or `ultra` model reasoning. Reasoning stays a separate
+route/profile decision constrained by the task, evidence, independence, and
+recorded escalation triggers.
+
 Required controls:
 
 - anti-rubber-stamp review;
@@ -127,6 +132,10 @@ Required controls:
 - `review_tier_controls` discipline:
   - list the required controls used;
   - record what must remain postponed to avoid overbuilding the current phase.
+
+Default `xhigh`, `max`, or `ultra` reasoning is prohibited. Each use requires a
+separately recorded escalation reason tied to conflicting evidence, a critical
+authority/lifecycle finding, or repeated failed fix-pass evidence.
 
 ## Routing responsibility
 

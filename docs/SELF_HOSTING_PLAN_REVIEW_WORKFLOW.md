@@ -46,8 +46,9 @@ operator guidance only and must not be treated as runtime routing.
   session and a different reviewer model/profile from the planning or builder
   pass they are checking. Current supervised bindings are `plan-review` on
   `gpt-5.6-sol` with `high` reasoning and `implementation-review` on
-  `gpt-5.6-sol` with `medium` reasoning. GPT-5.5 is transitional only and is
-  not an automatic fallback.
+  `gpt-5.6-terra` with `high` reasoning. Docs-consistency/mechanical semantic
+  review uses Terra Medium; extreme reasoning is escalation-only with a
+  recorded reason.
 
 Independent review uses `fresh_packet` or `packet_plus_retrieval` and does not
 inherit builder transcript authority. Budget cannot weaken the review floor or
