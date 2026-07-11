@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -119,7 +120,30 @@ test("extra-high review controls do not default to extreme reasoning", () => {
   assert.match(reviewPolicy, /extra-high.*control and review strictness tier[\s\S]*does not automatically\s+imply.*xhigh.*max.*ultra/is);
   assert.match(files.routing, /Sol High only for the architecture\/authority judgment pass/);
   assert.match(files.routing, /Terra High for `implementation-review`/);
-  assert.match(files.routing, /Terra Medium for docs-consistency or mechanical semantic review/);
+  assert.match(files.routing, /Terra Medium for docs-consistency, mechanical semantic review, and\s+`harness-audit`/);
+  assert.match(files.routing, /verification, delivery-facts, and closeout deterministic-first/);
+  assert.match(files.routing, /Terra Medium for semantic follow-up after a deterministic-first gate/);
   assert.match(files.routing, /`xhigh`, `max`, and `ultra` are prohibited as defaults/);
   assert.match(files.routing, /separately recorded escalation reason/);
+  assert.match(files.routing, /conflicting evidence, a critical\s+authority\/lifecycle finding, or a repeated failed fix-pass/);
+});
+
+test("phase C1A committed changes stay within the approved base-to-head allowlist", () => {
+  const changed = execFileSync("git", ["diff", "--name-only", "a9715f1..HEAD"], {
+    cwd: productRoot,
+    encoding: "utf8"
+  }).trim().split("\n").filter(Boolean);
+  const exactAllowed = new Set([
+    "TASK.md",
+    "src/core/runtime.ts",
+    "skills/self-hosting/README.md",
+    "skills/self-hosting/procedure-registry.json"
+  ]);
+  const allowedPatterns = [
+    /^docs\/(?:AGENT_BOUNDARIES_AND_ADAPTERS|AGENT_CAPABILITY_MATRIX|CONTEXT_BUDGET_POLICY|HUMAN_OPERATOR_MANUAL|IMPLEMENTATION_ROADMAP|OPERATIONS_PLAN|PLATFORM_COMPATIBILITY_AND_COMMAND_EXECUTION|SELF_HOSTING_MODEL_ROUTING_POLICY|SELF_HOSTING_OPERATOR_ROUTING_POLICY|SELF_HOSTING_PLAN_REVIEW_WORKFLOW|SELF_HOSTING_REVIEW_TIER_POLICY)\.md$/,
+    /^tasks\/PHASE_(?:23_8_6C1A_ROUTING_CONTEXT_AND_MODEL_POLICY_AUTHORITY_REBASE|23_8_6C2_BOOTSTRAP_AUTHORITY_CORRECTNESS|23_8_6D_PROCEDURE_ARTIFACT_PAYLOAD_STORAGE_AND_WORKTREE_RETENTION|23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION|23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION|23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY|24A_MINIMAL_EVIDENCE_REPORT_AND_REVIEW_PACKET|24B_EXPANDED_REPORTS_AND_PACKETS|30_BOUNDED_AGENT_EXPERIMENTATION_LOOP|31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP)\.md$/,
+    /^tests\/acceptance\/(?:phase23-7-operator-status|phase23-8-6c1a-routing-context-authority-rebase|phase23-8-agent-native-procedure-registry-and-skill-surface)\.test\.mjs$/
+  ];
+  const unexpected = changed.filter((file) => !exactAllowed.has(file) && !allowedPatterns.some((pattern) => pattern.test(file)));
+  assert.deepEqual(unexpected, []);
 });

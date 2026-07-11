@@ -78,8 +78,10 @@ For the current C1A review chain:
 
 - use Sol High only for the architecture/authority judgment pass;
 - use Terra High for `implementation-review`;
-- use Terra Medium for docs-consistency or mechanical semantic review;
+- use Terra Medium for docs-consistency, mechanical semantic review, and
+  `harness-audit`;
 - run verification, delivery-facts, and closeout deterministic-first;
+- use Terra Medium for semantic follow-up after a deterministic-first gate;
 - escalate to Sol High only for conflicting evidence, a critical
   authority/lifecycle finding, or a repeated failed fix-pass.
 

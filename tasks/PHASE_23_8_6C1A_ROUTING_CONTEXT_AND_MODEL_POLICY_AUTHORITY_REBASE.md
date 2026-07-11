@@ -52,10 +52,11 @@ bindings.
   It must not automatically imply `xhigh`, `max`, or `ultra`.
 - For the C1A chain, use Sol High only for architecture/authority judgment,
   Terra High for implementation review, Terra Medium for docs-consistency or
-  mechanical semantic review, and deterministic-first verification,
-  delivery-facts, and closeout. Escalate to Sol High only for conflicting
-  evidence, a critical authority/lifecycle finding, or a repeated failed
-  fix-pass.
+  mechanical semantic review and `harness-audit`, and deterministic-first
+  verification, delivery-facts, and closeout. Any semantic follow-up after a
+  deterministic-first gate uses Terra Medium unless conflicting evidence, a
+  critical authority/lifecycle finding, or a repeated failed fix-pass requires
+  recorded Sol High escalation.
 - Prohibit `xhigh`, `max`, and `ultra` as defaults. Each requires a separately
   recorded escalation reason.
 - Publish the exact sequence:
@@ -106,6 +107,7 @@ bindings.
 npm run build
 node --test tests/acceptance/phase23-8-6c1a-routing-context-authority-rebase.test.mjs
 node --test tests/acceptance/phase23-8-agent-native-procedure-registry-and-skill-surface.test.mjs
+node --test tests/acceptance/phase23-7-operator-status.test.mjs
 npm test
 node bin/ch run status --operator --run <live-run-id>
 git diff --check
@@ -126,6 +128,9 @@ git status --short
   bindings: Sol High for `plan-review` and Terra High for
   `implementation-review`.
 - No runtime, schema, migration, generated state, or database file changes.
+- A deterministic base-to-head changed-file allowlist proves that every commit
+  stays inside the approved authority/test surfaces plus the narrow phase-ID
+  parser exception.
 
 ## Source/runtime boundary
 
@@ -147,6 +152,11 @@ storage, routing, provider, packet, or execution behavior.
 - Require separate read-only `implementation-review`, `architecture-review`,
   `docs-consistency-review`, `verification-review`, `delivery-facts-review`,
   and `harness-audit` passes.
+- Use Sol High for architecture/authority judgment, Terra High for
+  implementation review, and Terra Medium for docs-consistency, mechanical
+  semantic review, and harness audit. Verification, delivery-facts, and
+  closeout are deterministic-first; semantic follow-up defaults to Terra
+  Medium unless a recorded Sol High escalation trigger applies.
 - Run `phase-closeout-review` last.
 - Use `db-storage-review` only if scope unexpectedly reaches storage, schema, or
   runtime, which otherwise blocks the phase.
