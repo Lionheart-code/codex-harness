@@ -177,3 +177,7 @@ decision; identify files changed and intentionally untouched; report all
 deterministic and independent review results; confirm no runtime/generated
 state was committed; and state branch, commits, PR/CI, closeout, and harvest
 status.
+
+It must also state the effective Sol High, Terra High, Terra Medium, and
+deterministic-first review mapping and list every separately recorded escalation
+reason, or explicitly state that no extreme-reasoning escalation occurred.
