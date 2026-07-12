@@ -21,6 +21,7 @@ export interface TaskState {
   task_type?: TaskType;
   branch?: string;
   worktree?: string;
+  base_commit_sha?: string;
 }
 
 export interface TaskCreationPreview {
@@ -136,6 +137,10 @@ export function parseTaskState(statePath: string): TaskState {
 
   if (parsed.worktree !== undefined && typeof parsed.worktree !== "string") {
     throw new Error("invalid worktree value");
+  }
+
+  if (parsed.base_commit_sha !== undefined && (typeof parsed.base_commit_sha !== "string" || parsed.base_commit_sha.trim().length === 0)) {
+    throw new Error("invalid base_commit_sha value");
   }
 
   return parsed as TaskState;
