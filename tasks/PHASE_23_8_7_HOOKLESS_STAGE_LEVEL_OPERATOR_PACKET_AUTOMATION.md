@@ -7,8 +7,9 @@ Ingestion and Slice-Isolated Run Mutations, Phase 23.8.6A Self-Hosting Replay
 and Re-ingestion Continuity, Phase 23.8.6B Self-Hosting Model Routing Policy
 Packaging, Phase 23.8.6B1 Supervised Review Launch and Blocked Disposition,
 Phase 23.8.6B2 Verification Command Rationalization and Serialization, Phase
-23.8.6C Minimum Self-Hosting Orchestrator Entrypoint, Phase 23.8.6C2 Bootstrap
-Authority Correctness, Phase 23.8.6D Procedure Artifact Payload Storage and
+23.8.6C Minimum Self-Hosting Orchestrator Entrypoint, Phase 23.8.6C1A Routing,
+Context, and Model-Policy Authority Rebase, Phase 23.8.6C2 Bootstrap Authority
+Correctness, Phase 23.8.6D Procedure Artifact Payload Storage and
 Worktree Retention, and Phase 23.8.6E Authority Surface Freshness and
 Downstream Task Revalidation are complete, reviewed, and accepted.
 
@@ -70,6 +71,19 @@ Required behavior:
 - Any advisory packet routing/model fields must inherit the checked-in policy
   boundary from `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` without launching
   reviewers or runners.
+- Add deterministic provider-neutral `RouteIntent` or equivalent fields:
+  `route_policy_ref`, `route_class`, `profile_floor`, `reasoning_default`,
+  `reasoning_ceiling`, `changed_surface_classes`, `risk_classes`,
+  `deterministic_evidence_state`, `independence_mode`,
+  `context_manifest_ref`, `context_transport_mode`,
+  `required_semantic_reviews`, `parallel_policy`, `budget_class`, and
+  `escalation_triggers`.
+- Identical authoritative inputs yield the same route intent. Missing required
+  route/context evidence blocks packet preparation. Required semantic reviews
+  derive deterministically from procedure, tier, surface, and risk policy.
+- Provider/model names are absent from lifecycle authority. `StagePacket`
+  preparation does not launch a runner, and `StageResult` may record supplied
+  invocation facts but never selects providers.
 - Keep the minimum lifecycle-failure fixtures explicit: self-approval
   attempt, skipped architecture-review, skipped db-storage-review,
   `AMEND_REQUIRED` without valid amended-plan review, missing

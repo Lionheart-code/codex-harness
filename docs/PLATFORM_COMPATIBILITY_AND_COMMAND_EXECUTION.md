@@ -112,6 +112,13 @@ The runner must:
 
 External CLI agents must be invoked through the same command runner policy.
 
+The core command contract remains provider-neutral. Codex CLI/Desktop, Claude,
+Gemini, local models, App Server, and future workers are adapter candidates;
+none is a mandatory lifecycle dependency. Phase 31 is the first general
+runtime binding/execution boundary and must fail closed when no approved
+binding satisfies route, reasoning, context, independence, permission, and
+budget constraints.
+
 Every agent command requires:
 
 - adapter profile;

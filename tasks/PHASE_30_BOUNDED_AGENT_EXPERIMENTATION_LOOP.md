@@ -60,6 +60,26 @@ Required behavior:
 - keep/revert decision;
 - synthesis and review.
 
+## Offline route and context evaluation contract
+
+Each local/offline experiment records `experiment_id`, fixture IDs, baseline
+route, candidate routes, context-packet variant, immutable evaluator, expected
+critical findings and lifecycle outcome, quality/economic gates, bias
+controls, and keep/reject decision.
+
+Metrics include critical-blocker recall, false acceptance, false positives,
+illegal lifecycle progression, scope leakage, output-contract validity, review
+disagreement, fix-pass count, convergence, input/cached/cache-write/output
+tokens, credits, latency, tool calls, retrieval count, and context
+reconstruction ratio.
+
+Fixtures cover clean and amendment-required plans, clean and `FIX_REQUIRED`
+implementations, a subtle authority/lifecycle blocker, and a subtle storage/DB
+blocker. Hard-reject any candidate that misses a confirmed critical blocker,
+allows illegal lifecycle progression or independence violation, emits invalid
+structured output, reduces cost without preserving quality, or uses the same
+evaluator/candidate without bias controls.
+
 ## Use cases
 
 - improve reviewer procedures;

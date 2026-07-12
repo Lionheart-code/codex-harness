@@ -555,6 +555,11 @@ test("phase 23.7 operator status accepts split phase ids from task and roadmap",
       activeTaskPath: "tasks/PHASE_23_8_6B1_SUPERVISED_REVIEW_LAUNCH_AND_BLOCKED_DISPOSITION.md",
       taskHeading: "# Phase 23.8.6B1 - Supervised Review Launch and Blocked Disposition",
       roadmapHeading: "## Phase 23.8.6B1 — Supervised Review Launch and Blocked Disposition"
+    },
+    {
+      activeTaskPath: "tasks/PHASE_23_8_6C1A_ROUTING_CONTEXT_AND_MODEL_POLICY_AUTHORITY_REBASE.md",
+      taskHeading: "# Phase 23.8.6C1A - Routing, Context, and Model-Policy Authority Rebase",
+      roadmapHeading: "## Phase 23.8.6C1A — Routing, Context, and Model-Policy Authority Rebase"
     }
   ];
 

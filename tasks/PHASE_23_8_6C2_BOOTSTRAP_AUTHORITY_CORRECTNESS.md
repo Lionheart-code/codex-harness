@@ -2,8 +2,8 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6C1 Post-Bootstrap Audit and
-Task-Contract Rebase is complete, reviewed, accepted, and merged.
+Planned. Starts only after Phase 23.8.6C1A Routing, Context, and Model-Policy
+Authority Rebase is complete, reviewed, accepted, and merged.
 
 ## Purpose
 
@@ -86,6 +86,9 @@ a broader orchestrator command or the normalized stage packet/result layer.
 - No authority-document freshness sweep; that belongs to Phase 23.8.6E.
 - No external runner launch, provider/model selection, auto-commit,
   auto-merge, PR repair, or CI repair; those belong to Phase 31.
+- No generalized context core/manifest, route intent, model selection, or
+  routing policy implementation. Preserve only explicit task, worktree,
+  source, base, and current-bootstrap authority facts needed by later phases.
 - No database schema or migration change unless code inspection proves an
   existing persisted current-bootstrap field cannot represent the corrected
   fact. Stop for plan/task amendment before widening storage scope.
@@ -148,8 +151,8 @@ git diff --check
 
 ## Relationship to previous and next phases
 
-- Follows the Phase 23.8.6C minimum bootstrap and the C1 audit/task-contract
-  rebase.
+- Follows the Phase 23.8.6C minimum bootstrap, C1 audit/task-contract rebase,
+  and C1A routing/context/model-policy authority rebase.
 - Precedes Phase 23.8.6D so durable procedure storage is built on truthful
   task, checkout, source-snapshot, and base authority.
 - Precedes Phase 23.8.6E authority freshness and Phase 23.8.7 normalized stage

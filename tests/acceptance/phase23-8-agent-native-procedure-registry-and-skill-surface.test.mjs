@@ -396,8 +396,12 @@ test("phase 23.8 registry is canonical, schema-backed, and preserves procedure s
   assert.match(planReviewOutputFormat, /Do not invent aliases or human-readable variants for `outcome_state`/);
   assert.equal(planAmend?.operator_contract?.latest_amendment_supersedes_prior_plan, true);
   assert.equal(planReview?.review_launch_profile?.adapter_id, "codex_cli");
+  assert.equal(planReview?.review_launch_profile?.model, "gpt-5.6-sol");
+  assert.equal(planReview?.review_launch_profile?.reasoning_effort, "high");
   assert.equal(planReview?.review_launch_profile?.sandbox_mode, "read-only");
   assert.equal(implementationReview?.review_launch_profile?.adapter_id, "codex_cli");
+  assert.equal(implementationReview?.review_launch_profile?.model, "gpt-5.6-terra");
+  assert.equal(implementationReview?.review_launch_profile?.reasoning_effort, "high");
   assert.equal(implementationReview?.review_launch_profile?.sandbox_mode, "read-only");
   assert.deepEqual(
     registry.procedures.filter((procedure) => procedure.review_launch_profile).map((procedure) => procedure.procedure_id).sort(),

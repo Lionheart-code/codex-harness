@@ -96,6 +96,11 @@ Use for authority, lifecycle, storage, and external-agent boundary work:
 - domain ingestion and runtime data classification;
 - bounded experimentation that can keep/revert source changes.
 
+`extra-high` is a control and review strictness tier. It does not automatically
+imply `xhigh`, `max`, or `ultra` model reasoning. Reasoning stays a separate
+route/profile decision constrained by the task, evidence, independence, and
+recorded escalation triggers.
+
 Required controls:
 
 - anti-rubber-stamp review;
@@ -128,13 +133,20 @@ Required controls:
   - list the required controls used;
   - record what must remain postponed to avoid overbuilding the current phase.
 
+Default `xhigh`, `max`, or `ultra` reasoning is prohibited. Each use requires a
+separately recorded escalation reason tied to conflicting evidence, a critical
+authority/lifecycle finding, or repeated failed fix-pass evidence.
+
 ## Routing responsibility
 
 Phase 23.7 may expose a suggested review tier for the current stage. It must
-not implement full provider/model routing. Later provider/host adapter work
-owns model selection and second-review orchestration. CLI remains the current
-baseline access surface; App Server is a future candidate only until a later
-phase proves otherwise.
+not implement full provider/model routing. Review tier contributes a
+provider-neutral `profile_floor`; changed surfaces, risk, deterministic
+evidence, prior failures, independence, and context reconstruction cost may
+raise that floor. Budget may choose only among bindings that already satisfy
+the floor and must never weaken review independence. Phase 31 owns general
+runtime binding and execution. CLI remains the current baseline access
+surface; App Server is optional and never a mandatory core dependency.
 
 ## Implementation requirement
 

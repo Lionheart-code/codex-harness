@@ -11,6 +11,12 @@ complete, reviewed, accepted, and merged.
 Revalidate future/live authority surfaces after the near-term 23.8.6 chain has
 changed verification policy, bootstrap assumptions, and storage/harvest facts.
 
+This is post-implementation freshness reconciliation against actual C2/D
+facts. C1A already owns the routing/context/model-policy architecture; E checks
+that allocation for continued accuracy, removes stale live wording, and may
+record mechanically checkable residual drift as Phase 30 candidates. It does
+not repeat the research or become first owner of the architecture.
+
 ## Problem
 
 Repo authority can drift after implementation, review, fix-pass, closeout,

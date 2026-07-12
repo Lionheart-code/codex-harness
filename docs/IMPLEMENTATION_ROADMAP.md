@@ -434,8 +434,9 @@ Required scope:
   fails closed; keep `schema_version` unchanged because this is an atomic
   product-source registry update, not a runtime migration;
 - update this roadmap with the Phase 23.8.5 -> 23.8.6 -> 23.8.6A -> 23.8.6B ->
-  23.8.6B1 -> 23.8.6B2 -> 23.8.6C -> 23.8.6C1 -> 23.8.6C2 -> 23.8.6D ->
-  23.8.6E -> 23.8.7 -> 23.9 -> 24A -> 24B -> 25A -> 25B -> 26 sequence and
+  23.8.6B1 -> 23.8.6B2 -> 23.8.6C -> 23.8.6C1 -> 23.8.6C1A ->
+  23.8.6C2 -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9 -> 24A -> 24B ->
+  25A -> 25B -> 26 sequence and
   a direct block before Phase 23.9;
 - separate end-of-old-cycle decision from start-of-new-cycle materialization:
   closeout/harvest may record the next task, while the new cycle creates or
@@ -461,8 +462,9 @@ Required scope:
 - amend agent boundary/security docs to split `RunnerProfile` from
   `ExecutionPolicy`;
 - create or extend task contracts for Phases 23.8.6, 23.8.6A, 23.8.6B,
-  23.8.6B1, 23.8.6B2, 23.8.6C, 23.8.6C1, 23.8.6C2, 23.8.6D, 23.8.6E, and
-  23.8.7 as the near-term self-hosting chain becomes repo-owned authority;
+  23.8.6B1, 23.8.6B2, 23.8.6C, 23.8.6C1, 23.8.6C1A, 23.8.6C2, 23.8.6D,
+  23.8.6E, and 23.8.7 as the near-term self-hosting chain becomes repo-owned
+  authority;
 - amend Phase 23.8.7 so `StagePacket` contracts require a verifiable stopping
   condition, required validation commands/artifacts, and a bounded
   progress/result log contract without adding runner execution;
@@ -485,8 +487,9 @@ Required scope:
 
 Future-phase impact check:
 - prepares 23.8.6, 23.8.6A, 23.8.6B, 23.8.6B1, 23.8.6B2, 23.8.6C,
-  23.8.6C1, 23.8.6C2, 23.8.6D, 23.8.6E, 23.8.7, 23.9, 24A/24B, 25A/25B,
-  26, and downstream Phases 27-31 by making dependencies explicit;
+  23.8.6C1, 23.8.6C1A, 23.8.6C2, 23.8.6D, 23.8.6E, 23.8.7, 23.9,
+  24A/24B, 25A/25B, 26, and downstream Phases 27-31 by making dependencies
+  explicit;
 - must not pre-implement transactional ingestion, packet automation, proof
   generation, report builders, access APIs, planner logic, domain packs,
   prior-art discovery, or experimentation;
@@ -738,8 +741,8 @@ Required scope:
 - keep this phase to verification-policy authority only.
 
 Future-phase impact check:
-- prepares 23.8.6C, 23.8.6C1, 23.8.6C2, 23.8.6D, 23.8.6E, 23.8.7, and
-  23.9 to reference one canonical full-pack proof path;
+- prepares 23.8.6C, 23.8.6C1, 23.8.6C1A, 23.8.6C2, 23.8.6D, 23.8.6E,
+  23.8.7, and 23.9 to reference one canonical full-pack proof path;
 - must not change package scripts, CI, acceptance-runner behavior, or runtime
   locking;
 - preserves the domain/core boundary by remaining a narrow docs/task-policy
@@ -783,9 +786,9 @@ Required scope:
   workflow engine or replacement coding agent.
 
 Future-phase impact check:
-- prepares 23.8.6C1, 23.8.6C2, 23.8.6D, 23.8.6E, 23.8.7, and 23.9 to rely
-  on a repo-owned minimum orchestrator loop instead of manual startup
-  reconstruction alone;
+- prepares 23.8.6C1, 23.8.6C1A, 23.8.6C2, 23.8.6D, 23.8.6E, 23.8.7, and
+  23.9 to rely on a repo-owned minimum orchestrator loop instead of manual
+  startup reconstruction alone;
 - must not expand into external runner launch from harness runtime, runtime
   execution enforcement, full runner execution, a replacement for Codex, a
   generic workflow engine, auto-commit, auto-merge, provider-specific
@@ -803,7 +806,8 @@ Convert the reviewed post-23.8.6C audit into a coherent next-task contract and
 rebase the affected near-term authority surfaces before runtime work resumes.
 
 Status:
-Active. Owns task-contract and authoritative-document changes only.
+Complete, reviewed, accepted, and merged. Its task contracts are the evidence
+base for Phase 23.8.6C1A.
 
 Required scope:
 - revalidate the merged Phase 23.8.6C implementation before retaining audit
@@ -824,6 +828,43 @@ Future-phase impact check:
   CI, or runner behavior;
 - preserves one operator oracle and rejects MOW or a broad orchestration layer.
 
+## Phase 23.8.6C1A — Routing, Context, and Model-Policy Authority Rebase
+
+Task:
+`tasks/PHASE_23_8_6C1A_ROUTING_CONTEXT_AND_MODEL_POLICY_AUTHORITY_REBASE.md`
+
+Goal:
+Convert completed routing, context, and model-policy research into current
+repo-owned policy and decision-complete future task contracts before C2 or
+later runtime work proceeds.
+
+Status:
+Active. Owns source authority, future task contracts, focused contract tests,
+and the bounded two-profile current review-binding refresh only.
+
+Required scope:
+- publish deterministic provider-neutral route classes, precedence, reasoning
+  controls, context transports, independence, and budget-safe escalation;
+- keep concrete models provisional bindings rather than lifecycle authority;
+- rebase C2, D, E, 23.8.7, 23.9, 24A, 24B, 30, and 31 ownership without
+  implementing those phases;
+- refresh only `plan-review` to the locally supported `gpt-5.6-sol` High
+  binding and `implementation-review` to the locally supported
+  `gpt-5.6-terra` High binding, without fallback;
+- add focused tests for ordering, ownership, authority boundaries, and exact
+  current review bindings.
+
+Future-phase impact check:
+- makes C2 the next runtime task while preserving its bootstrap-authority
+  scope;
+- assigns context storage, route intent, proof provenance, deterministic
+  context manifests, evaluation, and runtime execution to D, 23.8.7, 23.9,
+  24A/24B, 30, and 31 respectively;
+- must not add runtime routing, provider execution, schemas, migrations,
+  packet generation, App Server dependency, or automatic agents;
+- preserves Phase 31 as the first general runtime provider-binding and
+  packet-bound runner-execution boundary.
+
 ## Phase 23.8.6C2 — Bootstrap Authority Correctness
 
 Task:
@@ -834,7 +875,7 @@ Make the existing bootstrap fail closed when task, checkout, base-commit, or
 persisted current-bootstrap authority cannot be proven.
 
 Status:
-Planned. Blocked until Phase 23.8.6C1 is complete, reviewed, accepted, and
+Planned. Blocked until Phase 23.8.6C1A is complete, reviewed, accepted, and
 merged.
 
 Required scope:
@@ -851,6 +892,9 @@ Required scope:
 - preserve dry-run non-mutation and exactly-one-next-action behavior;
 - prefer enriching existing `run start --task` and `run status --operator`
   surfaces over adding another command.
+- preserve explicit task/worktree/source/base authority needed by later route
+  and context contracts without selecting models, building generalized
+  context packets, or implementing routing.
 
 Future-phase impact check:
 - prepares D to store durable procedure payloads on truthful bootstrap
@@ -882,6 +926,9 @@ Required scope:
   base-commit provenance alongside those payloads;
 - preserve canonical registry procedure identity, recorded timestamp, content
   hash, and exact reviewed plan/evidence binding alongside payloads;
+- preserve immutable payload identity, MIME/type or equivalent classification,
+  bounded payload/chunk references, authoritative readback, and generic
+  reference semantics usable later by `ContextManifest` and proof phases;
 - require exact-instance keyed or exact-instance resolvable storage for
   procedure artifacts, review artifacts, plan artifacts, verification results,
   delivery facts, closeout receipts, harvest records, payload index entries,
@@ -908,7 +955,8 @@ Future-phase impact check:
 - prepares 23.8.6E, 23.8.7, 23.9, and later report/proof phases to consume
   durable procedure bodies instead of disposable worktree files;
 - must not add packet automation, runner execution, provider/model routing, or
-  domain-pack behavior;
+  domain-pack behavior, context-bundle construction, route telemetry, or
+  hidden transcript/reasoning authority;
 - preserves the domain/core boundary by staying inside storage/harvest
   durability.
 
@@ -943,6 +991,9 @@ Required scope:
 - produce a bounded freshness report that records checked surfaces, confirmed
   assumptions, stale assumptions, updated future/live files, intentionally
   untouched files, and remaining debt/risks.
+- reconcile the C1A routing/context allocations against actual C2/D facts
+  rather than repeating the research or becoming first owner of that
+  architecture;
 
 Future-phase impact check:
 - prepares 23.8.7, 23.9, 24A/24B, and later live/planned authority surfaces to
@@ -963,8 +1014,8 @@ hardens its authority.
 
 Status:
 Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
-23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C2, Phase 23.8.6D, and
-Phase 23.8.6E are complete and reviewed.
+23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C1A, Phase 23.8.6C2,
+Phase 23.8.6D, and Phase 23.8.6E are complete and reviewed.
 
 Required scope:
 - define `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,
@@ -993,6 +1044,12 @@ Required scope:
   review artifacts, blocker-note-as-accept, source edits before valid
   lifecycle approval, reviewer hang, failed verification, scope creep, and
   fake closeout.
+- derive a deterministic provider-neutral `RouteIntent` with profile and
+  reasoning floors/ceilings, changed surfaces, risk, deterministic evidence,
+  independence, context manifest/transport, required semantic reviews,
+  parallel policy, budget class, and escalation triggers;
+- block packet preparation on missing required route/context evidence and keep
+  provider/model selection and runner launch out of this phase;
 
 Non-goals:
 - no Codex execution from operator;
@@ -1029,8 +1086,9 @@ procedure/stage records.
 
 Status:
 Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
-23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C2, Phase 23.8.6D,
-Phase 23.8.6E, and Phase 23.8.7 are complete and reviewed, unless a later
+23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C1A, Phase 23.8.6C2,
+Phase 23.8.6D, Phase 23.8.6E, and Phase 23.8.7 are complete and reviewed,
+unless a later
 reviewed decision explicitly defers or waives that dependency.
 This phase must not become a separate lifecycle authority. Operator/proof
 schemas remain provisional sketches unless tightened during implementation.
@@ -1050,6 +1108,11 @@ Must preserve:
 - proof can be produced from a completed or reviewed run;
 - proof states what was verified, reviewed, assumed, and missing;
 - proof format supports Phase 24A packets later.
+- proof records route intent/decision, profile, actual invocation, context
+  manifest/transport, independence, escalation, usage, deterministic evidence,
+  model judgment, and expected/observed review provenance when available;
+- missing invocation/usage facts remain explicit, and model judgment never
+  overrides deterministic failure.
 
 Must not:
 - implement run-state ingestion;
@@ -1075,7 +1138,11 @@ until Phase 23.9 is complete and reviewed.
 
 Scope:
 - one deterministic run evidence/closeout report;
-- one bounded implementation-review or handoff packet;
+- one deterministic shared `ContextCore`/`ContextManifest` plus a distinct
+  bounded implementation-review overlay/packet;
+- stable manifest identity/hash, deterministic ordering, size budget,
+  truncation/redaction facts, source provenance, and fail-closed mandatory
+  context handling;
 - accepted Project Memory DB records and operator/procedure/proof state as
   inputs;
 - deterministic output where practical;
@@ -1372,6 +1439,10 @@ Required scope highlights:
   explicit review;
 - immutable evaluator, durable experiment record, and explicit keep/revert
   decision;
+- offline route/context fixtures with baseline/candidate routes, immutable
+  evaluator, expected critical findings/lifecycle outcome, economic and quality
+  metrics, bias controls, and hard rejection for missed blockers, illegal
+  progression, independence violations, invalid output, or unsafe cost wins;
 - must not make Phase 30 the first place where basic lifecycle failure
   fixtures are introduced.
 
@@ -1391,7 +1462,10 @@ auto-merge, unrestricted write access, provider-specific core logic, or
 domain-core execution behavior is allowed.
 This phase is the reviewed external runner-adapter boundary only. It must not
 become a coding agent, replacement Codex, or unrestricted autonomous repair
-loop. It remains the runtime execution enforcement boundary.
+loop. It remains the first general runtime `RouteDecision`, provider-binding,
+context/budget enforcement, usage telemetry, typed escalation, and packet-bound
+execution boundary. It must block rather than silently downgrade and must not
+use an LLM as the default router or allow unbounded/parallel write agents.
 
 ## Pilot — Research Ops pack
 
@@ -1428,10 +1502,11 @@ After every phase:
 4. Record the next task decision as part of old-cycle closeout/harvest when
    applicable.
    Use the Phase 23.8.6 runtime command path for this.
-5. In the new cycle, materialize the new branch/worktree for that task and let
-   that step write the next `TASK.md` pointer there.
-6. Create the activation/materialization change as the first commit in that
-   new task branch/worktree.
-7. Verify clean git in that new task context.
-8. Start the new run in that clean activated task worktree.
-9. Start a new `/plan` run for the new active task.
+5. In the new cycle, materialize the new branch/worktree for that task.
+6. Update the new task contract, `TASK.md`, roadmap/operations order, and every
+   required live authority surface coherently before starting the run.
+7. Commit the complete activation/materialization authority change as the
+   first commit in that new task branch/worktree.
+8. Verify clean git in that new task context.
+9. Start the new run in that clean activated task worktree.
+10. Start a new `/plan` run for the new active task.

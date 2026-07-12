@@ -133,8 +133,17 @@ not a new policy engine, workflow stage, or provider-routing layer.
 ### 4. Provider/model routing
 
 Provider/model routing is **not owned by Phase 23.7** beyond recording needed
-metadata or escalation hints. Full provider/host adapter and independent model
-review routing belong to the later provider/host adapter phase.
+metadata or escalation hints. Phase 23.8.7 may prepare deterministic
+provider-neutral `RouteIntent`, but it does not select a provider or launch a
+runner. Phase 31 is the first general runtime `RouteDecision`, provider-binding,
+budget-enforcement, context-transport enforcement, telemetry, and execution
+boundary.
+
+The future precedence is `procedure_id`, review tier, changed surfaces, risk,
+deterministic evidence, prior failures, independence, context reconstruction
+cost, and budget among safe profiles. Budget cannot weaken the resulting floor
+or independence. Missing required route or context evidence blocks rather than
+silently downgrades.
 
 ### 5. Registry/access boundary
 

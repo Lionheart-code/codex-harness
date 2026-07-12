@@ -8,11 +8,14 @@ This document explains how a human operator should use `codex-harness` safely.
 
 1. Read `TASK.md` and the task it references.
 2. Inspect the current repo state before implementation.
-3. Dry-run the current product self-hosting entrypoint:
+3. Before starting a newly inserted phase, update its task file, `TASK.md`,
+   roadmap/operations ordering, and every required live authority surface as
+   one coherent activation change. Commit that activation and verify clean git.
+4. Dry-run the current product self-hosting entrypoint:
    `node bin/ch run start --task TASK.md --dry-run`.
-4. Use `node bin/ch run status --operator --dry-run` to confirm the current
+5. Use `node bin/ch run status --operator --dry-run` to confirm the current
    operator-visible stage, required evidence, and next procedure.
-5. Continue with manual procedure execution through the documented
+6. Continue with manual procedure execution through the documented
    self-hosting procedures; prompts are helpers, not the authority source.
    Phase 23.8.6 and 23.8.6A provide command-backed replay and re-ingestion for
    the current active-chain procedure surfaces:
@@ -33,12 +36,12 @@ This document explains how a human operator should use `codex-harness` safely.
    remain manual transcript artifacts unless a later reviewed task expands
    durable ingestion. The operator must not patch
    `.harness/runs/**/run.json` to simulate ingestion.
-6. Run the active task acceptance commands.
+7. Run the active task acceptance commands.
    For the current self-hosting flow, `node bin/ch run verify --run <run-id>`
    can take 14 minutes or more as the suite grows. Wait for real exit and do
    not start a second verification run while the first is still active.
-7. Review the diff against task scope and non-goals.
-8. Commit only after review, verification, and closeout prerequisites are
+8. Review the diff against task scope and non-goals.
+9. Commit only after review, verification, and closeout prerequisites are
    satisfied.
 
 A closing or harvested run may record which task should come next. It does not
@@ -77,7 +80,7 @@ exact artifact paths. For example:
 
 ```bash
 RUN_ID=<run-id>
-codex exec -C "$PWD" -s read-only -m gpt-5.5 \
+codex exec -C "$PWD" -s read-only -m gpt-5.6-sol \
   -c 'model_reasoning_effort="high"' \
   -o ".harness/runs/$RUN_ID/manual/plan-review.md" \
   - < ".harness/runs/$RUN_ID/manual/plan-review-request.md"
@@ -100,25 +103,23 @@ decisions.
 Manual model/reasoning guidance for the current self-hosting replay flow is
 advisory operator guidance only:
 
-- bounded synthesis/normalization passes such as `task-intake` and
-  `task-prompt-writer` may use a lower-cost profile such as `gpt-5.4-mini`
-  when the procedure stays narrow and well-specified;
-- hard planning passes such as `draft-plan` and broad decomposition should use
-  a stronger planning profile such as `gpt-5.4` with `extra high` reasoning;
-- implementation or builder passes may use a stronger builder profile matched
-  to task complexity; `gpt-5.4` with `high` reasoning is the default manual
-  implementation profile, while more difficult cross-cutting work may escalate
-  to `extra high`;
+- task, planning, and implementation routes use provider-neutral capability,
+  risk, reasoning-floor, context, and independence policy; concrete models are
+  provisional bindings rather than lifecycle authority;
 - review passes such as `plan-review`, `implementation-review`,
   `fix-pass-review`, and `verification-review` should run in a separate
   reviewer session and should use a different reviewer model/profile than the
-  planning or builder pass they are checking; Phase 23.8.6B currently treats
-  `plan-review` as `gpt-5.5` with `high` reasoning and
-  `implementation-review` as `gpt-5.5` with `medium` reasoning, or the closest
-  locally supported equivalent;
-- `gpt-5.5` with `extra high` reasoning is an escalation profile only for
-  ambiguous architecture, disputed findings, repeated failed fix passes, or
-  source-trace deadlocks. It is not the default daily review setting.
+  planning or builder pass they are checking; current bindings are
+  `plan-review` on `gpt-5.6-sol` with `high` reasoning and
+  `implementation-review` on `gpt-5.6-terra` with `high` reasoning;
+- docs-consistency and mechanical semantic review use Terra Medium, while
+  verification, delivery-facts, and closeout run deterministic-first;
+- `xhigh`, `max`, and `ultra` are not defaults and require a separately
+  recorded escalation reason. Phase 31 retains generalized routing ownership.
+
+Independent review receives a fresh packet or packet plus read-only retrieval,
+not the builder transcript. Cache state and hidden reasoning are not authority.
+Budget cannot weaken the route floor or independence requirement.
 
 This guidance does not create provider/model routing, runtime selection logic,
 or approval authority. It only helps the operator pick an appropriate manual
@@ -343,13 +344,14 @@ Only after commit and closeout/harvest decision:
    `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`;
 2. materialize the new task context with
    `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`;
-3. confirm the new task worktree and active `TASK.md` pointer are correct;
-4. commit the task pointer/materialization change as the first commit in that
-   new task branch/worktree;
+3. confirm the new task worktree, active `TASK.md`, new task contract,
+   roadmap/operations order, and required live authority surfaces are coherent;
+4. commit the complete activation/materialization authority change as the
+   first commit in that new task branch/worktree;
 5. verify clean `git status` in that new task context;
-6. only then continue from the new run in that task worktree. If the current
-   narrow runtime path opened it earlier, treat it as provisional and
-   non-authoritative until steps 4-5 succeed;
+6. only then start or continue the new run in that task worktree. If the current
+   narrow runtime path opened it earlier, mark it discardable and start a fresh
+   run after steps 4-5 rather than treating provisional state as authority;
 7. start fresh `/plan`.
 
 ## Emergency rollback

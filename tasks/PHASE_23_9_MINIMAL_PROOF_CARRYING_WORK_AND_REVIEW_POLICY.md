@@ -16,7 +16,8 @@ Phase 23.8.6A Self-Hosting Replay and Re-ingestion Continuity, Phase 23.8.6B
 Self-Hosting Model Routing Policy Packaging, Phase 23.8.6B1 Supervised Review
 Launch and Blocked Disposition, Phase 23.8.6B2 Verification Command
 Rationalization and Serialization, Phase 23.8.6C Minimum Self-Hosting
-Orchestrator Entrypoint, Phase 23.8.6D Procedure Artifact Payload Storage and
+Orchestrator Entrypoint, Phase 23.8.6C1A Routing, Context, and Model-Policy
+Authority Rebase, Phase 23.8.6D Procedure Artifact Payload Storage and
 Worktree Retention, Phase 23.8.6E Authority Surface Freshness and Downstream
 Task Revalidation, and Phase 23.8.7 Hookless Stage-Level Operator Packet
 Automation are complete and reviewed, unless a later reviewed decision
@@ -44,6 +45,13 @@ approval.
 - stage state references;
 - stage packet and stage result references when present;
 - waiver references.
+- route intent and route decision references;
+- profile class and actual provider/model/reasoning facts when available;
+- context manifest identity/hash and transport mode;
+- required/satisfied independence facts;
+- escalation reason and usage evidence reference;
+- separate deterministic-evidence and model-judgment references;
+- expected and observed required semantic reviews.
 
 ## Required narrowing
 
@@ -64,6 +72,10 @@ approval.
 - Proof does not decide lifecycle.
 - Proof does not implement run-state ingestion.
 - Proof does not override deterministic failures.
+- Proof does not choose routes or providers. Model judgment cannot override a
+  deterministic failure.
+- Missing invocation, model, context, or usage facts are explicit and never
+  fabricated.
 - Deterministic failure requires an explicit waiver record.
 - Waivers are referenced by proof; proof does not create waivers.
 - Proof records must be keyed by or explicitly resolvable through exact run

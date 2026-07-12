@@ -36,25 +36,24 @@ not approve scope and does not start implementation.
 For the current manual replay flow, procedure model/reasoning choice is
 operator guidance only and must not be treated as runtime routing.
 
-- `task-intake` and `task-prompt-writer` are bounded synthesis/normalization
-  passes and may use lower-cost profiles such as `gpt-5.4-mini` when the
-  procedure stays narrow and well-specified.
-- `feature-decomposition` and `draft-plan` are harder planning passes and
-  should use a stronger planning profile such as `gpt-5.4` with `extra high`
-  reasoning.
-- implementation or builder passes may use a stronger builder profile matched
-  to task complexity, but they should remain separate from the reviewer
-  profile used to judge the same work; `gpt-5.4` with `high` reasoning is the
-  default manual implementation profile, with escalation to `extra high` only
-  for harder cross-cutting work.
+- task, planning, and builder procedures derive provider-neutral route and
+  reasoning floors from typed risk, evidence, independence, and context facts;
+  concrete model names are provisional provider bindings only.
 - `plan-review`, `implementation-review`, `fix-pass-review`,
   `verification-review`, `delivery-facts-review`, `phase-closeout-review`,
   `architecture-review`, `db-storage-review`, `docs-consistency-review`, and
   `harness-audit` are reviewer passes. They should use a separate reviewer
   session and a different reviewer model/profile from the planning or builder
-  pass they are checking; `gpt-5.5` with `high` reasoning is the default
-  reviewer profile, while `extra high` is escalation-only for ambiguous or
-  disputed review situations.
+  pass they are checking. Current supervised bindings are `plan-review` on
+  `gpt-5.6-sol` with `high` reasoning and `implementation-review` on
+  `gpt-5.6-terra` with `high` reasoning. Docs-consistency/mechanical semantic
+  review uses Terra Medium; extreme reasoning is escalation-only with a
+  recorded reason.
+
+Independent review uses `fresh_packet` or `packet_plus_retrieval` and does not
+inherit builder transcript authority. Budget cannot weaken the review floor or
+independence requirement. Luna and Terra require Phase 30 evaluation before
+promotion.
 
 These are manual invocation defaults only. They do not authorize model
 selection by runtime state, do not create a provider/model policy engine, and

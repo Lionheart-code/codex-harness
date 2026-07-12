@@ -33,31 +33,33 @@ Rules:
 - These procedure files are repo-owned operating artifacts and are intentionally
   outside the current packaged runtime allowlist.
 
-## Manual model guidance
+## Current review bindings and future routing
 
 Current self-hosting procedure runs may record advisory manual model/reasoning
 guidance without turning it into runtime routing.
 
-- `task-intake` and `task-prompt-writer` may use lower-cost synthesis profiles
-  such as `gpt-5.4-mini` when the procedure stays narrow and well-specified.
-- `feature-decomposition` and `draft-plan` may use stronger planning profiles
-  such as `gpt-5.4` with `extra high` reasoning.
-- implementation or builder passes may use a stronger builder profile matched
-  to task complexity, but they should remain separate from the reviewer
-  profile used to judge the same work; `gpt-5.4` with `high` reasoning is the
-  default manual implementation profile, with escalation to `extra high` only
-  for harder cross-cutting work.
+- task, planning, and builder routes are provider-neutral policy classes;
+  concrete model names remain provisional bindings and must not become
+  lifecycle authority;
+- implementation or builder passes use a profile matched to typed risk and
+  complexity while remaining separate from the reviewer profile;
 - Review-family procedures such as `plan-review`, `implementation-review`,
   `fix-pass-review`, `verification-review`, `delivery-facts-review`,
   `phase-closeout-review`, `architecture-review`, `db-storage-review`,
   `docs-consistency-review`, and `harness-audit` should use a separate reviewer
   session and a different reviewer model/profile from the planning or builder
-  pass they are checking; `gpt-5.5` with `high` reasoning is the default
-  reviewer profile, while `extra high` is escalation-only for ambiguous or
-  disputed review situations.
+  pass they are checking; the current supervised `plan-review` binding is
+  `gpt-5.6-sol` with `high` reasoning and `implementation-review` is
+  `gpt-5.6-terra` with `high` reasoning;
+- docs-consistency/mechanical semantic review uses Terra Medium;
+- `xhigh`, `max`, and `ultra` are escalation-only with separately recorded
+  reasons; Phase 31 retains generalized routing ownership.
 
 This guidance is operator advisory only. It must not be implemented as current
 provider/model routing, runtime profile selection, or self-approval logic.
+Independent review uses a fresh packet or packet plus read-only retrieval;
+transcript, hidden reasoning, cache state, and forked sessions are not review
+authority. Phase 31 remains the first general runtime binding/execution owner.
 
 ## Required procedures
 

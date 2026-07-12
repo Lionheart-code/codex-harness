@@ -61,6 +61,16 @@ Required behavior:
   baseline that this phase may enforce through runtime contracts without
   reintroducing ad hoc launch folklore into core behavior.
 
+Phase 31 is the first general runtime owner of `RouteDecision`,
+`ProviderBindingRegistry`, `RunnerProfile`, `ExecutionPolicy`, context-transport
+enforcement, budget enforcement, usage telemetry, and typed escalation.
+
+Runtime order is deterministic checks, provider-neutral route intent/profile
+floor, cheapest approved safe binding, independence/context enforcement,
+budget enforcement without unsafe downgrade, one packet-bound worker,
+recording actual model/reasoning/context/usage facts, typed escalation, and a
+blocking result when no safe approved profile exists.
+
 ## Non-goals
 
 - No self-approval.
@@ -73,6 +83,9 @@ Required behavior:
 - No background autonomous repair loop without reviewed approval boundaries.
 - No replacement for Codex or other worker surfaces.
 - No unrestricted autonomous repair system.
+- No LLM-based default router, silent downgrade, unbounded subagent fan-out,
+  write-capable parallel leaves sharing a worktree, or provider-specific
+  lifecycle logic in core.
 
 ## Future-phase impact check
 
