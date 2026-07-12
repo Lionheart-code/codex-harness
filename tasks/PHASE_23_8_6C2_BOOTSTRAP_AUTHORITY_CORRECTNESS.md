@@ -28,8 +28,10 @@ handoff, but four bounded correctness gaps remain:
 
 This phase owns correctness hardening for the existing `run start --task` and
 `run status --operator` bootstrap path. It may tighten current bootstrap types,
-git fact probing, parsing, issue routing, and focused tests. It must not create
-a broader orchestrator command or the normalized stage packet/result layer.
+git fact probing, parsing, issue routing, and focused tests. It may add the
+backward-compatible optional `TaskState.base_commit_sha` JSON field solely for
+task materialization authority. It must not create a broader orchestrator
+command or the normalized stage packet/result layer.
 
 ## Required behavior
 
@@ -45,16 +47,26 @@ a broader orchestrator command or the normalized stage packet/result layer.
   worktree and branch mismatch checks fail-closed.
 - Keep worktree match higher priority than branch match and fail closed on
   duplicate worktree or branch matches.
+- Treat `TaskState.base_commit_sha`, when non-empty, as the immutable commit
+  from which the recorded task branch/worktree was materially created.
+- Persist the already validated `NextTaskDecisionRecord.base_commit_sha` into
+  the uniquely owning installed `TaskState` on the reviewed materialization
+  path. A legacy task-worktree creation path may record the exact source `HEAD`
+  from which that new worktree was created.
+- Never silently replace a recorded non-empty `base_commit_sha` during normal
+  task or run operations. Historical task states without the optional field
+  remain readable.
 - Separate current source snapshot/HEAD from base-commit authority.
 - Resolve the bootstrap base fact in this order:
-  1. an exact matching installed task materialization record with an immutable
-     base commit, when available;
+  1. an exact matching installed task materialization record with a valid
+     immutable `base_commit_sha`, when available;
   2. the merge-base between `HEAD` and the branch's configured upstream;
   3. otherwise a typed blocking missing-base-authority issue.
 - Never guess `main`, `origin/main`, or another default branch when no
   configured or task-owned base authority exists.
 - Validate that the resolved base commit exists and is an ancestor of `HEAD`.
-  A moved, unrelated, or unresolvable base must block bootstrap.
+  A missing, malformed, moved, unrelated, or unresolvable base must block
+  bootstrap.
 - Emit distinct, truthful facts for the current source snapshot and the
   resolved base commit or merge-base, including a source that identifies
   `task_state` or `git_merge_base` authority.
@@ -89,15 +101,18 @@ a broader orchestrator command or the normalized stage packet/result layer.
 - No generalized context core/manifest, route intent, model selection, or
   routing policy implementation. Preserve only explicit task, worktree,
   source, base, and current-bootstrap authority facts needed by later phases.
-- No database schema or migration change unless code inspection proves an
-  existing persisted current-bootstrap field cannot represent the corrected
-  fact. Stop for plan/task amendment before widening storage scope.
+- No database schema or migration change. The only authorized persisted
+  representation change is the optional backward-compatible
+  `TaskState.base_commit_sha` JSON field described above; it is not Phase
+  23.8.6D procedure-payload storage.
 - No hidden default-branch assumption.
 
 ## Likely implementation surfaces
 
 - `src/core/runtime.ts`
 - `src/core/lifecycle-types.ts`
+- `src/core/tasks.ts` for the optional `base_commit_sha` parser/type and the
+  reviewed materialization writer only
 - `src/core/git.ts` only if a reusable merge-base/ancestor probe is needed
 - `src/cli/run.ts` only if output must distinguish source snapshot from base
   authority
@@ -125,6 +140,9 @@ git diff --check
   blocking issue and repair packet.
 - Duplicate branch/worktree matches remain fail-closed.
 - A task materialization base commit is preferred when present and valid.
+- The reviewed materialization path persists its validated decision base into
+  the uniquely owning task state and never silently overwrites a non-empty
+  recorded value; legacy task states without the optional field remain valid.
 - Otherwise a configured-upstream merge-base is emitted as the base fact and
   remains distinct from the current source snapshot/HEAD.
 - Missing, moved, unrelated, or unresolvable base authority blocks bootstrap;
@@ -142,9 +160,9 @@ git diff --check
 
 - Treat this runtime-authority fix as `extra-high` review tier.
 - Require implementation review and architecture review.
-- Require db-storage review only if persisted representation or database
-  behavior changes; parser validation alone does not automatically widen into
-  Phase 23.8.6D storage work.
+- Require db-storage review because `TaskState.base_commit_sha` changes the
+  persisted task-state representation. This review does not widen into Phase
+  23.8.6D storage work.
 - Require verification review, delivery-facts review, harness audit, and final
   phase-closeout review through the operator contract.
 - Run phase-closeout review last.
