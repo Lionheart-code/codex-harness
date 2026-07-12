@@ -2,8 +2,9 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6C1A Routing, Context, and Model-Policy
-Authority Rebase is complete, reviewed, accepted, and merged.
+Active implementation phase. Phase 23.8.6C1A is complete, reviewed, accepted,
+and merged. Closeout remains blocked until C2 delivery and lifecycle evidence
+is complete.
 
 ## Purpose
 

@@ -63,7 +63,7 @@ test("routing and context policy are deterministic, provider-neutral, and fail c
 });
 
 test("downstream ownership stays separated and provider-neutral", () => {
-  assert.match(files.c2, /Starts only after Phase 23\.8\.6C1A/);
+  assert.match(files.c2, /Active implementation phase\. Phase 23\.8\.6C1A is complete, reviewed, accepted,/);
   assert.match(files.c2, /No generalized context core\/manifest, route intent, model selection, or\s+routing policy implementation/);
   assert.match(files.d, /immutable payload identity[\s\S]*stable content hash[\s\S]*bounded payload\/chunk references[\s\S]*worktree\/source\/base provenance/);
   assert.match(files.d, /No context bundle, `ContextCore`, or `ContextManifest` construction/);
@@ -141,7 +141,7 @@ test("extra-high review controls do not default to extreme reasoning", () => {
 });
 
 test("phase C1A committed changes stay within the approved base-to-head allowlist", () => {
-  const changed = execFileSync("git", ["diff", "--name-only", "a9715f1..HEAD"], {
+  const changed = execFileSync("git", ["diff", "--name-only", "a9715f1..aa7a409"], {
     cwd: productRoot,
     encoding: "utf8"
   }).trim().split("\n").filter(Boolean);
