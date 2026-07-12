@@ -76,7 +76,7 @@ does not automatically select extreme reasoning.
 
 For the current C1A review chain:
 
-- use Sol High only for the architecture/authority judgment pass;
+- use Sol High for `plan-review` and the architecture/authority judgment pass;
 - use Terra High for `implementation-review`;
 - use Terra Medium for docs-consistency, mechanical semantic review, and
   `harness-audit`;
@@ -89,6 +89,10 @@ For the current C1A review chain:
 separately recorded escalation reason. This is a bounded current binding and
 cost-control bridge only; Phase 31 remains the owner of generalized dynamic
 routing and runtime enforcement.
+
+The C1A final report must state whether any extreme-reasoning escalation
+occurred and cite its recorded trigger and reason; otherwise it states that no
+such escalation occurred.
 
 ## Provider-Neutral Route Authority
 

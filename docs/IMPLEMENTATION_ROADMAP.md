@@ -848,8 +848,9 @@ Required scope:
 - keep concrete models provisional bindings rather than lifecycle authority;
 - rebase C2, D, E, 23.8.7, 23.9, 24A, 24B, 30, and 31 ownership without
   implementing those phases;
-- refresh only `plan-review` and `implementation-review` to the locally
-  supported `gpt-5.6-sol` bindings without fallback;
+- refresh only `plan-review` to the locally supported `gpt-5.6-sol` High
+  binding and `implementation-review` to the locally supported
+  `gpt-5.6-terra` High binding, without fallback;
 - add focused tests for ordering, ownership, authority boundaries, and exact
   current review bindings.
 

@@ -50,7 +50,8 @@ bindings.
   add automatic fallback.
 - Treat `extra-high` as a control/review strictness tier, not a reasoning level.
   It must not automatically imply `xhigh`, `max`, or `ultra`.
-- For the C1A chain, use Sol High only for architecture/authority judgment,
+- For the C1A chain, use Sol High for `plan-review` and
+  architecture/authority judgment,
   Terra High for implementation review, Terra Medium for docs-consistency or
   mechanical semantic review and `harness-audit`, and deterministic-first
   verification, delivery-facts, and closeout. Any semantic follow-up after a
@@ -109,7 +110,7 @@ node --test tests/acceptance/phase23-8-6c1a-routing-context-authority-rebase.tes
 node --test tests/acceptance/phase23-8-agent-native-procedure-registry-and-skill-surface.test.mjs
 node --test tests/acceptance/phase23-7-operator-status.test.mjs
 npm test
-node bin/ch run status --operator --run <live-run-id>
+node bin/ch run status --operator --run run-0003
 git diff --check
 git status --short
 ```
