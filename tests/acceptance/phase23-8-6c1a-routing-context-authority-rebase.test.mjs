@@ -146,6 +146,7 @@ test("phase C1A committed changes stay within the approved base-to-head allowlis
     encoding: "utf8"
   }).trim().split("\n").filter(Boolean);
   const exactAllowed = new Set([
+    ".github/workflows/ci.yml",
     "TASK.md",
     "src/core/runtime.ts",
     "skills/self-hosting/README.md",

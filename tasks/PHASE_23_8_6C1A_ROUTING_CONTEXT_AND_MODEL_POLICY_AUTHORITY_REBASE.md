@@ -96,7 +96,10 @@ bindings.
 
 - No runtime router, provider selection, runner execution, or packet generation.
 - No provider execution framework, App Server dependency, or automatic agents.
-- No schema, migration, database, CLI, source-runtime, package, or CI change.
+- No schema, migration, database, CLI, source-runtime, package, or CI change
+  other than the owner-approved checkout `fetch-depth: 0` compatibility setting
+  in `.github/workflows/ci.yml` required to preserve the deterministic
+  base-to-head allowlist in shallow CI checkouts.
 - No route-policy schema fields, telemetry implementation, or usage ingestion.
 - No rewriting historical accepted tasks.
 - No default parallel writers; one writer owns one worktree.
@@ -128,7 +131,9 @@ git status --short
 - Only the two current supervised launch profiles use the approved bounded
   bindings: Sol High for `plan-review` and Terra High for
   `implementation-review`.
-- No runtime, schema, migration, generated state, or database file changes.
+- No runtime, schema, migration, generated state, or database file changes, and
+  no CI change beyond the exact owner-approved checkout `fetch-depth: 0`
+  compatibility setting.
 - A deterministic base-to-head changed-file allowlist proves that every commit
   stays inside the approved authority/test surfaces plus the narrow phase-ID
   parser exception.
@@ -137,9 +142,10 @@ git status --short
 
 This phase may change only `TASK.md`, current/future task contracts,
 authoritative docs and policies, the self-hosting procedure registry and
-operator-facing README, and focused acceptance tests. It must not change
-`src/`, `schemas/`, `migrations/`, `bin/`, package scripts, CI, `.harness/`, or
-runtime/project databases.
+operator-facing README, focused acceptance tests, and the owner-approved
+`.github/workflows/ci.yml` checkout `fetch-depth: 0` compatibility setting. It
+must not change `src/`, `schemas/`, `migrations/`, `bin/`, package scripts, any
+other CI/workflow behavior, `.harness/`, or runtime/project databases.
 
 Owner-approved compatibility exception: the smallest existing phase-ID parser
 and focused operator regression test may change only to recognize compound
