@@ -30,7 +30,9 @@ export type RunIssueType =
   | "dirty_git_after_task_activation"
   | "task_worktree_authority_mismatch"
   | "task_branch_authority_mismatch"
-  | "bootstrap_authority_ambiguous";
+  | "bootstrap_authority_ambiguous"
+  | "bootstrap_authority_unmatched"
+  | "missing_base_authority";
 
 export interface PayloadRecord {
   payload_id: string;

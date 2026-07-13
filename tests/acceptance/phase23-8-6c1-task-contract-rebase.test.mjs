@@ -61,8 +61,9 @@ test("phase 23.8.6C1 publishes the corrected near-term authority order", () => {
   const c2Section = section(roadmap, headings[3], headings[4]);
   assert.match(cSection, /Complete, reviewed, accepted, and merged/);
   assert.match(c1Section, /Complete, reviewed, accepted, and merged/);
-  assert.match(c1aSection, /Active\. Owns source authority/);
+  assert.match(c1aSection, /Complete, reviewed, accepted, and merged/);
   assert.match(c2Section, /tasks\/PHASE_23_8_6C2_BOOTSTRAP_AUTHORITY_CORRECTNESS\.md/);
+  assert.match(c2Section, /Active implementation phase/);
   assert.match(c2Section, /configured-upstream merge-base authority/);
   assert.match(c2Section, /preserves the lightweight single-loop operator model/);
 });

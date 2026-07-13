@@ -63,7 +63,7 @@ import {
   type SelfHostingProcedureRegistry,
   type SelfHostingReviewLaunchProfile
 } from "./self-hosting-procedures";
-import { listTasks, type TaskState } from "./tasks";
+import { listTasks, writeTaskState, type TaskState } from "./tasks";
 
 export const RUNTIME_CONTRACT_NAMES = [
   "Run",
@@ -101,9 +101,9 @@ type LegacyRunStatus = "running" | "ready" | "blocked" | "closed";
 
 export interface BootstrapFact {
   fact_id: string;
-  label: "active_task_path" | "branch" | "worktree_root" | "base_commit" | "run_identity";
+  label: "active_task_path" | "branch" | "worktree_root" | "source_snapshot" | "base_commit" | "run_identity";
   value: string;
-  source: "task_pointer" | "git" | "task_state" | "runtime";
+  source: "task_pointer" | "git" | "task_state" | "git_merge_base" | "runtime";
 }
 
 export interface WorkerHandoff {
@@ -706,6 +706,7 @@ const CURRENT_PHASE_RUN_ISSUE_PHASE_ID = "23.8.6C";
 interface MatchingTaskStateSelection {
   task?: TaskState;
   selectedBy?: "sole" | "worktree" | "branch";
+  noLiveMatch?: boolean;
   ambiguity?: {
     reason: "worktree" | "branch";
     taskIds: string[];
@@ -878,7 +879,38 @@ function selectTaskStateForCheckout(projectRoot: string, targetRoot: string, bra
     };
   }
 
-  return {};
+  return { noLiveMatch: true };
+}
+
+function persistMaterializedTaskBaseAuthority(
+  projectRoot: string,
+  worktreePath: string,
+  branch: string,
+  baseCommitSha: string
+): void {
+  if (!detectInstalledLayer(projectRoot)) {
+    return;
+  }
+
+  const installedTasks = listTasks(projectRoot).tasks;
+  if (installedTasks.length === 0) {
+    return;
+  }
+  const selection = selectTaskStateForCheckout(projectRoot, worktreePath, branch);
+  const task = selection.task;
+  if (!task || selection.ambiguity || selection.noLiveMatch) {
+    throw new Error("Materialized task base authority requires exactly one installed task-state owner.");
+  }
+  if (task.base_commit_sha && task.base_commit_sha !== baseCommitSha) {
+    throw new Error(`Installed task ${task.task_id} already records immutable base_commit_sha ${task.base_commit_sha}.`);
+  }
+  if (!task.base_commit_sha) {
+    writeTaskState(projectRoot, task.task_id, {
+      ...task,
+      base_commit_sha: baseCommitSha,
+      updated_at: nowIso()
+    });
+  }
 }
 
 function buildRepositoryRef(targetRoot: string): RepositoryRef {
@@ -935,6 +967,103 @@ function assertStatus(value: unknown, allowed: readonly string[], field: string,
   if (typeof value !== "string" || !allowed.includes(value)) {
     throw new Error(`${label} has invalid ${field}.`);
   }
+}
+
+function assertUniqueNonEmptyIds(records: unknown[], idField: string, label: string): void {
+  const ids = new Set<string>();
+  for (const value of records) {
+    const record = assertObject(value, label);
+    assertRequiredString(record, idField, label);
+    const id = String(record[idField]);
+    if (ids.has(id)) {
+      throw new Error(`${label} has duplicate ${idField}: ${id}.`);
+    }
+    ids.add(id);
+  }
+}
+
+function validateBootstrapFacts(value: unknown[]): BootstrapFact[] {
+  assertUniqueNonEmptyIds(value, "fact_id", "bootstrap fact");
+  const labels = new Set<string>();
+  const allowedLabels = new Set(["active_task_path", "branch", "worktree_root", "source_snapshot", "base_commit", "run_identity"]);
+  const allowedSources = new Set(["task_pointer", "git", "task_state", "git_merge_base", "runtime"]);
+  const allowedPairs: Record<string, readonly string[]> = {
+    active_task_path: ["task_pointer"],
+    branch: ["git"],
+    worktree_root: ["git", "task_state"],
+    source_snapshot: ["git"],
+    base_commit: ["git", "task_state", "git_merge_base"],
+    run_identity: ["runtime"]
+  };
+  return value.map((entry) => {
+    const record = assertObject(entry, "bootstrap fact");
+    assertRequiredString(record, "fact_id", "bootstrap fact");
+    assertRequiredString(record, "label", "bootstrap fact");
+    assertRequiredString(record, "value", "bootstrap fact");
+    assertRequiredString(record, "source", "bootstrap fact");
+    const label = String(record.label);
+    const source = String(record.source);
+    if (!allowedLabels.has(label) || !allowedSources.has(source) || labels.has(label) || !allowedPairs[label]?.includes(source)) {
+      throw new Error("bootstrap fact has unsupported or duplicate label/source.");
+    }
+    labels.add(label);
+    return record as unknown as BootstrapFact;
+  });
+}
+
+function validateWorkerHandoff(value: unknown): WorkerHandoff {
+  const record = assertObject(value, "runtime run bootstrap_handoff");
+  for (const field of ["handoff_id", "phase_id", "kind", "procedure_id", "next_action", "prompt"]) {
+    assertRequiredString(record, field, "runtime run bootstrap_handoff");
+  }
+  const knownProcedures = new Set([
+    "task-intake", "task-prompt-writer", "draft-plan", "plan-review", "plan-amend", "architecture-review",
+    "db-storage-review", "implementation-review", "fix-pass-review", "verification-review", "delivery-facts-review",
+    "harness-audit", "phase-closeout-review"
+  ]);
+  if (record.phase_id !== CURRENT_PHASE_RUN_ISSUE_PHASE_ID || (record.kind !== "procedure" && record.kind !== "implementation")) {
+    throw new Error("runtime run bootstrap_handoff has unsupported phase or kind.");
+  }
+  if (String(record.prompt).length > 4000
+    || (record.kind === "implementation" && record.procedure_id !== "implementation")
+    || (record.kind === "procedure" && !knownProcedures.has(String(record.procedure_id)))) {
+    throw new Error("runtime run bootstrap_handoff has invalid procedure or prompt.");
+  }
+  return record as unknown as WorkerHandoff;
+}
+
+function validateBootstrapIssues(value: unknown[]): RunIssue[] {
+  assertUniqueNonEmptyIds(value, "issue_id", "run issue");
+  const issueTypes = new Set(["uncommitted_task_activation", "dirty_git_after_task_activation", "task_worktree_authority_mismatch", "task_branch_authority_mismatch", "bootstrap_authority_ambiguous", "bootstrap_authority_unmatched", "missing_base_authority"]);
+  const routes = new Set(["fix_pass", "plan_amend", "supporting_fix", "new_task"]);
+  return value.map((entry) => {
+    const record = assertObject(entry, "run issue");
+    for (const field of ["issue_id", "phase_id", "issue_type", "status", "created_at", "source", "summary", "recommended_route"]) {
+      assertRequiredString(record, field, "run issue");
+    }
+    if (record.phase_id !== CURRENT_PHASE_RUN_ISSUE_PHASE_ID || record.source !== "bootstrap" || record.blocking !== true
+      || !issueTypes.has(String(record.issue_type)) || !["open", "resolved"].includes(String(record.status)) || !routes.has(String(record.recommended_route))) {
+      throw new Error("run issue has unsupported current-bootstrap fields.");
+    }
+    return record as unknown as RunIssue;
+  });
+}
+
+function validateRepairPackets(value: unknown[], issues: RunIssue[]): RepairPacket[] {
+  assertUniqueNonEmptyIds(value, "packet_id", "repair packet");
+  const issueIds = new Set(issues.map((issue) => issue.issue_id));
+  const routes = new Set(["fix_pass", "plan_amend", "supporting_fix", "new_task"]);
+  return value.map((entry) => {
+    const record = assertObject(entry, "repair packet");
+    for (const field of ["packet_id", "phase_id", "created_at", "route", "summary", "next_action", "prompt"]) {
+      assertRequiredString(record, field, "repair packet");
+    }
+    if (record.phase_id !== CURRENT_PHASE_RUN_ISSUE_PHASE_ID || !routes.has(String(record.route)) || !Array.isArray(record.issue_ids)
+      || record.issue_ids.length === 0 || record.issue_ids.some((issueId) => typeof issueId !== "string" || !issueIds.has(issueId))) {
+      throw new Error("repair packet has invalid current-bootstrap issue links.");
+    }
+    return record as unknown as RepairPacket;
+  });
 }
 
 function isAllowedStatus(value: unknown, allowed: readonly string[]): value is string {
@@ -1150,36 +1279,90 @@ function resolveTaskReference(targetRoot: string, taskPath: string): {
   const absoluteTaskPath = path.resolve(targetRoot, taskPath);
   ensureInsideTargetRoot(targetRoot, absoluteTaskPath);
 
-  if (!fs.existsSync(absoluteTaskPath) || !fs.statSync(absoluteTaskPath).isFile()) {
-    throw new Error(`Task file not found: ${taskPath}`);
-  }
+  const readTaskFile = (candidatePath: string, displayPath: string): string => {
+    let realPath: string;
+    try {
+      realPath = fs.realpathSync.native(candidatePath);
+      ensureInsideTargetRoot(targetRoot, realPath);
+      if (!fs.statSync(realPath).isFile()) {
+        throw new Error("not a regular file");
+      }
+      fs.accessSync(realPath, fs.constants.R_OK);
+      return fs.readFileSync(realPath, "utf8");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Task authority is not a readable regular file: ${displayPath} (${message})`);
+    }
+  };
 
   const relativeTaskPath = toRepoRelative(targetRoot, absoluteTaskPath);
-  const taskMarkdown = fs.readFileSync(absoluteTaskPath, "utf8");
+  const taskMarkdown = readTaskFile(absoluteTaskPath, taskPath);
   const referencedTaskPath = extractActiveTaskPath(taskMarkdown);
   const resolvedActiveTaskPath = referencedTaskPath
     ? path.resolve(targetRoot, referencedTaskPath)
     : absoluteTaskPath;
 
   ensureInsideTargetRoot(targetRoot, resolvedActiveTaskPath);
-
-  const activeTaskPath = fs.existsSync(resolvedActiveTaskPath) && fs.statSync(resolvedActiveTaskPath).isFile()
+  const activeTaskPath = referencedTaskPath
     ? toRepoRelative(targetRoot, resolvedActiveTaskPath)
-    : referencedTaskPath;
-  const activeTaskMarkdown =
-    fs.existsSync(resolvedActiveTaskPath) && fs.statSync(resolvedActiveTaskPath).isFile()
-      ? fs.readFileSync(resolvedActiveTaskPath, "utf8")
-      : taskMarkdown;
-  const phaseId = inferPhaseIdFromText(activeTaskMarkdown) ?? inferPhaseIdFromPath(activeTaskPath ?? relativeTaskPath);
+    : relativeTaskPath;
+  const activeTaskMarkdown = readTaskFile(resolvedActiveTaskPath, referencedTaskPath ?? taskPath);
+  const phaseId = inferPhaseIdFromText(activeTaskMarkdown) ?? inferPhaseIdFromPath(activeTaskPath);
 
   return {
     taskPath: relativeTaskPath,
-    ...(activeTaskPath ? { activeTaskPath } : {}),
+    activeTaskPath,
     ...(phaseId ? { phaseId } : {})
   };
 }
 
-function buildBootstrapFacts(run: Run): BootstrapFact[] {
+interface BootstrapBaseAuthority {
+  commit: string;
+  source: "task_state" | "git_merge_base";
+}
+
+function isCommitAncestor(targetRoot: string, ancestor: string, head: string): boolean {
+  return runGitCommand(targetRoot, ["merge-base", "--is-ancestor", ancestor, head]).status === 0;
+}
+
+function tryResolveExactBootstrapCommit(targetRoot: string, value: string): string | undefined {
+  try {
+    return resolveExactCommit(targetRoot, value);
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveBootstrapBaseAuthority(
+  targetRoot: string,
+  run: Run,
+  task: TaskState | undefined
+): BootstrapBaseAuthority | undefined {
+  const head = run.source_snapshot ?? run.repository.head_sha;
+  if (!head) {
+    return undefined;
+  }
+
+  if (task?.base_commit_sha) {
+    const commit = tryResolveExactBootstrapCommit(targetRoot, task.base_commit_sha);
+    if (commit && isCommitAncestor(targetRoot, commit, head)) {
+      return { commit, source: "task_state" };
+    }
+    return undefined;
+  }
+
+  const upstream = readGitValue(targetRoot, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
+  if (!upstream) {
+    return undefined;
+  }
+  const mergeBase = readGitValue(targetRoot, ["merge-base", "HEAD", upstream]);
+  const commit = mergeBase ? tryResolveExactBootstrapCommit(targetRoot, mergeBase) : undefined;
+  return commit && isCommitAncestor(targetRoot, commit, head)
+    ? { commit, source: "git_merge_base" }
+    : undefined;
+}
+
+function buildBootstrapFacts(run: Run, baseAuthority?: BootstrapBaseAuthority): BootstrapFact[] {
   const facts: BootstrapFact[] = [];
   const activeTaskPath = run.active_task_path ?? run.task_path;
 
@@ -1206,10 +1389,26 @@ function buildBootstrapFacts(run: Run): BootstrapFact[] {
 
   facts.push({
     fact_id: `bootstrap-fact-${facts.length + 1}`,
-    label: "base_commit",
+    label: "source_snapshot",
     value: run.source_snapshot ?? run.repository.head_sha ?? "(unknown)",
     source: "git"
   });
+
+  if (baseAuthority) {
+    facts.push({
+      fact_id: `bootstrap-fact-${facts.length + 1}`,
+      label: "base_commit",
+      value: baseAuthority.commit,
+      source: baseAuthority.source
+    });
+  } else if (run.phase_id !== "23.8.6C2") {
+    facts.push({
+      fact_id: `bootstrap-fact-${facts.length + 1}`,
+      label: "base_commit",
+      value: run.source_snapshot ?? run.repository.head_sha ?? "(unknown)",
+      source: "git"
+    });
+  }
 
   facts.push({
     fact_id: `bootstrap-fact-${facts.length + 1}`,
@@ -1245,7 +1444,7 @@ function buildRunIssue(
   };
 }
 
-function evaluateBootstrapIssues(targetRoot: string, run: Run): RunIssue[] {
+function evaluateBootstrapIssues(targetRoot: string, run: Run): { issues: RunIssue[]; baseAuthority?: BootstrapBaseAuthority } {
   const issues: RunIssue[] = [];
   const changeSet = buildChangeSet(targetRoot);
   const changedPaths = new Set(changeSet.changed_paths);
@@ -1276,6 +1475,14 @@ function evaluateBootstrapIssues(targetRoot: string, run: Run): RunIssue[] {
     }));
   }
 
+  if (taskSelection.noLiveMatch) {
+    issues.push(buildRunIssue(run, issues, {
+      issueType: "bootstrap_authority_unmatched",
+      summary: "No installed task record matches the current checkout.",
+      details: "Multiple installed task records exist, but none matches the current worktree or branch."
+    }));
+  }
+
   const selectedTask = taskSelection.task;
   if (selectedTask?.worktree && normalizePathForComparison(selectedTask.worktree) !== normalizePathForComparison(targetRoot)) {
     issues.push(buildRunIssue(run, issues, {
@@ -1297,7 +1504,19 @@ function evaluateBootstrapIssues(targetRoot: string, run: Run): RunIssue[] {
     }));
   }
 
-  return issues;
+  const requiresC2BaseAuthority = run.phase_id === "23.8.6C2";
+  const baseAuthority = requiresC2BaseAuthority && !taskSelection.ambiguity && !taskSelection.noLiveMatch
+    ? resolveBootstrapBaseAuthority(targetRoot, run, selectedTask)
+    : undefined;
+  if (requiresC2BaseAuthority && !taskSelection.ambiguity && !taskSelection.noLiveMatch && !baseAuthority) {
+    issues.push(buildRunIssue(run, issues, {
+      issueType: "missing_base_authority",
+      summary: "Bootstrap base authority cannot be proven.",
+      details: "Use a valid matching TaskState.base_commit_sha or configure an upstream with a resolvable merge-base."
+    }));
+  }
+
+  return { issues, ...(baseAuthority ? { baseAuthority } : {}) };
 }
 
 function buildRepairPacket(run: Run, issues: RunIssue[]): RepairPacket | undefined {
@@ -1454,27 +1673,27 @@ export function validateRuntimeRun(value: unknown): Run {
   const runIssues = record.run_issues === undefined
     ? []
     : Array.isArray(record.run_issues)
-      ? (record.run_issues as RunIssue[])
+      ? validateBootstrapIssues(record.run_issues)
       : (() => {
           throw new Error("runtime run has invalid run_issues.");
         })();
   const repairPackets = record.repair_packets === undefined
     ? []
     : Array.isArray(record.repair_packets)
-      ? (record.repair_packets as RepairPacket[])
+      ? validateRepairPackets(record.repair_packets, runIssues)
       : (() => {
           throw new Error("runtime run has invalid repair_packets.");
         })();
   const bootstrapFacts = record.bootstrap_facts === undefined
     ? undefined
     : Array.isArray(record.bootstrap_facts)
-      ? (record.bootstrap_facts as BootstrapFact[])
+      ? validateBootstrapFacts(record.bootstrap_facts)
       : (() => {
           throw new Error("runtime run has invalid bootstrap_facts.");
         })();
   const bootstrapHandoff = record.bootstrap_handoff === undefined
     ? undefined
-    : assertObject(record.bootstrap_handoff, "runtime run bootstrap_handoff") as unknown as WorkerHandoff;
+    : validateWorkerHandoff(record.bootstrap_handoff);
 
   return {
     schema_version: CURRENT_SCHEMA_VERSION,
@@ -2280,7 +2499,8 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
     source_staging_db_path: seededPaths.stagingDbPath,
     source_snapshot: seedRun.repository.head_sha
   };
-  const runIssues = evaluateBootstrapIssues(targetRoot, run);
+  const bootstrapEvaluation = evaluateBootstrapIssues(targetRoot, run);
+  const runIssues = bootstrapEvaluation.issues;
   const repairPacket = buildRepairPacket(run, runIssues);
   const runWithBootstrap: Run = {
     ...run,
@@ -2288,7 +2508,7 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
     bootstrap_facts: buildBootstrapFacts({
       ...run,
       bootstrap_status: runIssues.length > 0 ? "blocked" : "ready"
-    }),
+    }, bootstrapEvaluation.baseAuthority),
     run_issues: runIssues,
     repair_packets: repairPacket ? [repairPacket] : []
   };
@@ -3632,6 +3852,13 @@ export async function materializeRuntimeNextTask(
       fs.copyFileSync(taskPointerPath, backupPath);
     }
     fs.writeFileSync(taskPointerPath, buildNextTaskPointerMarkdown(nextTaskPath), "utf8");
+
+    persistMaterializedTaskBaseAuthority(
+      roots.projectRoot,
+      absoluteWorktreePath,
+      options.branch,
+      record.base_commit_sha
+    );
 
     const runStartResult = await startRuntimeRun(absoluteWorktreePath, { taskPath: "TASK.md" });
 

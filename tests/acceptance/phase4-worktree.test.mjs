@@ -42,6 +42,9 @@ test("phase 4 worktree creates one branch and one isolated worktree per task", (
   assertSuccess(runCli(["install"], { cwd: tempRepo }), "install");
   assertSuccess(runCli(["init", "test task"], { cwd: tempRepo }), "init");
 
+  const sourceHead = runCommand("git", ["rev-parse", "HEAD"], { cwd: tempRepo });
+  assertSuccess(sourceHead, "git rev-parse source head");
+
   const worktreeResult = runCli(["worktree"], { cwd: tempRepo });
   assertSuccess(worktreeResult, "worktree");
   assert.match(worktreeResult.stdout, /status: worktree created/);
@@ -59,6 +62,7 @@ test("phase 4 worktree creates one branch and one isolated worktree per task", (
   assert.equal(branchName, "task/task-test-task");
   assert.equal(state.branch, branchName);
   assert.equal(state.worktree, worktreePath);
+  assert.equal(state.base_commit_sha, sourceHead.stdout.trim());
   assert.equal(typeof state.updated_at, "string");
   assert.equal(state.task_id, "task-test-task");
   assert.ok(path.isAbsolute(worktreePath), "worktree path must be absolute");

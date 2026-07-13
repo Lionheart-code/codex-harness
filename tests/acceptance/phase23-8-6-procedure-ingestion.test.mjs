@@ -3430,6 +3430,37 @@ test("phase 23.8.6 record-next-task and materialize-next-task create a new task-
 
   const worktreePath = path.join(path.dirname(tempRepo), `${path.basename(tempRepo)}-next-task-worktree`);
   tempDirectories.push(worktreePath);
+  const taskStatePath = path.join(tempRepo, ".harness", "tasks", "task-next-phase", "state.json");
+  fs.mkdirSync(path.dirname(taskStatePath), { recursive: true });
+  writeText(path.join(tempRepo, ".harness", "config.toml"), "[harness]\nversion = \"0.1.0\"\n");
+  writeText(
+    path.join(tempRepo, ".harness", "install.json"),
+    `${JSON.stringify({
+      schema_version: 1,
+      producer_command: "test",
+      harness_version: "0.1.0",
+      templates_version: "0.1.0",
+      installed_at: TIMESTAMP,
+      updated_at: TIMESTAMP,
+      source: "test"
+    }, null, 2)}\n`
+  );
+  writeText(
+    taskStatePath,
+    `${JSON.stringify({
+      schema_version: 1,
+      producer_command: "test",
+      task_id: "task-next-phase",
+      title: "Next phase",
+      status: "created",
+      created_at: TIMESTAMP,
+      updated_at: TIMESTAMP,
+      phase: "3",
+      spec: "spec.md",
+      acceptance: "acceptance.md",
+      branch: "task/phase-23-8-7-packet-result-lifecycle-contract"
+    }, null, 2)}\n`
+  );
 
   const materialize = runCli(
     [
@@ -3463,4 +3494,6 @@ test("phase 23.8.6 record-next-task and materialize-next-task create a new task-
   assert.equal(newRun.task_path, "TASK.md");
   assert.equal(newRun.active_task_path, nextTaskPath);
   assert.equal(newRun.phase_id, "23.8.7");
+  const taskState = JSON.parse(fs.readFileSync(taskStatePath, "utf8"));
+  assert.equal(taskState.base_commit_sha, gitHead(tempRepo));
 });

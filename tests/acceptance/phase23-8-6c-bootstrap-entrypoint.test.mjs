@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { after, test } from "node:test";
 import {
+  assertFailure,
   assertSuccess,
   configureLocalGitIdentity,
   createTempDirectory,
@@ -29,7 +30,7 @@ after(() => {
 
 function activeTaskMarkdown() {
   return [
-    "# Phase 23.8.6C - Minimum Self-Hosting Orchestrator Entrypoint",
+    "# Phase 23.8.6C2 - Bootstrap Authority Correctness",
     "",
     "## Goal",
     "Bootstrap one bounded self-hosting worker step from the committed task context.",
@@ -83,6 +84,12 @@ function currentBranch(tempRepo) {
   return result.stdout.trim();
 }
 
+function currentHead(tempRepo) {
+  const result = runCommand("git", ["rev-parse", "HEAD"], { cwd: tempRepo });
+  assertSuccess(result, "git rev-parse HEAD");
+  return result.stdout.trim();
+}
+
 function writeInstalledTaskState(tempRepo, taskId, title, options = {}) {
   const taskDir = path.join(tempRepo, ".harness", "tasks", taskId);
   fs.mkdirSync(taskDir, { recursive: true });
@@ -101,7 +108,8 @@ function writeInstalledTaskState(tempRepo, taskId, title, options = {}) {
         spec: "spec.md",
         acceptance: "acceptance.md",
         ...(options.branch ? { branch: options.branch } : {}),
-        ...(options.worktree ? { worktree: options.worktree } : {})
+        ...(options.worktree ? { worktree: options.worktree } : {}),
+        ...(options.baseCommitSha ? { base_commit_sha: options.baseCommitSha } : {})
       },
       null,
       2
@@ -145,7 +153,8 @@ function installHarnessLayerFixture(tempRepo, options = {}) {
     "Active bootstrap task",
     {
       branch: currentBranch(tempRepo),
-      worktree: tempRepo
+      worktree: tempRepo,
+      baseCommitSha: options.activeBaseCommitSha ?? currentHead(tempRepo)
     }
   );
   writeInstalledTaskState(
@@ -190,7 +199,7 @@ function createPhase2386CRepo(prefix, options = {}) {
   writeText(
     path.join(tempRepo, "docs", "IMPLEMENTATION_ROADMAP.md"),
     [
-      "## Phase 23.8.6C — Minimum Self-Hosting Orchestrator Entrypoint",
+      "## Phase 23.8.6C2 — Bootstrap Authority Correctness",
       "",
       "Task:",
       `\`${ACTIVE_TASK_PATH}\``,
@@ -218,7 +227,7 @@ function createPhase2386CRepo(prefix, options = {}) {
   return tempRepo;
 }
 
-test("phase 23.8.6C run start dry-run emits bootstrap facts and does not mutate durable state", () => {
+test("phase 23.8.6C2 run start dry-run blocks without base authority and does not mutate durable state", () => {
   ensureBuiltCli();
   const tempRepo = createPhase2386CRepo("codex-harness-phase23-8-6c-dry-run-");
   const beforeStatus = getGitStatus(tempRepo);
@@ -227,11 +236,9 @@ test("phase 23.8.6C run start dry-run emits bootstrap facts and does not mutate 
   assertSuccess(result, "run start --dry-run");
 
   const output = parseOutput(result.stdout);
-  assert.equal(output.get("bootstrap status"), "ready");
-  assert.equal(output.get("operator stage"), "TASK_INTAKE_REQUIRED");
-  assert.equal(output.get("operator next procedure"), "task-intake");
-  assert.equal(output.get("handoff kind"), "procedure");
-  assert.equal(output.get("handoff procedure"), "task-intake");
+  assert.equal(output.get("bootstrap status"), "blocked");
+  assert.equal(output.get("operator stage"), "BOOTSTRAP_REPAIR_REQUIRED");
+  assert.match(output.get("run issue missing_base_authority") ?? "", /base authority cannot be proven/i);
   assert.match(output.get("bootstrap fact active_task_path") ?? "", new RegExp(`^${ACTIVE_TASK_PATH} \\(task_pointer\\)$`));
   assert.match(output.get("bootstrap fact run_identity") ?? "", /^run-dry-run:/);
   assert.equal(fs.existsSync(path.join(tempRepo, ".harness", "runs")), false, "dry-run created runtime state");
@@ -257,8 +264,118 @@ test("phase 23.8.6C run start records one bounded handoff and resolves current t
   assert.equal(run.run_issues.length, 0);
   assert.equal(run.repair_packets.length, 0);
   assert.equal(run.bootstrap_handoff.procedure_id, "task-intake");
-  assert.equal(run.bootstrap_facts.length, 5);
+  assert.equal(run.bootstrap_facts.length, 6);
   assert.equal(run.repository.task_worktree_path, tempRepo);
+  assert.equal(run.bootstrap_facts.find((fact) => fact.label === "source_snapshot").value, currentHead(tempRepo));
+  assert.equal(run.bootstrap_facts.find((fact) => fact.label === "base_commit").source, "task_state");
+});
+
+test("phase 23.8.6C2 rejects a missing active task reference before durable run creation", () => {
+  ensureBuiltCli();
+  const tempRepo = createPhase2386CRepo("codex-harness-phase23-8-6c-missing-task-", {
+    initialTaskPath: "tasks/MISSING_TASK.md"
+  });
+
+  const result = runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo });
+  assertFailure(result, "run start with missing active task");
+  assert.match(result.stderr, /Task authority is not a readable regular file/i);
+  assert.equal(fs.existsSync(path.join(tempRepo, ".harness", "runs")), false);
+});
+
+test("phase 23.8.6C2 emits one typed blocker when multiple task records do not match the checkout", () => {
+  ensureBuiltCli();
+  const tempRepo = createPhase2386CRepo("codex-harness-phase23-8-6c-unmatched-task-", {
+    installHarnessLayer: true
+  });
+  writeInstalledTaskState(tempRepo, "task-active-bootstrap", "Unmatched task", {
+    branch: "task/not-current",
+    worktree: path.join(tempRepo, "..", "not-current"),
+    baseCommitSha: currentHead(tempRepo)
+  });
+  assertSuccess(runCommand("git", ["add", ".harness"], { cwd: tempRepo }), "git add unmatched task states");
+  assertSuccess(runCommand("git", ["commit", "-m", "set unmatched task states"], { cwd: tempRepo }), "git commit unmatched task states");
+
+  const result = runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo });
+  assertSuccess(result, "run start with unmatched tasks");
+  const run = readJson(path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"));
+  assert.equal(run.bootstrap_status, "blocked");
+  assert.deepEqual(run.run_issues.map((issue) => issue.issue_type), ["bootstrap_authority_unmatched"]);
+  assert.deepEqual(run.repair_packets[0].issue_ids, [run.run_issues[0].issue_id]);
+});
+
+test("phase 23.8.6C2 uses the configured-upstream merge-base only when task state has no base", () => {
+  ensureBuiltCli();
+  const tempRepo = createPhase2386CRepo("codex-harness-phase23-8-6c-upstream-base-", {
+    installHarnessLayer: true
+  });
+  const branch = currentBranch(tempRepo);
+  const upstreamHead = currentHead(tempRepo);
+  assertSuccess(runCommand("git", ["remote", "add", "origin", tempRepo], { cwd: tempRepo }), "git remote add origin");
+  assertSuccess(runCommand("git", ["update-ref", `refs/remotes/origin/${branch}`, upstreamHead], { cwd: tempRepo }), "git update-ref upstream");
+  assertSuccess(runCommand("git", ["config", `branch.${branch}.remote`, "origin"], { cwd: tempRepo }), "git config upstream remote");
+  assertSuccess(runCommand("git", ["config", `branch.${branch}.merge`, `refs/heads/${branch}`], { cwd: tempRepo }), "git config upstream merge");
+  writeInstalledTaskState(tempRepo, "task-active-bootstrap", "Active bootstrap task", {
+    branch,
+    worktree: tempRepo
+  });
+  assertSuccess(runCommand("git", ["add", ".harness"], { cwd: tempRepo }), "git add legacy task state");
+  assertSuccess(runCommand("git", ["commit", "-m", "remove task base authority"], { cwd: tempRepo }), "git commit legacy task state");
+
+  const result = runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo });
+  assertSuccess(result, "run start with upstream merge-base");
+  const run = readJson(path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"));
+  const baseFact = run.bootstrap_facts.find((fact) => fact.label === "base_commit");
+  assert.equal(run.bootstrap_status, "ready");
+  assert.equal(baseFact.value, upstreamHead);
+  assert.equal(baseFact.source, "git_merge_base");
+  assert.notEqual(baseFact.value, run.source_snapshot);
+});
+
+test("phase 23.8.6C2 rejects malformed persisted bootstrap facts on staging readback", () => {
+  ensureBuiltCli();
+  const tempRepo = createPhase2386CRepo("codex-harness-phase23-8-6c-malformed-readback-", {
+    installHarnessLayer: true
+  });
+  assertSuccess(runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo }), "run start");
+  const runPath = path.join(tempRepo, ".harness", "runs", "run-0001", "run.json");
+  const run = readJson(runPath);
+  run.bootstrap_facts[0].fact_id = "";
+  const stagingPath = path.join(tempRepo, ".harness", "runs", "run-0001", "staging.sqlite");
+  const mutation = runCommand(
+    process.execPath,
+    [
+      "-e",
+      "const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync(process.argv[1]); db.prepare('UPDATE runs SET run_json = ? WHERE run_id = ?').run(process.argv[2], 'run-0001'); db.close();",
+      stagingPath,
+      JSON.stringify(run)
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(mutation, "mutate staged run json");
+
+  const result = runCli(["run", "status", "--run", "run-0001"], { cwd: tempRepo });
+  assertFailure(result, "run status with malformed staged bootstrap fact");
+  assert.match(result.stderr, /bootstrap fact is missing required string field: fact_id/i);
+});
+
+test("phase 23.8.6C2 fails closed on duplicate worktree task authority", () => {
+  ensureBuiltCli();
+  const tempRepo = createPhase2386CRepo("codex-harness-phase23-8-6c-duplicate-task-", {
+    installHarnessLayer: true
+  });
+  writeInstalledTaskState(tempRepo, "task-historical-bootstrap", "Duplicate task", {
+    branch: "task/historical-bootstrap",
+    worktree: tempRepo,
+    baseCommitSha: currentHead(tempRepo)
+  });
+  assertSuccess(runCommand("git", ["add", ".harness"], { cwd: tempRepo }), "git add duplicate task states");
+  assertSuccess(runCommand("git", ["commit", "-m", "set duplicate task states"], { cwd: tempRepo }), "git commit duplicate task states");
+
+  const result = runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo });
+  assertSuccess(result, "run start with duplicate tasks");
+  const run = readJson(path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"));
+  assert.deepEqual(run.run_issues.map((issue) => issue.issue_type), ["bootstrap_authority_ambiguous"]);
+  assert.deepEqual(run.repair_packets[0].issue_ids, [run.run_issues[0].issue_id]);
 });
 
 test("phase 23.8.6C run start fails closed on uncommitted TASK.md activation and emits a repair packet", () => {

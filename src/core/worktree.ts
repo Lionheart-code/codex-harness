@@ -97,11 +97,23 @@ function ensureHeadAndCleanCheckout(targetRoot: string): void {
   }
 }
 
-function updateStateWithWorktree(task: TaskState, branch: string, worktreePath: string): TaskState {
+function resolveHeadCommit(targetRoot: string): string {
+  const result = runGitCommand(targetRoot, ["rev-parse", "--verify", "HEAD^{commit}"]);
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(result.stderr.trim() || "Unable to resolve source HEAD commit.");
+  }
+  return result.stdout.trim();
+}
+
+function updateStateWithWorktree(task: TaskState, branch: string, worktreePath: string, baseCommitSha: string): TaskState {
   return {
     ...task,
     branch,
     worktree: worktreePath,
+    ...(task.base_commit_sha ? {} : { base_commit_sha: baseCommitSha }),
     updated_at: new Date().toISOString()
   };
 }
@@ -163,7 +175,8 @@ export function createOrResolveWorktree(cwd: string): WorktreeResult {
   fs.writeFileSync(branchRecordPath, `${branch}\n`, "utf8");
   fs.writeFileSync(worktreeRecordPath, `${worktreePath}\n`, "utf8");
 
-  const nextState = updateStateWithWorktree(readTaskStateById(targetRoot, task.task_id), branch, worktreePath);
+  const materializedHead = resolveHeadCommit(worktreePath);
+  const nextState = updateStateWithWorktree(readTaskStateById(targetRoot, task.task_id), branch, worktreePath, materializedHead);
   writeTaskState(targetRoot, task.task_id, nextState);
 
   return {

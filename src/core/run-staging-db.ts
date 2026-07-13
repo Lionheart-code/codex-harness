@@ -590,7 +590,11 @@ function parseRunJson(value: unknown, runId: string): Run {
     throw new Error(`Stored run ${runId} is missing run_json.`);
   }
 
-  return JSON.parse(value) as Run;
+  const parsed = JSON.parse(value) as unknown;
+  const { validateRuntimeRun } = require("./runtime") as {
+    validateRuntimeRun: (candidate: unknown) => Run;
+  };
+  return validateRuntimeRun(parsed);
 }
 
 export class RunStagingDatabase {

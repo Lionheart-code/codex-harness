@@ -839,8 +839,8 @@ repo-owned policy and decision-complete future task contracts before C2 or
 later runtime work proceeds.
 
 Status:
-Active. Owns source authority, future task contracts, focused contract tests,
-and the bounded two-profile current review-binding refresh only.
+Complete, reviewed, accepted, and merged. Its authority-rebase outputs enable
+the active C2 implementation phase.
 
 Required scope:
 - publish deterministic provider-neutral route classes, precedence, reasoning
@@ -875,8 +875,9 @@ Make the existing bootstrap fail closed when task, checkout, base-commit, or
 persisted current-bootstrap authority cannot be proven.
 
 Status:
-Planned. Blocked until Phase 23.8.6C1A is complete, reviewed, accepted, and
-merged.
+Active implementation phase. Phase 23.8.6C1A is complete, reviewed, accepted,
+and merged; C2 closeout remains blocked until its delivery and lifecycle
+evidence is complete.
 
 Required scope:
 - reject missing, unreadable, escaping, or non-file active task references
