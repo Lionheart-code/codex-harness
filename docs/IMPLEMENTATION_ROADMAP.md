@@ -435,7 +435,7 @@ Required scope:
   product-source registry update, not a runtime migration;
 - update this roadmap with the Phase 23.8.5 -> 23.8.6 -> 23.8.6A -> 23.8.6B ->
   23.8.6B1 -> 23.8.6B2 -> 23.8.6C -> 23.8.6C1 -> 23.8.6C1A ->
-  23.8.6C2 -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9 -> 24A -> 24B ->
+  23.8.6C2 -> 23.8.6C2A -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9 -> 24A -> 24B ->
   25A -> 25B -> 26 sequence and
   a direct block before Phase 23.9;
 - separate end-of-old-cycle decision from start-of-new-cycle materialization:
@@ -462,7 +462,7 @@ Required scope:
 - amend agent boundary/security docs to split `RunnerProfile` from
   `ExecutionPolicy`;
 - create or extend task contracts for Phases 23.8.6, 23.8.6A, 23.8.6B,
-  23.8.6B1, 23.8.6B2, 23.8.6C, 23.8.6C1, 23.8.6C1A, 23.8.6C2, 23.8.6D,
+  23.8.6B1, 23.8.6B2, 23.8.6C, 23.8.6C1, 23.8.6C1A, 23.8.6C2, 23.8.6C2A, 23.8.6D,
   23.8.6E, and 23.8.7 as the near-term self-hosting chain becomes repo-owned
   authority;
 - amend Phase 23.8.7 so `StagePacket` contracts require a verifiable stopping
@@ -487,7 +487,7 @@ Required scope:
 
 Future-phase impact check:
 - prepares 23.8.6, 23.8.6A, 23.8.6B, 23.8.6B1, 23.8.6B2, 23.8.6C,
-  23.8.6C1, 23.8.6C1A, 23.8.6C2, 23.8.6D, 23.8.6E, 23.8.7, 23.9,
+  23.8.6C1, 23.8.6C1A, 23.8.6C2, 23.8.6C2A, 23.8.6D, 23.8.6E, 23.8.7, 23.9,
   24A/24B, 25A/25B, 26, and downstream Phases 27-31 by making dependencies
   explicit;
 - must not pre-implement transactional ingestion, packet automation, proof
@@ -741,7 +741,7 @@ Required scope:
 - keep this phase to verification-policy authority only.
 
 Future-phase impact check:
-- prepares 23.8.6C, 23.8.6C1, 23.8.6C1A, 23.8.6C2, 23.8.6D, 23.8.6E,
+- prepares 23.8.6C, 23.8.6C1, 23.8.6C1A, 23.8.6C2, 23.8.6C2A, 23.8.6D, 23.8.6E,
   23.8.7, and 23.9 to reference one canonical full-pack proof path;
 - must not change package scripts, CI, acceptance-runner behavior, or runtime
   locking;
@@ -786,7 +786,7 @@ Required scope:
   workflow engine or replacement coding agent.
 
 Future-phase impact check:
-- prepares 23.8.6C1, 23.8.6C1A, 23.8.6C2, 23.8.6D, 23.8.6E, 23.8.7, and
+- prepares 23.8.6C1, 23.8.6C1A, 23.8.6C2, 23.8.6C2A, 23.8.6D, 23.8.6E, 23.8.7, and
   23.9 to rely on a repo-owned minimum orchestrator loop instead of manual
   startup reconstruction alone;
 - must not expand into external runner launch from harness runtime, runtime
@@ -875,9 +875,8 @@ Make the existing bootstrap fail closed when task, checkout, base-commit, or
 persisted current-bootstrap authority cannot be proven.
 
 Status:
-Active implementation phase. Phase 23.8.6C1A is complete, reviewed, accepted,
-and merged; C2 closeout remains blocked until its delivery and lifecycle
-evidence is complete.
+Complete, reviewed, accepted, and merged. The bounded follow-up C2A owns the
+remaining commit-backed materialization and environment-readiness correction.
 
 Required scope:
 - reject missing, unreadable, escaping, or non-file active task references
@@ -898,13 +897,49 @@ Required scope:
   context packets, or implementing routing.
 
 Future-phase impact check:
-- prepares D to store durable procedure payloads on truthful bootstrap
-  authority and prepares 23.8.7 to extend validated current issue/repair
-  records;
+- prepares C2A to make next-task activation commit-backed and environment-ready
+  on truthful bootstrap authority, then prepares D to store durable procedure
+  payloads and 23.8.7 to extend validated current issue/repair records;
 - must not add generalized stage packets/results, durable procedure payload
   storage, authority freshness work, runner execution, provider routing,
   auto-commit, or auto-merge;
 - preserves the lightweight single-loop operator model.
+
+## Phase 23.8.6C2A — Commit-Backed Task Materialization and Environment Bootstrap
+
+Task:
+`tasks/PHASE_23_8_6C2A_COMMIT_BACKED_TASK_MATERIALIZATION_AND_ENVIRONMENT_BOOTSTRAP.md`
+
+Goal:
+Turn an already validated next-task decision into a clean, commit-backed task
+branch/worktree that is deterministically ready for the checked-in Harness
+commands and procedure surfaces.
+
+Status:
+Active implementation phase. C2 is complete, reviewed, accepted, and merged.
+
+Required scope:
+- make `run materialize-next-task` prepare the new task context without
+  starting a run before its activation commit;
+- accept and verify a clean Codex Desktop-managed existing worktree as well as
+  a Harness-created one, without recreating the Desktop worktree;
+- require a post-base, committed, clean task activation before `run start`
+  creates durable lifecycle state;
+- add a deterministic repo-owned dependency/build and tracked-procedure
+  bootstrap/verify path, while allowing a successful Codex Desktop local
+  environment setup to satisfy the same checks;
+- never copy ignored private state, credentials, `.env*`, `.codex/**`,
+  `.harness/**`, `node_modules`, or generated output; use Codex Desktop's
+  explicit `.worktreeinclude` opt-in only when an operator has chosen it;
+- retain C2's exact decision/base authority and current historical readability.
+
+Future-phase impact check:
+- prepares D to store durable procedure payloads only after task materialization
+  and runnable-worktree provenance are commit-backed;
+- prepares E and 23.8.7 without implementing freshness, packet, routing,
+  provider, runner, payload, migration, auto-commit, or auto-merge behavior;
+- preserves the lightweight single-loop operator model and explicit human
+  activation responsibility.
 
 ## Phase 23.8.6D — Procedure Artifact Payload Storage and Worktree Retention
 
@@ -917,8 +952,8 @@ and preserve enough worktree provenance for later audit after local markdown
 files disappear.
 
 Status:
-Planned. Blocked until Phase 23.8.6C2 is complete, reviewed, accepted, and
-merged.
+Planned. Blocked until Phase 23.8.6C2 and Phase 23.8.6C2A are complete,
+reviewed, accepted, and merged.
 
 Required scope:
 - store raw recorded procedure artifact bodies in SQLite payload tables as
@@ -971,8 +1006,8 @@ Revalidate future/live authority surfaces after the near-term 23.8.6 chain has
 changed verification policy, bootstrap assumptions, and storage/harvest facts.
 
 Status:
-Planned. Blocked until Phase 23.8.6C2 and Phase 23.8.6D are complete, reviewed,
-accepted, and merged.
+Planned. Blocked until Phase 23.8.6C2, Phase 23.8.6C2A, and Phase 23.8.6D are
+complete, reviewed, accepted, and merged.
 
 Required scope:
 - check `TASK.md` active pointer, roadmap active/current wording, task status
@@ -1010,13 +1045,13 @@ Task:
 
 Goal:
 Formalize stage-level packet/result/execution-policy contracts on top of stable
-run-state after Phase 23.8.6C proves the minimum loop and Phase 23.8.6C2
-hardens its authority.
+run-state after Phase 23.8.6C proves the minimum loop and C2/C2A harden its
+bootstrap and materialization authority.
 
 Status:
 Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
 23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C1A, Phase 23.8.6C2,
-Phase 23.8.6D, and Phase 23.8.6E are complete and reviewed.
+Phase 23.8.6C2A, Phase 23.8.6D, and Phase 23.8.6E are complete and reviewed.
 
 Required scope:
 - define `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,
@@ -1088,7 +1123,7 @@ procedure/stage records.
 Status:
 Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
 23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C1A, Phase 23.8.6C2,
-Phase 23.8.6D, Phase 23.8.6E, and Phase 23.8.7 are complete and reviewed,
+Phase 23.8.6C2A, Phase 23.8.6D, Phase 23.8.6E, and Phase 23.8.7 are complete and reviewed,
 unless a later
 reviewed decision explicitly defers or waives that dependency.
 This phase must not become a separate lifecycle authority. Operator/proof

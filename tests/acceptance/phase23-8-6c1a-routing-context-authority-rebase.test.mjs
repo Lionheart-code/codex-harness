@@ -16,6 +16,7 @@ const files = {
   routing: read("docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md"),
   context: read("docs/CONTEXT_BUDGET_POLICY.md"),
   c2: read("tasks/PHASE_23_8_6C2_BOOTSTRAP_AUTHORITY_CORRECTNESS.md"),
+  c2a: read("tasks/PHASE_23_8_6C2A_COMMIT_BACKED_TASK_MATERIALIZATION_AND_ENVIRONMENT_BOOTSTRAP.md"),
   d: read("tasks/PHASE_23_8_6D_PROCEDURE_ARTIFACT_PAYLOAD_STORAGE_AND_WORKTREE_RETENTION.md"),
   e: read("tasks/PHASE_23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION.md"),
   stage: read("tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md"),
@@ -26,10 +27,10 @@ const files = {
   phase31: read("tasks/PHASE_31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP.md")
 };
 
-test("phase 23.8.6C2 is active after the completed C1A authority rebase", () => {
+test("phase 23.8.6C2A is active after the completed C2 authority correction", () => {
   assert.equal(
     files.taskPointer.trim(),
-    "# Current Task\n\nImplement only: tasks/PHASE_23_8_6C2_BOOTSTRAP_AUTHORITY_CORRECTNESS.md\n\nDo not implement Phase 23.8.6D or later."
+    "# Current Task\n\nImplement only: tasks/PHASE_23_8_6C2A_COMMIT_BACKED_TASK_MATERIALIZATION_AND_ENVIRONMENT_BOOTSTRAP.md\n\nDo not implement Phase 23.8.6D or later."
   );
   assert.match(files.c1a, /^# Phase 23\.8\.6C1A - Routing, Context, and Model-Policy Authority Rebase/m);
   assert.match(files.c1a, /Treat this phase as `extra-high`/);
@@ -37,7 +38,7 @@ test("phase 23.8.6C2 is active after the completed C1A authority rebase", () => 
   assert.match(files.c1a, /node bin\/ch run status --operator --run run-0003/);
   assert.doesNotMatch(files.c1a, /<live-run-id>/);
   for (const authority of [files.roadmap, files.operations]) {
-    assert.match(authority, /23\.8\.6C1\s*->\s*23\.8\.6C1A\s*->\s*23\.8\.6C2\s*->\s*23\.8\.6D\s*->\s*23\.8\.6E\s*->\s*23\.8\.7\s*->\s*23\.9/s);
+    assert.match(authority, /23\.8\.6C1\s*->\s*23\.8\.6C1A\s*->\s*23\.8\.6C2\s*->\s*23\.8\.6C2A\s*->\s*23\.8\.6D\s*->\s*23\.8\.6E\s*->\s*23\.8\.7\s*->\s*23\.9/s);
   }
 });
 
@@ -63,8 +64,11 @@ test("routing and context policy are deterministic, provider-neutral, and fail c
 });
 
 test("downstream ownership stays separated and provider-neutral", () => {
-  assert.match(files.c2, /Active implementation phase\. Phase 23\.8\.6C1A is complete, reviewed, accepted,/);
+  assert.match(files.c2, /Complete, reviewed, accepted, and merged/);
   assert.match(files.c2, /No generalized context core\/manifest, route intent, model selection, or\s+routing policy implementation/);
+  assert.match(files.c2a, /Commit-Backed Task Materialization and Environment Bootstrap/);
+  assert.match(files.c2a, /Codex Desktop\s+managed worktree/);
+  assert.match(files.c2a, /do not copy, serialize, or infer ignored private state/i);
   assert.match(files.d, /immutable payload identity[\s\S]*stable content hash[\s\S]*bounded payload\/chunk references[\s\S]*worktree\/source\/base provenance/);
   assert.match(files.d, /No context bundle, `ContextCore`, or `ContextManifest` construction/);
   assert.match(files.e, /post-implementation\s+freshness reconciliation[\s\S]*does\s+not repeat the research/i);

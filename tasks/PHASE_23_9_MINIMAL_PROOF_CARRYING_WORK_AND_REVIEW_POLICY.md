@@ -17,11 +17,13 @@ Self-Hosting Model Routing Policy Packaging, Phase 23.8.6B1 Supervised Review
 Launch and Blocked Disposition, Phase 23.8.6B2 Verification Command
 Rationalization and Serialization, Phase 23.8.6C Minimum Self-Hosting
 Orchestrator Entrypoint, Phase 23.8.6C1A Routing, Context, and Model-Policy
-Authority Rebase, Phase 23.8.6D Procedure Artifact Payload Storage and
-Worktree Retention, Phase 23.8.6E Authority Surface Freshness and Downstream
-Task Revalidation, and Phase 23.8.7 Hookless Stage-Level Operator Packet
-Automation are complete and reviewed, unless a later reviewed decision
-explicitly defers or waives that dependency.
+Authority Rebase, Phase 23.8.6C2 Bootstrap Authority Correctness, Phase
+23.8.6C2A Commit-Backed Task Materialization and Environment Bootstrap, Phase
+23.8.6D Procedure Artifact Payload Storage and Worktree Retention, Phase
+23.8.6E Authority Surface Freshness and Downstream Task Revalidation, and
+Phase 23.8.7 Hookless Stage-Level Operator Packet Automation are complete and
+reviewed, unless a later reviewed decision explicitly defers or waives that
+dependency.
 
 ## Scope
 
@@ -40,6 +42,9 @@ approval.
 - evidence gaps;
 - review verdict mapping;
 - model/provider metadata fields where available;
+- task materialization base, committed activation, and current source snapshot
+  provenance, without treating a transient worktree environment as durable
+  proof authority.
 - deterministic evidence outranks model opinion.
 - procedure outcome references;
 - stage state references;

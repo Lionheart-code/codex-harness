@@ -26,9 +26,13 @@ This document explains how a human operator should use `codex-harness` safely.
    `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`
    and then
    `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`.
-   That command path stores a next-task decision and materializes the new task
-   branch/worktree, but the next task is not active source authority until the
-   new task worktree has a commit-backed `TASK.md` activation and clean git.
+   C2A is the active task that changes that command path to prepare, rather
+   than start, the new task branch/worktree. Until it is delivered, any run
+   opened by the current materializer is provisional and must be discarded
+   before the post-commit authoritative run starts. The next task is never
+   active source authority until the new task worktree has a commit-backed
+   `TASK.md` activation, clean git, and deterministic dependency/build plus
+   tracked-procedure readiness verification.
    A manual transcript alone still does not satisfy runtime evidence for any of
    those procedures; the operator must record it through the product command.
    Procedures outside the active replay scope, such as
@@ -48,10 +52,9 @@ A closing or harvested run may record which task should come next. It does not
 own the new task branch/worktree and it must not edit `TASK.md` for that next
 task. The next cycle becomes authoritative only when `TASK.md` is written in
 that task's own branch/worktree, the activation/materialization change is
-committed there as the first commit, clean git is confirmed, and only then the
-new run is treated as active task context. If the current narrow runtime path
-opens the new run earlier, treat it as provisional and non-authoritative until
-that commit-backed activation gate succeeds. Broader self-hosting
+committed there as the first commit, clean git is confirmed, deterministic
+dependency/build and tracked-procedure readiness verification passes, and only
+then the new run is treated as active task context. Broader self-hosting
 bootstrap/orchestrator behavior and later authority-freshness revalidation
 remain owned by downstream tasks.
 Preserve one task = one branch = one worktree. `run start` by itself still does
@@ -344,15 +347,25 @@ Only after commit and closeout/harvest decision:
    `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`;
 2. materialize the new task context with
    `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`;
+   for a Codex Desktop worktree, use `--enter-existing` after the Desktop task
+   has created its worktree and branch rather than creating a second checkout;
 3. confirm the new task worktree, active `TASK.md`, new task contract,
    roadmap/operations order, and required live authority surfaces are coherent;
 4. commit the complete activation/materialization authority change as the
    first commit in that new task branch/worktree;
 5. verify clean `git status` in that new task context;
-6. only then start or continue the new run in that task worktree. If the current
-   narrow runtime path opened it earlier, mark it discardable and start a fresh
-   run after steps 4-5 rather than treating provisional state as authority;
-7. start fresh `/plan`.
+6. run the repository's deterministic dependency/build and tracked-procedure
+   readiness check once C2A delivers it. For this transition before that
+   delivery, run the repository's declared setup manually and verify the same
+   tracked surfaces. A successful Codex Desktop local-environment setup may
+   provide the same files, but it must be verified rather than assumed. Do not
+   copy `.env*`, credentials, `.codex/**`, `.harness/**`, `node_modules`, or
+   generated output from another checkout; use an operator-authored
+   `.worktreeinclude` only when ignored files are genuinely required;
+7. only then start or continue the new run in that task worktree. Until C2A is
+   delivered, discard an earlier materializer-created run and start a fresh
+   authoritative run after steps 4-6;
+8. start fresh `/plan`.
 
 ## Emergency rollback
 

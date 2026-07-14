@@ -104,12 +104,18 @@ Procedure ingestion may record that closeout/harvest selected the next task.
 New-cycle materialization is separate. Phase 23.8.6 now provides the current
 narrow
 command path for it: `run record-next-task` followed by
-`run materialize-next-task`. That sequence is not complete until the new task
-worktree writes `TASK.md`, the activation/materialization change is committed
-as the first commit in that branch/worktree, and clean git is confirmed. A
-working-tree-only `TASK.md` change is not enough to treat the new task as
-active. The harvested run still must not create, claim, or mutate the next
-task branch/worktree as old-run-owned state.
+`run materialize-next-task`. C2A is the active task that makes this sequence
+prepare, rather than start, the new task run. Until C2A is delivered, any run
+opened by the current materializer is provisional and must be discarded before
+the post-commit authoritative run starts. The corrected sequence is not
+complete until the new task worktree writes `TASK.md`, the
+activation/materialization change is committed as the first commit in that
+branch/worktree, clean git is confirmed, and deterministic dependency/build
+plus tracked-procedure readiness checks pass. A Codex Desktop managed worktree
+may be entered instead of recreated, but a Desktop UI setup selection does not
+replace those readiness checks. A working-tree-only `TASK.md` change is not
+enough to treat the new task as active. The harvested run still must not create,
+claim, or mutate the next task branch/worktree as old-run-owned state.
 
 Once Phase 23.8.6 is active, `RUN_HARVESTED` must refer to identity-matched
 harvest evidence for the same immutable run instance. If project memory matches

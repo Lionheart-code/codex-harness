@@ -16,7 +16,7 @@ function section(markdown, heading, nextHeading) {
   return markdown.slice(start, end);
 }
 
-test("phase 23.8.6C1 publishes a decision-complete C2 bootstrap authority task", () => {
+test("phase 23.8.6C1 preserves a decision-complete C2 bootstrap authority task", () => {
   const c2 = readText("tasks/PHASE_23_8_6C2_BOOTSTRAP_AUTHORITY_CORRECTNESS.md");
 
   assert.match(c2, /^# Phase 23\.8\.6C2 - Bootstrap Authority Correctness/m);
@@ -33,7 +33,7 @@ test("phase 23.8.6C1 publishes a decision-complete C2 bootstrap authority task",
   assert.match(c2, /No external runner launch/);
 });
 
-test("phase 23.8.6C1 publishes the corrected near-term authority order", () => {
+test("phase 23.8.6C1 preserves the near-term authority order", () => {
   const roadmap = readText("docs/IMPLEMENTATION_ROADMAP.md");
   const operations = readText("docs/OPERATIONS_PLAN.md");
   const headings = [
@@ -41,6 +41,7 @@ test("phase 23.8.6C1 publishes the corrected near-term authority order", () => {
     "## Phase 23.8.6C1 \u2014",
     "## Phase 23.8.6C1A \u2014",
     "## Phase 23.8.6C2 \u2014",
+    "## Phase 23.8.6C2A \u2014",
     "## Phase 23.8.6D \u2014",
     "## Phase 23.8.6E \u2014",
     "## Phase 23.8.7 \u2014",
@@ -52,20 +53,24 @@ test("phase 23.8.6C1 publishes the corrected near-term authority order", () => {
   assert.deepEqual([...indexes].sort((left, right) => left - right), indexes, "near-term roadmap phases must be ordered");
   assert.match(
     operations,
-    /23\.8\.6C ->\s*23\.8\.6C1 -> 23\.8\.6C1A -> 23\.8\.6C2 -> 23\.8\.6D -> 23\.8\.6E -> 23\.8\.7 -> 23\.9/
+    /23\.8\.6C ->\s*23\.8\.6C1 -> 23\.8\.6C1A -> 23\.8\.6C2 -> 23\.8\.6C2A -> 23\.8\.6D -> 23\.8\.6E -> 23\.8\.7 -> 23\.9/
   );
 
   const cSection = section(roadmap, headings[0], headings[1]);
   const c1Section = section(roadmap, headings[1], headings[2]);
   const c1aSection = section(roadmap, headings[2], headings[3]);
   const c2Section = section(roadmap, headings[3], headings[4]);
+  const c2aSection = section(roadmap, headings[4], headings[5]);
   assert.match(cSection, /Complete, reviewed, accepted, and merged/);
   assert.match(c1Section, /Complete, reviewed, accepted, and merged/);
   assert.match(c1aSection, /Complete, reviewed, accepted, and merged/);
   assert.match(c2Section, /tasks\/PHASE_23_8_6C2_BOOTSTRAP_AUTHORITY_CORRECTNESS\.md/);
-  assert.match(c2Section, /Active implementation phase/);
+  assert.match(c2Section, /Complete, reviewed, accepted, and merged/);
   assert.match(c2Section, /configured-upstream merge-base authority/);
   assert.match(c2Section, /preserves the lightweight single-loop operator model/);
+  assert.match(c2aSection, /COMMIT_BACKED_TASK_MATERIALIZATION_AND_ENVIRONMENT_BOOTSTRAP/);
+  assert.match(c2aSection, /Active implementation phase/);
+  assert.match(c2aSection, /Codex Desktop-managed existing worktree/);
 });
 
 test("phase 23.8.6C1 keeps downstream ownership distinct and lightweight", () => {
@@ -73,18 +78,18 @@ test("phase 23.8.6C1 keeps downstream ownership distinct and lightweight", () =>
   const phaseE = readText("tasks/PHASE_23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION.md");
   const phase7 = readText("tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md");
 
-  assert.match(phaseD, /after Phase 23\.8\.6C2 Bootstrap Authority Correctness/);
+  assert.match(phaseD, /after Phase 23\.8\.6C2 Bootstrap Authority Correctness and[\s\S]*23\.8\.6C2A/);
   assert.match(phaseD, /canonical procedure ID/);
   assert.match(phaseD, /stable recorded timestamp and content hash/);
   assert.match(phaseD, /exact immutable plan\s+or evidence artifact identity/);
   assert.match(phaseD, /No reimplementation of Phase 23\.8\.6C2 current-bootstrap/);
 
-  assert.match(phaseE, /after Phase 23\.8\.6C2 Bootstrap Authority Correctness and/);
+  assert.match(phaseE, /after Phase 23\.8\.6C2 Bootstrap Authority Correctness,[\s\S]*23\.8\.6C2A/);
   assert.match(phaseE, /model\/profile registry defaults versus manual invocation guidance/);
   assert.match(phaseE, /context-budget, compaction, and handoff guidance/);
   assert.match(phaseE, /stale present-tense phase status claims/);
 
-  assert.match(phase7, /Phase 23\.8\.6C1A[\s\S]*Phase 23\.8\.6C2 Bootstrap Authority\s+Correctness/);
+  assert.match(phase7, /Phase 23\.8\.6C1A[\s\S]*Phase 23\.8\.6C2 Bootstrap Authority\s+Correctness[\s\S]*23\.8\.6C2A/);
   assert.match(phase7, /Extend and normalize the existing Phase 23\.8\.6C `RunIssue` and/);
   assert.match(phase7, /required review procedures from the review tier and changed-surface/);
   assert.match(phase7, /promotion of a currently manual procedure/);
