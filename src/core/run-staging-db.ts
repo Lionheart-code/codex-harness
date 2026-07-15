@@ -51,6 +51,20 @@ export interface DatabaseStatus {
   warnings: string[];
 }
 
+export interface ProcedureArtifactDescriptor {
+  run_instance_id: string;
+  source_run_id: string;
+  procedure_id: string;
+  artifact_id: string;
+  payload_id: string;
+  content_hash: string;
+  recorded_at: string;
+  provenance_json: string;
+  reviewed_plan_artifact_id?: string;
+  reviewed_plan_content_hash?: string;
+  reviewed_evidence_artifact_id?: string;
+}
+
 interface NormalizedRecordRow {
   recordKind: string;
   recordId: string;
@@ -274,6 +288,21 @@ export function initializeMemoryDatabase(database: DatabaseLike, role: "project"
     "  created_at TEXT NOT NULL,",
     "  PRIMARY KEY (payload_id, parent_record_id, link_role)",
     ");",
+    "CREATE TABLE IF NOT EXISTS procedure_artifacts (",
+    "  run_instance_id TEXT NOT NULL,",
+    "  source_run_id TEXT NOT NULL,",
+    "  procedure_id TEXT NOT NULL,",
+    "  artifact_id TEXT NOT NULL,",
+    "  payload_id TEXT NOT NULL,",
+    "  content_hash TEXT NOT NULL,",
+    "  recorded_at TEXT NOT NULL,",
+    "  provenance_json TEXT NOT NULL,",
+    "  reviewed_plan_artifact_id TEXT,",
+    "  reviewed_plan_content_hash TEXT,",
+    "  reviewed_evidence_artifact_id TEXT,",
+    "  PRIMARY KEY (run_instance_id, procedure_id, artifact_id)",
+    ");",
+    "CREATE INDEX IF NOT EXISTS idx_procedure_artifacts_run ON procedure_artifacts (run_instance_id, procedure_id, recorded_at);",
     "CREATE INDEX IF NOT EXISTS idx_payload_run ON payload_index (source_run_id, kind, created_at);"
   ];
   database.exec(statements.join("\n"));
@@ -648,6 +677,86 @@ export class RunStagingDatabase {
     }
   }
 
+  readProcedureArtifact(
+    runInstanceId: string,
+    procedureId: string,
+    artifactId: string,
+    database?: DatabaseLike
+  ): ProcedureArtifactDescriptor | undefined {
+    const ownedDatabase = database ?? this.open();
+    try {
+      const row = ownedDatabase.prepare([
+        "SELECT run_instance_id, source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json,",
+        "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
+        "FROM procedure_artifacts WHERE run_instance_id = ? AND procedure_id = ? AND artifact_id = ?"
+      ].join(" ")).get(runInstanceId, procedureId, artifactId) as Record<string, unknown> | undefined;
+      if (!row) {
+        return undefined;
+      }
+      return {
+        run_instance_id: String(row.run_instance_id),
+        source_run_id: String(row.source_run_id),
+        procedure_id: String(row.procedure_id),
+        artifact_id: String(row.artifact_id),
+        payload_id: String(row.payload_id),
+        content_hash: String(row.content_hash),
+        recorded_at: String(row.recorded_at),
+        provenance_json: String(row.provenance_json),
+        ...(typeof row.reviewed_plan_artifact_id === "string" ? { reviewed_plan_artifact_id: row.reviewed_plan_artifact_id } : {}),
+        ...(typeof row.reviewed_plan_content_hash === "string" ? { reviewed_plan_content_hash: row.reviewed_plan_content_hash } : {}),
+        ...(typeof row.reviewed_evidence_artifact_id === "string" ? { reviewed_evidence_artifact_id: row.reviewed_evidence_artifact_id } : {})
+      };
+    } finally {
+      if (!database) {
+        ownedDatabase.close();
+      }
+    }
+  }
+
+  storeProcedureArtifact(database: DatabaseLike, descriptor: ProcedureArtifactDescriptor): void {
+    const existing = database.prepare([
+      "SELECT source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json,",
+      "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
+      "FROM procedure_artifacts WHERE run_instance_id = ? AND procedure_id = ? AND artifact_id = ?"
+    ].join(" ")).get(descriptor.run_instance_id, descriptor.procedure_id, descriptor.artifact_id) as Record<string, unknown> | undefined;
+    if (existing) {
+      for (const [key, value] of Object.entries({
+        source_run_id: descriptor.source_run_id,
+        procedure_id: descriptor.procedure_id,
+        artifact_id: descriptor.artifact_id,
+        payload_id: descriptor.payload_id,
+        content_hash: descriptor.content_hash,
+        recorded_at: descriptor.recorded_at,
+        provenance_json: descriptor.provenance_json,
+        reviewed_plan_artifact_id: descriptor.reviewed_plan_artifact_id ?? null,
+        reviewed_plan_content_hash: descriptor.reviewed_plan_content_hash ?? null,
+        reviewed_evidence_artifact_id: descriptor.reviewed_evidence_artifact_id ?? null
+      })) {
+        if (existing[key] !== value) {
+          throw new Error(`Procedure artifact identity conflict for ${descriptor.artifact_id}: ${key} does not match the stored descriptor.`);
+        }
+      }
+      return;
+    }
+    database.prepare([
+      "INSERT INTO procedure_artifacts",
+      "(run_instance_id, source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json, reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id)",
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ].join(" ")).run(
+      descriptor.run_instance_id,
+      descriptor.source_run_id,
+      descriptor.procedure_id,
+      descriptor.artifact_id,
+      descriptor.payload_id,
+      descriptor.content_hash,
+      descriptor.recorded_at,
+      descriptor.provenance_json,
+      descriptor.reviewed_plan_artifact_id ?? null,
+      descriptor.reviewed_plan_content_hash ?? null,
+      descriptor.reviewed_evidence_artifact_id ?? null
+    );
+  }
+
   private persistRun(database: DatabaseLike, run: Run): void {
     const persistedRun: Run = {
       ...run,
@@ -739,6 +848,14 @@ export class RunStagingDatabase {
   }
 
   mutateRun(runId: string, mutator: (run: Run) => Run, options: MutateRunOptions = {}): Run {
+    return this.mutateRunWithDatabase(runId, (run) => mutator(run), options);
+  }
+
+  mutateRunWithDatabase(
+    runId: string,
+    mutator: (run: Run, database: DatabaseLike) => Run,
+    options: MutateRunOptions = {}
+  ): Run {
     const database = this.open();
 
     try {
@@ -767,7 +884,7 @@ export class RunStagingDatabase {
           `Run ${runId} revision changed while applying a staged mutation. Expected ${options.expectedRunRevision}, got ${current.run_revision}.`
         );
       }
-      const next = mutator(current);
+      const next = mutator(current, database);
       const nextRevision = typeof current.run_revision === "number" && Number.isInteger(current.run_revision)
         ? current.run_revision + 1
         : 1;

@@ -41,6 +41,7 @@ import {
 } from "./lifecycle-types";
 import { evaluateMergeFacts } from "./merge-facts";
 import { ProjectMemoryDatabase } from "./project-memory-db";
+import { PayloadStore } from "./payload-store";
 import {
   HARNESS_DIR,
   TASK_REVIEW_FILE,
@@ -50,6 +51,7 @@ import {
 import { type ReviewRecord as HarnessReviewRecord, loadTaskReviewRecord } from "./review";
 import {
   RunStagingDatabase,
+  type ProcedureArtifactDescriptor,
   formatDatabasePath,
   isSelfHostingRunMode,
   resolveHarnessRoots,
@@ -208,6 +210,9 @@ export interface Approval {
   created_at: string;
   approver?: string;
   reason?: string;
+  reviewed_plan_artifact_id?: string;
+  reviewed_plan_content_hash?: string;
+  reviewed_evidence_artifact_id?: string;
 }
 
 export interface VerificationResult {
@@ -619,6 +624,9 @@ export interface RecordApprovalInput {
   createdAt?: string;
   approver?: string;
   reason?: string;
+  reviewedPlanArtifactId?: string;
+  reviewedPlanContentHash?: string;
+  reviewedEvidenceArtifactId?: string;
 }
 
 interface RuntimeVerificationCommand {
@@ -2175,7 +2183,10 @@ export function recordApproval(run: Run, input: RecordApprovalInput): Run {
     status: input.status,
     created_at: timestamp,
     ...(input.approver ? { approver: input.approver } : {}),
-    ...(input.reason ? { reason: input.reason } : {})
+    ...(input.reason ? { reason: input.reason } : {}),
+    ...(input.reviewedPlanArtifactId ? { reviewed_plan_artifact_id: input.reviewedPlanArtifactId } : {}),
+    ...(input.reviewedPlanContentHash ? { reviewed_plan_content_hash: input.reviewedPlanContentHash } : {}),
+    ...(input.reviewedEvidenceArtifactId ? { reviewed_evidence_artifact_id: input.reviewedEvidenceArtifactId } : {})
   };
 
   next.approvals.push(approval);
@@ -3666,11 +3677,6 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
       : false
   );
 
-  if (!dryRun && !alreadyRecorded) {
-    fs.mkdirSync(path.dirname(absoluteArtifactPath), { recursive: true });
-    fs.writeFileSync(absoluteArtifactPath, markdown, "utf8");
-  }
-
   if (dryRun) {
     const review = buildProcedureReviewResult(run, options.procedureId, artifact, markdown, timestamp);
     if (!alreadyRecorded) {
@@ -3688,7 +3694,7 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
     if (!staging.loadRun(current.run.run_id)) {
       staging.saveRun(current.run);
     }
-    run = staging.mutateRun(current.run.run_id, (latestRun) => {
+    run = staging.mutateRunWithDatabase(current.run.run_id, (latestRun, database) => {
       const review = buildProcedureReviewResult(latestRun, options.procedureId, artifact, markdown, timestamp);
       const duplicateEvidence = latestRun.evidence.some((entry) =>
         entry.evidence_id === evidence.evidence_id
@@ -3702,6 +3708,62 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
         }
         return latestRun;
       }
+
+      if (!latestRun.run_instance_id) {
+        throw new Error(`Procedure ${options.procedureId} cannot be recorded without an exact immutable run instance ID.`);
+      }
+
+      const payload = new PayloadStore(database).store({
+        parentRecordId: artifact.artifact_id,
+        sourceRunId: latestRun.run_id,
+        sourcePhaseId: latestRun.phase_id,
+        kind: `procedure-artifact-body:${options.procedureId}`,
+        mediaType: "text/markdown",
+        summary: `${options.procedureId} authoritative procedure body`,
+        content: markdown,
+        searchableText: markdown.slice(0, 4000),
+        boundedExcerpt: markdown.slice(0, 500),
+        retentionClass: "audit"
+      });
+      const reviewedPlanBinding = options.procedureId === "plan-review"
+        ? tryResolveExactPlanEvidenceBinding(latestRun)
+        : undefined;
+      if (options.procedureId === "plan-review" && latestRun.phase_id === "23.8.6D" && !reviewedPlanBinding) {
+        throw new Error("Plan review cannot be recorded without an exact effective-plan artifact identity.");
+      }
+      if (options.procedureId === "plan-review" && latestRun.phase_id === "23.8.6D" && reviewedPlanBinding) {
+        const planDescriptor = staging.readProcedureArtifact(
+          latestRun.run_instance_id,
+          reviewedPlanBinding.procedureId,
+          reviewedPlanBinding.artifactId,
+          database
+        );
+        if (!planDescriptor || planDescriptor.content_hash !== reviewedPlanBinding.contentHash) {
+          throw new Error("Plan review cannot prove the exact durable effective-plan artifact binding.");
+        }
+      }
+      staging.storeProcedureArtifact(database, {
+        run_instance_id: latestRun.run_instance_id,
+        source_run_id: latestRun.run_id,
+        procedure_id: options.procedureId,
+        artifact_id: artifact.artifact_id,
+        payload_id: payload.payload_id,
+        content_hash: contentHash,
+        recorded_at: timestamp,
+        provenance_json: JSON.stringify({
+          phase_id: latestRun.phase_id,
+          task_path: latestRun.active_task_path ?? latestRun.task_path,
+          worktree: latestRun.repository.root_path,
+          branch: latestRun.repository.branch,
+          head: latestRun.repository.head_sha,
+          source_snapshot: latestRun.source_snapshot,
+          compatibility_path: relativeArtifactPath
+        }),
+        ...(reviewedPlanBinding ? {
+          reviewed_plan_artifact_id: reviewedPlanBinding.artifactId,
+          reviewed_plan_content_hash: reviewedPlanBinding.contentHash
+        } : {})
+      });
 
       let next = withUpdatedAt({
         ...latestRun,
@@ -3718,6 +3780,18 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
       expectedRunInstanceId: current.run.run_instance_id,
       expectedRunRevision: current.run.run_revision
     });
+    if (recorded) {
+      fs.mkdirSync(path.dirname(absoluteArtifactPath), { recursive: true });
+      const temporaryPath = `${absoluteArtifactPath}.${randomUUID()}.tmp`;
+      try {
+        fs.writeFileSync(temporaryPath, markdown, "utf8");
+        fs.renameSync(temporaryPath, absoluteArtifactPath);
+      } finally {
+        if (fs.existsSync(temporaryPath)) {
+          fs.rmSync(temporaryPath, { force: true });
+        }
+      }
+    }
     writeCompatibilityRunArtifacts(targetRoot, run);
   }
 
@@ -3781,7 +3855,17 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
     path: relativeArtifactPath
   };
 
-  const effectivePlanArtifactId = resolveEffectivePlanApprovalArtifactId(targetRoot, current.run.run_id, current.run, artifact.artifact_id);
+  const staging = dryRun ? undefined : new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
+  const planBinding = resolveExactPlanApprovalBinding(
+    targetRoot,
+    current.run.run_id,
+    current.run,
+    artifact.artifact_id,
+    staging
+      ? (runInstanceId, procedureId, procedureArtifactId) => staging.readProcedureArtifact(runInstanceId, procedureId, procedureArtifactId)
+      : undefined
+  );
+  const effectivePlanArtifactId = planBinding.planArtifactId;
 
   let run = current.run;
   const hasArtifact = run.artifacts.some((entry) => entry.artifact_id === artifact.artifact_id);
@@ -3789,6 +3873,7 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
   const planApprovalReason = [
     options.reason?.trim(),
     `effective_plan_artifact_id=${effectivePlanArtifactId}`,
+    `reviewed_plan_review_artifact_id=${planBinding.planReviewArtifactId}`,
     `approved_plan_path=${relativeSourcePath}`,
     `approved_plan_artifact_id=${artifact.artifact_id}`
   ].filter(Boolean).join("; ");
@@ -3797,6 +3882,9 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
     && entry.approver === options.approver
     && entry.title === "Reviewed plan approved"
     && entry.reason === planApprovalReason
+    && entry.reviewed_plan_artifact_id === planBinding.planArtifactId
+    && entry.reviewed_plan_content_hash === planBinding.planContentHash
+    && entry.reviewed_evidence_artifact_id === planBinding.planReviewArtifactId
   );
 
   const approval = duplicateApproval ?? {
@@ -3805,17 +3893,15 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
     status: "approved" as const,
     approver: options.approver,
     created_at: timestamp,
-    reason: planApprovalReason
+    reason: planApprovalReason,
+    reviewed_plan_artifact_id: planBinding.planArtifactId,
+    reviewed_plan_content_hash: planBinding.planContentHash,
+    reviewed_evidence_artifact_id: planBinding.planReviewArtifactId
   };
   let finalApproval = approval;
 
   let recorded = !duplicateApproval;
   const absoluteArtifactPath = path.join(runDirectory(targetRoot, current.run.run_id), relativeArtifactPath);
-
-  if (!dryRun && (!hasArtifact || !hasEvidence || !duplicateApproval)) {
-    fs.mkdirSync(path.dirname(absoluteArtifactPath), { recursive: true });
-    fs.writeFileSync(absoluteArtifactPath, markdown, "utf8");
-  }
 
   if (dryRun) {
     if (!hasArtifact || !hasEvidence || !duplicateApproval) {
@@ -3832,26 +3918,33 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
         status: approval.status,
         approver: approval.approver,
         reason: approval.reason,
+        reviewedPlanArtifactId: approval.reviewed_plan_artifact_id,
+        reviewedPlanContentHash: approval.reviewed_plan_content_hash,
+        reviewedEvidenceArtifactId: approval.reviewed_evidence_artifact_id,
         createdAt: approval.created_at
       });
     }
   } else {
-    const staging = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
+    if (!staging) {
+      throw new Error("Plan approval requires a staging database outside dry-run mode.");
+    }
     if (!staging.loadRun(current.run.run_id)) {
       staging.saveRun(current.run);
     }
-    run = staging.mutateRun(current.run.run_id, (latestRun) => {
-      const latestEffectiveArtifactId = resolveEffectivePlanApprovalArtifactId(
+    let writeCompatibilityArtifact = !hasArtifact || !hasEvidence || !duplicateApproval;
+    run = staging.mutateRunWithDatabase(current.run.run_id, (latestRun, database) => {
+      const latestPlanBinding = resolveExactPlanApprovalBinding(
         targetRoot,
         latestRun.run_id,
         latestRun,
-        artifact.artifact_id
+        artifact.artifact_id,
+        (runInstanceId, procedureId, procedureArtifactId) => staging.readProcedureArtifact(
+          runInstanceId,
+          procedureId,
+          procedureArtifactId,
+          database
+        )
       );
-      if (latestEffectiveArtifactId !== artifact.artifact_id) {
-        throw new Error(
-          `Approved plan does not match the latest effective plan evidence. Expected ${latestEffectiveArtifactId}, got ${artifact.artifact_id}.`
-        );
-      }
 
       const latestHasArtifact = latestRun.artifacts.some((entry) => entry.artifact_id === artifact.artifact_id);
       const latestHasEvidence = latestRun.evidence.some((entry) => entry.evidence_id === evidence.evidence_id);
@@ -3860,8 +3953,12 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
         && entry.approver === options.approver
         && entry.title === "Reviewed plan approved"
         && entry.reason === planApprovalReason
+        && entry.reviewed_plan_artifact_id === latestPlanBinding.planArtifactId
+        && entry.reviewed_plan_content_hash === latestPlanBinding.planContentHash
+        && entry.reviewed_evidence_artifact_id === latestPlanBinding.planReviewArtifactId
       );
       recorded = !latestDuplicateApproval;
+      writeCompatibilityArtifact = !latestHasArtifact || !latestHasEvidence || !latestDuplicateApproval;
       const latestApproval = latestDuplicateApproval ?? {
         ...approval,
         approval_id: `approval-reviewed-plan-${hashPrefix}-${latestRun.approvals.length + 1}`
@@ -3883,6 +3980,9 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
           status: latestApproval.status,
           approver: latestApproval.approver,
           reason: latestApproval.reason,
+          reviewedPlanArtifactId: latestApproval.reviewed_plan_artifact_id,
+          reviewedPlanContentHash: latestApproval.reviewed_plan_content_hash,
+          reviewedEvidenceArtifactId: latestApproval.reviewed_evidence_artifact_id,
           createdAt: latestApproval.created_at
         });
       }
@@ -3891,6 +3991,18 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
       expectedRunInstanceId: current.run.run_instance_id,
       expectedRunRevision: current.run.run_revision
     });
+    if (writeCompatibilityArtifact) {
+      fs.mkdirSync(path.dirname(absoluteArtifactPath), { recursive: true });
+      const temporaryPath = `${absoluteArtifactPath}.${randomUUID()}.tmp`;
+      try {
+        fs.writeFileSync(temporaryPath, markdown, "utf8");
+        fs.renameSync(temporaryPath, absoluteArtifactPath);
+      } finally {
+        if (fs.existsSync(temporaryPath)) {
+          fs.rmSync(temporaryPath, { force: true });
+        }
+      }
+    }
     writeCompatibilityRunArtifacts(targetRoot, run);
   }
 
@@ -5384,40 +5496,137 @@ function readLatestProcedureEvidenceById(run: Run, procedureId: string): Evidenc
   return undefined;
 }
 
-function resolveEffectivePlanApprovalArtifactId(
+interface ExactPlanEvidenceBinding {
+  artifactId: string;
+  contentHash: string;
+  procedureId: "draft-plan" | "plan-amend";
+}
+
+interface ExactPlanApprovalBinding {
+  planArtifactId: string;
+  planContentHash: string;
+  planReviewArtifactId: string;
+}
+
+function readExactArtifactContentHash(artifactId: string, label: string): string {
+  const match = /^sha256:([a-f0-9]{64})$/.exec(artifactId);
+  if (!match) {
+    throw new Error(`${label} must be an exact sha256 artifact identity.`);
+  }
+  return match[1];
+}
+
+function tryResolveExactPlanEvidenceBinding(run: Run): ExactPlanEvidenceBinding | undefined {
+  const evidence = readLatestEffectivePlanEvidence(run);
+  if (!evidence?.artifact_id) {
+    return undefined;
+  }
+  return {
+    artifactId: evidence.artifact_id,
+    contentHash: readExactArtifactContentHash(evidence.artifact_id, "Effective plan evidence"),
+    procedureId: isPlanAmendEvidence(evidence) ? "plan-amend" : "draft-plan"
+  };
+}
+
+function resolveExactPlanApprovalBinding(
+  targetRoot: string,
+  runId: string,
+  run: Run,
+  candidateArtifactId: string,
+  descriptorLookup?: (runInstanceId: string, procedureId: string, artifactId: string) => ProcedureArtifactDescriptor | undefined
+): ExactPlanApprovalBinding {
+  const plan = tryResolveExactPlanEvidenceBinding(run);
+  if (!plan) {
+    if (run.phase_id === "23.8.6D") {
+      throw new Error("Plan approval cannot resolve an immutable plan binding without an exact effective-plan artifact identity.");
+    }
+    return resolveLegacyPlanApprovalBinding(targetRoot, runId, run, candidateArtifactId);
+  }
+  if (!run.run_instance_id) {
+    throw new Error("Plan approval cannot resolve an immutable plan binding without an exact run instance ID.");
+  }
+  if (candidateArtifactId !== plan.artifactId) {
+    throw new Error(
+      `Approved plan does not match the exact effective plan evidence. Expected ${plan.artifactId}, got ${candidateArtifactId}.`
+    );
+  }
+  const planReview = readLatestProcedureEvidenceById(run, "plan-review");
+  if (!planReview?.artifact_id) {
+    throw new Error("Plan approval requires an exact recorded plan-review artifact identity.");
+  }
+  readExactArtifactContentHash(planReview.artifact_id, "Plan-review evidence");
+  const descriptor = descriptorLookup?.(run.run_instance_id, "plan-review", planReview.artifact_id);
+  if (descriptorLookup && !descriptor) {
+    throw new Error("Plan approval cannot prove the exact durable plan-review binding.");
+  }
+  if (descriptor && (
+    descriptor.source_run_id !== run.run_id
+    || descriptor.procedure_id !== "plan-review"
+    || descriptor.artifact_id !== planReview.artifact_id
+    || descriptor.content_hash !== readExactArtifactContentHash(planReview.artifact_id, "Plan-review descriptor")
+    || descriptor.reviewed_plan_artifact_id !== plan.artifactId
+    || descriptor.reviewed_plan_content_hash !== plan.contentHash
+  )) {
+    throw new Error("Plan approval rejects a missing, cross-run, or mismatched immutable plan-review binding.");
+  }
+  const planDescriptor = descriptorLookup?.(run.run_instance_id, plan.procedureId, plan.artifactId);
+  if (descriptorLookup && (!planDescriptor || planDescriptor.source_run_id !== run.run_id
+    || planDescriptor.procedure_id !== plan.procedureId
+    || planDescriptor.content_hash !== plan.contentHash)) {
+    throw new Error("Plan approval cannot prove the exact durable effective-plan artifact binding.");
+  }
+  return {
+    planArtifactId: plan.artifactId,
+    planContentHash: plan.contentHash,
+    planReviewArtifactId: planReview.artifact_id
+  };
+}
+
+function resolveLegacyPlanApprovalBinding(
   targetRoot: string,
   runId: string,
   run: Run,
   candidateArtifactId: string
-): string {
+): ExactPlanApprovalBinding {
   const latestEffectivePlanEvidence = readLatestEffectivePlanEvidence(run);
-  if (latestEffectivePlanEvidence?.path) {
-    const effectivePlanAbsolutePath = path.join(path.dirname(runFilePath(targetRoot, runId)), latestEffectivePlanEvidence.path);
-    const effectivePlanMarkdown = fs.readFileSync(effectivePlanAbsolutePath, "utf8");
-    const effectivePlanArtifactId = `sha256:${sha256Hex(effectivePlanMarkdown)}`;
-    if (candidateArtifactId !== effectivePlanArtifactId) {
-      throw new Error(
-        `Approved plan does not match the latest effective plan evidence. Expected ${effectivePlanArtifactId}, got ${candidateArtifactId}.`
-      );
-    }
-    return effectivePlanArtifactId;
-  }
-
   const latestPlanReviewEvidence = readLatestProcedureEvidenceById(run, "plan-review");
+  if (!latestEffectivePlanEvidence?.path) {
+    if (!latestPlanReviewEvidence?.path) {
+      throw new Error("No reviewed plan evidence is recorded for this run. Record plan-review before approving a plan.");
+    }
+    const latestPlanReviewMarkdown = fs.readFileSync(
+      path.join(path.dirname(runFilePath(targetRoot, runId)), latestPlanReviewEvidence.path),
+      "utf8"
+    );
+    const validatedPlanReview = validatePlanReviewArtifact(latestPlanReviewMarkdown);
+    if (interpretPlanReviewDecisionRecord(validatedPlanReview.decisionRecord).route !== "approval") {
+      throw new Error("Plan approval without a recorded plan artifact is allowed only when the latest plan-review routes directly to approval.");
+    }
+    return {
+      planArtifactId: candidateArtifactId,
+      planContentHash: readExactArtifactContentHash(candidateArtifactId, "Legacy approved plan artifact"),
+      planReviewArtifactId: latestPlanReviewEvidence.artifact_id ?? `sha256:${sha256Hex(latestPlanReviewMarkdown)}`
+    };
+  }
+  const effectivePlanAbsolutePath = path.join(path.dirname(runFilePath(targetRoot, runId)), latestEffectivePlanEvidence.path);
+  const effectivePlanMarkdown = fs.readFileSync(effectivePlanAbsolutePath, "utf8");
+  const effectivePlanArtifactId = `sha256:${sha256Hex(effectivePlanMarkdown)}`;
+  if (candidateArtifactId !== effectivePlanArtifactId) {
+    throw new Error(
+      `Approved plan does not match the latest effective plan evidence. Expected ${effectivePlanArtifactId}, got ${candidateArtifactId}.`
+    );
+  }
   if (!latestPlanReviewEvidence?.path) {
-    throw new Error("No reviewed plan evidence is recorded for this run. Record plan-review before approving a plan.");
+    throw new Error("No recorded plan-review evidence is available for legacy plan approval.");
   }
-
-  const latestPlanReviewMarkdown = fs.readFileSync(
-    path.join(path.dirname(runFilePath(targetRoot, runId)), latestPlanReviewEvidence.path),
-    "utf8"
-  );
-  const validatedPlanReview = validatePlanReviewArtifact(latestPlanReviewMarkdown);
-  if (interpretPlanReviewDecisionRecord(validatedPlanReview.decisionRecord).route !== "approval") {
-    throw new Error("Plan approval without a recorded plan-amend is allowed only when the latest plan-review routes directly to approval.");
-  }
-
-  return candidateArtifactId;
+  return {
+    planArtifactId: effectivePlanArtifactId,
+    planContentHash: readExactArtifactContentHash(effectivePlanArtifactId, "Legacy effective plan evidence"),
+    planReviewArtifactId: latestPlanReviewEvidence.artifact_id ?? `sha256:${sha256Hex(fs.readFileSync(
+      path.join(path.dirname(runFilePath(targetRoot, runId)), latestPlanReviewEvidence.path),
+      "utf8"
+    ))}`
+  };
 }
 
 interface NextTaskDecisionRecord {
@@ -5554,7 +5763,16 @@ function hasApprovedPlan(runContext: OperatorRunContext): boolean {
     return true;
   }
 
-  return approvals.some(({ approval }) => approval.reason?.includes(`effective_plan_artifact_id=${latestEffectivePlanArtifactId}`));
+  const expectedContentHash = /^sha256:([a-f0-9]{64})$/.exec(latestEffectivePlanArtifactId)?.[1];
+  return approvals.some(({ approval }) => {
+    if (approval.reviewed_plan_artifact_id || approval.reviewed_plan_content_hash || approval.reviewed_evidence_artifact_id) {
+      return approval.reviewed_plan_artifact_id === latestEffectivePlanArtifactId
+        && approval.reviewed_plan_content_hash === expectedContentHash
+        && typeof approval.reviewed_evidence_artifact_id === "string"
+        && approval.reviewed_evidence_artifact_id.startsWith("sha256:");
+    }
+    return approval.reason?.includes(`effective_plan_artifact_id=${latestEffectivePlanArtifactId}`) ?? false;
+  });
 }
 
 function isReadOnlyActivityText(value: string): boolean {

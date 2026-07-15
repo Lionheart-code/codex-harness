@@ -1063,6 +1063,126 @@ test("phase 23.8.6 record-procedure ingests a durable plan-review artifact and i
   assert.match(replayPlanReview.stdout, /recorded: false/);
 });
 
+test("phase 23.8.6 stores authoritative procedure bodies and reconstructs them from project memory without markdown", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-procedure-payload-");
+  let run = createBaseRun(runtimeModule, tempRepo, "run-0001");
+  run = { ...run, phase_id: "23.8.6D" };
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+
+  const draftPlanBody = "# draft-plan\n";
+  const draftPlanHash = createHash("sha256").update(draftPlanBody).digest("hex");
+  writeProcedureArtifact(tempRepo, run.run_id, "draft-plan-payload", draftPlanBody);
+  assertSuccess(runCli([
+    "run", "record-procedure", "--run", run.run_id, "--procedure", "draft-plan",
+    "--file", `.harness/runs/${run.run_id}/manual/draft-plan-payload.md`
+  ], { cwd: tempRepo }), "record exact durable draft-plan body");
+
+  const body = buildPlanReviewArtifact();
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-payload", body);
+  const recorded = runCli([
+    "run", "record-procedure", "--run", run.run_id, "--procedure", "plan-review",
+    "--file", `.harness/runs/${run.run_id}/manual/plan-review-payload.md`
+  ], { cwd: tempRepo });
+  assertSuccess(recorded, "record authoritative procedure body");
+  assertSuccess(runCli([
+    "run", "approve-plan", "--run", run.run_id,
+    "--plan", `.harness/runs/${run.run_id}/evidence/draft-plan-${draftPlanHash.slice(0, 12)}.md`,
+    "--approver", "owner",
+    "--reason", "Human approved the exact reviewed plan."
+  ], { cwd: tempRepo }), "approve exact durable reviewed plan");
+
+  const { RunStagingDatabase, resolveHarnessRoots } = require(path.join(productRoot, "dist", "core", "run-staging-db.js"));
+  const { harvestRun } = require(path.join(productRoot, "dist", "core", "harvest.js"));
+  const { ProjectMemoryDatabase } = require(path.join(productRoot, "dist", "core", "project-memory-db.js"));
+  const roots = resolveHarnessRoots(tempRepo);
+  const staging = new RunStagingDatabase(tempRepo, roots.projectRoot, run.run_id);
+  let storedRun = staging.loadRun(run.run_id);
+  assert.ok(storedRun?.run_instance_id, "recorded run has an exact immutable identity");
+
+  const sqlite = require("node:sqlite");
+  const database = new sqlite.DatabaseSync(staging.paths.stagingDbPath, { readOnly: true });
+  const descriptor = database.prepare(
+    "SELECT procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json, reviewed_plan_artifact_id, reviewed_plan_content_hash FROM procedure_artifacts WHERE procedure_id = ?"
+  ).get("plan-review");
+  const payload = database.prepare(
+    "SELECT kind, source_run_id, content_hash, chunk_count FROM payload_index WHERE payload_id = ?"
+  ).get(descriptor.payload_id);
+  database.close();
+  assert.equal(descriptor.procedure_id, "plan-review");
+  assert.match(descriptor.artifact_id, /^sha256:/);
+  assert.equal(descriptor.content_hash, descriptor.artifact_id.slice("sha256:".length));
+  assert.equal(payload.kind, "procedure-artifact-body:plan-review");
+  assert.equal(payload.source_run_id, run.run_id);
+  assert.equal(payload.content_hash, descriptor.content_hash);
+  assert.ok(payload.chunk_count >= 1);
+  const draftPlanEvidence = storedRun.evidence.find((entry) => entry.kind === "procedure:draft-plan");
+  assert.ok(draftPlanEvidence?.artifact_id, "draft-plan has an exact immutable artifact identity");
+  assert.equal(descriptor.reviewed_plan_artifact_id, draftPlanEvidence.artifact_id);
+  assert.equal(descriptor.reviewed_plan_content_hash, draftPlanEvidence.artifact_id.slice("sha256:".length));
+  const approval = storedRun.approvals.find((entry) => entry.title === "Reviewed plan approved");
+  assert.equal(approval?.reviewed_plan_artifact_id, draftPlanEvidence.artifact_id);
+  assert.equal(approval?.reviewed_plan_content_hash, draftPlanEvidence.artifact_id.slice("sha256:".length));
+  assert.equal(approval?.reviewed_evidence_artifact_id, descriptor.artifact_id);
+
+  const compatibilityArtifact = storedRun.artifacts.find((artifact) => artifact.artifact_id === descriptor.artifact_id);
+  assert.ok(compatibilityArtifact, "run retains a non-authoritative compatibility artifact reference");
+  storedRun = {
+    ...storedRun,
+    lifecycle_status: "closed",
+    source_staging_db_path: staging.paths.stagingDbPath,
+    delivery_facts: [
+      {
+        delivery_fact_id: "merge-result",
+        run_id: run.run_id,
+        fact_kind: "merge_result",
+        source: "test",
+        status: "merged",
+        recorded_at: TIMESTAMP,
+        summary: "fixture merged"
+      },
+      {
+        delivery_fact_id: "merge-commit",
+        run_id: run.run_id,
+        fact_kind: "merge_commit",
+        source: "test",
+        status: "merged",
+        recorded_at: TIMESTAMP,
+        summary: "fixture merge commit",
+        commit_sha: gitHead(tempRepo)
+      }
+    ]
+  };
+  staging.saveRun(storedRun);
+  fs.rmSync(path.join(tempRepo, ".harness", "runs", run.run_id, compatibilityArtifact.path));
+  harvestRun(tempRepo, roots.projectRoot, run.run_id);
+
+  const project = new ProjectMemoryDatabase(tempRepo, roots.projectRoot);
+  const reconstructed = project.readProcedureArtifactBody({
+    projectRunId: storedRun.run_instance_id,
+    procedureId: "plan-review",
+    procedureArtifactId: descriptor.artifact_id
+  });
+  assert.equal(reconstructed.body, body);
+  assert.equal(reconstructed.content_hash, descriptor.content_hash);
+  assert.equal(reconstructed.procedure_id, "plan-review");
+  assert.equal(reconstructed.reviewed_plan_artifact_id, draftPlanEvidence.artifact_id);
+  assert.equal(reconstructed.reviewed_plan_content_hash, draftPlanEvidence.artifact_id.slice("sha256:".length));
+  assert.throws(
+    () => project.readProcedureArtifactBody({ projectRunId: "other-run-instance", procedureId: "plan-review", procedureArtifactId: descriptor.artifact_id }),
+    /could not prove one exact descriptor/
+  );
+  assert.throws(
+    () => project.readProcedureArtifactBody({ projectRunId: storedRun.run_instance_id, procedureId: "unknown-procedure", procedureArtifactId: descriptor.artifact_id }),
+    /unresolved canonical procedure ID/
+  );
+});
+
 test("phase 23.8.6 approve-plan records explicit reviewed-plan approval and advances to implementation-ready", () => {
   const runtimeModule = loadBuiltRuntime();
   const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-approve-plan-");
