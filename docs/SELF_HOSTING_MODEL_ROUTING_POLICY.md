@@ -359,6 +359,10 @@ or later repair step resolves it.
   issues exist, and stop on a hard blocker, configured owner gate, or budget
   stop. It must not launch external runners or implement runtime execution
   enforcement.
+- Phase `23.8.6C2A` owns commit-backed next-task materialization and
+  deterministic environment/procedure readiness for both Harness and Codex
+  Desktop-created worktrees. It does not copy ignored private state, select a
+  provider, or run a worker.
 - Phase `23.8.6D` owns procedure artifact payload storage and worktree
   retention.
 - Phase `23.8.6E` owns authority-surface freshness and downstream task

@@ -29,6 +29,7 @@ Non-procedure transitions belong in `next_allowed_action`.
 | `IMPLEMENTATION_READY` | `none` | builder handoff / implementation prompt | approved plan, task contract, allowed scope | `missing_builder_handoff` | closeout |
 | `IMPLEMENTATION_REVIEW_REQUIRED` | `implementation-review` | run implementation-review procedure | implementation report, diff/changed files, test output | `missing_implementation_evidence` | closeout |
 | `FIX_PASS_REQUIRED` | `fix-pass-review` | run fix-pass-review procedure | review findings, fix-pass report/diff/tests | `unresolved_review_findings` | closeout |
+| `COMBINED_ARCHITECTURE_DB_REVIEW_REQUIRED` | `architecture-review` | for C2A, run one independent read-only combined review and record the same labeled artifact under `architecture-review` and `db-storage-review` | architecture/authority and persisted-storage/no-storage-change verdicts | `missing_combined_architecture_db_review` or `combined_review_refresh_required` | implementation, source edits, verification, closeout |
 | `VERIFICATION_REVIEW_REQUIRED` | `verification-review` | run verification-review procedure | test/build/verification evidence | `missing_verification_evidence` | closeout |
 | `DELIVERY_FACTS_REVIEW_REQUIRED` | `delivery-facts-review` | run delivery-facts-review procedure | delivery facts record/import | `missing_delivery_facts` | closeout |
 | `CLOSEOUT_REVIEW_REQUIRED` | `phase-closeout-review` | run phase-closeout-review procedure | accepted implementation review, verification, delivery facts | `missing_closeout_review` | harvest |
@@ -104,12 +105,27 @@ Procedure ingestion may record that closeout/harvest selected the next task.
 New-cycle materialization is separate. Phase 23.8.6 now provides the current
 narrow
 command path for it: `run record-next-task` followed by
-`run materialize-next-task`. That sequence is not complete until the new task
-worktree writes `TASK.md`, the activation/materialization change is committed
-as the first commit in that branch/worktree, and clean git is confirmed. A
-working-tree-only `TASK.md` change is not enough to treat the new task as
-active. The harvested run still must not create, claim, or mutate the next
-task branch/worktree as old-run-owned state.
+`run materialize-next-task`. That sequence prepares, rather than starts, the
+new task run. The sequence is not complete until the new task worktree writes
+`TASK.md`, the complete activation authority is committed as the first commit
+in that branch/worktree, clean git is confirmed, and deterministic dependency/build
+plus tracked-procedure readiness checks pass. A Codex Desktop managed worktree
+may be entered instead of recreated, but a Desktop UI setup selection does not
+replace those readiness checks. A working-tree-only `TASK.md` change is not
+enough to treat the new task as active. After clean git, run
+`node bin/ch worktree bootstrap`, stop the predecessor task or Goal from
+writing, and explicitly enter a fresh successor Codex task before
+`node bin/ch run start --task TASK.md`. Harness does not create, close, or
+rebind Codex tasks or Goals. The harvested run still must not create, claim, or
+mutate the next task branch/worktree as old-run-owned state.
+
+For a materialized successor, `run start` repeats the deterministic bootstrap
+before durable run creation. Its readiness marker must match the committed
+`HEAD`, source tree, lockfile, and CLI build output, and no authority or
+readiness path may be a symbolic link. `--verify` rechecks installed
+dependencies against the lockfile; a missing prerequisite, stale
+generated output, or nonmatching dependency directory is a C2A bootstrap
+blocker rather than a runnable state.
 
 Once Phase 23.8.6 is active, `RUN_HARVESTED` must refer to identity-matched
 harvest evidence for the same immutable run instance. If project memory matches

@@ -2,9 +2,9 @@
 
 ## Status
 
-Active implementation phase. Phase 23.8.6C1A is complete, reviewed, accepted,
-and merged. Closeout remains blocked until C2 delivery and lifecycle evidence
-is complete.
+Complete, reviewed, accepted, and merged. Phase 23.8.6C2A owns the remaining
+commit-backed task-materialization and environment-bootstrap correction before
+Phase 23.8.6D may begin.
 
 ## Purpose
 
@@ -172,8 +172,10 @@ git diff --check
 
 - Follows the Phase 23.8.6C minimum bootstrap, C1 audit/task-contract rebase,
   and C1A routing/context/model-policy authority rebase.
+- Precedes Phase 23.8.6C2A, which makes the recorded materialization path
+  commit-backed and environment-ready without widening storage authority.
 - Precedes Phase 23.8.6D so durable procedure storage is built on truthful
-  task, checkout, source-snapshot, and base authority.
+  task, checkout, source-snapshot, base, and materialization authority.
 - Precedes Phase 23.8.6E authority freshness and Phase 23.8.7 normalized stage
   packet/result contracts.
 - Preserves Phase 30 experimentation and Phase 31 reviewed runner execution as

@@ -18,6 +18,7 @@ import {
 } from "../helpers/cli-test-utils.mjs";
 
 const ACTIVE_TASK_PATH = "tasks/PHASE_23_8_6C_SELF_HOSTING_OPERATOR_BOOTSTRAP_ENTRYPOINT.md";
+const C2A_ACTIVE_TASK_PATH = "tasks/PHASE_23_8_6C2A_COMMIT_BACKED_TASK_MATERIALIZATION_AND_ENVIRONMENT_BOOTSTRAP.md";
 const PREVIOUS_TASK_PATH = "tasks/PHASE_23_8_6B2_VERIFICATION_COMMAND_RATIONALIZATION_AND_SERIALIZATION.md";
 const TIMESTAMP = "2026-07-09T00:00:00.000Z";
 const tempDirectories = [];
@@ -59,6 +60,17 @@ function previousTaskMarkdown() {
     "",
     "## Goal",
     "Placeholder previous phase task.",
+    ""
+  ].join("\n");
+}
+
+function c2aTaskMarkdown(options = {}) {
+  return [
+    "# Phase 23.8.6C2A - Commit-Backed Task Materialization and Environment Bootstrap",
+    "",
+    "## Goal",
+    "Start only from a clean, first-commit-backed task activation.",
+    ...(options.policyPath ? ["", `Affected policy surface: \`${options.policyPath}\`. `] : []),
     ""
   ].join("\n");
 }
@@ -225,6 +237,80 @@ function createPhase2386CRepo(prefix, options = {}) {
   assertSuccess(runCommand("git", ["commit", "-m", "phase 23.8.6C scaffold"], { cwd: tempRepo }), "git commit scaffold");
 
   return tempRepo;
+}
+
+function createPhase2386C2ARepo(prefix, options = {}) {
+  const tempRepo = createPhase2386CRepo(prefix);
+  if (options.policyPath) {
+    writeText(path.join(tempRepo, options.policyPath), "# Live policy surface\n");
+    assertSuccess(runCommand("git", ["add", options.policyPath], { cwd: tempRepo }), "git add C2A policy fixture");
+    assertSuccess(runCommand("git", ["commit", "-m", "add C2A policy fixture"], { cwd: tempRepo }), "git commit C2A policy fixture");
+  }
+  const baseCommit = currentHead(tempRepo);
+  const branch = currentBranch(tempRepo);
+
+  if (options.mergeBase) {
+    assertSuccess(runCommand("git", ["remote", "add", "origin", tempRepo], { cwd: tempRepo }), "git remote add origin");
+    assertSuccess(runCommand("git", ["update-ref", `refs/remotes/origin/${branch}`, baseCommit], { cwd: tempRepo }), "git update-ref upstream");
+    assertSuccess(runCommand("git", ["config", `branch.${branch}.remote`, "origin"], { cwd: tempRepo }), "git config upstream remote");
+    assertSuccess(runCommand("git", ["config", `branch.${branch}.merge`, `refs/heads/${branch}`], { cwd: tempRepo }), "git config upstream merge");
+  }
+
+  writeText(
+    path.join(tempRepo, "TASK.md"),
+    [
+      "# Current Task",
+      "",
+      `Implement only: ${C2A_ACTIVE_TASK_PATH}`,
+      "",
+      "Do not implement Phase 23.8.6D or later.",
+      ""
+    ].join("\n")
+  );
+  writeText(path.join(tempRepo, C2A_ACTIVE_TASK_PATH), c2aTaskMarkdown(options));
+  writeText(
+    path.join(tempRepo, "docs", "IMPLEMENTATION_ROADMAP.md"),
+    [
+      "## Phase 23.8.6C2A — Commit-Backed Task Materialization and Environment Bootstrap",
+      "",
+      "Status:",
+      "Active implementation phase.",
+      ""
+    ].join("\n")
+  );
+  if (options.policyPath && !options.omitPolicyActivation) {
+    fs.appendFileSync(path.join(tempRepo, options.policyPath), "\nActivated for this task.\n");
+  }
+  writeText(
+    path.join(tempRepo, "docs", "OPERATIONS_PLAN.md"),
+    [
+      "## Current transition",
+      "",
+      "C2A activation is commit-backed before run start.",
+      ""
+    ].join("\n")
+  );
+  installHarnessLayerFixture(tempRepo, {
+    activeBaseCommitSha: options.omitPersistedBase ? undefined : baseCommit
+  });
+  if (options.omitPersistedBase) {
+    writeInstalledTaskState(tempRepo, "task-active-bootstrap", "Active bootstrap task", {
+      branch,
+      worktree: tempRepo
+    });
+  }
+
+  if (options.splitActivation) {
+    assertSuccess(runCommand("git", ["add", ".harness"], { cwd: tempRepo }), "git add C2A task state");
+    assertSuccess(runCommand("git", ["commit", "-m", "record C2A task state"], { cwd: tempRepo }), "git commit C2A task state");
+  }
+
+  assertSuccess(
+    runCommand("git", ["add", "TASK.md", C2A_ACTIVE_TASK_PATH, "docs", ...(options.policyPath && !options.omitPolicyActivation ? [options.policyPath] : []), ...(options.splitActivation ? [] : [".harness"])], { cwd: tempRepo }),
+    "git add C2A activation"
+  );
+  assertSuccess(runCommand("git", ["commit", "-m", "activate C2A task"], { cwd: tempRepo }), "git commit C2A activation");
+  return { baseCommit, tempRepo };
 }
 
 test("phase 23.8.6C2 run start dry-run blocks without base authority and does not mutate durable state", () => {
@@ -429,4 +515,93 @@ test("phase 23.8.6C run start fails closed on dirty git after activation and per
   const run = readJson(path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"));
   assert.equal(run.run_issues.some((issue) => issue.issue_type === "dirty_git_after_task_activation"), true);
   assert.equal(run.repair_packets.length, 1);
+});
+
+test("phase 23.8.6C2A starts only from a clean first post-base activation commit", () => {
+  ensureBuiltCli();
+  const { baseCommit, tempRepo } = createPhase2386C2ARepo("codex-harness-phase23-8-6c2a-first-commit-");
+
+  const result = runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo });
+  assertSuccess(result, "C2A run start after complete first activation");
+  const run = readJson(path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"));
+  const baseFact = run.bootstrap_facts.find((fact) => fact.label === "base_commit");
+  assert.equal(run.phase_id, "23.8.6C2A");
+  assert.equal(run.bootstrap_status, "ready");
+  assert.equal(run.run_issues.length, 0);
+  assert.equal(baseFact.value, baseCommit);
+  assert.equal(baseFact.source, "task_state");
+  assert.notEqual(baseFact.value, run.source_snapshot);
+});
+
+test("phase 23.8.6C2A rejects an activation authority change that is not the first post-base commit", () => {
+  ensureBuiltCli();
+  const { tempRepo } = createPhase2386C2ARepo("codex-harness-phase23-8-6c2a-late-activation-", {
+    splitActivation: true
+  });
+
+  const result = runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo });
+  assertFailure(result, "C2A run start with late activation authority");
+  const output = parseOutput(result.stdout);
+  assert.match(output.get("run issue missing_commit_backed_activation") ?? "", /cannot be proven/i);
+  assert.ok(output.get("repair packet id"));
+  assert.equal(fs.existsSync(path.join(tempRepo, ".harness", "runs", "current.json")), false, "blocked C2A start created durable run state");
+});
+
+test("phase 23.8.6C2A uses only configured-upstream merge-base when its persisted base is absent", () => {
+  ensureBuiltCli();
+  const { baseCommit, tempRepo } = createPhase2386C2ARepo("codex-harness-phase23-8-6c2a-upstream-base-", {
+    mergeBase: true,
+    omitPersistedBase: true
+  });
+
+  const result = runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo });
+  assertSuccess(result, "C2A run start with configured upstream merge-base");
+  const run = readJson(path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"));
+  const baseFact = run.bootstrap_facts.find((fact) => fact.label === "base_commit");
+  assert.equal(baseFact.value, baseCommit);
+  assert.equal(baseFact.source, "git_merge_base");
+  assert.notEqual(baseFact.value, run.source_snapshot);
+});
+
+test("phase 23.8.6C2A emits one typed blocker before durable creation when base authority is absent", () => {
+  ensureBuiltCli();
+  const { tempRepo } = createPhase2386C2ARepo("codex-harness-phase23-8-6c2a-missing-base-", {
+    omitPersistedBase: true
+  });
+
+  const result = runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo });
+  assertFailure(result, "C2A run start without base authority");
+  const output = parseOutput(result.stdout);
+  assert.match(output.get("run issue missing_base_authority") ?? "", /base authority cannot be proven/i);
+  assert.ok(output.get("repair packet id"));
+  assert.equal(fs.existsSync(path.join(tempRepo, ".harness", "runs", "current.json")), false, "blocked C2A start created durable run state");
+});
+
+test("phase 23.8.6C2A collapses an uncommitted activation into one typed blocker and repair packet", () => {
+  ensureBuiltCli();
+  const { tempRepo } = createPhase2386C2ARepo("codex-harness-phase23-8-6c2a-uncommitted-activation-");
+  fs.appendFileSync(path.join(tempRepo, "TASK.md"), "\n");
+
+  const result = runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo });
+  assertFailure(result, "C2A run start with uncommitted activation");
+  const output = parseOutput(result.stdout);
+  assert.match(output.get("run issue missing_commit_backed_activation") ?? "", /cannot be proven/i);
+  assert.equal([...output.keys()].filter((key) => key.startsWith("run issue ")).length, 1);
+  assert.ok(output.get("repair packet id"));
+  assert.equal(fs.existsSync(path.join(tempRepo, ".harness", "runs", "current.json")), false, "blocked C2A start created durable run state");
+});
+
+test("phase 23.8.6C2A requires a policy surface explicitly named by the active task contract in the first activation commit", () => {
+  ensureBuiltCli();
+  const { tempRepo } = createPhase2386C2ARepo("codex-harness-phase23-8-6c2a-policy-activation-", {
+    policyPath: "docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md",
+    omitPolicyActivation: true
+  });
+
+  const result = runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo });
+  assertFailure(result, "C2A run start without named policy activation");
+  const output = parseOutput(result.stdout);
+  assert.match(output.get("run issue missing_commit_backed_activation") ?? "", /cannot be proven/i);
+  assert.equal([...output.keys()].filter((key) => key.startsWith("run issue ")).length, 1);
+  assert.equal(fs.existsSync(path.join(tempRepo, ".harness", "runs", "current.json")), false, "blocked C2A start created durable run state");
 });

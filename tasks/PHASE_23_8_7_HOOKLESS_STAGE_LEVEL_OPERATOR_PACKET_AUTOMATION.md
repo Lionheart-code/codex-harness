@@ -9,7 +9,8 @@ Packaging, Phase 23.8.6B1 Supervised Review Launch and Blocked Disposition,
 Phase 23.8.6B2 Verification Command Rationalization and Serialization, Phase
 23.8.6C Minimum Self-Hosting Orchestrator Entrypoint, Phase 23.8.6C1A Routing,
 Context, and Model-Policy Authority Rebase, Phase 23.8.6C2 Bootstrap Authority
-Correctness, Phase 23.8.6D Procedure Artifact Payload Storage and
+Correctness, Phase 23.8.6C2A Commit-Backed Task Materialization and
+Environment Bootstrap, Phase 23.8.6D Procedure Artifact Payload Storage and
 Worktree Retention, and Phase 23.8.6E Authority Surface Freshness and
 Downstream Task Revalidation are complete, reviewed, and accepted.
 
@@ -152,6 +153,8 @@ preserving source issue links and an explicit migration/normalization rule.
   Phase 23.8.6C.
 - No reimplementation of Phase 23.8.6C2 task/base authority or current-record
   validation.
+- No reimplementation of Phase 23.8.6C2A commit-backed materialization or
+  worktree environment bootstrap.
 
 ## Future-phase impact check
 

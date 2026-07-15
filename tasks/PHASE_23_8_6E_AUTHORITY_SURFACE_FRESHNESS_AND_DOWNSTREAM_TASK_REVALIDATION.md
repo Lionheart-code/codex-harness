@@ -2,9 +2,10 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6C2 Bootstrap Authority Correctness and
-Phase 23.8.6D Procedure Artifact Payload Storage and Worktree Retention are
-complete, reviewed, accepted, and merged.
+Planned. Starts only after Phase 23.8.6C2 Bootstrap Authority Correctness,
+Phase 23.8.6C2A Commit-Backed Task Materialization and Environment Bootstrap,
+and Phase 23.8.6D Procedure Artifact Payload Storage and Worktree Retention
+are complete, reviewed, accepted, and merged.
 
 ## Purpose
 
@@ -140,9 +141,9 @@ provider/model routing, packet execution, or domain-pack behavior.
 
 ## Relationship to previous and next phases
 
-- Follows Phase 23.8.6C2 and Phase 23.8.6D so the revalidation can incorporate
-  real bootstrap-authority, verification, and storage discoveries rather than
-  planning guesses.
+- Follows Phase 23.8.6C2, C2A, and Phase 23.8.6D so the revalidation can
+  incorporate real bootstrap-authority, task-materialization/environment, and
+  storage discoveries rather than planning guesses.
 - Prepares Phase 23.8.7, Phase 23.9, Phase 24A/24B, and later live/planned
   authority surfaces to inherit current facts instead of stale assumptions.
 - Preserves Phase 30 as the future home for bounded experimentation and Phase

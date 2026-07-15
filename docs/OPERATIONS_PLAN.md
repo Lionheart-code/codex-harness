@@ -81,25 +81,44 @@ Near-term progression:
 
 ```text
 23.8.6 -> 23.8.6A -> 23.8.6B -> 23.8.6B1 -> 23.8.6B2 -> 23.8.6C ->
-23.8.6C1 -> 23.8.6C1A -> 23.8.6C2 -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9
+23.8.6C1 -> 23.8.6C1A -> 23.8.6C2 -> 23.8.6C2A -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9
 ```
 
 Phase 23.8.6C1 is the completed post-bootstrap task-contract rebase. Phase
 23.8.6C1A publishes provider-neutral routing, reasoning, context-transport,
 independence, and downstream ownership authority without implementing runtime
 routing. Phase 23.8.6C2 then performs narrow correctness hardening for the
-existing `run start --task TASK.md` and `run status --operator` surfaces; it is
-not a new orchestrator layer. Durable procedure payload storage follows in
-23.8.6D, authority freshness in 23.8.6E, and normalized provider-neutral stage
-packet/result and route-intent contracts in 23.8.7. Phase 31 remains the first
-general runtime provider-binding and runner-execution boundary.
+existing `run start --task TASK.md` and `run status --operator` surfaces. C2A
+makes task materialization commit-backed, prepares rather than starts the
+successor run, and verifies deterministic worktree readiness after either
+Harness or Codex Desktop creates the checkout; it never copies ignored private
+state. Before verification, C2A requires one independent combined
+architecture/authority and persisted-storage/no-storage-change review; a failed
+labeled verdict routes to a fix pass and then a fresh combined review. Durable
+procedure payload storage follows
+in 23.8.6D, authority freshness in 23.8.6E, and normalized provider-neutral
+stage packet/result and route-intent contracts in 23.8.7. Phase 31 remains the
+first general runtime provider-binding and runner-execution boundary.
 
 For a newly inserted phase, materialization is not complete when only
 `TASK.md` changes. Update the task contract, `TASK.md`, roadmap/operations
 order, and every required live authority/policy surface coherently; commit that
-complete activation in the task branch/worktree; verify clean git; only then
-start the authoritative Harness run. Any run opened before that commit is
-provisional and must be marked discardable before a fresh run is started.
+complete activation as the first commit in the task branch/worktree; verify
+clean git; run `node bin/ch worktree bootstrap` to perform deterministic
+dependency/build and tracked-procedure readiness checks; then stop the
+predecessor context and explicitly enter a fresh successor Codex task before
+starting the authoritative Harness run. A Codex Desktop local environment may
+run the same setup during worktree creation, but its UI selection is not proof
+by itself. Materialization never opens a successor run or controls a Codex
+task/Goal. It also fails closed unless exactly one installed TaskState owns the
+new worktree or branch, so every Harness-materialized successor receives the
+recorded immutable base before it can reach `run start`. That successor start
+repeats the deterministic bootstrap before durable run creation; `--verify`
+accepts only a generated readiness marker matching the committed `HEAD`, source
+tree, lockfile, and CLI build output; those authority and readiness paths may
+not be symbolic links. It rechecks installed dependencies
+against the lockfile. Stale or nonmatching dependency/build directories cannot
+claim readiness.
 
 Hard boundaries:
 
@@ -194,15 +213,20 @@ After commit:
 2. Create or enter the branch/worktree owned by that task with
    `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`.
 3. Let that materialization step write `TASK.md` for the next task in the task
+   worktree; it must not start a successor run.
+4. Commit the complete activation authority—`TASK.md`, active task contract,
+   roadmap/operations ordering, and affected live policy surfaces—as the first
+   commit in that new task branch/worktree.
+5. Verify clean git, then run `node bin/ch worktree bootstrap` in that task
+   worktree to install from the committed lockfile, build, and verify tracked
+   Harness/procedure surfaces.
+6. Stop the predecessor task or Goal from writing and explicitly open a fresh
+   successor Codex task in the prepared worktree; this is an operator handoff,
+   not automatic UI/Goal control.
+7. Only then run `node bin/ch run start --task TASK.md` in the successor
    worktree.
-4. Commit the resulting `TASK.md` activation/materialization change as the
-   first commit in that new task branch/worktree.
-5. Verify clean git in that new task context.
-6. Only then continue from the new run in that task worktree. If the current
-   narrow runtime path opened it earlier, treat it as provisional and
-   non-authoritative until steps 4-5 succeed.
-7. Run `/plan` again.
-8. Implement the active task only.
+8. Run `/plan` again.
+9. Implement the active task only.
 
 
 ## Product vs target project

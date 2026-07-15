@@ -21,6 +21,7 @@ const require = createRequire(import.meta.url);
 const ACTIVE_TASK_PATH = "tasks/PHASE_23_8_6_TRANSACTIONAL_PROCEDURE_RESULT_INGESTION.md";
 const ACTIVE_TASK_23_8_6A_PATH = "tasks/PHASE_23_8_6A_SELF_HOSTING_REPLAY_AND_REINGESTION_CONTINUITY.md";
 const ACTIVE_TASK_23_8_6B2_PATH = "tasks/PHASE_23_8_6B2_VERIFICATION_COMMAND_RATIONALIZATION_AND_SERIALIZATION.md";
+const ACTIVE_TASK_23_8_6C2A_PATH = "tasks/PHASE_23_8_6C2A_COMMIT_BACKED_TASK_MATERIALIZATION_AND_ENVIRONMENT_BOOTSTRAP.md";
 const TIMESTAMP = "2026-06-24T00:00:00.000Z";
 const tempDirectories = [];
 
@@ -104,6 +105,40 @@ function activeTask23_8_6B2Markdown() {
 
 function readProductText(relativePath) {
   return fs.readFileSync(path.join(productRoot, relativePath), "utf8");
+}
+
+function writeSuccessorBootstrapSurfaces(tempRepo) {
+  fs.mkdirSync(path.join(tempRepo, "bin"), { recursive: true });
+  writeText(path.join(tempRepo, "AGENTS.md"), "# Fixture instructions\n");
+  writeText(path.join(tempRepo, "bin", "ch"), "#!/bin/sh\nexit 0\n");
+  writeText(path.join(tempRepo, ".gitignore"), ".harness/\nnode_modules/\ndist/\n");
+  writeText(
+    path.join(tempRepo, "package.json"),
+    `${JSON.stringify({
+      name: "successor-bootstrap-fixture",
+      version: "1.0.0",
+      private: true,
+      scripts: {
+        "worktree:bootstrap": "npm ci && npm run build",
+        build: "node -e \"const fs = require('node:fs'); fs.mkdirSync('node_modules', { recursive: true }); fs.mkdirSync('dist/cli', { recursive: true }); fs.writeFileSync('dist/cli/index.js', 'module.exports = {};\\n');\""
+      }
+    }, null, 2)}\n`
+  );
+  writeText(
+    path.join(tempRepo, "package-lock.json"),
+    `${JSON.stringify({
+      name: "successor-bootstrap-fixture",
+      version: "1.0.0",
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        "": {
+          name: "successor-bootstrap-fixture",
+          version: "1.0.0"
+        }
+      }
+    }, null, 2)}\n`
+  );
 }
 
 function createPhase2386Repo(prefix) {
@@ -256,6 +291,35 @@ function createPhase2386B2Repo(prefix) {
   return tempRepo;
 }
 
+function createPhase2386C2ARepo(prefix) {
+  const tempRepo = createPhase2386ARepo(prefix);
+  writeText(
+    path.join(tempRepo, "TASK.md"),
+    [
+      "# Current Task",
+      "",
+      `Implement only: ${ACTIVE_TASK_23_8_6C2A_PATH}`,
+      "",
+      "Do not implement Phase 23.8.6D or later.",
+      ""
+    ].join("\n")
+  );
+  writeText(path.join(tempRepo, ACTIVE_TASK_23_8_6C2A_PATH), readProductText(ACTIVE_TASK_23_8_6C2A_PATH));
+  writeText(
+    path.join(tempRepo, "docs", "IMPLEMENTATION_ROADMAP.md"),
+    [
+      "## Phase 23.8.6C2A — Commit-Backed Task Materialization and Environment Bootstrap",
+      "",
+      "Task:",
+      `\`${ACTIVE_TASK_23_8_6C2A_PATH}\``,
+      ""
+    ].join("\n")
+  );
+  assertSuccess(runCommand("git", ["add", "TASK.md", ACTIVE_TASK_23_8_6C2A_PATH, "docs/IMPLEMENTATION_ROADMAP.md"], { cwd: tempRepo }), "git add C2A stage fixture");
+  assertSuccess(runCommand("git", ["commit", "-m", "phase 23.8.6C2A stage fixture"], { cwd: tempRepo }), "git commit C2A stage fixture");
+  return tempRepo;
+}
+
 function createPhase2386B2AuthorityBaselineRepo(prefix) {
   const tempRepo = createTempDirectory(prefix);
   tempDirectories.push(tempRepo);
@@ -339,6 +403,10 @@ function createBaseRun23_8_6A(runtimeModule, tempRepo, runId) {
 
 function createBaseRun23_8_6B2(runtimeModule, tempRepo, runId) {
   return createBaseRunForTask(runtimeModule, tempRepo, runId, ACTIVE_TASK_23_8_6B2_PATH, "23.8.6B2");
+}
+
+function createBaseRun23_8_6C2A(runtimeModule, tempRepo, runId) {
+  return createBaseRunForTask(runtimeModule, tempRepo, runId, ACTIVE_TASK_23_8_6C2A_PATH, "23.8.6C2A");
 }
 
 function appendProcedureEvidence(run, procedureId, index) {
@@ -3207,6 +3275,103 @@ test("phase 23.8.6A record-procedure replay backfills a newly supported architec
   assert.equal(runtimeState.review_results.some((entry) => entry.source === "procedure:architecture-review"), true);
 });
 
+test("phase 23.8.6C2A routes a failed labeled combined architecture/db review through fix pass and requires a fresh combined review", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386C2ARepo("codex-harness-phase23-8-6c2a-combined-review-");
+  let run = createBaseRun23_8_6C2A(runtimeModule, tempRepo, "run-0001");
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+  writeProcedureArtifact(tempRepo, run.run_id, "c2a-plan-review", buildPlanReviewArtifact());
+  writeProcedureArtifact(tempRepo, run.run_id, "c2a-draft-plan", "# C2A approved plan\n");
+  assertSuccess(runCli(
+    ["run", "record-procedure", "--run", run.run_id, "--procedure", "plan-review", "--file", `.harness/runs/${run.run_id}/manual/c2a-plan-review.md`],
+    { cwd: tempRepo }
+  ), "record C2A plan review");
+  assertSuccess(runCli(
+    ["run", "approve-plan", "--run", run.run_id, "--plan", `.harness/runs/${run.run_id}/manual/c2a-draft-plan.md`, "--approver", "owner", "--reason", "Human approved the reviewed implementation plan."],
+    { cwd: tempRepo }
+  ), "approve C2A plan");
+
+  run = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  run = addImplementationEvidence(runtimeModule, run);
+  run = appendProcedureEvidence(run, "implementation-review", 5);
+  run = addReviewResult(runtimeModule, run, "PASS", "Implementation review passed", "procedure:implementation-review");
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+
+  let operator = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(operator.get("current_stage"), "COMBINED_ARCHITECTURE_DB_REVIEW_REQUIRED");
+
+  const failedCombinedReview = [
+    "## Architecture / Authority Verdict",
+    "",
+    "**FAIL**",
+    "",
+    "## Persisted Storage / No-storage-change Verdict",
+    "",
+    "**PASS**",
+    ""
+  ].join("\n");
+  writeProcedureArtifact(tempRepo, run.run_id, "combined-review-failed", failedCombinedReview);
+  for (const procedureId of ["architecture-review", "db-storage-review"]) {
+    assertSuccess(runCli(
+      ["run", "record-procedure", "--run", run.run_id, "--procedure", procedureId, "--file", `.harness/runs/${run.run_id}/manual/combined-review-failed.md`],
+      { cwd: tempRepo }
+    ), `record failed C2A ${procedureId}`);
+  }
+
+  let runtimeState = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  assert.equal(runtimeState.review_results.find((entry) => entry.source === "procedure:architecture-review")?.status, "FIX_REQUIRED");
+  assert.equal(runtimeState.review_results.find((entry) => entry.source === "procedure:db-storage-review")?.status, "PASS");
+  operator = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(operator.get("current_stage"), "FIX_PASS_REQUIRED");
+  assert.equal(operator.get("next_procedure_id"), "fix-pass-review");
+
+  writeProcedureArtifact(tempRepo, run.run_id, "combined-review-fix-pass", ["## Resolution Status", "", "1. `resolved` C2A combined-review finding.", ""].join("\n"));
+  assertSuccess(runCli(
+    ["run", "record-procedure", "--run", run.run_id, "--procedure", "fix-pass-review", "--file", `.harness/runs/${run.run_id}/manual/combined-review-fix-pass.md`],
+    { cwd: tempRepo }
+  ), "record C2A combined-review fix pass");
+  operator = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(operator.get("current_stage"), "COMBINED_ARCHITECTURE_DB_REVIEW_REQUIRED");
+  assert.match(operator.get("stop_reason") ?? "", /combined_review_refresh_required/);
+
+  const passingCombinedReview = failedCombinedReview.replace("**FAIL**", "**PASS**");
+  writeProcedureArtifact(tempRepo, run.run_id, "combined-review-passed", passingCombinedReview);
+  assertSuccess(runCli(
+    ["run", "record-procedure", "--run", run.run_id, "--procedure", "architecture-review", "--file", `.harness/runs/${run.run_id}/manual/combined-review-passed.md`],
+    { cwd: tempRepo }
+  ), "record partial passing C2A architecture review");
+  operator = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(operator.get("current_stage"), "COMBINED_ARCHITECTURE_DB_REVIEW_REQUIRED");
+  assert.match(operator.get("stop_reason") ?? "", /combined_review_refresh_required/);
+
+  const mismatchedPassingCombinedReview = `${passingCombinedReview}\n`;
+  writeProcedureArtifact(tempRepo, run.run_id, "combined-review-passed-mismatched", mismatchedPassingCombinedReview);
+  assertSuccess(runCli(
+    ["run", "record-procedure", "--run", run.run_id, "--procedure", "db-storage-review", "--file", `.harness/runs/${run.run_id}/manual/combined-review-passed-mismatched.md`],
+    { cwd: tempRepo }
+  ), "record mismatched passing C2A storage review");
+  operator = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(operator.get("current_stage"), "COMBINED_ARCHITECTURE_DB_REVIEW_REQUIRED");
+  assert.match(operator.get("stop_reason") ?? "", /combined_review_refresh_required/);
+
+  assertSuccess(runCli(
+    ["run", "record-procedure", "--run", run.run_id, "--procedure", "db-storage-review", "--file", `.harness/runs/${run.run_id}/manual/combined-review-passed.md`],
+    { cwd: tempRepo }
+  ), "record shared passing C2A storage review");
+
+  runtimeState = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  assert.equal(runtimeState.review_results.filter((entry) => entry.source === "procedure:architecture-review").at(-1)?.status, "PASS");
+  assert.equal(runtimeState.review_results.filter((entry) => entry.source === "procedure:db-storage-review").at(-1)?.status, "PASS");
+  operator = runOperatorStatus(tempRepo, run.run_id);
+  assert.equal(operator.get("current_stage"), "VERIFICATION_REVIEW_REQUIRED");
+});
+
 test("phase 23.8.6A recovered run can continue through closeout and harvest when evidence is already present", () => {
   const runtimeModule = loadBuiltRuntime();
   const tempRepo = createPhase2386ARepo("codex-harness-phase23-8-6a-closeout-harvest-");
@@ -3380,7 +3545,7 @@ test("phase 23.8.6 closeout refreshes repository snapshot to live HEAD while pre
   assert.ok(receipt.change_set.git_status_lines.some((line) => /README\.md/.test(line)));
 });
 
-test("phase 23.8.6 record-next-task and materialize-next-task create a new task-owned worktree and run", () => {
+test("phase 23.8.6 record-next-task and materialize-next-task prepare a new task-owned worktree before its separate run", async () => {
   const runtimeModule = loadBuiltRuntime();
   const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-materialize-next-task-");
   const nextTaskPath = "tasks/PHASE_23_8_7_PACKET_RESULT_LIFECYCLE_CONTRACT.md";
@@ -3397,7 +3562,19 @@ test("phase 23.8.6 record-next-task and materialize-next-task create a new task-
       ""
     ].join("\n")
   );
-  assertSuccess(runCommand("git", ["add", nextTaskPath], { cwd: tempRepo }), "git add next task");
+  writeText(
+    path.join(tempRepo, "docs", "OPERATIONS_PLAN.md"),
+    "## Transition\n\nPhase 23.8.7 follows commit-backed activation.\n"
+  );
+  writeSuccessorBootstrapSurfaces(tempRepo);
+  assertSuccess(
+    runCommand(
+      "git",
+      ["add", nextTaskPath, "docs/OPERATIONS_PLAN.md", "AGENTS.md", "bin/ch", ".gitignore", "package.json", "package-lock.json"],
+      { cwd: tempRepo }
+    ),
+    "git add next task bootstrap surfaces"
+  );
   assertSuccess(runCommand("git", ["commit", "-m", "add next task"], { cwd: tempRepo }), "git commit next task");
 
   const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
@@ -3430,8 +3607,6 @@ test("phase 23.8.6 record-next-task and materialize-next-task create a new task-
 
   const worktreePath = path.join(path.dirname(tempRepo), `${path.basename(tempRepo)}-next-task-worktree`);
   tempDirectories.push(worktreePath);
-  const taskStatePath = path.join(tempRepo, ".harness", "tasks", "task-next-phase", "state.json");
-  fs.mkdirSync(path.dirname(taskStatePath), { recursive: true });
   writeText(path.join(tempRepo, ".harness", "config.toml"), "[harness]\nversion = \"0.1.0\"\n");
   writeText(
     path.join(tempRepo, ".harness", "install.json"),
@@ -3445,22 +3620,118 @@ test("phase 23.8.6 record-next-task and materialize-next-task create a new task-
       source: "test"
     }, null, 2)}\n`
   );
-  writeText(
-    taskStatePath,
-    `${JSON.stringify({
-      schema_version: 1,
-      producer_command: "test",
-      task_id: "task-next-phase",
-      title: "Next phase",
-      status: "created",
-      created_at: TIMESTAMP,
-      updated_at: TIMESTAMP,
-      phase: "3",
-      spec: "spec.md",
-      acceptance: "acceptance.md",
-      branch: "task/phase-23-8-7-packet-result-lifecycle-contract"
-    }, null, 2)}\n`
+
+  const unownedWorktreePath = path.join(path.dirname(tempRepo), `${path.basename(tempRepo)}-unowned-next-task-worktree`);
+  tempDirectories.push(unownedWorktreePath);
+  const unownedMaterialization = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      "task/unowned-phase-23-8-7",
+      "--worktree",
+      unownedWorktreePath,
+      "--create"
+    ],
+    { cwd: tempRepo }
   );
+  assertFailure(unownedMaterialization, "materialize successor without an installed task-state owner");
+  assert.match(unownedMaterialization.stderr, /requires exactly one installed task-state owner/i);
+  assert.equal(fs.existsSync(unownedWorktreePath), false, "unowned materialization should roll back its worktree");
+  assertFailure(
+    runCommand("git", ["show-ref", "--verify", "--quiet", "refs/heads/task/unowned-phase-23-8-7"], { cwd: tempRepo }),
+    "unowned materialization should roll back its branch"
+  );
+
+  const taskStatePath = path.join(tempRepo, ".harness", "tasks", "task-next-phase", "state.json");
+  fs.mkdirSync(path.dirname(taskStatePath), { recursive: true });
+  const writeMaterializedTaskState = (branch) => {
+    writeText(
+      taskStatePath,
+      `${JSON.stringify({
+        schema_version: 1,
+        producer_command: "test",
+        task_id: "task-next-phase",
+        title: "Next phase",
+        status: "created",
+        created_at: TIMESTAMP,
+        updated_at: TIMESTAMP,
+        phase: "3",
+        spec: "spec.md",
+        acceptance: "acceptance.md",
+        branch
+      }, null, 2)}\n`
+    );
+  };
+
+  writeMaterializedTaskState("task/unrelated-phase-23-8-7");
+  const unrelatedWorktreePath = path.join(path.dirname(tempRepo), `${path.basename(tempRepo)}-unrelated-next-task-worktree`);
+  tempDirectories.push(unrelatedWorktreePath);
+  const unrelatedMaterialization = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      "task/unrelated-phase-23-8-7-target",
+      "--worktree",
+      unrelatedWorktreePath,
+      "--create"
+    ],
+    { cwd: tempRepo }
+  );
+  assertFailure(unrelatedMaterialization, "materialize successor with a sole unrelated task-state owner");
+  assert.match(unrelatedMaterialization.stderr, /owner matching the requested branch\/worktree/i);
+  assert.equal(fs.existsSync(unrelatedWorktreePath), false, "unrelated-owner materialization should roll back its worktree");
+  assertFailure(
+    runCommand("git", ["show-ref", "--verify", "--quiet", "refs/heads/task/unrelated-phase-23-8-7-target"], { cwd: tempRepo }),
+    "unrelated-owner materialization should roll back its branch"
+  );
+
+  writeMaterializedTaskState("task/phase-23-8-7-packet-result-lifecycle-contract");
+
+  const malformedTaskDirectory = path.join(tempRepo, ".harness", "tasks", "task-malformed-competing-owner");
+  const malformedWorktreePath = path.join(path.dirname(tempRepo), `${path.basename(tempRepo)}-malformed-next-task-worktree`);
+  tempDirectories.push(malformedWorktreePath);
+  fs.mkdirSync(malformedTaskDirectory, { recursive: true });
+  writeText(path.join(malformedTaskDirectory, "state.json"), "{not valid json}\n");
+  const malformedMaterialization = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      "task/malformed-phase-23-8-7-target",
+      "--worktree",
+      malformedWorktreePath,
+      "--create"
+    ],
+    { cwd: tempRepo }
+  );
+  assertFailure(malformedMaterialization, "materialize successor with a malformed competing task-state record");
+  assert.match(malformedMaterialization.stderr, /requires every installed task-state record to be readable/i);
+  assert.equal(fs.existsSync(malformedWorktreePath), false, "malformed-owner materialization should roll back its worktree");
+  assertFailure(
+    runCommand("git", ["show-ref", "--verify", "--quiet", "refs/heads/task/malformed-phase-23-8-7-target"], { cwd: tempRepo }),
+    "malformed-owner materialization should roll back its branch"
+  );
+  fs.rmSync(malformedTaskDirectory, { recursive: true, force: true });
 
   const materialize = runCli(
     [
@@ -3482,11 +3753,98 @@ test("phase 23.8.6 record-next-task and materialize-next-task create a new task-
   );
   assertSuccess(materialize, "run materialize-next-task --create");
   assert.match(materialize.stdout, /created: true/);
+  assert.match(materialize.stdout, /handoff required: true/);
+  assert.match(materialize.stdout, /Stop the predecessor task or Goal from writing/);
   assert.equal(fs.existsSync(worktreePath), true, "materialized worktree should exist");
 
   const newTaskPointer = fs.readFileSync(path.join(worktreePath, "TASK.md"), "utf8");
   assert.match(newTaskPointer, new RegExp(`Implement only: ${nextTaskPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 
+  assert.equal(
+    fs.existsSync(path.join(worktreePath, ".harness", "runs", "current.json")),
+    false,
+    "materialization must not create a successor runtime run"
+  );
+  const taskState = JSON.parse(fs.readFileSync(taskStatePath, "utf8"));
+  assert.equal(taskState.base_commit_sha, gitHead(tempRepo));
+
+  const blockedStart = runCli(["run", "start", "--task", "TASK.md"], { cwd: worktreePath });
+  assertFailure(blockedStart, "run start before successor activation commit");
+  assert.match(blockedStart.stdout, /run issue missing_commit_backed_activation/);
+  assert.equal(fs.existsSync(path.join(worktreePath, ".harness", "runs", "current.json")), false);
+
+  fs.appendFileSync(path.join(worktreePath, nextTaskPath), "\n## Status\n\nActive implementation phase.\n", "utf8");
+  fs.appendFileSync(path.join(worktreePath, "docs", "IMPLEMENTATION_ROADMAP.md"), "\n## Phase 23.8.7\n\nActive implementation phase.\n", "utf8");
+  fs.appendFileSync(path.join(worktreePath, "docs", "OPERATIONS_PLAN.md"), "\n## Active transition\n\nPhase 23.8.7 is active.\n", "utf8");
+  assertSuccess(
+    runCommand("git", ["add", "TASK.md", nextTaskPath, "docs/IMPLEMENTATION_ROADMAP.md", "docs/OPERATIONS_PLAN.md"], { cwd: worktreePath }),
+    "git add successor activation"
+  );
+  assertSuccess(runCommand("git", ["commit", "-m", "activate next task"], { cwd: worktreePath }), "git commit successor activation");
+
+  const lockfilePath = path.join(worktreePath, "package-lock.json");
+  const lockfileContents = fs.readFileSync(lockfilePath, "utf8");
+  fs.rmSync(lockfilePath);
+  assertSuccess(runCommand("git", ["add", "--update", "package-lock.json"], { cwd: worktreePath }), "git stage missing successor lockfile");
+  assertSuccess(runCommand("git", ["commit", "-m", "remove successor lockfile"], { cwd: worktreePath }), "git commit missing successor lockfile");
+  const bootstrapBlocked = await runtimeModule.startRuntimeRun(worktreePath, { taskPath: "TASK.md" });
+  assert.equal(bootstrapBlocked.state, "blocked");
+  assert.equal(bootstrapBlocked.bootstrap.issues.length, 1);
+  assert.equal(
+    bootstrapBlocked.bootstrap.issues[0].issue_type,
+    "worktree_bootstrap_not_ready",
+    bootstrapBlocked.bootstrap.issues[0].details
+  );
+  assert.equal(bootstrapBlocked.bootstrap.issues[0].phase_id, "23.8.6C2A");
+  assert.equal(bootstrapBlocked.bootstrap.repairPacket.phase_id, "23.8.6C2A");
+  runtimeModule.validateRuntimeRun(bootstrapBlocked.run);
+  assert.equal(fs.existsSync(path.join(worktreePath, ".harness", "runs", "current.json")), false);
+
+  const originalTaskState = fs.readFileSync(taskStatePath, "utf8");
+  const mixedIssueTaskState = JSON.parse(originalTaskState);
+  mixedIssueTaskState.worktree = tempRepo;
+  mixedIssueTaskState.base_commit_sha = "not-a-resolvable-materialization-base";
+  writeText(taskStatePath, `${JSON.stringify(mixedIssueTaskState, null, 2)}\n`);
+  const mixedIssueBlocked = await runtimeModule.startRuntimeRun(worktreePath, { taskPath: "TASK.md" });
+  assert.equal(mixedIssueBlocked.state, "blocked");
+  assert.deepEqual(
+    mixedIssueBlocked.bootstrap.issues.map((issue) => issue.issue_type),
+    ["task_worktree_authority_mismatch", "missing_base_authority"]
+  );
+  assert.deepEqual(mixedIssueBlocked.bootstrap.issues.map((issue) => issue.phase_id), ["23.8.6C2A", "23.8.6C2A"]);
+  assert.equal(mixedIssueBlocked.bootstrap.repairPacket.phase_id, "23.8.6C2A");
+  writeText(taskStatePath, originalTaskState);
+
+  writeText(lockfilePath, lockfileContents);
+  assertSuccess(runCommand("git", ["add", "package-lock.json"], { cwd: worktreePath }), "git restore successor lockfile");
+  assertSuccess(runCommand("git", ["commit", "-m", "restore successor lockfile"], { cwd: worktreePath }), "git commit restored successor lockfile");
+
+  const restoredTaskState = fs.readFileSync(taskStatePath, "utf8");
+  writeText(taskStatePath, "{not valid JSON}\n");
+  const malformedTaskStateBlocked = await runtimeModule.startRuntimeRun(worktreePath, { taskPath: "TASK.md" });
+  assert.equal(malformedTaskStateBlocked.state, "blocked");
+  assert.deepEqual(malformedTaskStateBlocked.bootstrap.issues.map((issue) => issue.issue_type), ["bootstrap_authority_unmatched"]);
+  assert.deepEqual(malformedTaskStateBlocked.bootstrap.issues.map((issue) => issue.phase_id), ["23.8.6C2A"]);
+  assert.equal(malformedTaskStateBlocked.bootstrap.repairPacket.phase_id, "23.8.6C2A");
+  runtimeModule.validateRuntimeRun(malformedTaskStateBlocked.run);
+  assert.equal(fs.existsSync(path.join(worktreePath, ".harness", "runs", "current.json")), false);
+
+  fs.rmSync(taskStatePath);
+  const missingTaskStateBlocked = await runtimeModule.startRuntimeRun(worktreePath, { taskPath: "TASK.md" });
+  assert.equal(missingTaskStateBlocked.state, "blocked");
+  assert.deepEqual(missingTaskStateBlocked.bootstrap.issues.map((issue) => issue.issue_type), ["bootstrap_authority_unmatched"]);
+  assert.deepEqual(missingTaskStateBlocked.bootstrap.issues.map((issue) => issue.phase_id), ["23.8.6C2A"]);
+  assert.equal(missingTaskStateBlocked.bootstrap.repairPacket.phase_id, "23.8.6C2A");
+  runtimeModule.validateRuntimeRun(missingTaskStateBlocked.run);
+  assert.equal(fs.existsSync(path.join(worktreePath, ".harness", "runs", "current.json")), false);
+  writeText(taskStatePath, restoredTaskState);
+
+  const start = await runtimeModule.startRuntimeRun(worktreePath, { taskPath: "TASK.md" });
+  assert.equal(
+    start.state,
+    "created",
+    start.bootstrap.issues.map((issue) => issue.details ?? issue.summary).join("\n")
+  );
   const newCurrentRun = JSON.parse(fs.readFileSync(path.join(worktreePath, ".harness", "runs", "current.json"), "utf8"));
   const newRun = JSON.parse(
     fs.readFileSync(path.join(worktreePath, ".harness", "runs", newCurrentRun.run_id, "run.json"), "utf8")
@@ -3494,6 +3852,153 @@ test("phase 23.8.6 record-next-task and materialize-next-task create a new task-
   assert.equal(newRun.task_path, "TASK.md");
   assert.equal(newRun.active_task_path, nextTaskPath);
   assert.equal(newRun.phase_id, "23.8.7");
+});
+
+test("phase 23.8.6 materialize-next-task enters a registered existing worktree without creating a run", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-enter-existing-worktree-");
+  const nextTaskPath = "tasks/PHASE_23_8_7_PACKET_RESULT_LIFECYCLE_CONTRACT.md";
+  const branch = "task/phase-23-8-7-enter-existing";
+  writeText(
+    path.join(tempRepo, nextTaskPath),
+    [
+      "# Phase 23.8.7 - Packet / Result Lifecycle Contract",
+      "",
+      "## Acceptance commands",
+      "",
+      "```bash",
+      "npm run build",
+      "```",
+      ""
+    ].join("\n")
+  );
+  assertSuccess(runCommand("git", ["add", nextTaskPath], { cwd: tempRepo }), "git add entered-existing next task");
+  assertSuccess(runCommand("git", ["commit", "-m", "add entered-existing next task"], { cwd: tempRepo }), "git commit entered-existing next task");
+  const baseCommit = gitHead(tempRepo);
+  const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
+  const sourceArtifactPath = writeProcedureArtifact(tempRepo, run.run_id, "next-task-decision", "Enter an existing task worktree.\n");
+  const recordDecision = runCli(
+    [
+      "run",
+      "record-next-task",
+      "--run",
+      run.run_id,
+      "--task",
+      nextTaskPath,
+      "--base-commit",
+      baseCommit,
+      "--file",
+      path.relative(tempRepo, sourceArtifactPath)
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(recordDecision, "record next task for entered-existing worktree");
+  const decisionId = parseOperatorOutput(recordDecision.stdout).get("decision id");
+  assert.ok(decisionId, "entered-existing decision id should be reported");
+
+  const worktreePath = path.join(path.dirname(tempRepo), `${path.basename(tempRepo)}-existing-worktree`);
+  tempDirectories.push(worktreePath);
+  assertSuccess(runCommand("git", ["worktree", "add", "-b", branch, worktreePath, baseCommit], { cwd: tempRepo }), "git worktree add existing fixture");
+  const taskStatePath = path.join(tempRepo, ".harness", "tasks", "task-entered-existing", "state.json");
+  fs.mkdirSync(path.dirname(taskStatePath), { recursive: true });
+  writeText(path.join(tempRepo, ".harness", "config.toml"), "[harness]\nversion = \"0.1.0\"\n");
+  writeText(
+    path.join(tempRepo, ".harness", "install.json"),
+    `${JSON.stringify({
+      schema_version: 1,
+      producer_command: "test",
+      harness_version: "0.1.0",
+      templates_version: "0.1.0",
+      installed_at: TIMESTAMP,
+      updated_at: TIMESTAMP,
+      source: "test"
+    }, null, 2)}\n`
+  );
+  writeText(
+    taskStatePath,
+    `${JSON.stringify({
+      schema_version: 1,
+      producer_command: "test",
+      task_id: "task-entered-existing",
+      title: "Entered existing task",
+      status: "created",
+      created_at: TIMESTAMP,
+      updated_at: TIMESTAMP,
+      phase: "3",
+      spec: "spec.md",
+      acceptance: "acceptance.md",
+      branch,
+      worktree: worktreePath
+    }, null, 2)}\n`
+  );
+
+  const wrongBranch = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      "task/incorrect-entered-existing-branch",
+      "--worktree",
+      worktreePath,
+      "--enter-existing"
+    ],
+    { cwd: tempRepo }
+  );
+  assertFailure(wrongBranch, "enter existing worktree with wrong branch");
+  assert.match(wrongBranch.stderr, /branch mismatch/i);
+
+  writeText(path.join(worktreePath, "README.md"), "# dirty entered-existing worktree\n");
+  const dirtyWorktree = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      branch,
+      "--worktree",
+      worktreePath,
+      "--enter-existing"
+    ],
+    { cwd: tempRepo }
+  );
+  assertFailure(dirtyWorktree, "enter existing dirty worktree");
+  assert.match(dirtyWorktree.stderr, /worktree is dirty/i);
+  assertSuccess(runCommand("git", ["checkout", "--", "README.md"], { cwd: worktreePath }), "restore entered-existing worktree");
+
+  const materialize = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      branch,
+      "--worktree",
+      worktreePath,
+      "--enter-existing"
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(materialize, "enter existing worktree");
+  assert.match(materialize.stdout, /created: false/);
+  assert.match(materialize.stdout, /handoff required: true/);
+  assert.equal(fs.existsSync(path.join(worktreePath, ".harness", "runs", "current.json")), false);
+  assert.match(fs.readFileSync(path.join(worktreePath, "TASK.md"), "utf8"), /Implement only: tasks\/PHASE_23_8_7_PACKET_RESULT_LIFECYCLE_CONTRACT\.md/);
   const taskState = JSON.parse(fs.readFileSync(taskStatePath, "utf8"));
-  assert.equal(taskState.base_commit_sha, gitHead(tempRepo));
+  assert.equal(taskState.base_commit_sha, baseCommit);
 });

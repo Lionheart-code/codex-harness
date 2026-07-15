@@ -21,14 +21,24 @@ This document explains how a human operator should use `codex-harness` safely.
    the current active-chain procedure surfaces:
    `node bin/ch run record-procedure --run <run-id> --procedure task-intake|task-prompt-writer|draft-plan|plan-review|plan-amend|architecture-review|db-storage-review|implementation-review|fix-pass-review|verification-review|delivery-facts-review|phase-closeout-review --file <path>`
    and
-   `node bin/ch run approve-plan --run <run-id> --plan <path> --approver <name>`.
+  `node bin/ch run approve-plan --run <run-id> --plan <path> --approver <name>`. For
+   C2A, after implementation review and before verification, obtain one
+   independent read-only combined review with separately labeled
+   architecture/authority and persisted-storage/no-storage-change verdicts;
+   record that same artifact under both `architecture-review` and
+   `db-storage-review`. A failed verdict routes to `fix-pass-review`, followed
+   by a fresh combined review before verification can continue.
    For next-cycle continuity in the same phase, use
    `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`
    and then
    `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`.
-   That command path stores a next-task decision and materializes the new task
-   branch/worktree, but the next task is not active source authority until the
-   new task worktree has a commit-backed `TASK.md` activation and clean git.
+   That command path prepares, rather than starts, the new task
+   branch/worktree. The next task is never active source authority until the
+   new task worktree has a first-commit-backed `TASK.md`, task contract,
+   roadmap/operations activation, clean git, and deterministic dependency/build
+   plus tracked-procedure readiness verification. Harness materialization also
+   requires exactly one installed TaskState to own that worktree or branch, so
+   it can persist the immutable recorded base before the successor is started.
    A manual transcript alone still does not satisfy runtime evidence for any of
    those procedures; the operator must record it through the product command.
    Procedures outside the active replay scope, such as
@@ -48,10 +58,9 @@ A closing or harvested run may record which task should come next. It does not
 own the new task branch/worktree and it must not edit `TASK.md` for that next
 task. The next cycle becomes authoritative only when `TASK.md` is written in
 that task's own branch/worktree, the activation/materialization change is
-committed there as the first commit, clean git is confirmed, and only then the
-new run is treated as active task context. If the current narrow runtime path
-opens the new run earlier, treat it as provisional and non-authoritative until
-that commit-backed activation gate succeeds. Broader self-hosting
+committed there as the first commit, clean git is confirmed, deterministic
+dependency/build and tracked-procedure readiness verification passes, and only
+then the new run is treated as active task context. Broader self-hosting
 bootstrap/orchestrator behavior and later authority-freshness revalidation
 remain owned by downstream tasks.
 Preserve one task = one branch = one worktree. `run start` by itself still does
@@ -344,15 +353,33 @@ Only after commit and closeout/harvest decision:
    `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`;
 2. materialize the new task context with
    `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`;
+   for a Codex Desktop worktree, use `--enter-existing` after the Desktop task
+   has created its worktree and branch rather than creating a second checkout;
 3. confirm the new task worktree, active `TASK.md`, new task contract,
    roadmap/operations order, and required live authority surfaces are coherent;
 4. commit the complete activation/materialization authority change as the
    first commit in that new task branch/worktree;
 5. verify clean `git status` in that new task context;
-6. only then start or continue the new run in that task worktree. If the current
-   narrow runtime path opened it earlier, mark it discardable and start a fresh
-   run after steps 4-5 rather than treating provisional state as authority;
-7. start fresh `/plan`.
+6. run `node bin/ch worktree bootstrap` in that worktree. It installs from the
+   committed lockfile, builds, and verifies tracked Harness/procedure surfaces.
+   Its readiness marker binds that setup to the committed `HEAD`, source tree,
+   lockfile, and generated CLI output; those authority and readiness paths may
+   not be symbolic links. `--verify` also checks the installed
+   dependency tree against the committed lockfile and fails closed when any of
+   those facts no longer match. A successor `run start` repeats this
+   deterministic bootstrap before it can create durable run state, so a missing
+   lockfile, stale dependency/build output, or missing tracked procedure surface
+   cannot be bypassed by skipping this operator step.
+   A successful Codex Desktop local-environment setup may provide the same
+   files, but it must be verified rather than assumed. Do not copy `.env*`,
+   credentials, `.codex/**`, `.harness/**`, `node_modules`, or generated output
+   from another checkout; use an operator-authored `.worktreeinclude` only when
+   ignored files are genuinely required;
+7. stop the predecessor task or Goal from writing and explicitly open a fresh
+   successor Codex task in the prepared worktree; Harness does not create,
+   close, or rebind Codex Desktop tasks or Goals;
+8. only then run `node bin/ch run start --task TASK.md` in that task worktree;
+9. start fresh `/plan`.
 
 ## Emergency rollback
 

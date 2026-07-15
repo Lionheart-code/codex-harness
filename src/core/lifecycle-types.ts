@@ -27,12 +27,16 @@ export type RunIssueStatus = "open" | "resolved";
 export type RunIssueRoute = "fix_pass" | "plan_amend" | "supporting_fix" | "new_task";
 export type RunIssueType =
   | "uncommitted_task_activation"
+  | "missing_commit_backed_activation"
   | "dirty_git_after_task_activation"
   | "task_worktree_authority_mismatch"
   | "task_branch_authority_mismatch"
   | "bootstrap_authority_ambiguous"
   | "bootstrap_authority_unmatched"
-  | "missing_base_authority";
+  | "missing_base_authority"
+  | "worktree_bootstrap_not_ready";
+
+export type BootstrapIssuePhaseId = "23.8.6C" | "23.8.6C2" | "23.8.6C2A";
 
 export interface PayloadRecord {
   payload_id: string;
@@ -72,7 +76,7 @@ export interface DeliveryFactRecord {
 
 export interface RunIssue {
   issue_id: string;
-  phase_id: "23.8.6C";
+  phase_id: BootstrapIssuePhaseId;
   issue_type: RunIssueType;
   status: RunIssueStatus;
   blocking: true;
@@ -85,7 +89,7 @@ export interface RunIssue {
 
 export interface RepairPacket {
   packet_id: string;
-  phase_id: "23.8.6C";
+  phase_id: BootstrapIssuePhaseId;
   created_at: string;
   route: RunIssueRoute;
   summary: string;

@@ -2,8 +2,9 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6C2 Bootstrap Authority Correctness is
-complete, reviewed, accepted, and merged.
+Planned. Starts only after Phase 23.8.6C2 Bootstrap Authority Correctness and
+Phase 23.8.6C2A Commit-Backed Task Materialization and Environment Bootstrap
+are complete, reviewed, accepted, and merged.
 
 ## Purpose
 
@@ -112,6 +113,8 @@ the worktree/base-commit provenance needed to audit those artifacts later.
 - No replacement of runtime/closeout/harvest authority with loose file scans.
 - No reimplementation of Phase 23.8.6C2 current-bootstrap task, base-commit,
   `RunIssue`, `RepairPacket`, fact, or handoff parsing.
+- No reimplementation of C2A commit-backed task activation, deterministic
+  worktree bootstrap, or ignored-private-state boundary.
 
 ## Future-compatible payload contract
 
@@ -165,9 +168,9 @@ behavior.
 
 ## Relationship to previous and next phases
 
-- Follows Phase 23.8.6C2 so bootstrap/runtime entrypoints have truthful task,
-  checkout, source-snapshot, base, and current-record authority before
-  artifact durability is widened.
+- Follows Phase 23.8.6C2 and C2A so bootstrap/runtime entrypoints have
+  truthful task, checkout, source-snapshot, base, committed activation, and
+  runnable-worktree authority before artifact durability is widened.
 - Takes supervised review-launch evidence from Phase 23.8.6B1 once that phase
   exists, but B1 itself must fail closed instead of inventing an interim
   global storage layer.
