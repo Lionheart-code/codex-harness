@@ -1063,6 +1063,170 @@ test("phase 23.8.6 record-procedure ingests a durable plan-review artifact and i
   assert.match(replayPlanReview.stdout, /recorded: false/);
 });
 
+test("phase 23.8.6 stores authoritative procedure bodies and reconstructs them from project memory without markdown", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-procedure-payload-");
+  let run = createBaseRun(runtimeModule, tempRepo, "run-0001");
+  const fixtureHead = gitHead(tempRepo);
+  run = {
+    ...run,
+    phase_id: "23.8.6D",
+    source_snapshot: fixtureHead,
+    repository: {
+      ...run.repository,
+      branch: "fixture-durable-procedure-payload",
+      head_sha: fixtureHead
+    }
+  };
+  run = appendProcedureEvidence(run, "task-intake", 1);
+  run = appendProcedureEvidence(run, "task-prompt-writer", 2);
+  runtimeModule.validateRuntimeRun(run);
+  writeRuntimeRunFixture(tempRepo, run);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-intake-1.md", "# task-intake\n", 0);
+  writeRunEvidence(tempRepo, run.run_id, "evidence/task-prompt-writer-2.md", "# task-prompt-writer\n", 1);
+
+  const draftPlanBody = "# draft-plan\n";
+  const draftPlanHash = createHash("sha256").update(draftPlanBody).digest("hex");
+  writeProcedureArtifact(tempRepo, run.run_id, "draft-plan-payload", draftPlanBody);
+  assertSuccess(runCli([
+    "run", "record-procedure", "--run", run.run_id, "--procedure", "draft-plan",
+    "--file", `.harness/runs/${run.run_id}/manual/draft-plan-payload.md`
+  ], { cwd: tempRepo }), "record exact durable draft-plan body");
+
+  const body = buildPlanReviewArtifact();
+  writeProcedureArtifact(tempRepo, run.run_id, "plan-review-payload", body);
+  const recorded = runCli([
+    "run", "record-procedure", "--run", run.run_id, "--procedure", "plan-review",
+    "--file", `.harness/runs/${run.run_id}/manual/plan-review-payload.md`
+  ], { cwd: tempRepo });
+  assertSuccess(recorded, "record authoritative procedure body");
+  assertSuccess(runCli([
+    "run", "approve-plan", "--run", run.run_id,
+    "--plan", `.harness/runs/${run.run_id}/evidence/draft-plan-${draftPlanHash.slice(0, 12)}.md`,
+    "--approver", "owner",
+    "--reason", "Human approved the exact reviewed plan."
+  ], { cwd: tempRepo }), "approve exact durable reviewed plan");
+
+  const { RunStagingDatabase, resolveHarnessRoots } = require(path.join(productRoot, "dist", "core", "run-staging-db.js"));
+  const { harvestRun } = require(path.join(productRoot, "dist", "core", "harvest.js"));
+  const { ProjectMemoryDatabase } = require(path.join(productRoot, "dist", "core", "project-memory-db.js"));
+  const roots = resolveHarnessRoots(tempRepo);
+  const staging = new RunStagingDatabase(tempRepo, roots.projectRoot, run.run_id);
+  let storedRun = staging.loadRun(run.run_id);
+  assert.ok(storedRun?.run_instance_id, "recorded run has an exact immutable identity");
+
+  const sqlite = require("node:sqlite");
+  const database = new sqlite.DatabaseSync(staging.paths.stagingDbPath, { readOnly: true });
+  const descriptor = database.prepare(
+    "SELECT procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json, reviewed_plan_artifact_id, reviewed_plan_content_hash FROM procedure_artifacts WHERE procedure_id = ?"
+  ).get("plan-review");
+  const payload = database.prepare(
+    "SELECT kind, source_run_id, content_hash, chunk_count FROM payload_index WHERE payload_id = ?"
+  ).get(descriptor.payload_id);
+  database.close();
+  assert.equal(descriptor.procedure_id, "plan-review");
+  assert.match(descriptor.artifact_id, /^sha256:/);
+  assert.equal(descriptor.content_hash, descriptor.artifact_id.slice("sha256:".length));
+  assert.equal(payload.kind, "procedure-artifact-body:plan-review");
+  assert.equal(payload.source_run_id, run.run_id);
+  assert.equal(payload.content_hash, descriptor.content_hash);
+  assert.ok(payload.chunk_count >= 1);
+  const draftPlanEvidence = storedRun.evidence.find((entry) => entry.kind === "procedure:draft-plan");
+  assert.ok(draftPlanEvidence?.artifact_id, "draft-plan has an exact immutable artifact identity");
+  assert.equal(descriptor.reviewed_plan_artifact_id, draftPlanEvidence.artifact_id);
+  assert.equal(descriptor.reviewed_plan_content_hash, draftPlanEvidence.artifact_id.slice("sha256:".length));
+  const approval = storedRun.approvals.find((entry) => entry.title === "Reviewed plan approved");
+  assert.equal(approval?.reviewed_plan_artifact_id, draftPlanEvidence.artifact_id);
+  assert.equal(approval?.reviewed_plan_content_hash, draftPlanEvidence.artifact_id.slice("sha256:".length));
+  assert.equal(approval?.reviewed_evidence_artifact_id, descriptor.artifact_id);
+
+  const stagingReadback = staging.readProcedureArtifactBody({
+    runInstanceId: storedRun.run_instance_id,
+    sourceRunId: run.run_id,
+    procedureId: "plan-review",
+    procedureArtifactId: descriptor.artifact_id
+  });
+  assert.equal(stagingReadback.body, body);
+  assert.equal(stagingReadback.content_hash, descriptor.content_hash);
+  assert.equal(stagingReadback.procedure_id, "plan-review");
+  assert.throws(
+    () => staging.readProcedureArtifactBody({
+      runInstanceId: storedRun.run_instance_id,
+      sourceRunId: "other-run",
+      procedureId: "plan-review",
+      procedureArtifactId: descriptor.artifact_id
+    }),
+    /descriptor is malformed or mismatched/
+  );
+  const forgedApprovalRun = {
+    ...storedRun,
+    approvals: storedRun.approvals.map((approval) => approval.title === "Reviewed plan approved"
+      ? { ...approval, reviewed_evidence_artifact_id: `sha256:${"0".repeat(64)}` }
+      : approval)
+  };
+  writeRuntimeRunFixture(tempRepo, forgedApprovalRun);
+  assert.equal(runOperatorStatus(tempRepo, run.run_id).get("current_stage"), "PLAN_APPROVAL_REQUIRED");
+  writeRuntimeRunFixture(tempRepo, storedRun);
+
+  const compatibilityArtifact = storedRun.artifacts.find((artifact) => artifact.artifact_id === descriptor.artifact_id);
+  assert.ok(compatibilityArtifact, "run retains a non-authoritative compatibility artifact reference");
+  storedRun = {
+    ...storedRun,
+    lifecycle_status: "closed",
+    source_staging_db_path: staging.paths.stagingDbPath,
+    delivery_facts: [
+      {
+        delivery_fact_id: "merge-result",
+        run_id: run.run_id,
+        fact_kind: "merge_result",
+        source: "test",
+        status: "merged",
+        recorded_at: TIMESTAMP,
+        summary: "fixture merged"
+      },
+      {
+        delivery_fact_id: "merge-commit",
+        run_id: run.run_id,
+        fact_kind: "merge_commit",
+        source: "test",
+        status: "merged",
+        recorded_at: TIMESTAMP,
+        summary: "fixture merge commit",
+        commit_sha: gitHead(tempRepo)
+      }
+    ]
+  };
+  staging.saveRun(storedRun);
+  fs.rmSync(path.join(tempRepo, ".harness", "runs", run.run_id, compatibilityArtifact.path));
+  harvestRun(tempRepo, roots.projectRoot, run.run_id);
+
+  const project = new ProjectMemoryDatabase(tempRepo, roots.projectRoot);
+  const reconstructed = project.readProcedureArtifactBody({
+    projectRunId: storedRun.run_instance_id,
+    procedureId: "plan-review",
+    procedureArtifactId: descriptor.artifact_id
+  });
+  assert.equal(reconstructed.body, body);
+  assert.equal(reconstructed.content_hash, descriptor.content_hash);
+  assert.equal(reconstructed.procedure_id, "plan-review");
+  assert.equal(reconstructed.reviewed_plan_artifact_id, draftPlanEvidence.artifact_id);
+  assert.equal(reconstructed.reviewed_plan_content_hash, draftPlanEvidence.artifact_id.slice("sha256:".length));
+  const reconstructedByExactIdentity = project.readProcedureArtifactBody({
+    projectRunId: storedRun.run_instance_id,
+    procedureArtifactId: descriptor.artifact_id
+  });
+  assert.equal(reconstructedByExactIdentity.body, body);
+  assert.equal(reconstructedByExactIdentity.procedure_id, "plan-review");
+  assert.throws(
+    () => project.readProcedureArtifactBody({ projectRunId: "other-run-instance", procedureId: "plan-review", procedureArtifactId: descriptor.artifact_id }),
+    /could not prove one exact descriptor/
+  );
+  assert.throws(
+    () => project.readProcedureArtifactBody({ projectRunId: storedRun.run_instance_id, procedureId: "unknown-procedure", procedureArtifactId: descriptor.artifact_id }),
+    /unresolved canonical procedure ID/
+  );
+});
+
 test("phase 23.8.6 approve-plan records explicit reviewed-plan approval and advances to implementation-ready", () => {
   const runtimeModule = loadBuiltRuntime();
   const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-approve-plan-");
@@ -4001,4 +4165,167 @@ test("phase 23.8.6 materialize-next-task enters a registered existing worktree w
   assert.match(fs.readFileSync(path.join(worktreePath, "TASK.md"), "utf8"), /Implement only: tasks\/PHASE_23_8_7_PACKET_RESULT_LIFECYCLE_CONTRACT\.md/);
   const taskState = JSON.parse(fs.readFileSync(taskStatePath, "utf8"));
   assert.equal(taskState.base_commit_sha, baseCommit);
+});
+
+test("phase 23.8.6 recovers a clean committed successor activation into one task-state owner", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-recover-existing-activation-");
+  const nextTaskPath = "tasks/PHASE_23_8_7_PACKET_RESULT_LIFECYCLE_CONTRACT.md";
+  const branch = "task/phase-23-8-7-recovered-existing";
+  writeText(
+    path.join(tempRepo, nextTaskPath),
+    "# Phase 23.8.7 - Packet / Result Lifecycle Contract\n\nInitial contract.\n"
+  );
+  assertSuccess(runCommand("git", ["add", nextTaskPath], { cwd: tempRepo }), "git add recovery task contract base");
+  assertSuccess(runCommand("git", ["commit", "-m", "add recovery task contract base"], { cwd: tempRepo }), "git commit recovery task contract base");
+  const baseCommit = gitHead(tempRepo);
+  const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
+  const sourceArtifactPath = writeProcedureArtifact(tempRepo, run.run_id, "next-task-decision", "Recover a committed existing successor.\n");
+  const decision = runCli(
+    [
+      "run",
+      "record-next-task",
+      "--run",
+      run.run_id,
+      "--task",
+      nextTaskPath,
+      "--base-commit",
+      baseCommit,
+      "--file",
+      path.relative(tempRepo, sourceArtifactPath)
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(decision, "record next task for recovery");
+  const decisionId = parseOperatorOutput(decision.stdout).get("decision id");
+  assert.ok(decisionId, "recovery decision id should be reported");
+
+  writeText(path.join(tempRepo, ".harness", "config.toml"), "[harness]\nversion = \"0.1.0\"\n");
+  writeText(
+    path.join(tempRepo, ".harness", "install.json"),
+    `${JSON.stringify({
+      schema_version: 1,
+      producer_command: "test",
+      harness_version: "0.1.0",
+      templates_version: "0.1.0",
+      installed_at: TIMESTAMP,
+      updated_at: TIMESTAMP,
+      source: "test"
+    }, null, 2)}\n`
+  );
+
+  const worktreePath = path.join(path.dirname(tempRepo), `${path.basename(tempRepo)}-recovered-existing-worktree`);
+  tempDirectories.push(worktreePath);
+  assertSuccess(runCommand("git", ["worktree", "add", "-b", branch, worktreePath, baseCommit], { cwd: tempRepo }), "git worktree add recovery fixture");
+
+  const beforeActivation = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      branch,
+      "--worktree",
+      worktreePath,
+      "--enter-existing",
+      "--recover-existing-activation"
+    ],
+    { cwd: tempRepo }
+  );
+  assertFailure(beforeActivation, "recover existing activation without a committed activation chain");
+  assert.match(beforeActivation.stderr, /requires a clean successor activation chain descending from recorded base/i);
+
+  writeText(path.join(worktreePath, "TASK.md"), `# Current Task\n\nImplement only: ${nextTaskPath}\n\nDo not implement later phases.\n`);
+  fs.appendFileSync(path.join(worktreePath, nextTaskPath), "\nActivation authority.\n", "utf8");
+  fs.appendFileSync(path.join(worktreePath, "docs", "IMPLEMENTATION_ROADMAP.md"), "\nRecovery activation authority.\n", "utf8");
+  fs.appendFileSync(path.join(worktreePath, "docs", "OPERATIONS_PLAN.md"), "\nRecovery activation authority.\n", "utf8");
+  assertSuccess(
+    runCommand("git", ["add", "TASK.md", nextTaskPath, "docs/IMPLEMENTATION_ROADMAP.md", "docs/OPERATIONS_PLAN.md"], { cwd: worktreePath }),
+    "git add committed recovery activation"
+  );
+  assertSuccess(runCommand("git", ["commit", "-m", "commit recovery activation authority"], { cwd: worktreePath }), "git commit recovery activation authority");
+
+  const recoveryPreview = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      branch,
+      "--worktree",
+      worktreePath,
+      "--enter-existing",
+      "--recover-existing-activation",
+      "--dry-run"
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(recoveryPreview, "preview recover existing committed activation");
+  assert.match(recoveryPreview.stdout, /recovered existing activation: true/);
+  assert.equal(fs.existsSync(path.join(tempRepo, ".harness", "tasks")), false, "recovery preview creates no task-state owner");
+
+  const recovered = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      branch,
+      "--worktree",
+      worktreePath,
+      "--enter-existing",
+      "--recover-existing-activation"
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(recovered, "recover existing committed activation");
+  assert.match(recovered.stdout, /recovered existing activation: true/);
+  assert.match(recovered.stdout, /task-state id: /);
+  const statePaths = fs.readdirSync(path.join(tempRepo, ".harness", "tasks"), { recursive: true })
+    .filter((entry) => entry.endsWith(path.join("state.json")));
+  assert.equal(statePaths.length, 1, "recovery creates exactly one task-state owner");
+  const taskState = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "tasks", statePaths[0]), "utf8"));
+  assert.equal(taskState.branch, branch);
+  assert.equal(taskState.worktree, worktreePath);
+  assert.equal(taskState.base_commit_sha, baseCommit);
+  assert.equal(fs.existsSync(path.join(worktreePath, ".harness", "runs", "current.json")), false);
+
+  const repeatedRecovery = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      branch,
+      "--worktree",
+      worktreePath,
+      "--enter-existing",
+      "--recover-existing-activation"
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(repeatedRecovery, "repeat recover existing committed activation");
+  const repeatedStatePaths = fs.readdirSync(path.join(tempRepo, ".harness", "tasks"), { recursive: true })
+    .filter((entry) => entry.endsWith(path.join("state.json")));
+  assert.equal(repeatedStatePaths.length, 1, "recovery remains idempotent");
 });

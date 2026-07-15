@@ -1,4 +1,6 @@
 import * as fs from "node:fs";
+import { createHash } from "node:crypto";
+import { gunzipSync } from "node:zlib";
 import { PAYLOAD_WARNING_THRESHOLD_BYTES } from "./payload-store";
 import {
   type DeliveryFactRecord,
@@ -13,6 +15,7 @@ import {
 } from "./run-staging-db";
 import { type DatabaseLike, openSqliteDatabase } from "./sqlite";
 import { type Run } from "./runtime";
+import { indexSelfHostingProceduresById, readSelfHostingProcedureRegistry } from "./self-hosting-procedures";
 
 export class HarvestConflictError extends Error {
   constructor(runId: string) {
@@ -107,6 +110,20 @@ interface PayloadLinkRow {
   created_at: string;
 }
 
+interface ProcedureArtifactRow {
+  run_instance_id: string;
+  source_run_id: string;
+  procedure_id: string;
+  artifact_id: string;
+  payload_id: string;
+  content_hash: string;
+  recorded_at: string;
+  provenance_json: string;
+  reviewed_plan_artifact_id: string | null;
+  reviewed_plan_content_hash: string | null;
+  reviewed_evidence_artifact_id: string | null;
+}
+
 interface StagingTransferSnapshot {
   records: RecordRow[];
   deliveryFacts: DeliveryFactRow[];
@@ -115,6 +132,20 @@ interface StagingTransferSnapshot {
   payloadRedactions: PayloadRedactionRow[];
   payloadRetention: PayloadRetentionRow[];
   payloadLinks: PayloadLinkRow[];
+  procedureArtifacts: ProcedureArtifactRow[];
+}
+
+export interface AuthoritativeProcedureArtifactBody {
+  project_run_id: string;
+  procedure_id: string;
+  artifact_id: string;
+  content_hash: string;
+  recorded_at: string;
+  body: string;
+  provenance: Record<string, unknown>;
+  reviewed_plan_artifact_id?: string;
+  reviewed_plan_content_hash?: string;
+  reviewed_evidence_artifact_id?: string;
 }
 
 function nowIso(): string {
@@ -123,6 +154,29 @@ function nowIso(): string {
 
 function stringify(value: unknown): string {
   return JSON.stringify(value);
+}
+
+function sha256Hex(value: Buffer): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function parseAuthoritativeProcedureProvenance(value: string): Record<string, unknown> {
+  let provenance: unknown;
+  try {
+    provenance = JSON.parse(value) as unknown;
+  } catch {
+    throw new Error("Authoritative procedure-artifact provenance is malformed.");
+  }
+  if (!provenance || typeof provenance !== "object" || Array.isArray(provenance)) {
+    throw new Error("Authoritative procedure-artifact provenance must be an object.");
+  }
+  const record = provenance as Record<string, unknown>;
+  for (const field of ["phase_id", "task_path", "worktree", "branch", "head", "source_snapshot", "base_commit", "compatibility_path"]) {
+    if (typeof record[field] !== "string" || record[field].trim().length === 0) {
+      throw new Error(`Authoritative procedure-artifact provenance is missing ${field}.`);
+    }
+  }
+  return record;
 }
 
 function openProjectDatabase(projectDbPath: string): DatabaseLike {
@@ -141,8 +195,14 @@ function namespaceProjectRowId(runInstanceId: string, rowId: string): string {
 
 function namespaceProjectTransferSnapshot(
   runInstanceId: string,
+  sourceRunId: string,
   transfer: StagingTransferSnapshot
 ): StagingTransferSnapshot {
+  for (const descriptor of transfer.procedureArtifacts) {
+    if (descriptor.run_instance_id !== runInstanceId || descriptor.source_run_id !== sourceRunId) {
+      throw new Error("Procedure artifact harvest rejects a descriptor that does not match the exact staged run instance.");
+    }
+  }
   return {
     records: transfer.records.map((row) => ({
       ...row,
@@ -176,6 +236,12 @@ function namespaceProjectTransferSnapshot(
       ...row,
       payload_id: namespaceProjectRowId(runInstanceId, row.payload_id),
       parent_record_id: namespaceProjectRowId(runInstanceId, row.parent_record_id)
+    })),
+    procedureArtifacts: transfer.procedureArtifacts.map((row) => ({
+      ...row,
+      run_instance_id: runInstanceId,
+      source_run_id: runInstanceId,
+      payload_id: namespaceProjectRowId(runInstanceId, row.payload_id)
     }))
   };
 }
@@ -340,7 +406,7 @@ function readDatabaseStatus(projectDbPath: string): DatabaseStatus {
   }
 }
 
-function readStagingTransferSnapshot(sourceDbPath: string, runId: string): StagingTransferSnapshot {
+function readStagingTransferSnapshot(sourceDbPath: string, runId: string, runInstanceId: string): StagingTransferSnapshot {
   const source = openSqliteDatabase(sourceDbPath);
 
   try {
@@ -385,6 +451,11 @@ function readStagingTransferSnapshot(sourceDbPath: string, runId: string): Stagi
         "WHERE pi.source_run_id = ?",
         "ORDER BY pl.payload_id ASC, pl.parent_record_id ASC, pl.link_role ASC"
       ].join(" ")).all(runId) as PayloadLinkRow[]
+      ,procedureArtifacts: source.prepare([
+        "SELECT run_instance_id, source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json,",
+        "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
+        "FROM procedure_artifacts WHERE source_run_id = ? AND run_instance_id = ? ORDER BY recorded_at ASC, artifact_id ASC"
+      ].join(" ")).all(runId, runInstanceId) as ProcedureArtifactRow[]
     };
   } finally {
     source.close();
@@ -531,7 +602,8 @@ export class ProjectMemoryDatabase {
     const transfer = run.source_staging_db_path
       ? namespaceProjectTransferSnapshot(
           run.run_instance_id,
-          readStagingTransferSnapshot(run.source_staging_db_path, run.run_id)
+          run.run_id,
+          readStagingTransferSnapshot(run.source_staging_db_path, run.run_id, run.run_instance_id)
         )
       : undefined;
     const namespacedDeliveryFacts = namespaceProjectDeliveryFacts(run.run_instance_id, deliveryFacts);
@@ -681,6 +753,74 @@ export class ProjectMemoryDatabase {
             "VALUES (?, ?, ?, ?)"
           ].join(" ")).run(row.payload_id, row.parent_record_id, row.link_role, row.created_at);
         }
+
+        for (const row of transfer.procedureArtifacts) {
+          const payloadIndex = database.prepare([
+            "SELECT parent_record_id, source_run_id, kind, media_type, compression_status, chunk_count, raw_size_bytes, content_hash",
+            "FROM payload_index WHERE payload_id = ?"
+          ].join(" ")).get(row.payload_id) as Record<string, unknown> | undefined;
+          if (!payloadIndex
+            || payloadIndex.parent_record_id !== `${row.run_instance_id}:${row.artifact_id}`
+            || payloadIndex.source_run_id !== row.source_run_id
+            || payloadIndex.kind !== `procedure-artifact-body:${row.procedure_id}`
+            || payloadIndex.media_type !== "text/markdown"
+            || !["identity", "gzip"].includes(String(payloadIndex.compression_status))
+            || payloadIndex.content_hash !== row.content_hash) {
+            throw new Error(`Procedure artifact harvest rejects a mismatched payload index for ${row.artifact_id}.`);
+          }
+          const payloadChunks = database.prepare(
+            "SELECT chunk_order, chunk_bytes FROM payload_chunks WHERE payload_id = ? ORDER BY chunk_order ASC"
+          ).all(row.payload_id) as Array<{ chunk_order: number; chunk_bytes: Uint8Array }>;
+          if (payloadChunks.length !== payloadIndex.chunk_count || payloadChunks.some((chunk, order) => chunk.chunk_order !== order)) {
+            throw new Error(`Procedure artifact harvest rejects malformed payload chunks for ${row.artifact_id}.`);
+          }
+          const storedPayload = Buffer.concat(payloadChunks.map((chunk) => Buffer.from(chunk.chunk_bytes)));
+          const rawPayload = payloadIndex.compression_status === "gzip" ? gunzipSync(storedPayload) : storedPayload;
+          if (rawPayload.byteLength !== payloadIndex.raw_size_bytes || sha256Hex(rawPayload) !== row.content_hash) {
+            throw new Error(`Procedure artifact harvest rejects a payload body mismatch for ${row.artifact_id}.`);
+          }
+          const existing = database.prepare([
+            "SELECT source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json,",
+            "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
+            "FROM procedure_artifacts WHERE run_instance_id = ? AND procedure_id = ? AND artifact_id = ?"
+          ].join(" ")).get(row.run_instance_id, row.procedure_id, row.artifact_id) as ProcedureArtifactRow | undefined;
+          if (existing) {
+            for (const [key, value] of Object.entries({
+              source_run_id: row.source_run_id,
+              procedure_id: row.procedure_id,
+              artifact_id: row.artifact_id,
+              payload_id: row.payload_id,
+              content_hash: row.content_hash,
+              recorded_at: row.recorded_at,
+              provenance_json: row.provenance_json,
+              reviewed_plan_artifact_id: row.reviewed_plan_artifact_id,
+              reviewed_plan_content_hash: row.reviewed_plan_content_hash,
+              reviewed_evidence_artifact_id: row.reviewed_evidence_artifact_id
+            })) {
+              if (existing[key as keyof ProcedureArtifactRow] !== value) {
+                throw new Error(`Procedure artifact harvest conflict for ${row.artifact_id}: ${key} does not match the accepted descriptor.`);
+              }
+            }
+          } else {
+            database.prepare([
+              "INSERT INTO procedure_artifacts",
+              "(run_instance_id, source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json, reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id)",
+              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            ].join(" ")).run(
+              row.run_instance_id,
+              row.source_run_id,
+              row.procedure_id,
+              row.artifact_id,
+              row.payload_id,
+              row.content_hash,
+              row.recorded_at,
+              row.provenance_json,
+              row.reviewed_plan_artifact_id,
+              row.reviewed_plan_content_hash,
+              row.reviewed_evidence_artifact_id
+            );
+          }
+        }
       } else {
         for (const fact of namespacedDeliveryFacts) {
           database.prepare([
@@ -747,6 +887,91 @@ export class ProjectMemoryDatabase {
         throw new HarvestConflictError(run.run_id);
       }
       throw error;
+    } finally {
+      database.close();
+    }
+  }
+
+  readProcedureArtifactBody(input: { projectRunId: string; procedureArtifactId: string; procedureId?: string }): AuthoritativeProcedureArtifactBody {
+    if (!input.projectRunId.trim() || !input.procedureArtifactId.startsWith("sha256:")) {
+      throw new Error("Authoritative procedure-artifact readback requires an exact project run ID and sha256 artifact ID.");
+    }
+    const registry = readSelfHostingProcedureRegistry(this.targetRoot);
+    const proceduresById = registry ? indexSelfHostingProceduresById(registry) : undefined;
+    if (!proceduresById || (input.procedureId && !proceduresById.has(input.procedureId))) {
+      throw new Error(`Authoritative procedure-artifact readback rejects an unresolved canonical procedure ID: ${input.procedureId ?? "<registry unavailable>"}.`);
+    }
+    const database = this.open();
+    try {
+      const rows = database.prepare([
+        "SELECT run_instance_id, source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json,",
+        "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
+        "FROM procedure_artifacts WHERE run_instance_id = ? AND artifact_id = ?"
+      ].join(" ")).all(input.projectRunId, input.procedureArtifactId) as ProcedureArtifactRow[];
+      if (rows.length !== 1) {
+        throw new Error(`Authoritative procedure-artifact readback could not prove one exact descriptor for ${input.procedureArtifactId}.`);
+      }
+      const row = rows[0];
+      if (row.source_run_id !== input.projectRunId || row.content_hash !== row.artifact_id.slice("sha256:".length)) {
+        throw new Error("Authoritative procedure-artifact descriptor is malformed or does not match its exact project run.");
+      }
+      if (!proceduresById.has(row.procedure_id) || (input.procedureId && row.procedure_id !== input.procedureId)) {
+        throw new Error("Authoritative procedure-artifact descriptor does not match its canonical procedure identity.");
+      }
+      if ((row.reviewed_plan_artifact_id === null) !== (row.reviewed_plan_content_hash === null)
+        || (row.reviewed_plan_artifact_id !== null && row.reviewed_plan_content_hash !== row.reviewed_plan_artifact_id.slice("sha256:".length))) {
+        throw new Error("Authoritative procedure-artifact reviewed-plan binding is malformed.");
+      }
+      const provenance = parseAuthoritativeProcedureProvenance(row.provenance_json);
+      if (row.procedure_id === "plan-review" && (row.reviewed_plan_artifact_id || provenance.phase_id === "23.8.6D")) {
+        if (!row.reviewed_plan_artifact_id || !row.reviewed_plan_content_hash) {
+          throw new Error("Authoritative plan-review readback requires an exact reviewed-plan binding.");
+        }
+        const planRows = database.prepare([
+          "SELECT procedure_id, content_hash FROM procedure_artifacts",
+          "WHERE run_instance_id = ? AND artifact_id = ?"
+        ].join(" ")).all(input.projectRunId, row.reviewed_plan_artifact_id) as Array<{ procedure_id: string; content_hash: string }>;
+        if (planRows.length !== 1
+          || !["draft-plan", "plan-amend"].includes(planRows[0].procedure_id)
+          || planRows[0].content_hash !== row.reviewed_plan_content_hash) {
+          throw new Error("Authoritative plan-review readback rejects a missing, ambiguous, or mismatched reviewed-plan descriptor.");
+        }
+        if (row.reviewed_evidence_artifact_id !== row.reviewed_plan_artifact_id) {
+          throw new Error("Authoritative plan-review readback rejects a mismatched reviewed-evidence binding.");
+        }
+      }
+      const index = database.prepare([
+        "SELECT parent_record_id, source_run_id, kind, media_type, compression_status, chunk_count, raw_size_bytes, content_hash",
+        "FROM payload_index WHERE payload_id = ?"
+      ].join(" ")).get(row.payload_id) as Record<string, unknown> | undefined;
+      if (!index || index.parent_record_id !== `${input.projectRunId}:${row.artifact_id}` || index.source_run_id !== input.projectRunId
+        || index.kind !== `procedure-artifact-body:${row.procedure_id}` || index.media_type !== "text/markdown"
+        || !["identity", "gzip"].includes(String(index.compression_status)) || index.content_hash !== row.content_hash) {
+        throw new Error("Authoritative procedure-artifact payload index does not match its descriptor.");
+      }
+      const chunks = database.prepare(
+        "SELECT chunk_order, chunk_bytes FROM payload_chunks WHERE payload_id = ? ORDER BY chunk_order ASC"
+      ).all(row.payload_id) as Array<{ chunk_order: number; chunk_bytes: Uint8Array }>;
+      if (chunks.length !== index.chunk_count || chunks.some((chunk, order) => chunk.chunk_order !== order)) {
+        throw new Error("Authoritative procedure-artifact payload chunks are missing, duplicated, or out of order.");
+      }
+      const stored = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk.chunk_bytes)));
+      const raw = index.compression_status === "gzip" ? gunzipSync(stored) : stored;
+      if (raw.byteLength !== index.raw_size_bytes || sha256Hex(raw) !== row.content_hash) {
+        throw new Error("Authoritative procedure-artifact body hash does not match its immutable descriptor.");
+      }
+      return {
+        project_run_id: input.projectRunId,
+        procedure_id: row.procedure_id,
+        artifact_id: row.artifact_id,
+        content_hash: row.content_hash,
+        recorded_at: row.recorded_at,
+        body: raw.toString("utf8"),
+        provenance,
+        ...(row.reviewed_plan_artifact_id ? { reviewed_plan_artifact_id: row.reviewed_plan_artifact_id } : {}),
+        ...(row.reviewed_plan_content_hash ? { reviewed_plan_content_hash: row.reviewed_plan_content_hash } : {}),
+        ...(row.reviewed_evidence_artifact_id ? { reviewed_evidence_artifact_id: row.reviewed_evidence_artifact_id } : {})
+      };
     } finally {
       database.close();
     }

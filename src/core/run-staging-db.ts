@@ -1,5 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
+import { gunzipSync } from "node:zlib";
 import { type DeliveryFactRecord, type LifecycleStatus, type RunMode } from "./lifecycle-types";
 import { PAYLOAD_WARNING_THRESHOLD_BYTES, PayloadStore, type StorePayloadInput } from "./payload-store";
 import {
@@ -14,6 +16,7 @@ import {
 import { type DatabaseLike, openSqliteDatabase } from "./sqlite";
 import { detectGitRepository } from "./git";
 import { type Run } from "./runtime";
+import { indexSelfHostingProceduresById, readSelfHostingProcedureRegistry } from "./self-hosting-procedures";
 
 interface MutateRunOptions {
   expectedRunInstanceId?: string;
@@ -51,6 +54,27 @@ export interface DatabaseStatus {
   warnings: string[];
 }
 
+export interface ProcedureArtifactDescriptor {
+  run_instance_id: string;
+  source_run_id: string;
+  procedure_id: string;
+  artifact_id: string;
+  payload_id: string;
+  content_hash: string;
+  recorded_at: string;
+  provenance_json: string;
+  reviewed_plan_artifact_id?: string;
+  reviewed_plan_content_hash?: string;
+  reviewed_evidence_artifact_id?: string;
+}
+
+export interface StagedProcedureArtifactBody {
+  procedure_id: string;
+  artifact_id: string;
+  content_hash: string;
+  body: string;
+}
+
 interface NormalizedRecordRow {
   recordKind: string;
   recordId: string;
@@ -69,6 +93,27 @@ interface NormalizedRecordRow {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function sha256Hex(value: Buffer): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function assertAuthoritativeProcedureProvenance(value: string): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("Authoritative procedure-artifact provenance is not valid JSON.");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Authoritative procedure-artifact provenance must be an object.");
+  }
+  for (const field of ["phase_id", "task_path", "worktree", "branch", "head", "source_snapshot", "base_commit", "compatibility_path"]) {
+    if (typeof (parsed as Record<string, unknown>)[field] !== "string" || !(parsed as Record<string, string>)[field].trim()) {
+      throw new Error(`Authoritative procedure-artifact provenance is missing ${field}.`);
+    }
+  }
 }
 
 function toPortablePath(targetPath: string): string {
@@ -274,6 +319,21 @@ export function initializeMemoryDatabase(database: DatabaseLike, role: "project"
     "  created_at TEXT NOT NULL,",
     "  PRIMARY KEY (payload_id, parent_record_id, link_role)",
     ");",
+    "CREATE TABLE IF NOT EXISTS procedure_artifacts (",
+    "  run_instance_id TEXT NOT NULL,",
+    "  source_run_id TEXT NOT NULL,",
+    "  procedure_id TEXT NOT NULL,",
+    "  artifact_id TEXT NOT NULL,",
+    "  payload_id TEXT NOT NULL,",
+    "  content_hash TEXT NOT NULL,",
+    "  recorded_at TEXT NOT NULL,",
+    "  provenance_json TEXT NOT NULL,",
+    "  reviewed_plan_artifact_id TEXT,",
+    "  reviewed_plan_content_hash TEXT,",
+    "  reviewed_evidence_artifact_id TEXT,",
+    "  PRIMARY KEY (run_instance_id, procedure_id, artifact_id)",
+    ");",
+    "CREATE INDEX IF NOT EXISTS idx_procedure_artifacts_run ON procedure_artifacts (run_instance_id, procedure_id, recorded_at);",
     "CREATE INDEX IF NOT EXISTS idx_payload_run ON payload_index (source_run_id, kind, created_at);"
   ];
   database.exec(statements.join("\n"));
@@ -648,6 +708,162 @@ export class RunStagingDatabase {
     }
   }
 
+  readProcedureArtifact(
+    runInstanceId: string,
+    procedureId: string,
+    artifactId: string,
+    database?: DatabaseLike
+  ): ProcedureArtifactDescriptor | undefined {
+    const ownedDatabase = database ?? this.open();
+    try {
+      const row = ownedDatabase.prepare([
+        "SELECT run_instance_id, source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json,",
+        "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
+        "FROM procedure_artifacts WHERE run_instance_id = ? AND procedure_id = ? AND artifact_id = ?"
+      ].join(" ")).get(runInstanceId, procedureId, artifactId) as Record<string, unknown> | undefined;
+      if (!row) {
+        return undefined;
+      }
+      return {
+        run_instance_id: String(row.run_instance_id),
+        source_run_id: String(row.source_run_id),
+        procedure_id: String(row.procedure_id),
+        artifact_id: String(row.artifact_id),
+        payload_id: String(row.payload_id),
+        content_hash: String(row.content_hash),
+        recorded_at: String(row.recorded_at),
+        provenance_json: String(row.provenance_json),
+        ...(typeof row.reviewed_plan_artifact_id === "string" ? { reviewed_plan_artifact_id: row.reviewed_plan_artifact_id } : {}),
+        ...(typeof row.reviewed_plan_content_hash === "string" ? { reviewed_plan_content_hash: row.reviewed_plan_content_hash } : {}),
+        ...(typeof row.reviewed_evidence_artifact_id === "string" ? { reviewed_evidence_artifact_id: row.reviewed_evidence_artifact_id } : {})
+      };
+    } finally {
+      if (!database) {
+        ownedDatabase.close();
+      }
+    }
+  }
+
+  readProcedureArtifactBody(input: {
+    runInstanceId: string;
+    sourceRunId: string;
+    procedureArtifactId: string;
+    procedureId?: string;
+  }): StagedProcedureArtifactBody {
+    if (!input.runInstanceId.trim() || !input.sourceRunId.trim() || !input.procedureArtifactId.startsWith("sha256:")) {
+      throw new Error("Authoritative procedure-artifact staging readback requires exact run and artifact identities.");
+    }
+    const registry = readSelfHostingProcedureRegistry(this.roots.targetRoot);
+    const proceduresById = registry ? indexSelfHostingProceduresById(registry) : undefined;
+    if (!proceduresById || (input.procedureId && !proceduresById.has(input.procedureId))) {
+      throw new Error(`Authoritative procedure-artifact staging readback rejects an unresolved canonical procedure ID: ${input.procedureId ?? "<registry unavailable>"}.`);
+    }
+    const database = this.open();
+    try {
+      const rows = database.prepare([
+        "SELECT run_instance_id, source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json,",
+        "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
+        "FROM procedure_artifacts WHERE run_instance_id = ? AND artifact_id = ?"
+      ].join(" ")).all(input.runInstanceId, input.procedureArtifactId) as Array<ProcedureArtifactDescriptor>;
+      if (rows.length !== 1) {
+        throw new Error(`Authoritative procedure-artifact staging readback could not prove one exact descriptor for ${input.procedureArtifactId}.`);
+      }
+      const row = rows[0];
+      if (row.source_run_id !== input.sourceRunId || row.content_hash !== row.artifact_id.slice("sha256:".length)
+        || !proceduresById.has(row.procedure_id) || (input.procedureId && row.procedure_id !== input.procedureId)) {
+        throw new Error("Authoritative procedure-artifact staging descriptor is malformed or mismatched.");
+      }
+      assertAuthoritativeProcedureProvenance(row.provenance_json);
+      if (row.procedure_id === "plan-review") {
+        if (!row.reviewed_plan_artifact_id || !row.reviewed_plan_content_hash
+          || row.reviewed_plan_content_hash !== row.reviewed_plan_artifact_id.slice("sha256:".length)
+          || row.reviewed_evidence_artifact_id !== row.reviewed_plan_artifact_id) {
+          throw new Error("Authoritative plan-review staging readback requires an exact reviewed-plan binding.");
+        }
+        const planRows = database.prepare([
+          "SELECT procedure_id, content_hash FROM procedure_artifacts",
+          "WHERE run_instance_id = ? AND artifact_id = ?"
+        ].join(" ")).all(input.runInstanceId, row.reviewed_plan_artifact_id) as Array<{ procedure_id: string; content_hash: string }>;
+        if (planRows.length !== 1 || !["draft-plan", "plan-amend"].includes(planRows[0].procedure_id)
+          || planRows[0].content_hash !== row.reviewed_plan_content_hash) {
+          throw new Error("Authoritative plan-review staging readback rejects a missing, ambiguous, or mismatched reviewed-plan descriptor.");
+        }
+      }
+      const index = database.prepare([
+        "SELECT parent_record_id, source_run_id, kind, media_type, compression_status, chunk_count, raw_size_bytes, content_hash",
+        "FROM payload_index WHERE payload_id = ?"
+      ].join(" ")).get(row.payload_id) as Record<string, unknown> | undefined;
+      if (!index || index.parent_record_id !== row.artifact_id || index.source_run_id !== input.sourceRunId
+        || index.kind !== `procedure-artifact-body:${row.procedure_id}` || index.media_type !== "text/markdown"
+        || !["identity", "gzip"].includes(String(index.compression_status)) || index.content_hash !== row.content_hash) {
+        throw new Error("Authoritative procedure-artifact staging payload index does not match its descriptor.");
+      }
+      const chunks = database.prepare(
+        "SELECT chunk_order, chunk_bytes FROM payload_chunks WHERE payload_id = ? ORDER BY chunk_order ASC"
+      ).all(row.payload_id) as Array<{ chunk_order: number; chunk_bytes: Uint8Array }>;
+      if (chunks.length !== index.chunk_count || chunks.some((chunk, order) => chunk.chunk_order !== order)) {
+        throw new Error("Authoritative procedure-artifact staging payload chunks are missing, duplicated, or out of order.");
+      }
+      const stored = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk.chunk_bytes)));
+      const raw = index.compression_status === "gzip" ? gunzipSync(stored) : stored;
+      if (raw.byteLength !== index.raw_size_bytes || sha256Hex(raw) !== row.content_hash) {
+        throw new Error("Authoritative procedure-artifact staging body hash does not match its immutable descriptor.");
+      }
+      return {
+        procedure_id: row.procedure_id,
+        artifact_id: row.artifact_id,
+        content_hash: row.content_hash,
+        body: raw.toString("utf8")
+      };
+    } finally {
+      database.close();
+    }
+  }
+
+  storeProcedureArtifact(database: DatabaseLike, descriptor: ProcedureArtifactDescriptor): void {
+    const existing = database.prepare([
+      "SELECT source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json,",
+      "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
+      "FROM procedure_artifacts WHERE run_instance_id = ? AND procedure_id = ? AND artifact_id = ?"
+    ].join(" ")).get(descriptor.run_instance_id, descriptor.procedure_id, descriptor.artifact_id) as Record<string, unknown> | undefined;
+    if (existing) {
+      for (const [key, value] of Object.entries({
+        source_run_id: descriptor.source_run_id,
+        procedure_id: descriptor.procedure_id,
+        artifact_id: descriptor.artifact_id,
+        payload_id: descriptor.payload_id,
+        content_hash: descriptor.content_hash,
+        recorded_at: descriptor.recorded_at,
+        provenance_json: descriptor.provenance_json,
+        reviewed_plan_artifact_id: descriptor.reviewed_plan_artifact_id ?? null,
+        reviewed_plan_content_hash: descriptor.reviewed_plan_content_hash ?? null,
+        reviewed_evidence_artifact_id: descriptor.reviewed_evidence_artifact_id ?? null
+      })) {
+        if (existing[key] !== value) {
+          throw new Error(`Procedure artifact identity conflict for ${descriptor.artifact_id}: ${key} does not match the stored descriptor.`);
+        }
+      }
+      return;
+    }
+    database.prepare([
+      "INSERT INTO procedure_artifacts",
+      "(run_instance_id, source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json, reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id)",
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ].join(" ")).run(
+      descriptor.run_instance_id,
+      descriptor.source_run_id,
+      descriptor.procedure_id,
+      descriptor.artifact_id,
+      descriptor.payload_id,
+      descriptor.content_hash,
+      descriptor.recorded_at,
+      descriptor.provenance_json,
+      descriptor.reviewed_plan_artifact_id ?? null,
+      descriptor.reviewed_plan_content_hash ?? null,
+      descriptor.reviewed_evidence_artifact_id ?? null
+    );
+  }
+
   private persistRun(database: DatabaseLike, run: Run): void {
     const persistedRun: Run = {
       ...run,
@@ -739,6 +955,14 @@ export class RunStagingDatabase {
   }
 
   mutateRun(runId: string, mutator: (run: Run) => Run, options: MutateRunOptions = {}): Run {
+    return this.mutateRunWithDatabase(runId, (run) => mutator(run), options);
+  }
+
+  mutateRunWithDatabase(
+    runId: string,
+    mutator: (run: Run, database: DatabaseLike) => Run,
+    options: MutateRunOptions = {}
+  ): Run {
     const database = this.open();
 
     try {
@@ -767,7 +991,7 @@ export class RunStagingDatabase {
           `Run ${runId} revision changed while applying a staged mutation. Expected ${options.expectedRunRevision}, got ${current.run_revision}.`
         );
       }
-      const next = mutator(current);
+      const next = mutator(current, database);
       const nextRevision = typeof current.run_revision === "number" && Number.isInteger(current.run_revision)
         ? current.run_revision + 1
         : 1;

@@ -39,6 +39,14 @@ This document explains how a human operator should use `codex-harness` safely.
    plus tracked-procedure readiness verification. Harness materialization also
    requires exactly one installed TaskState to own that worktree or branch, so
    it can persist the immutable recorded base before the successor is started.
+   If a predecessor is harvested without a recorded next-task decision, or an
+   already-activated successor lacks that uniquely owning TaskState because
+   materialization was skipped, stop fail-closed. The active D task-intake and
+   draft-plan must define the smallest product-owned recovery from the recorded
+   immutable decision base before materialization and activation proof; never
+   manually edit TaskState/database records, substitute current `HEAD` for the
+   base, silently claim an advanced worktree, or start the successor before the
+   owner match is proven.
    A manual transcript alone still does not satisfy runtime evidence for any of
    those procedures; the operator must record it through the product command.
    Procedures outside the active replay scope, such as
@@ -48,8 +56,12 @@ This document explains how a human operator should use `codex-harness` safely.
    `.harness/runs/**/run.json` to simulate ingestion.
 7. Run the active task acceptance commands.
    For the current self-hosting flow, `node bin/ch run verify --run <run-id>`
-   can take 14 minutes or more as the suite grows. Wait for real exit and do
-   not start a second verification run while the first is still active.
+   commonly takes 10-16 minutes for the full local pack as the suite grows.
+   Wait for real exit and do not start a second verification run while the
+   first is still active. A live process inside that window is incomplete
+   evidence, not a failure. The command records `duration_ms` for each command
+   and reports `verification_duration_ms` when it exits; compare those
+   like-for-like measurements as the test surface grows.
 8. Review the diff against task scope and non-goals.
 9. Commit only after review, verification, and closeout prerequisites are
    satisfied.
@@ -246,6 +258,19 @@ For self-hosting runs, `node bin/ch run verify` uses the active task file's
 boundary docs as context for extra required checks, not as a replacement for
 the task command list.
 
+## Verification timing and observation
+
+For the full local self-hosting pack, the current normal observation window is
+10-16 minutes. This is operator guidance, not a timeout or success claim:
+focused commands, changed command sets, evidence reuse, and slower machines
+must be evaluated from their own recorded results. `run verify` executes the
+active task commands serially and retains a durable `duration_ms` for every
+command result; its final `verification_duration_ms` is the sum for that exact
+attempt. While the one live verifier remains within its command timeout, wait
+for its real exit. Investigate only a timeout, process error, explicit failing
+output, or a stronger liveness signal; never start a competing verifier merely
+because it has been quiet.
+
 Local reuse never satisfies remote CI. During implementation, use:
 
 ```bash
@@ -360,8 +385,15 @@ Only after commit and closeout/harvest decision:
 4. commit the complete activation/materialization authority change as the
    first commit in that new task branch/worktree;
 5. verify clean `git status` in that new task context;
-6. run `node bin/ch worktree bootstrap` in that worktree. It installs from the
-   committed lockfile, builds, and verifies tracked Harness/procedure surfaces.
+6. after clean git, create the successor through the native Codex Desktop
+   task/worktree API. Verify the created task's cwd, branch, and `HEAD`
+   binding, expose its identity/link for the user to open without
+   repository/worktree creation, selection, or search, and stop the predecessor
+   before any successor work. If creation or binding cannot be proven, fail
+   closed with `HANDOFF_CREATION_FAILED`: do not bootstrap, start a successor
+   run, or execute successor shell work from the predecessor;
+7. only after successful handoff proof, run `node bin/ch worktree bootstrap` in
+   that worktree. It installs from the committed lockfile, builds, and verifies tracked Harness/procedure surfaces.
    Its readiness marker binds that setup to the committed `HEAD`, source tree,
    lockfile, and generated CLI output; those authority and readiness paths may
    not be symbolic links. `--verify` also checks the installed
@@ -375,9 +407,6 @@ Only after commit and closeout/harvest decision:
    credentials, `.codex/**`, `.harness/**`, `node_modules`, or generated output
    from another checkout; use an operator-authored `.worktreeinclude` only when
    ignored files are genuinely required;
-7. stop the predecessor task or Goal from writing and explicitly open a fresh
-   successor Codex task in the prepared worktree; Harness does not create,
-   close, or rebind Codex Desktop tasks or Goals;
 8. only then run `node bin/ch run start --task TASK.md` in that task worktree;
 9. start fresh `/plan`.
 

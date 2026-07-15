@@ -2,8 +2,8 @@
 
 ## Status
 
-Active implementation phase. Phase 23.8.6C2 Bootstrap Authority Correctness is
-complete, reviewed, accepted, and merged.
+Complete, reviewed, accepted, and merged. Phase 23.8.6D owns the subsequent
+durable procedure-artifact payload-storage and worktree-retention work.
 
 ## Purpose
 

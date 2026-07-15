@@ -47,7 +47,7 @@ function printRunHelp(): void {
     "  node bin/ch run launch-review --run <run-id> --procedure <plan-review|implementation-review> --request <path> --output <path> [--timeout-seconds <n>] [--stale-after-seconds <n>] [--dry-run]",
     "  node bin/ch run approve-plan --run <run-id> --plan <path> --approver <name> [--reason <text>] [--dry-run]",
     "  node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>] [--dry-run]",
-    "  node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing) [--dry-run]",
+    "  node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing) [--recover-existing-activation] [--dry-run]",
     "  node bin/ch run mark-discardable --run <run-id> --reason <reason> [--dry-run]",
     "  node bin/ch run remote-status [--run <provider-run-id>] [--provider <provider>] [--gate <gate-id>] [--name <name>] [--status pass|failed|skipped|missing|unknown] [--required true|false] [--explanation <text>] [--dry-run]",
     "",
@@ -303,6 +303,8 @@ function renderMaterializationLines(result: RuntimeTaskMaterializationResult): s
     `branch: ${result.branch}`,
     `worktree: ${result.worktreePath}`,
     `created: ${result.created ? "true" : "false"}`,
+    `recovered existing activation: ${result.recoveredExistingActivation ? "true" : "false"}`,
+    ...(result.taskStateId ? [`task-state id: ${result.taskStateId}`] : []),
     `handoff required: ${result.handoffRequired ? "true" : "false"}`,
     `next action: ${result.nextAction}`,
     `state: ${result.state}`
@@ -356,12 +358,23 @@ async function runStatusCommand(args: string[]): Promise<number> {
 
 async function runVerify(args: string[]): Promise<number> {
   const options = parseOptions(args, new Set(["run"]));
+  if (!dryRunOption(options)) {
+    lines([
+      "verification: running",
+      "expected_duration: full self-hosting verification commonly takes 10-16 minutes as the suite grows; wait for real exit and do not launch a duplicate while this process is alive."
+    ]);
+  }
   const result = await verifyRuntimeRun(process.cwd(), {
     dryRun: dryRunOption(options),
     runId: stringOption(options, "run")
   });
   const output = renderRunLines("codex-harness run verify", result);
+  const durationMs = result.verification.command_results.reduce(
+    (total, commandResult) => total + (typeof commandResult.duration_ms === "number" ? commandResult.duration_ms : 0),
+    0
+  );
   output.push(`verification: ${result.verification.status}`);
+  output.push(`verification_duration_ms: ${durationMs}`);
   output.push(`summary: ${result.verification.summary}`);
   lines(output);
   return 0;
@@ -494,7 +507,7 @@ async function runMaterializeNextTask(args: string[]): Promise<number> {
   const options = parseOptions(
     args,
     new Set(["run", "decision-id", "task", "branch", "worktree"]),
-    new Set(["dry-run", "create", "enter-existing"])
+    new Set(["dry-run", "create", "enter-existing", "recover-existing-activation"])
   );
   const decisionId = stringOption(options, "decision-id");
   const taskPath = stringOption(options, "task");
@@ -522,7 +535,8 @@ async function runMaterializeNextTask(args: string[]): Promise<number> {
     branch,
     worktreePath,
     create: options.create === true,
-    enterExisting: options["enter-existing"] === true
+    enterExisting: options["enter-existing"] === true,
+    recoverExistingActivation: options["recover-existing-activation"] === true
   } satisfies MaterializeNextTaskOptions);
   lines(renderMaterializationLines(result));
   return 0;

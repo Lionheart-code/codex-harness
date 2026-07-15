@@ -27,10 +27,10 @@ const files = {
   phase31: read("tasks/PHASE_31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP.md")
 };
 
-test("phase 23.8.6C2A is active after the completed C2 authority correction", () => {
+test("phase 23.8.6D is active after the completed C2A authority correction", () => {
   assert.equal(
     files.taskPointer.trim(),
-    "# Current Task\n\nImplement only: tasks/PHASE_23_8_6C2A_COMMIT_BACKED_TASK_MATERIALIZATION_AND_ENVIRONMENT_BOOTSTRAP.md\n\nDo not implement Phase 23.8.6D or later."
+    "# Current Task\n\nImplement only: tasks/PHASE_23_8_6D_PROCEDURE_ARTIFACT_PAYLOAD_STORAGE_AND_WORKTREE_RETENTION.md\n\nDo not implement Phase 23.8.6E or later."
   );
   assert.match(files.c1a, /^# Phase 23\.8\.6C1A - Routing, Context, and Model-Policy Authority Rebase/m);
   assert.match(files.c1a, /Treat this phase as `extra-high`/);

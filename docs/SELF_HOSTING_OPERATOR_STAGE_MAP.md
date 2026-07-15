@@ -40,6 +40,16 @@ Non-procedure transitions belong in `next_allowed_action`.
 | `RUN_QUARANTINED` | `none` | manual/review decision before transition | quarantined run/evidence/state | `run_quarantined` | implementation, harvest, accepted-memory writes |
 | `BLOCKED` | `none` | resolve blocker-specific condition | blocker-specific evidence | blocker-specific stop reason such as `harvest_identity_collision` | any transition not resolving blocker |
 
+## Verification timing guardrail
+
+The full local self-hosting verification pack normally takes 10-16 minutes as
+the suite grows. A live `run verify` process in that window remains incomplete
+evidence; it does not authorize a duplicate launch or a stage transition. On
+exit, use the durable per-command `duration_ms` values and the reported
+`verification_duration_ms` for that exact command set. Treat a timeout,
+process error, or explicit failing output as the signal to investigate, rather
+than elapsed quiet time alone.
+
 ## Minimal acceptance behavior
 
 Phase 23.7 should pass fixtures for:
@@ -112,12 +122,25 @@ in that branch/worktree, clean git is confirmed, and deterministic dependency/bu
 plus tracked-procedure readiness checks pass. A Codex Desktop managed worktree
 may be entered instead of recreated, but a Desktop UI setup selection does not
 replace those readiness checks. A working-tree-only `TASK.md` change is not
-enough to treat the new task as active. After clean git, run
-`node bin/ch worktree bootstrap`, stop the predecessor task or Goal from
-writing, and explicitly enter a fresh successor Codex task before
-`node bin/ch run start --task TASK.md`. Harness does not create, close, or
-rebind Codex tasks or Goals. The harvested run still must not create, claim, or
-mutate the next task branch/worktree as old-run-owned state.
+enough to treat the new task as active. After clean git, create the successor
+through the native Codex Desktop task/worktree API; verify its cwd, branch, and
+`HEAD` binding, expose its identity/link for the user to open without
+repository/worktree creation, selection, or search, and stop the predecessor
+before any successor work. If creation or binding cannot be proven, fail closed
+with typed `HANDOFF_CREATION_FAILED`: do not bootstrap, start a successor run,
+or execute successor shell work from the predecessor. Only after that proof may
+the successor run `node bin/ch worktree bootstrap` before
+`node bin/ch run start --task TASK.md`. The harvested run still must not create,
+claim, or mutate the next task branch/worktree as old-run-owned state.
+
+If a harvested predecessor lacks a recorded next-task decision, or an
+already-activated successor lacks its uniquely owning `TaskState` because
+materialization was skipped, the handoff must stop fail-closed. The active D
+task-intake and draft-plan must define the smallest product-owned recovery from
+the recorded immutable decision base before materialization and activation
+proof. Manual `TaskState`/database edits, substituting current `HEAD` for the
+base, silently claiming an advanced worktree, and starting the successor before
+owner-match proof are forbidden.
 
 For a materialized successor, `run start` repeats the deterministic bootstrap
 before durable run creation. Its readiness marker must match the committed

@@ -30,8 +30,9 @@ deterministically.
 - Verification commands are known.
 - Command results or failures are available for review.
 - If local evidence comes from `node bin/ch run verify --run <run-id>`, expect
-  that command to take 14 minutes or more as the acceptance suite grows. Wait
-  for real exit and do not relaunch a duplicate verification while the first
+  the full self-hosting pack to commonly take 10-16 minutes as the acceptance
+  suite grows. The command prints this expectation when it starts. Wait for
+  real exit and do not relaunch a duplicate verification while the first
   process is still alive.
 
 ## forbidden_scope
@@ -46,6 +47,10 @@ deterministically.
 - Check exit status and any explicit failure output.
 - Treat a still-running `run verify` process as incomplete evidence, not as a
   failure or a license to start a second copy.
+- Use the recorded per-command `duration_ms` values and the command's reported
+  `verification_duration_ms` to compare like-for-like runs. Do not present the
+  10-16 minute full-pack observation as a timeout, SLA, or a duration guarantee
+  for a focused command or a reused evidence result.
 - Record explicit evidence gaps instead of inferring success.
 - Distinguish local verification from remote CI state.
 - Check package and release boundary commands only when the task or boundary

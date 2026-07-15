@@ -89,14 +89,14 @@ Phase 23.8.6C1 is the completed post-bootstrap task-contract rebase. Phase
 independence, and downstream ownership authority without implementing runtime
 routing. Phase 23.8.6C2 then performs narrow correctness hardening for the
 existing `run start --task TASK.md` and `run status --operator` surfaces. C2A
-makes task materialization commit-backed, prepares rather than starts the
-successor run, and verifies deterministic worktree readiness after either
+completed commit-backed task materialization, prepared rather than started the
+successor run, and verified deterministic worktree readiness after either
 Harness or Codex Desktop creates the checkout; it never copies ignored private
-state. Before verification, C2A requires one independent combined
+state. Its implementation required one independent combined
 architecture/authority and persisted-storage/no-storage-change review; a failed
-labeled verdict routes to a fix pass and then a fresh combined review. Durable
-procedure payload storage follows
-in 23.8.6D, authority freshness in 23.8.6E, and normalized provider-neutral
+labeled verdict routes to a fix pass and then a fresh combined review. Phase
+23.8.6D is now the active durable-procedure payload-storage and worktree-
+retention phase; authority freshness follows in 23.8.6E, and normalized provider-neutral
 stage packet/result and route-intent contracts in 23.8.7. Phase 31 remains the
 first general runtime provider-binding and runner-execution boundary.
 
@@ -104,13 +104,18 @@ For a newly inserted phase, materialization is not complete when only
 `TASK.md` changes. Update the task contract, `TASK.md`, roadmap/operations
 order, and every required live authority/policy surface coherently; commit that
 complete activation as the first commit in the task branch/worktree; verify
-clean git; run `node bin/ch worktree bootstrap` to perform deterministic
-dependency/build and tracked-procedure readiness checks; then stop the
-predecessor context and explicitly enter a fresh successor Codex task before
-starting the authoritative Harness run. A Codex Desktop local environment may
-run the same setup during worktree creation, but its UI selection is not proof
-by itself. Materialization never opens a successor run or controls a Codex
-task/Goal. It also fails closed unless exactly one installed TaskState owns the
+clean git; then create the successor Codex Desktop task through the native
+task/worktree API. Verify its cwd, branch, and `HEAD` binding, expose its
+identity or link so the user can open it without creating, selecting, or
+searching for a repository or worktree, and stop the predecessor before any
+successor work. If creation or binding cannot be proven, fail closed with typed
+`HANDOFF_CREATION_FAILED`; the predecessor must not bootstrap, start a
+successor run, or execute successor shell work. Only after that proof may the
+successor run `node bin/ch worktree bootstrap` to perform deterministic
+dependency/build and tracked-procedure readiness checks before starting the
+authoritative Harness run. A Codex Desktop local environment may run the same
+setup during worktree creation, but its UI selection is not proof by itself.
+Materialization never opens a successor run. It also fails closed unless exactly one installed TaskState owns the
 new worktree or branch, so every Harness-materialized successor receives the
 recorded immutable base before it can reach `run start`. That successor start
 repeats the deterministic bootstrap before durable run creation; `--verify`
@@ -119,6 +124,16 @@ tree, lockfile, and CLI build output; those authority and readiness paths may
 not be symbolic links. It rechecks installed dependencies
 against the lockfile. Stale or nonmatching dependency/build directories cannot
 claim readiness.
+
+The same handoff boundary must detect a harvested predecessor that lacks a
+recorded next-task decision and an already-activated successor that lacks its
+uniquely owning `TaskState` because materialization was skipped. The active D
+task-intake and draft-plan own the smallest product-owned, fail-closed recovery:
+it must re-establish a valid successor context from the recorded immutable
+decision base before materialization and activation proof. It must preserve the
+decision-base and activation authority; manual `TaskState` or database edits,
+using current `HEAD` as a substitute base, silently claiming an advanced
+worktree, or starting the successor before owner-match proof are forbidden.
 
 Hard boundaries:
 
@@ -217,12 +232,14 @@ After commit:
 4. Commit the complete activation authority—`TASK.md`, active task contract,
    roadmap/operations ordering, and affected live policy surfaces—as the first
    commit in that new task branch/worktree.
-5. Verify clean git, then run `node bin/ch worktree bootstrap` in that task
-   worktree to install from the committed lockfile, build, and verify tracked
-   Harness/procedure surfaces.
-6. Stop the predecessor task or Goal from writing and explicitly open a fresh
-   successor Codex task in the prepared worktree; this is an operator handoff,
-   not automatic UI/Goal control.
+5. Verify clean git, then create the successor through the native Codex Desktop
+   task/worktree API; verify its cwd, branch, and `HEAD`, expose its
+   identity/link, and stop the predecessor before successor work. If proof
+   fails, return `HANDOFF_CREATION_FAILED` and do not bootstrap, run start, or
+   execute successor shell work.
+6. Only after successful handoff proof, run `node bin/ch worktree bootstrap`
+   in that task worktree to install from the committed lockfile, build, and
+   verify tracked Harness/procedure surfaces.
 7. Only then run `node bin/ch run start --task TASK.md` in the successor
    worktree.
 8. Run `/plan` again.

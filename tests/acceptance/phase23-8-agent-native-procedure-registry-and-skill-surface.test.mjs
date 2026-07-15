@@ -486,7 +486,10 @@ test("phase 23.8 run verify uses active task acceptance commands before package 
 
   const verify = runCli(["run", "verify", "--run", run.run_id], { cwd: tempRepo });
   assertSuccess(verify, "run verify uses task acceptance commands");
+  assert.match(verify.stdout, /verification: running/);
+  assert.match(verify.stdout, /expected_duration: full self-hosting verification commonly takes 10-16 minutes/);
   assert.match(verify.stdout, /verification: pass/);
+  assert.match(verify.stdout, /verification_duration_ms: \d+/);
 
   const recordedRun = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
   const latestVerification = recordedRun.verification_results.at(-1);

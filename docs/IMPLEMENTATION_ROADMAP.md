@@ -916,7 +916,8 @@ branch/worktree that is deterministically ready for the checked-in Harness
 commands and procedure surfaces.
 
 Status:
-Active implementation phase. C2 is complete, reviewed, accepted, and merged.
+Complete, reviewed, accepted, and merged. Its commit-backed materialization
+and deterministic worktree-bootstrap authority now precede the active D work.
 
 Required scope:
 - make `run materialize-next-task` prepare the new task context without
@@ -952,7 +953,7 @@ and preserve enough worktree provenance for later audit after local markdown
 files disappear.
 
 Status:
-Planned. Blocked until Phase 23.8.6C2 and Phase 23.8.6C2A are complete,
+Active implementation phase. Phase 23.8.6C2 and Phase 23.8.6C2A are complete,
 reviewed, accepted, and merged.
 
 Required scope:
