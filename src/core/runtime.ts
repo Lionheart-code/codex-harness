@@ -30,6 +30,7 @@ import { detectGitRepository, getGitStatusLines, getGitStatusPaths, runGitComman
 import { harvestRun } from "./harvest";
 import { detectInstalledLayer } from "./install";
 import {
+  type BootstrapIssuePhaseId,
   type BootstrapStatus,
   type DeliveryFactRecord,
   type LifecycleStatus,
@@ -64,6 +65,7 @@ import {
   type SelfHostingReviewLaunchProfile
 } from "./self-hosting-procedures";
 import { listTasks, writeTaskState, type TaskState } from "./tasks";
+import { bootstrapWorktree } from "./worktree";
 
 export const RUNTIME_CONTRACT_NAMES = [
   "Run",
@@ -339,7 +341,7 @@ export interface RuntimeServiceResult {
   runPath?: string;
   projectDbPath?: string;
   stagingDbPath?: string;
-  state: "created" | "loaded" | "preview" | "updated";
+  state: "blocked" | "created" | "loaded" | "preview" | "updated";
 }
 
 export interface RuntimeBootstrapResult {
@@ -389,9 +391,9 @@ export interface RuntimeTaskMaterializationResult {
   worktreePath: string;
   taskPath: string;
   created: boolean;
-  newRun?: Run;
-  newRunPath?: string;
-  state: "preview" | "updated";
+  handoffRequired: true;
+  nextAction: string;
+  state: "prepared" | "preview";
 }
 
 export type ReviewLaunchStatus =
@@ -660,6 +662,8 @@ interface OperatorEvaluationContext {
   latestPlanReviewResult?: ReviewResult;
   latestPlanReviewDecisionRecord?: PlanReviewDecisionRecord;
   latestImplementationChainReviewResult?: ReviewResult;
+  latestArchitectureReviewResult?: ReviewResult;
+  latestDbStorageReviewResult?: ReviewResult;
   latestVerification?: VerificationResult;
   latestCloseoutReceipt?: CloseoutReceipt;
   blockingFindings?: boolean;
@@ -702,10 +706,16 @@ const CLOSEOUT_FILE = "closeout.json";
 const DEFAULT_REMOTE_GATE_ID = "remote-ci";
 const DEFAULT_REMOTE_GATE_NAME = "Remote CI";
 const CURRENT_PHASE_RUN_ISSUE_PHASE_ID = "23.8.6C";
+const BOOTSTRAP_ISSUE_PHASE_IDS = new Set<BootstrapIssuePhaseId>([
+  "23.8.6C",
+  "23.8.6C2",
+  "23.8.6C2A"
+]);
 
 interface MatchingTaskStateSelection {
   task?: TaskState;
   selectedBy?: "sole" | "worktree" | "branch";
+  unreadableTaskStateWarning?: string;
   noLiveMatch?: boolean;
   ambiguity?: {
     reason: "worktree" | "branch";
@@ -825,6 +835,11 @@ function selectTaskStateForCheckout(projectRoot: string, targetRoot: string, bra
   }
 
   const taskList = listTasks(projectRoot);
+  if (taskList.warnings.length > 0) {
+    return {
+      unreadableTaskStateWarning: taskList.warnings.join("; ")
+    };
+  }
   const tasks = taskList.tasks;
 
   if (tasks.length === 0) {
@@ -889,18 +904,30 @@ function persistMaterializedTaskBaseAuthority(
   baseCommitSha: string
 ): void {
   if (!detectInstalledLayer(projectRoot)) {
-    return;
+    throw new Error("Materialized task base authority requires an installed Harness task-state owner.");
   }
 
-  const installedTasks = listTasks(projectRoot).tasks;
-  if (installedTasks.length === 0) {
-    return;
+  const taskList = listTasks(projectRoot);
+  if (taskList.warnings.length > 0) {
+    throw new Error(`Materialized task base authority requires every installed task-state record to be readable: ${taskList.warnings.join("; ")}`);
   }
-  const selection = selectTaskStateForCheckout(projectRoot, worktreePath, branch);
-  const task = selection.task;
-  if (!task || selection.ambiguity || selection.noLiveMatch) {
+  const installedTasks = taskList.tasks;
+  if (installedTasks.length === 0) {
     throw new Error("Materialized task base authority requires exactly one installed task-state owner.");
   }
+  const normalizedWorktreePath = normalizePathForComparison(worktreePath);
+  const owningTasks = installedTasks.filter((candidate) => {
+    const branchMatches = candidate.branch === branch;
+    const worktreeMatches = typeof candidate.worktree === "string"
+      && normalizePathForComparison(candidate.worktree) === normalizedWorktreePath;
+    const declaredBranchMatches = !candidate.branch || branchMatches;
+    const declaredWorktreeMatches = !candidate.worktree || worktreeMatches;
+    return (branchMatches || worktreeMatches) && declaredBranchMatches && declaredWorktreeMatches;
+  });
+  if (owningTasks.length !== 1) {
+    throw new Error("Materialized task base authority requires exactly one installed task-state owner matching the requested branch/worktree.");
+  }
+  const task = owningTasks[0];
   if (task.base_commit_sha && task.base_commit_sha !== baseCommitSha) {
     throw new Error(`Installed task ${task.task_id} already records immutable base_commit_sha ${task.base_commit_sha}.`);
   }
@@ -1034,14 +1061,14 @@ function validateWorkerHandoff(value: unknown): WorkerHandoff {
 
 function validateBootstrapIssues(value: unknown[]): RunIssue[] {
   assertUniqueNonEmptyIds(value, "issue_id", "run issue");
-  const issueTypes = new Set(["uncommitted_task_activation", "dirty_git_after_task_activation", "task_worktree_authority_mismatch", "task_branch_authority_mismatch", "bootstrap_authority_ambiguous", "bootstrap_authority_unmatched", "missing_base_authority"]);
+  const issueTypes = new Set(["uncommitted_task_activation", "missing_commit_backed_activation", "dirty_git_after_task_activation", "task_worktree_authority_mismatch", "task_branch_authority_mismatch", "bootstrap_authority_ambiguous", "bootstrap_authority_unmatched", "missing_base_authority", "worktree_bootstrap_not_ready"]);
   const routes = new Set(["fix_pass", "plan_amend", "supporting_fix", "new_task"]);
   return value.map((entry) => {
     const record = assertObject(entry, "run issue");
     for (const field of ["issue_id", "phase_id", "issue_type", "status", "created_at", "source", "summary", "recommended_route"]) {
       assertRequiredString(record, field, "run issue");
     }
-    if (record.phase_id !== CURRENT_PHASE_RUN_ISSUE_PHASE_ID || record.source !== "bootstrap" || record.blocking !== true
+    if (!BOOTSTRAP_ISSUE_PHASE_IDS.has(record.phase_id as BootstrapIssuePhaseId) || record.source !== "bootstrap" || record.blocking !== true
       || !issueTypes.has(String(record.issue_type)) || !["open", "resolved"].includes(String(record.status)) || !routes.has(String(record.recommended_route))) {
       throw new Error("run issue has unsupported current-bootstrap fields.");
     }
@@ -1058,7 +1085,7 @@ function validateRepairPackets(value: unknown[], issues: RunIssue[]): RepairPack
     for (const field of ["packet_id", "phase_id", "created_at", "route", "summary", "next_action", "prompt"]) {
       assertRequiredString(record, field, "repair packet");
     }
-    if (record.phase_id !== CURRENT_PHASE_RUN_ISSUE_PHASE_ID || !routes.has(String(record.route)) || !Array.isArray(record.issue_ids)
+    if (!BOOTSTRAP_ISSUE_PHASE_IDS.has(record.phase_id as BootstrapIssuePhaseId) || !routes.has(String(record.route)) || !Array.isArray(record.issue_ids)
       || record.issue_ids.length === 0 || record.issue_ids.some((issueId) => typeof issueId !== "string" || !issueIds.has(issueId))) {
       throw new Error("repair packet has invalid current-bootstrap issue links.");
     }
@@ -1321,6 +1348,24 @@ interface BootstrapBaseAuthority {
   source: "task_state" | "git_merge_base";
 }
 
+function bootstrapIssuePhaseId(run: Run): BootstrapIssuePhaseId {
+  return BOOTSTRAP_ISSUE_PHASE_IDS.has(run.phase_id as BootstrapIssuePhaseId)
+    ? run.phase_id as BootstrapIssuePhaseId
+    : CURRENT_PHASE_RUN_ISSUE_PHASE_ID;
+}
+
+function isMaterializedSuccessor(run: Run): boolean {
+  return ["23.8.6D", "23.8.6E", "23.8.7"].includes(run.phase_id ?? "");
+}
+
+function requiresCommitBackedBaseAuthority(run: Run): boolean {
+  return run.phase_id === "23.8.6C2" || run.phase_id === "23.8.6C2A" || isMaterializedSuccessor(run);
+}
+
+function requiresCommitBackedActivation(run: Run): boolean {
+  return run.phase_id === "23.8.6C2A" || isMaterializedSuccessor(run);
+}
+
 function isCommitAncestor(targetRoot: string, ancestor: string, head: string): boolean {
   return runGitCommand(targetRoot, ["merge-base", "--is-ancestor", ancestor, head]).status === 0;
 }
@@ -1362,7 +1407,11 @@ function resolveBootstrapBaseAuthority(
     : undefined;
 }
 
-function buildBootstrapFacts(run: Run, baseAuthority?: BootstrapBaseAuthority): BootstrapFact[] {
+function buildBootstrapFacts(
+  run: Run,
+  baseAuthority?: BootstrapBaseAuthority,
+  requiresBaseAuthority = false
+): BootstrapFact[] {
   const facts: BootstrapFact[] = [];
   const activeTaskPath = run.active_task_path ?? run.task_path;
 
@@ -1401,7 +1450,7 @@ function buildBootstrapFacts(run: Run, baseAuthority?: BootstrapBaseAuthority): 
       value: baseAuthority.commit,
       source: baseAuthority.source
     });
-  } else if (run.phase_id !== "23.8.6C2") {
+  } else if (!requiresBaseAuthority) {
     facts.push({
       fact_id: `bootstrap-fact-${facts.length + 1}`,
       label: "base_commit",
@@ -1428,11 +1477,12 @@ function buildRunIssue(
     summary: string;
     details?: string;
     recommendedRoute?: RunIssue["recommended_route"];
+    phaseId?: BootstrapIssuePhaseId;
   }
 ): RunIssue {
   return {
     issue_id: nextId("run-issue", issues.length),
-    phase_id: CURRENT_PHASE_RUN_ISSUE_PHASE_ID,
+    phase_id: input.phaseId ?? bootstrapIssuePhaseId(run),
     issue_type: input.issueType,
     status: "open",
     blocking: true,
@@ -1444,52 +1494,167 @@ function buildRunIssue(
   };
 }
 
-function evaluateBootstrapIssues(targetRoot: string, run: Run): { issues: RunIssue[]; baseAuthority?: BootstrapBaseAuthority } {
+function changedPathsInCommit(targetRoot: string, commit: string): string[] | undefined {
+  const result = runGitCommand(targetRoot, ["diff-tree", "--no-commit-id", "--name-only", "-r", "--diff-filter=ACMR", commit]);
+  if (result.error || result.status !== 0) {
+    return undefined;
+  }
+
+  return result.stdout
+    .split(/\r?\n/u)
+    .map((entry) => normalizeRepoRelativePath(entry.trim()))
+    .filter((entry) => entry.length > 0);
+}
+
+function firstCommitAfterBase(targetRoot: string, baseCommit: string): string | undefined {
+  const result = runGitCommand(targetRoot, ["rev-list", "--reverse", `${baseCommit}..HEAD`]);
+  if (result.error || result.status !== 0) {
+    return undefined;
+  }
+
+  return result.stdout
+    .split(/\r?\n/u)
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0);
+}
+
+function activationAuthorityPaths(targetRoot: string, run: Run): string[] {
+  const activeTaskPath = run.active_task_path ?? run.task_path;
+  let explicitlyNamedPolicyPaths: string[] = [];
+  try {
+    const taskContract = fs.readFileSync(path.join(targetRoot, activeTaskPath), "utf8");
+    explicitlyNamedPolicyPaths = [...taskContract.matchAll(/`(docs\/[A-Za-z0-9_./-]*POLICY[A-Za-z0-9_./-]*\.md)`/gu)]
+      .map((match) => match[1]);
+  } catch {
+    explicitlyNamedPolicyPaths = [];
+  }
+
+  return [...new Set([
+    "TASK.md",
+    activeTaskPath,
+    "docs/IMPLEMENTATION_ROADMAP.md",
+    "docs/OPERATIONS_PLAN.md",
+    ...explicitlyNamedPolicyPaths
+  ].map((entry) => normalizeRepoRelativePath(entry)))];
+}
+
+function evaluateCommitBackedActivationIssue(
+  targetRoot: string,
+  run: Run,
+  baseAuthority: BootstrapBaseAuthority,
+  changeSet: ChangeSet,
+  activationRequired: boolean,
+  issues: RunIssue[]
+): void {
+  if (!activationRequired) {
+    return;
+  }
+
+  const issuePhaseId = run.phase_id === "23.8.6C2A" ? undefined : "23.8.6C2A";
+
+  if (changeSet.changed_paths.length > 0) {
+    issues.push(buildRunIssue(run, issues, {
+      issueType: "missing_commit_backed_activation",
+      summary: "Commit-backed task activation cannot be proven.",
+      details: `Commit or remove all checkout changes before starting the successor run: ${changeSet.changed_paths.join(", ")}`,
+      ...(issuePhaseId ? { phaseId: issuePhaseId } : {})
+    }));
+    return;
+  }
+
+  const activationCommit = firstCommitAfterBase(targetRoot, baseAuthority.commit);
+  const requiredPaths = activationAuthorityPaths(targetRoot, run);
+  const changedPaths = activationCommit ? changedPathsInCommit(targetRoot, activationCommit) : undefined;
+  const missingPaths = changedPaths
+    ? requiredPaths.filter((entry) => !changedPaths.includes(entry))
+    : requiredPaths;
+
+  if (missingPaths.length === 0) {
+    return;
+  }
+
+  issues.push(buildRunIssue(run, issues, {
+    issueType: "missing_commit_backed_activation",
+    summary: "Commit-backed task activation cannot be proven.",
+    details: activationCommit
+      ? `The first post-base activation commit ${activationCommit} must include: ${missingPaths.join(", ")}`
+      : `Create the first post-base activation commit after ${baseAuthority.commit} with: ${missingPaths.join(", ")}`,
+    ...(issuePhaseId ? { phaseId: issuePhaseId } : {})
+  }));
+}
+
+function evaluateBootstrapIssues(targetRoot: string, run: Run): {
+  issues: RunIssue[];
+  baseAuthority?: BootstrapBaseAuthority;
+  requiresBaseAuthority: boolean;
+  requiresActivation: boolean;
+} {
   const issues: RunIssue[] = [];
   const changeSet = buildChangeSet(targetRoot);
   const changedPaths = new Set(changeSet.changed_paths);
-
-  if (changedPaths.has("TASK.md")) {
+  const taskSelection = selectTaskStateForCheckout(run.repository.project_root, targetRoot, run.repository.branch);
+  const selectedTask = taskSelection.task;
+  const requiresActivation = requiresCommitBackedActivation(run);
+  const requiresBaseAuthority = requiresCommitBackedBaseAuthority(run);
+  const collapseC2AActivationFailure = requiresActivation;
+  const materializationIssuePhaseId: BootstrapIssuePhaseId | undefined = requiresActivation && run.phase_id !== "23.8.6C2A"
+    ? "23.8.6C2A"
+    : undefined;
+  const addBootstrapIssue = (input: {
+    issueType: RunIssue["issue_type"];
+    summary: string;
+    details?: string;
+    recommendedRoute?: RunIssue["recommended_route"];
+  }): void => {
     issues.push(buildRunIssue(run, issues, {
+      ...input,
+      ...(materializationIssuePhaseId ? { phaseId: materializationIssuePhaseId } : {})
+    }));
+  };
+
+  if (!collapseC2AActivationFailure && changedPaths.has("TASK.md")) {
+    addBootstrapIssue({
       issueType: "uncommitted_task_activation",
       summary: "TASK.md activation is uncommitted.",
       details: "Commit the active TASK.md pointer before starting or continuing the bootstrap run."
-    }));
+    });
   }
 
   const nonTaskDirtyPaths = changeSet.changed_paths.filter((entry) => entry !== "TASK.md");
-  if (nonTaskDirtyPaths.length > 0) {
-    issues.push(buildRunIssue(run, issues, {
+  if (!collapseC2AActivationFailure && nonTaskDirtyPaths.length > 0) {
+    addBootstrapIssue({
       issueType: "dirty_git_after_task_activation",
       summary: "Git is dirty after task activation.",
       details: `Clean or commit the active checkout before continuing: ${nonTaskDirtyPaths.join(", ")}`
-    }));
+    });
   }
 
-  const taskSelection = selectTaskStateForCheckout(run.repository.project_root, targetRoot, run.repository.branch);
-  if (taskSelection.ambiguity) {
-    issues.push(buildRunIssue(run, issues, {
+  if (taskSelection.unreadableTaskStateWarning && requiresActivation) {
+    addBootstrapIssue({
+      issueType: "bootstrap_authority_unmatched",
+      summary: "Installed task-state authority cannot be read for the current checkout.",
+      details: `A materialized successor requires one readable matching TaskState: ${taskSelection.unreadableTaskStateWarning}`
+    });
+  } else if (taskSelection.ambiguity) {
+    addBootstrapIssue({
       issueType: "bootstrap_authority_ambiguous",
       summary: "Multiple installed task records claim the current checkout authority.",
       details: `Ambiguous ${taskSelection.ambiguity.reason} matches: ${taskSelection.ambiguity.taskIds.join(", ")}`
-    }));
-  }
-
-  if (taskSelection.noLiveMatch) {
-    issues.push(buildRunIssue(run, issues, {
+    });
+  } else if (taskSelection.noLiveMatch || (requiresActivation && !selectedTask)) {
+    addBootstrapIssue({
       issueType: "bootstrap_authority_unmatched",
       summary: "No installed task record matches the current checkout.",
-      details: "Multiple installed task records exist, but none matches the current worktree or branch."
-    }));
+      details: "A materialized successor requires one readable installed TaskState matching its current worktree or branch."
+    });
   }
 
-  const selectedTask = taskSelection.task;
   if (selectedTask?.worktree && normalizePathForComparison(selectedTask.worktree) !== normalizePathForComparison(targetRoot)) {
-    issues.push(buildRunIssue(run, issues, {
+    addBootstrapIssue({
       issueType: "task_worktree_authority_mismatch",
       summary: "Installed task worktree metadata does not match the current checkout.",
       details: `Task ${selectedTask.task_id} records ${selectedTask.worktree}, but bootstrap is running from ${targetRoot}.`
-    }));
+    });
   }
 
   if (
@@ -1497,26 +1662,32 @@ function evaluateBootstrapIssues(targetRoot: string, run: Run): { issues: RunIss
     && run.repository.branch
     && selectedTask.branch !== run.repository.branch
   ) {
-    issues.push(buildRunIssue(run, issues, {
+    addBootstrapIssue({
       issueType: "task_branch_authority_mismatch",
       summary: "Installed task branch metadata does not match the current checkout.",
       details: `Task ${selectedTask.task_id} records branch ${selectedTask.branch}, but bootstrap is running from ${run.repository.branch}.`
-    }));
+    });
   }
 
-  const requiresC2BaseAuthority = run.phase_id === "23.8.6C2";
-  const baseAuthority = requiresC2BaseAuthority && !taskSelection.ambiguity && !taskSelection.noLiveMatch
+  const taskAuthorityBlocked = Boolean(
+    taskSelection.unreadableTaskStateWarning || taskSelection.ambiguity || taskSelection.noLiveMatch || (requiresActivation && !selectedTask)
+  );
+  const baseAuthority = requiresBaseAuthority && !taskAuthorityBlocked
     ? resolveBootstrapBaseAuthority(targetRoot, run, selectedTask)
     : undefined;
-  if (requiresC2BaseAuthority && !taskSelection.ambiguity && !taskSelection.noLiveMatch && !baseAuthority) {
-    issues.push(buildRunIssue(run, issues, {
+  if (requiresBaseAuthority && !taskAuthorityBlocked && !baseAuthority) {
+    addBootstrapIssue({
       issueType: "missing_base_authority",
       summary: "Bootstrap base authority cannot be proven.",
       details: "Use a valid matching TaskState.base_commit_sha or configure an upstream with a resolvable merge-base."
-    }));
+    });
   }
 
-  return { issues, ...(baseAuthority ? { baseAuthority } : {}) };
+  if (baseAuthority) {
+    evaluateCommitBackedActivationIssue(targetRoot, run, baseAuthority, changeSet, requiresActivation, issues);
+  }
+
+  return { issues, requiresBaseAuthority, requiresActivation, ...(baseAuthority ? { baseAuthority } : {}) };
 }
 
 function buildRepairPacket(run: Run, issues: RunIssue[]): RepairPacket | undefined {
@@ -1526,7 +1697,7 @@ function buildRepairPacket(run: Run, issues: RunIssue[]): RepairPacket | undefin
 
   return {
     packet_id: nextId("repair-packet", run.repair_packets.length),
-    phase_id: CURRENT_PHASE_RUN_ISSUE_PHASE_ID,
+    phase_id: issues[0].phase_id,
     created_at: run.created_at,
     route: issues.some((issue) => issue.recommended_route === "new_task")
       ? "new_task"
@@ -2500,7 +2671,21 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
     source_snapshot: seedRun.repository.head_sha
   };
   const bootstrapEvaluation = evaluateBootstrapIssues(targetRoot, run);
-  const runIssues = bootstrapEvaluation.issues;
+  const runIssues = [...bootstrapEvaluation.issues];
+  const selectedTask = selectTaskStateForCheckout(run.repository.project_root, targetRoot, run.repository.branch).task;
+  if (!dryRun && isMaterializedSuccessor(run) && runIssues.length === 0) {
+    try {
+      bootstrapWorktree(targetRoot);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      runIssues.push(buildRunIssue(run, runIssues, {
+        issueType: "worktree_bootstrap_not_ready",
+        summary: "Deterministic worktree bootstrap readiness cannot be proven.",
+        details: `Run node bin/ch worktree bootstrap successfully before starting the successor run: ${detail}`,
+        phaseId: "23.8.6C2A"
+      }));
+    }
+  }
   const repairPacket = buildRepairPacket(run, runIssues);
   const runWithBootstrap: Run = {
     ...run,
@@ -2508,7 +2693,7 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
     bootstrap_facts: buildBootstrapFacts({
       ...run,
       bootstrap_status: runIssues.length > 0 ? "blocked" : "ready"
-    }, bootstrapEvaluation.baseAuthority),
+    }, bootstrapEvaluation.baseAuthority, bootstrapEvaluation.requiresBaseAuthority),
     run_issues: runIssues,
     repair_packets: repairPacket ? [repairPacket] : []
   };
@@ -2541,6 +2726,19 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
       projectDbPath: seededPaths.projectDbPath,
       stagingDbPath: seededPaths.stagingDbPath,
       state: "preview"
+    };
+  }
+
+  if (bootstrapEvaluation.requiresActivation && runIssues.length > 0) {
+    return {
+      targetRoot,
+      projectRoot: roots.projectRoot,
+      dryRun,
+      run: finalRun,
+      bootstrap: bootstrapResult,
+      projectDbPath: seededPaths.projectDbPath,
+      stagingDbPath: seededPaths.stagingDbPath,
+      state: "blocked"
     };
   }
 
@@ -3784,6 +3982,7 @@ export async function materializeRuntimeNextTask(
   }
 
   const absoluteWorktreePath = path.resolve(targetRoot, options.worktreePath);
+  const nextAction = buildMaterializationHandoffAction(absoluteWorktreePath);
   if (dryRun) {
     return {
       targetRoot,
@@ -3794,6 +3993,8 @@ export async function materializeRuntimeNextTask(
       worktreePath: absoluteWorktreePath,
       taskPath: nextTaskPath,
       created: createMode,
+      handoffRequired: true,
+      nextAction,
       state: "preview"
     };
   }
@@ -3852,6 +4053,9 @@ export async function materializeRuntimeNextTask(
       fs.copyFileSync(taskPointerPath, backupPath);
     }
     fs.writeFileSync(taskPointerPath, buildNextTaskPointerMarkdown(nextTaskPath), "utf8");
+    if (fs.readFileSync(taskPointerPath, "utf8") !== buildNextTaskPointerMarkdown(nextTaskPath)) {
+      throw new Error(`Materialized task pointer does not resolve to the recorded next task: ${nextTaskPath}`);
+    }
 
     persistMaterializedTaskBaseAuthority(
       roots.projectRoot,
@@ -3859,8 +4063,6 @@ export async function materializeRuntimeNextTask(
       options.branch,
       record.base_commit_sha
     );
-
-    const runStartResult = await startRuntimeRun(absoluteWorktreePath, { taskPath: "TASK.md" });
 
     if (backupPath && fs.existsSync(backupPath)) {
       fs.rmSync(backupPath, { force: true });
@@ -3875,9 +4077,9 @@ export async function materializeRuntimeNextTask(
       worktreePath: absoluteWorktreePath,
       taskPath: nextTaskPath,
       created,
-      newRun: runStartResult.run,
-      newRunPath: runStartResult.runPath,
-      state: "updated"
+      handoffRequired: true,
+      nextAction,
+      state: "prepared"
     };
   } catch (error) {
     if (backupPath && fs.existsSync(backupPath)) {
@@ -3998,6 +4200,51 @@ function normalizeReviewRecommendationLine(
   }
 
   return undefined;
+}
+
+type CombinedArchitectureDbReviewVerdict = "PASS" | "FIX_REQUIRED";
+
+interface CombinedArchitectureDbReviewVerdicts {
+  architectureAuthority: CombinedArchitectureDbReviewVerdict;
+  persistedStorage: CombinedArchitectureDbReviewVerdict;
+}
+
+function parseCombinedReviewVerdictSection(
+  markdown: string,
+  heading: string
+): CombinedArchitectureDbReviewVerdict | undefined {
+  const sectionPattern = new RegExp(
+    `^##\\s+${escapeRegExpPattern(heading)}\\s*\\n([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`,
+    "im"
+  );
+  const section = sectionPattern.exec(markdown)?.[1];
+
+  if (!section) {
+    return undefined;
+  }
+
+  for (const rawLine of section.split(/\r?\n/u)) {
+    const token = rawLine.trim().replace(/^\*\*(.+)\*\*$/, "$1").trim().toUpperCase();
+    if (token === "PASS") {
+      return "PASS";
+    }
+    if (token === "FAIL" || token === "FIX_REQUIRED") {
+      return "FIX_REQUIRED";
+    }
+  }
+
+  return undefined;
+}
+
+function parseCombinedArchitectureDbReviewVerdicts(markdown: string): CombinedArchitectureDbReviewVerdicts | undefined {
+  const architectureAuthority = parseCombinedReviewVerdictSection(markdown, "Architecture / Authority Verdict");
+  const persistedStorage = parseCombinedReviewVerdictSection(markdown, "Persisted Storage / No-storage-change Verdict");
+
+  if (!architectureAuthority || !persistedStorage) {
+    return undefined;
+  }
+
+  return { architectureAuthority, persistedStorage };
 }
 
 function validatePlanReviewArtifact(markdown: string): {
@@ -4168,6 +4415,28 @@ function buildProcedureReviewResult(
       summary: hasUnresolved ? "Fix-pass Review requires follow-up" : "Fix-pass Review passed",
       source: `procedure:${procedureId}`,
       blockers: hasUnresolved ? ["Fix-pass Review requires follow-up"] : [],
+      artifact_refs: [artifact]
+    };
+  }
+
+  const combinedVerdicts = parseCombinedArchitectureDbReviewVerdicts(markdown);
+  const combinedVerdict = procedureId === "architecture-review"
+    ? combinedVerdicts?.architectureAuthority
+    : procedureId === "db-storage-review"
+      ? combinedVerdicts?.persistedStorage
+      : undefined;
+
+  if (combinedVerdict) {
+    const label = procedureId === "architecture-review"
+      ? "Architecture / authority review"
+      : "Persisted storage / no-storage-change review";
+    return {
+      review_result_id: nextId("review", run.review_results.length),
+      status: combinedVerdict,
+      created_at: timestamp,
+      summary: combinedVerdict === "PASS" ? `${label} passed` : `${label} requires follow-up`,
+      source: `procedure:${procedureId}`,
+      blockers: combinedVerdict === "PASS" ? [] : [`${label} requires follow-up`],
       artifact_refs: [artifact]
     };
   }
@@ -4669,6 +4938,36 @@ function findLatestProcedureReviewResult(run: Run, procedureId: string): ReviewR
   return undefined;
 }
 
+function reviewsShareArtifact(first: ReviewResult, second: ReviewResult): boolean {
+  const firstArtifactIds = new Set(first.artifact_refs.map((artifact) => artifact.artifact_id));
+  return second.artifact_refs.some((artifact) => firstArtifactIds.has(artifact.artifact_id));
+}
+
+function findLatestSuccessfulFixPassIndex(run: Run): number {
+  for (let index = run.review_results.length - 1; index >= 0; index -= 1) {
+    const review = run.review_results[index];
+    if (review.status === "PASS" && reviewSourceMatchesProcedure(review.source, "fix-pass-review")) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function findLatestCombinedReviewFailureIndex(run: Run): number {
+  for (let index = run.review_results.length - 1; index >= 0; index -= 1) {
+    const review = run.review_results[index];
+    if (
+      review.status !== "PASS"
+      && (reviewSourceMatchesProcedure(review.source, "architecture-review") || reviewSourceMatchesProcedure(review.source, "db-storage-review"))
+    ) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
 function findLatestProcedureReviewResultForAny(run: Run, procedureIds: string[]): ReviewResult | undefined {
   for (let index = run.review_results.length - 1; index >= 0; index -= 1) {
     const review = run.review_results[index];
@@ -5006,6 +5305,16 @@ function buildNextTaskPointerMarkdown(taskPath: string): string {
     `Implement only: ${taskPath}`,
     ""
   ].join("\n");
+}
+
+function buildMaterializationHandoffAction(worktreePath: string): string {
+  return [
+    "Stop the predecessor task or Goal from writing.",
+    "Commit the successor activation authority in the prepared worktree.",
+    "Run `node bin/ch worktree bootstrap` there.",
+    "Open a fresh successor Codex task in that worktree, then run `node bin/ch run start --task TASK.md`.",
+    `Prepared worktree: ${worktreePath}`
+  ].join(" ");
 }
 
 function resolveExactCommit(targetRoot: string, value: string): string {
@@ -6083,6 +6392,145 @@ function resolveImplementationReviewStage(context: OperatorEvaluationContext): O
   return undefined;
 }
 
+function buildC2ACombinedReviewRequiredStage(
+  context: OperatorEvaluationContext,
+  missingEvidence: string[],
+  stopReason: "missing_combined_architecture_db_review" | "combined_review_refresh_required"
+): OperatorStageDraft {
+  const fresh = stopReason === "combined_review_refresh_required";
+  return buildOperatorStageDraft({
+    current_stage: "COMBINED_ARCHITECTURE_DB_REVIEW_REQUIRED",
+    next_procedure_id: "architecture-review",
+    required_inputs: [
+      "implementation diff and verification evidence",
+      "active C2A task contract",
+      "architecture/authority and persisted-storage/no-storage-change review surface"
+    ],
+    missing_inputs: [],
+    required_evidence: fresh
+      ? ["fresh combined architecture-review and db-storage-review after the fix pass"]
+      : ["combined architecture-review and db-storage-review"],
+    missing_evidence: missingEvidence,
+    stop_reason: stopReason,
+    next_allowed_action: fresh
+      ? "run one fresh independent read-only combined architecture/authority and db-storage review, then record the artifact under both procedures"
+      : "run one independent read-only combined architecture/authority and db-storage review, then record the artifact under both procedures",
+    forbidden_actions: ["implementation", "source edits", "verification", "closeout", "phase closeout review", "harvest"],
+    notes: context.baseNotes
+  });
+}
+
+function resolveC2ACombinedArchitectureDbReviewStage(context: OperatorEvaluationContext): OperatorStageDraft | undefined {
+  if (context.taskContext.phaseId !== "23.8.6C2A" || !context.runContext) {
+    return undefined;
+  }
+
+  const taggedProcedures = context.taggedProcedures ?? new Set<string>();
+  const hasArchitectureEvidence = taggedProcedures.has("architecture-review");
+  const hasDbStorageEvidence = taggedProcedures.has("db-storage-review");
+
+  if (!hasArchitectureEvidence || !hasDbStorageEvidence) {
+    return buildC2ACombinedReviewRequiredStage(
+      context,
+      [
+        ...(!hasArchitectureEvidence ? ["architecture-review"] : []),
+        ...(!hasDbStorageEvidence ? ["db-storage-review"] : [])
+      ],
+      "missing_combined_architecture_db_review"
+    );
+  }
+
+  const architectureReview = context.latestArchitectureReviewResult;
+  const dbStorageReview = context.latestDbStorageReviewResult;
+  if (!architectureReview || !dbStorageReview) {
+    return buildOperatorStageDraft({
+      current_stage: "BLOCKED",
+      next_procedure_id: "none",
+      required_inputs: ["parseable labeled architecture/authority and persisted-storage/no-storage-change verdicts"],
+      missing_inputs: [],
+      required_evidence: ["parseable combined architecture-review and db-storage-review results"],
+      missing_evidence: ["parseable combined architecture-review and db-storage-review results"],
+      stop_reason: "invalid_combined_architecture_db_review_evidence",
+      next_allowed_action: "record or rerun one combined review artifact with both labeled verdicts under architecture-review and db-storage-review",
+      forbidden_actions: ["implementation", "source edits", "verification", "closeout", "phase closeout review", "harvest"],
+      notes: context.baseNotes
+    });
+  }
+
+  const run = context.runContext.run;
+  const architectureIndex = run.review_results.indexOf(architectureReview);
+  const dbStorageIndex = run.review_results.indexOf(dbStorageReview);
+  const passesTogether = architectureReview.status === "PASS"
+    && dbStorageReview.status === "PASS"
+    && reviewsShareArtifact(architectureReview, dbStorageReview);
+  const latestFailureIndex = findLatestCombinedReviewFailureIndex(run);
+  const latestFixPassIndex = findLatestSuccessfulFixPassIndex(run);
+  const fixPassFollowsFailure = latestFailureIndex >= 0 && latestFixPassIndex > latestFailureIndex;
+
+  if (latestFailureIndex >= 0 && !fixPassFollowsFailure) {
+    return buildOperatorStageDraft({
+      current_stage: "FIX_PASS_REQUIRED",
+      next_procedure_id: "fix-pass-review",
+      required_inputs: getProcedureRequiredInputs(
+        context,
+        "fix-pass-review",
+        ["combined architecture/db review findings", "fix-pass diff", "fix-pass tests"]
+      ),
+      missing_inputs: [],
+      required_evidence: ["fix-pass-review"],
+      missing_evidence: ["fix-pass-review"],
+      stop_reason: "unresolved_combined_architecture_db_review_findings",
+      next_allowed_action: buildReviewStageAction("fix-pass-review"),
+      forbidden_actions: ["closeout", "phase closeout review", "harvest"],
+      notes: context.baseNotes
+    });
+  }
+
+  if (fixPassFollowsFailure) {
+    const bothPostFixPass = passesTogether
+      && architectureIndex > latestFixPassIndex
+      && dbStorageIndex > latestFixPassIndex;
+    if (bothPostFixPass) {
+      return undefined;
+    }
+
+    return buildC2ACombinedReviewRequiredStage(
+      context,
+      ["one shared fresh combined architecture-review and db-storage-review artifact after the fix pass"],
+      "combined_review_refresh_required"
+    );
+  }
+
+  if (passesTogether) {
+    return undefined;
+  }
+
+  if (architectureReview.status !== "PASS" || dbStorageReview.status !== "PASS") {
+    return buildOperatorStageDraft({
+      current_stage: "FIX_PASS_REQUIRED",
+      next_procedure_id: "fix-pass-review",
+      required_inputs: getProcedureRequiredInputs(
+        context,
+        "fix-pass-review",
+        ["combined architecture/db review findings", "fix-pass diff", "fix-pass tests"]
+      ),
+      missing_inputs: [],
+      required_evidence: ["fix-pass-review"],
+      missing_evidence: ["fix-pass-review"],
+      stop_reason: "unresolved_combined_architecture_db_review_findings",
+      next_allowed_action: buildReviewStageAction("fix-pass-review"),
+      forbidden_actions: ["closeout", "phase closeout review", "harvest"],
+      notes: context.baseNotes
+    });
+  }
+
+  return buildC2ACombinedReviewRequiredStage(
+    context,
+    ["one shared combined architecture-review and db-storage-review artifact"],
+    "missing_combined_architecture_db_review"
+  );
+}
+
 function resolveVerificationStage(context: OperatorEvaluationContext): OperatorStageDraft | undefined {
   const taggedProcedures = context.taggedProcedures ?? new Set<string>();
   const hasVerificationReview = taggedProcedures.has("verification-review");
@@ -6210,6 +6658,7 @@ function resolveCloseoutLifecycleStage(context: OperatorEvaluationContext): Oper
 
 function resolvePostImplementationStage(context: OperatorEvaluationContext): OperatorStageDraft {
   return resolveImplementationReviewStage(context)
+    ?? resolveC2ACombinedArchitectureDbReviewStage(context)
     ?? resolveVerificationStage(context)
     ?? resolveCloseoutLifecycleStage(context);
 }
@@ -6271,6 +6720,12 @@ function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string,
       latestPlanReviewDecisionRecord: runContext ? readLatestPlanReviewDecisionRecord(runContext, procedureIds) : undefined,
       latestImplementationChainReviewResult: runContext
         ? findLatestProcedureReviewResultForAny(runContext.run, ["implementation-review", "fix-pass-review"])
+        : undefined,
+      latestArchitectureReviewResult: runContext
+        ? findLatestProcedureReviewResult(runContext.run, "architecture-review")
+        : undefined,
+      latestDbStorageReviewResult: runContext
+        ? findLatestProcedureReviewResult(runContext.run, "db-storage-review")
         : undefined,
       latestVerification: runContext && runContext.run.verification_results.length > 0
         ? runContext.run.verification_results[runContext.run.verification_results.length - 1]

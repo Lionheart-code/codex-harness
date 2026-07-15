@@ -17,6 +17,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "worktree:bootstrap": "npm ci && npm run build",
     "test": "node scripts/run-acceptance.mjs",
     "test:acceptance": "node scripts/run-acceptance.mjs",
     "release:dry-run": "npm run build && node scripts/check-package-contents.mjs && node scripts/smoke-packed-install.mjs"

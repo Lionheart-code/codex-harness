@@ -21,18 +21,24 @@ This document explains how a human operator should use `codex-harness` safely.
    the current active-chain procedure surfaces:
    `node bin/ch run record-procedure --run <run-id> --procedure task-intake|task-prompt-writer|draft-plan|plan-review|plan-amend|architecture-review|db-storage-review|implementation-review|fix-pass-review|verification-review|delivery-facts-review|phase-closeout-review --file <path>`
    and
-   `node bin/ch run approve-plan --run <run-id> --plan <path> --approver <name>`.
+  `node bin/ch run approve-plan --run <run-id> --plan <path> --approver <name>`. For
+   C2A, after implementation review and before verification, obtain one
+   independent read-only combined review with separately labeled
+   architecture/authority and persisted-storage/no-storage-change verdicts;
+   record that same artifact under both `architecture-review` and
+   `db-storage-review`. A failed verdict routes to `fix-pass-review`, followed
+   by a fresh combined review before verification can continue.
    For next-cycle continuity in the same phase, use
    `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`
    and then
    `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`.
-   C2A is the active task that changes that command path to prepare, rather
-   than start, the new task branch/worktree. Until it is delivered, any run
-   opened by the current materializer is provisional and must be discarded
-   before the post-commit authoritative run starts. The next task is never
-   active source authority until the new task worktree has a commit-backed
-   `TASK.md` activation, clean git, and deterministic dependency/build plus
-   tracked-procedure readiness verification.
+   That command path prepares, rather than starts, the new task
+   branch/worktree. The next task is never active source authority until the
+   new task worktree has a first-commit-backed `TASK.md`, task contract,
+   roadmap/operations activation, clean git, and deterministic dependency/build
+   plus tracked-procedure readiness verification. Harness materialization also
+   requires exactly one installed TaskState to own that worktree or branch, so
+   it can persist the immutable recorded base before the successor is started.
    A manual transcript alone still does not satisfy runtime evidence for any of
    those procedures; the operator must record it through the product command.
    Procedures outside the active replay scope, such as
@@ -354,18 +360,26 @@ Only after commit and closeout/harvest decision:
 4. commit the complete activation/materialization authority change as the
    first commit in that new task branch/worktree;
 5. verify clean `git status` in that new task context;
-6. run the repository's deterministic dependency/build and tracked-procedure
-   readiness check once C2A delivers it. For this transition before that
-   delivery, run the repository's declared setup manually and verify the same
-   tracked surfaces. A successful Codex Desktop local-environment setup may
-   provide the same files, but it must be verified rather than assumed. Do not
-   copy `.env*`, credentials, `.codex/**`, `.harness/**`, `node_modules`, or
-   generated output from another checkout; use an operator-authored
-   `.worktreeinclude` only when ignored files are genuinely required;
-7. only then start or continue the new run in that task worktree. Until C2A is
-   delivered, discard an earlier materializer-created run and start a fresh
-   authoritative run after steps 4-6;
-8. start fresh `/plan`.
+6. run `node bin/ch worktree bootstrap` in that worktree. It installs from the
+   committed lockfile, builds, and verifies tracked Harness/procedure surfaces.
+   Its readiness marker binds that setup to the committed `HEAD`, source tree,
+   lockfile, and generated CLI output; those authority and readiness paths may
+   not be symbolic links. `--verify` also checks the installed
+   dependency tree against the committed lockfile and fails closed when any of
+   those facts no longer match. A successor `run start` repeats this
+   deterministic bootstrap before it can create durable run state, so a missing
+   lockfile, stale dependency/build output, or missing tracked procedure surface
+   cannot be bypassed by skipping this operator step.
+   A successful Codex Desktop local-environment setup may provide the same
+   files, but it must be verified rather than assumed. Do not copy `.env*`,
+   credentials, `.codex/**`, `.harness/**`, `node_modules`, or generated output
+   from another checkout; use an operator-authored `.worktreeinclude` only when
+   ignored files are genuinely required;
+7. stop the predecessor task or Goal from writing and explicitly open a fresh
+   successor Codex task in the prepared worktree; Harness does not create,
+   close, or rebind Codex Desktop tasks or Goals;
+8. only then run `node bin/ch run start --task TASK.md` in that task worktree;
+9. start fresh `/plan`.
 
 ## Emergency rollback
 

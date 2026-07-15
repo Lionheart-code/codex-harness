@@ -1,5 +1,5 @@
 import { error, lines } from "../core/logger";
-import { createOrResolveWorktree, deleteWorktreeForRun } from "../core/worktree";
+import { bootstrapWorktree, createOrResolveWorktree, deleteWorktreeForRun } from "../core/worktree";
 
 type ParsedOptions = Record<string, string | boolean>;
 
@@ -34,7 +34,8 @@ function printHelp(): void {
   lines([
     "Usage:",
     "  node bin/ch worktree",
-    "  node bin/ch worktree delete --run <run-id> [--manual-override <reason>]"
+    "  node bin/ch worktree delete --run <run-id> [--manual-override <reason>]",
+    "  node bin/ch worktree bootstrap [--verify] [--dry-run]"
   ]);
 }
 
@@ -97,6 +98,42 @@ async function runDelete(args: string[]): Promise<number> {
   }
 }
 
+async function runBootstrap(args: string[]): Promise<number> {
+  let verifyOnly = false;
+  let dryRun = false;
+
+  for (const arg of args) {
+    if (arg === "--verify") {
+      verifyOnly = true;
+      continue;
+    }
+    if (arg === "--dry-run") {
+      dryRun = true;
+      continue;
+    }
+    error(`Unknown worktree bootstrap option: ${arg}`);
+    return 1;
+  }
+
+  try {
+    const result = bootstrapWorktree(process.cwd(), { dryRun, verifyOnly });
+    lines([
+      "codex-harness worktree bootstrap",
+      `target root: ${result.targetRoot}`,
+      `dry run: ${result.dryRun ? "yes" : "no"}`,
+      `verify only: ${result.verifyOnly ? "yes" : "no"}`,
+      `setup command: ${result.setupCommand}`,
+      `status: ${result.state}`,
+      ...result.checks.map((entry) => `- ${entry}`)
+    ]);
+    return 0;
+  } catch (worktreeError) {
+    const message = worktreeError instanceof Error ? worktreeError.message : String(worktreeError);
+    error(message);
+    return 1;
+  }
+}
+
 export async function runWorktree(args: string[]): Promise<number> {
   if (args.length === 0) {
     return runCreate(args);
@@ -110,6 +147,9 @@ export async function runWorktree(args: string[]): Promise<number> {
   const [subcommand, ...subcommandArgs] = args;
   if (subcommand === "delete") {
     return runDelete(subcommandArgs);
+  }
+  if (subcommand === "bootstrap") {
+    return runBootstrap(subcommandArgs);
   }
 
   return runCreate(args);

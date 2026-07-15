@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
 export interface GitRepositoryStatus {
@@ -153,7 +154,13 @@ export function isSourceCheckoutDirty(cwd: string): boolean {
 
 export function worktreePathExistsInGit(cwd: string, targetPath: string): boolean {
   const normalizeWorktreePath = (value: string): string => {
-    const normalized = value.replace(/[\\/]+/g, "/");
+    let canonicalPath: string;
+    try {
+      canonicalPath = fs.realpathSync.native(value);
+    } catch {
+      canonicalPath = path.resolve(value);
+    }
+    const normalized = canonicalPath.replace(/[\\/]+/g, "/");
     return process.platform === "win32" ? normalized.toLowerCase() : normalized;
   };
   const normalizedTarget = normalizeWorktreePath(targetPath);

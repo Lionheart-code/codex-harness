@@ -60,7 +60,7 @@ function printRunHelp(): void {
     "  launch-review Supervise a read-only review launch and record structured launch evidence.",
     "  approve-plan  Record explicit human approval of the reviewed plan.",
     "  record-next-task Record the next task decision with exact base-commit authority.",
-    "  materialize-next-task Create or enter the next task branch/worktree and start its run.",
+    "  materialize-next-task Create or enter the next task branch/worktree and prepare a separate handoff/start.",
     "  mark-discardable Record an explicit discard reason for a run.",
     "  remote-status Record provider-neutral remote gate status for the current run."
   ]);
@@ -303,14 +303,10 @@ function renderMaterializationLines(result: RuntimeTaskMaterializationResult): s
     `branch: ${result.branch}`,
     `worktree: ${result.worktreePath}`,
     `created: ${result.created ? "true" : "false"}`,
+    `handoff required: ${result.handoffRequired ? "true" : "false"}`,
+    `next action: ${result.nextAction}`,
     `state: ${result.state}`
   ];
-  if (result.newRun) {
-    output.push(`new run id: ${result.newRun.run_id}`);
-  }
-  if (result.newRunPath) {
-    output.push(`new run path: ${result.newRunPath}`);
-  }
   return output;
 }
 
@@ -326,7 +322,7 @@ async function runStart(args: string[]): Promise<number> {
     output.push(...renderBootstrapLines(result.bootstrap));
   }
   lines(output);
-  return 0;
+  return result.state === "blocked" ? 1 : 0;
 }
 
 async function runStatusCommand(args: string[]): Promise<number> {
