@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_23_8_6C2A_COMMIT_BACKED_TASK_MATERIALIZATION_AND_ENVIRONMENT_BOOTSTRAP.md
+Implement only: tasks/PHASE_23_8_6D_PROCEDURE_ARTIFACT_PAYLOAD_STORAGE_AND_WORKTREE_RETENTION.md
 
-Do not implement Phase 23.8.6D or later.
+Do not implement Phase 23.8.6E or later.

@@ -89,14 +89,14 @@ Phase 23.8.6C1 is the completed post-bootstrap task-contract rebase. Phase
 independence, and downstream ownership authority without implementing runtime
 routing. Phase 23.8.6C2 then performs narrow correctness hardening for the
 existing `run start --task TASK.md` and `run status --operator` surfaces. C2A
-makes task materialization commit-backed, prepares rather than starts the
-successor run, and verifies deterministic worktree readiness after either
+completed commit-backed task materialization, prepared rather than started the
+successor run, and verified deterministic worktree readiness after either
 Harness or Codex Desktop creates the checkout; it never copies ignored private
-state. Before verification, C2A requires one independent combined
+state. Its implementation required one independent combined
 architecture/authority and persisted-storage/no-storage-change review; a failed
-labeled verdict routes to a fix pass and then a fresh combined review. Durable
-procedure payload storage follows
-in 23.8.6D, authority freshness in 23.8.6E, and normalized provider-neutral
+labeled verdict routes to a fix pass and then a fresh combined review. Phase
+23.8.6D is now the active durable-procedure payload-storage and worktree-
+retention phase; authority freshness follows in 23.8.6E, and normalized provider-neutral
 stage packet/result and route-intent contracts in 23.8.7. Phase 31 remains the
 first general runtime provider-binding and runner-execution boundary.
 

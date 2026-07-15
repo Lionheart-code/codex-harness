@@ -2,9 +2,9 @@
 
 ## Status
 
-Complete, reviewed, accepted, and merged. Phase 23.8.6C2A owns the remaining
-commit-backed task-materialization and environment-bootstrap correction before
-Phase 23.8.6D may begin.
+Complete, reviewed, accepted, and merged. Phase 23.8.6C2A completed the
+remaining commit-backed task-materialization and environment-bootstrap
+correction; Phase 23.8.6D now owns durable procedure-artifact payload storage.
 
 ## Purpose
 
