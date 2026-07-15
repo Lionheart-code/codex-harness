@@ -1067,7 +1067,17 @@ test("phase 23.8.6 stores authoritative procedure bodies and reconstructs them f
   const runtimeModule = loadBuiltRuntime();
   const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-procedure-payload-");
   let run = createBaseRun(runtimeModule, tempRepo, "run-0001");
-  run = { ...run, phase_id: "23.8.6D" };
+  const fixtureHead = gitHead(tempRepo);
+  run = {
+    ...run,
+    phase_id: "23.8.6D",
+    source_snapshot: fixtureHead,
+    repository: {
+      ...run.repository,
+      branch: "fixture-durable-procedure-payload",
+      head_sha: fixtureHead
+    }
+  };
   run = appendProcedureEvidence(run, "task-intake", 1);
   run = appendProcedureEvidence(run, "task-prompt-writer", 2);
   runtimeModule.validateRuntimeRun(run);
@@ -1130,6 +1140,34 @@ test("phase 23.8.6 stores authoritative procedure bodies and reconstructs them f
   assert.equal(approval?.reviewed_plan_content_hash, draftPlanEvidence.artifact_id.slice("sha256:".length));
   assert.equal(approval?.reviewed_evidence_artifact_id, descriptor.artifact_id);
 
+  const stagingReadback = staging.readProcedureArtifactBody({
+    runInstanceId: storedRun.run_instance_id,
+    sourceRunId: run.run_id,
+    procedureId: "plan-review",
+    procedureArtifactId: descriptor.artifact_id
+  });
+  assert.equal(stagingReadback.body, body);
+  assert.equal(stagingReadback.content_hash, descriptor.content_hash);
+  assert.equal(stagingReadback.procedure_id, "plan-review");
+  assert.throws(
+    () => staging.readProcedureArtifactBody({
+      runInstanceId: storedRun.run_instance_id,
+      sourceRunId: "other-run",
+      procedureId: "plan-review",
+      procedureArtifactId: descriptor.artifact_id
+    }),
+    /descriptor is malformed or mismatched/
+  );
+  const forgedApprovalRun = {
+    ...storedRun,
+    approvals: storedRun.approvals.map((approval) => approval.title === "Reviewed plan approved"
+      ? { ...approval, reviewed_evidence_artifact_id: `sha256:${"0".repeat(64)}` }
+      : approval)
+  };
+  writeRuntimeRunFixture(tempRepo, forgedApprovalRun);
+  assert.equal(runOperatorStatus(tempRepo, run.run_id).get("current_stage"), "PLAN_APPROVAL_REQUIRED");
+  writeRuntimeRunFixture(tempRepo, storedRun);
+
   const compatibilityArtifact = storedRun.artifacts.find((artifact) => artifact.artifact_id === descriptor.artifact_id);
   assert.ok(compatibilityArtifact, "run retains a non-authoritative compatibility artifact reference");
   storedRun = {
@@ -1173,6 +1211,12 @@ test("phase 23.8.6 stores authoritative procedure bodies and reconstructs them f
   assert.equal(reconstructed.procedure_id, "plan-review");
   assert.equal(reconstructed.reviewed_plan_artifact_id, draftPlanEvidence.artifact_id);
   assert.equal(reconstructed.reviewed_plan_content_hash, draftPlanEvidence.artifact_id.slice("sha256:".length));
+  const reconstructedByExactIdentity = project.readProcedureArtifactBody({
+    projectRunId: storedRun.run_instance_id,
+    procedureArtifactId: descriptor.artifact_id
+  });
+  assert.equal(reconstructedByExactIdentity.body, body);
+  assert.equal(reconstructedByExactIdentity.procedure_id, "plan-review");
   assert.throws(
     () => project.readProcedureArtifactBody({ projectRunId: "other-run-instance", procedureId: "plan-review", procedureArtifactId: descriptor.artifact_id }),
     /could not prove one exact descriptor/

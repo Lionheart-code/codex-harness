@@ -40,6 +40,16 @@ Non-procedure transitions belong in `next_allowed_action`.
 | `RUN_QUARANTINED` | `none` | manual/review decision before transition | quarantined run/evidence/state | `run_quarantined` | implementation, harvest, accepted-memory writes |
 | `BLOCKED` | `none` | resolve blocker-specific condition | blocker-specific evidence | blocker-specific stop reason such as `harvest_identity_collision` | any transition not resolving blocker |
 
+## Verification timing guardrail
+
+The full local self-hosting verification pack normally takes 10-16 minutes as
+the suite grows. A live `run verify` process in that window remains incomplete
+evidence; it does not authorize a duplicate launch or a stage transition. On
+exit, use the durable per-command `duration_ms` values and the reported
+`verification_duration_ms` for that exact command set. Treat a timeout,
+process error, or explicit failing output as the signal to investigate, rather
+than elapsed quiet time alone.
+
 ## Minimal acceptance behavior
 
 Phase 23.7 should pass fixtures for:

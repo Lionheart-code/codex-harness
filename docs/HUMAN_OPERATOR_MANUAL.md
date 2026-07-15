@@ -56,8 +56,12 @@ This document explains how a human operator should use `codex-harness` safely.
    `.harness/runs/**/run.json` to simulate ingestion.
 7. Run the active task acceptance commands.
    For the current self-hosting flow, `node bin/ch run verify --run <run-id>`
-   can take 14 minutes or more as the suite grows. Wait for real exit and do
-   not start a second verification run while the first is still active.
+   commonly takes 10-16 minutes for the full local pack as the suite grows.
+   Wait for real exit and do not start a second verification run while the
+   first is still active. A live process inside that window is incomplete
+   evidence, not a failure. The command records `duration_ms` for each command
+   and reports `verification_duration_ms` when it exits; compare those
+   like-for-like measurements as the test surface grows.
 8. Review the diff against task scope and non-goals.
 9. Commit only after review, verification, and closeout prerequisites are
    satisfied.
@@ -253,6 +257,19 @@ For self-hosting runs, `node bin/ch run verify` uses the active task file's
 `package.json`, `.github/workflows/ci.yml`, and related package or release
 boundary docs as context for extra required checks, not as a replacement for
 the task command list.
+
+## Verification timing and observation
+
+For the full local self-hosting pack, the current normal observation window is
+10-16 minutes. This is operator guidance, not a timeout or success claim:
+focused commands, changed command sets, evidence reuse, and slower machines
+must be evaluated from their own recorded results. `run verify` executes the
+active task commands serially and retains a durable `duration_ms` for every
+command result; its final `verification_duration_ms` is the sum for that exact
+attempt. While the one live verifier remains within its command timeout, wait
+for its real exit. Investigate only a timeout, process error, explicit failing
+output, or a stronger liveness signal; never start a competing verifier merely
+because it has been quiet.
 
 Local reuse never satisfies remote CI. During implementation, use:
 

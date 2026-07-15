@@ -160,6 +160,25 @@ function sha256Hex(value: Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function parseAuthoritativeProcedureProvenance(value: string): Record<string, unknown> {
+  let provenance: unknown;
+  try {
+    provenance = JSON.parse(value) as unknown;
+  } catch {
+    throw new Error("Authoritative procedure-artifact provenance is malformed.");
+  }
+  if (!provenance || typeof provenance !== "object" || Array.isArray(provenance)) {
+    throw new Error("Authoritative procedure-artifact provenance must be an object.");
+  }
+  const record = provenance as Record<string, unknown>;
+  for (const field of ["phase_id", "task_path", "worktree", "branch", "head", "source_snapshot", "base_commit", "compatibility_path"]) {
+    if (typeof record[field] !== "string" || record[field].trim().length === 0) {
+      throw new Error(`Authoritative procedure-artifact provenance is missing ${field}.`);
+    }
+  }
+  return record;
+}
+
 function openProjectDatabase(projectDbPath: string): DatabaseLike {
   const database = openSqliteDatabase(projectDbPath);
   initializeMemoryDatabase(database, "project");
@@ -176,8 +195,14 @@ function namespaceProjectRowId(runInstanceId: string, rowId: string): string {
 
 function namespaceProjectTransferSnapshot(
   runInstanceId: string,
+  sourceRunId: string,
   transfer: StagingTransferSnapshot
 ): StagingTransferSnapshot {
+  for (const descriptor of transfer.procedureArtifacts) {
+    if (descriptor.run_instance_id !== runInstanceId || descriptor.source_run_id !== sourceRunId) {
+      throw new Error("Procedure artifact harvest rejects a descriptor that does not match the exact staged run instance.");
+    }
+  }
   return {
     records: transfer.records.map((row) => ({
       ...row,
@@ -381,7 +406,7 @@ function readDatabaseStatus(projectDbPath: string): DatabaseStatus {
   }
 }
 
-function readStagingTransferSnapshot(sourceDbPath: string, runId: string): StagingTransferSnapshot {
+function readStagingTransferSnapshot(sourceDbPath: string, runId: string, runInstanceId: string): StagingTransferSnapshot {
   const source = openSqliteDatabase(sourceDbPath);
 
   try {
@@ -429,8 +454,8 @@ function readStagingTransferSnapshot(sourceDbPath: string, runId: string): Stagi
       ,procedureArtifacts: source.prepare([
         "SELECT run_instance_id, source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json,",
         "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
-        "FROM procedure_artifacts WHERE source_run_id = ? ORDER BY recorded_at ASC, artifact_id ASC"
-      ].join(" ")).all(runId) as ProcedureArtifactRow[]
+        "FROM procedure_artifacts WHERE source_run_id = ? AND run_instance_id = ? ORDER BY recorded_at ASC, artifact_id ASC"
+      ].join(" ")).all(runId, runInstanceId) as ProcedureArtifactRow[]
     };
   } finally {
     source.close();
@@ -577,7 +602,8 @@ export class ProjectMemoryDatabase {
     const transfer = run.source_staging_db_path
       ? namespaceProjectTransferSnapshot(
           run.run_instance_id,
-          readStagingTransferSnapshot(run.source_staging_db_path, run.run_id)
+          run.run_id,
+          readStagingTransferSnapshot(run.source_staging_db_path, run.run_id, run.run_instance_id)
         )
       : undefined;
     const namespacedDeliveryFacts = namespaceProjectDeliveryFacts(run.run_instance_id, deliveryFacts);
@@ -729,6 +755,30 @@ export class ProjectMemoryDatabase {
         }
 
         for (const row of transfer.procedureArtifacts) {
+          const payloadIndex = database.prepare([
+            "SELECT parent_record_id, source_run_id, kind, media_type, compression_status, chunk_count, raw_size_bytes, content_hash",
+            "FROM payload_index WHERE payload_id = ?"
+          ].join(" ")).get(row.payload_id) as Record<string, unknown> | undefined;
+          if (!payloadIndex
+            || payloadIndex.parent_record_id !== `${row.run_instance_id}:${row.artifact_id}`
+            || payloadIndex.source_run_id !== row.source_run_id
+            || payloadIndex.kind !== `procedure-artifact-body:${row.procedure_id}`
+            || payloadIndex.media_type !== "text/markdown"
+            || !["identity", "gzip"].includes(String(payloadIndex.compression_status))
+            || payloadIndex.content_hash !== row.content_hash) {
+            throw new Error(`Procedure artifact harvest rejects a mismatched payload index for ${row.artifact_id}.`);
+          }
+          const payloadChunks = database.prepare(
+            "SELECT chunk_order, chunk_bytes FROM payload_chunks WHERE payload_id = ? ORDER BY chunk_order ASC"
+          ).all(row.payload_id) as Array<{ chunk_order: number; chunk_bytes: Uint8Array }>;
+          if (payloadChunks.length !== payloadIndex.chunk_count || payloadChunks.some((chunk, order) => chunk.chunk_order !== order)) {
+            throw new Error(`Procedure artifact harvest rejects malformed payload chunks for ${row.artifact_id}.`);
+          }
+          const storedPayload = Buffer.concat(payloadChunks.map((chunk) => Buffer.from(chunk.chunk_bytes)));
+          const rawPayload = payloadIndex.compression_status === "gzip" ? gunzipSync(storedPayload) : storedPayload;
+          if (rawPayload.byteLength !== payloadIndex.raw_size_bytes || sha256Hex(rawPayload) !== row.content_hash) {
+            throw new Error(`Procedure artifact harvest rejects a payload body mismatch for ${row.artifact_id}.`);
+          }
           const existing = database.prepare([
             "SELECT source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json,",
             "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
@@ -872,12 +922,7 @@ export class ProjectMemoryDatabase {
         || (row.reviewed_plan_artifact_id !== null && row.reviewed_plan_content_hash !== row.reviewed_plan_artifact_id.slice("sha256:".length))) {
         throw new Error("Authoritative procedure-artifact reviewed-plan binding is malformed.");
       }
-      let provenance: Record<string, unknown>;
-      try {
-        provenance = JSON.parse(row.provenance_json) as Record<string, unknown>;
-      } catch {
-        throw new Error("Authoritative procedure-artifact provenance is malformed.");
-      }
+      const provenance = parseAuthoritativeProcedureProvenance(row.provenance_json);
       if (row.procedure_id === "plan-review" && (row.reviewed_plan_artifact_id || provenance.phase_id === "23.8.6D")) {
         if (!row.reviewed_plan_artifact_id || !row.reviewed_plan_content_hash) {
           throw new Error("Authoritative plan-review readback requires an exact reviewed-plan binding.");
@@ -891,13 +936,17 @@ export class ProjectMemoryDatabase {
           || planRows[0].content_hash !== row.reviewed_plan_content_hash) {
           throw new Error("Authoritative plan-review readback rejects a missing, ambiguous, or mismatched reviewed-plan descriptor.");
         }
+        if (row.reviewed_evidence_artifact_id !== row.reviewed_plan_artifact_id) {
+          throw new Error("Authoritative plan-review readback rejects a mismatched reviewed-evidence binding.");
+        }
       }
       const index = database.prepare([
         "SELECT parent_record_id, source_run_id, kind, media_type, compression_status, chunk_count, raw_size_bytes, content_hash",
         "FROM payload_index WHERE payload_id = ?"
       ].join(" ")).get(row.payload_id) as Record<string, unknown> | undefined;
       if (!index || index.parent_record_id !== `${input.projectRunId}:${row.artifact_id}` || index.source_run_id !== input.projectRunId
-        || index.kind !== `procedure-artifact-body:${row.procedure_id}` || index.content_hash !== row.content_hash) {
+        || index.kind !== `procedure-artifact-body:${row.procedure_id}` || index.media_type !== "text/markdown"
+        || !["identity", "gzip"].includes(String(index.compression_status)) || index.content_hash !== row.content_hash) {
         throw new Error("Authoritative procedure-artifact payload index does not match its descriptor.");
       }
       const chunks = database.prepare(

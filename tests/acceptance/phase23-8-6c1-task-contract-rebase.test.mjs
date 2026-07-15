@@ -61,6 +61,7 @@ test("phase 23.8.6C1 preserves the near-term authority order", () => {
   const c1aSection = section(roadmap, headings[2], headings[3]);
   const c2Section = section(roadmap, headings[3], headings[4]);
   const c2aSection = section(roadmap, headings[4], headings[5]);
+  const dSection = section(roadmap, headings[5], headings[6]);
   assert.match(cSection, /Complete, reviewed, accepted, and merged/);
   assert.match(c1Section, /Complete, reviewed, accepted, and merged/);
   assert.match(c1aSection, /Complete, reviewed, accepted, and merged/);
@@ -69,8 +70,9 @@ test("phase 23.8.6C1 preserves the near-term authority order", () => {
   assert.match(c2Section, /configured-upstream merge-base authority/);
   assert.match(c2Section, /preserves the lightweight single-loop operator model/);
   assert.match(c2aSection, /COMMIT_BACKED_TASK_MATERIALIZATION_AND_ENVIRONMENT_BOOTSTRAP/);
-  assert.match(c2aSection, /Active implementation phase/);
+  assert.match(c2aSection, /Complete, reviewed, accepted, and merged/);
   assert.match(c2aSection, /Codex Desktop-managed existing worktree/);
+  assert.match(dSection, /Active implementation phase/);
 });
 
 test("phase 23.8.6C1 keeps downstream ownership distinct and lightweight", () => {
@@ -78,7 +80,7 @@ test("phase 23.8.6C1 keeps downstream ownership distinct and lightweight", () =>
   const phaseE = readText("tasks/PHASE_23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION.md");
   const phase7 = readText("tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md");
 
-  assert.match(phaseD, /after Phase 23\.8\.6C2 Bootstrap Authority Correctness and[\s\S]*23\.8\.6C2A/);
+  assert.match(phaseD, /Active implementation phase\. Phase 23\.8\.6C2 Bootstrap Authority Correctness[\s\S]*Phase 23\.8\.6C2A[\s\S]*complete, reviewed, accepted, and merged/);
   assert.match(phaseD, /canonical procedure ID/);
   assert.match(phaseD, /stable recorded timestamp and content hash/);
   assert.match(phaseD, /exact immutable plan\s+or evidence artifact identity/);

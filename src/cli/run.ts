@@ -358,12 +358,23 @@ async function runStatusCommand(args: string[]): Promise<number> {
 
 async function runVerify(args: string[]): Promise<number> {
   const options = parseOptions(args, new Set(["run"]));
+  if (!dryRunOption(options)) {
+    lines([
+      "verification: running",
+      "expected_duration: full self-hosting verification commonly takes 10-16 minutes as the suite grows; wait for real exit and do not launch a duplicate while this process is alive."
+    ]);
+  }
   const result = await verifyRuntimeRun(process.cwd(), {
     dryRun: dryRunOption(options),
     runId: stringOption(options, "run")
   });
   const output = renderRunLines("codex-harness run verify", result);
+  const durationMs = result.verification.command_results.reduce(
+    (total, commandResult) => total + (typeof commandResult.duration_ms === "number" ? commandResult.duration_ms : 0),
+    0
+  );
   output.push(`verification: ${result.verification.status}`);
+  output.push(`verification_duration_ms: ${durationMs}`);
   output.push(`summary: ${result.verification.summary}`);
   lines(output);
   return 0;
