@@ -112,12 +112,16 @@ in that branch/worktree, clean git is confirmed, and deterministic dependency/bu
 plus tracked-procedure readiness checks pass. A Codex Desktop managed worktree
 may be entered instead of recreated, but a Desktop UI setup selection does not
 replace those readiness checks. A working-tree-only `TASK.md` change is not
-enough to treat the new task as active. After clean git, run
-`node bin/ch worktree bootstrap`, stop the predecessor task or Goal from
-writing, and explicitly enter a fresh successor Codex task before
-`node bin/ch run start --task TASK.md`. Harness does not create, close, or
-rebind Codex tasks or Goals. The harvested run still must not create, claim, or
-mutate the next task branch/worktree as old-run-owned state.
+enough to treat the new task as active. After clean git, create the successor
+through the native Codex Desktop task/worktree API; verify its cwd, branch, and
+`HEAD` binding, expose its identity/link for the user to open without
+repository/worktree creation, selection, or search, and stop the predecessor
+before any successor work. If creation or binding cannot be proven, fail closed
+with typed `HANDOFF_CREATION_FAILED`: do not bootstrap, start a successor run,
+or execute successor shell work from the predecessor. Only after that proof may
+the successor run `node bin/ch worktree bootstrap` before
+`node bin/ch run start --task TASK.md`. The harvested run still must not create,
+claim, or mutate the next task branch/worktree as old-run-owned state.
 
 For a materialized successor, `run start` repeats the deterministic bootstrap
 before durable run creation. Its readiness marker must match the committed

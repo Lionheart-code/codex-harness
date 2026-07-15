@@ -31,6 +31,11 @@ This phase owns raw procedure artifact payload storage, canonical procedure
 identity, exact plan/evidence binding, exact-identity harvest preservation, and
 the worktree/base-commit provenance needed to audit those artifacts later.
 
+It also owns the narrow successor-Codex-task handoff boundary required before
+D implementation begins. The later D `task-intake` and `draft-plan` must
+determine the smallest compliant implementation and review surface for that
+boundary.
+
 ## Required behavior
 
 - Store raw recorded procedure artifact bodies in SQLite payload tables as
@@ -98,6 +103,14 @@ the worktree/base-commit provenance needed to audit those artifacts later.
 - Do not treat every `*-request.md`, launch blocker, diagnosis snapshot, or
   reconciliation note as a promoted project record by default.
 - Keep storage and harvest behavior append-only and exact-identity safe.
+- After Git branch/worktree preparation and the activation-authority commit,
+  create the successor Codex Desktop task through the native task/worktree API.
+  Verify the created task's cwd, branch, and `HEAD` binding, then expose its
+  successor-task identity or link so the user can open it without creating,
+  selecting, or searching for a repository or worktree. Stop the predecessor
+  before any successor work. If creation or binding cannot be proven, fail
+  closed with typed `HANDOFF_CREATION_FAILED`: do not bootstrap, start a
+  successor Harness run, or execute shell work in the successor.
 
 ## Non-goals
 
@@ -115,6 +128,9 @@ the worktree/base-commit provenance needed to audit those artifacts later.
   `RunIssue`, `RepairPacket`, fact, or handoff parsing.
 - No reimplementation of C2A commit-backed task activation, deterministic
   worktree bootstrap, or ignored-private-state boundary.
+- No generic UI automation framework, provider routing, runner execution,
+  payload implementation beyond this phase's stated storage scope, or
+  background control.
 
 ## Future-compatible payload contract
 

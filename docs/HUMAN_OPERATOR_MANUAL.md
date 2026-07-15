@@ -360,8 +360,15 @@ Only after commit and closeout/harvest decision:
 4. commit the complete activation/materialization authority change as the
    first commit in that new task branch/worktree;
 5. verify clean `git status` in that new task context;
-6. run `node bin/ch worktree bootstrap` in that worktree. It installs from the
-   committed lockfile, builds, and verifies tracked Harness/procedure surfaces.
+6. after clean git, create the successor through the native Codex Desktop
+   task/worktree API. Verify the created task's cwd, branch, and `HEAD`
+   binding, expose its identity/link for the user to open without
+   repository/worktree creation, selection, or search, and stop the predecessor
+   before any successor work. If creation or binding cannot be proven, fail
+   closed with `HANDOFF_CREATION_FAILED`: do not bootstrap, start a successor
+   run, or execute successor shell work from the predecessor;
+7. only after successful handoff proof, run `node bin/ch worktree bootstrap` in
+   that worktree. It installs from the committed lockfile, builds, and verifies tracked Harness/procedure surfaces.
    Its readiness marker binds that setup to the committed `HEAD`, source tree,
    lockfile, and generated CLI output; those authority and readiness paths may
    not be symbolic links. `--verify` also checks the installed
@@ -375,9 +382,6 @@ Only after commit and closeout/harvest decision:
    credentials, `.codex/**`, `.harness/**`, `node_modules`, or generated output
    from another checkout; use an operator-authored `.worktreeinclude` only when
    ignored files are genuinely required;
-7. stop the predecessor task or Goal from writing and explicitly open a fresh
-   successor Codex task in the prepared worktree; Harness does not create,
-   close, or rebind Codex Desktop tasks or Goals;
 8. only then run `node bin/ch run start --task TASK.md` in that task worktree;
 9. start fresh `/plan`.
 

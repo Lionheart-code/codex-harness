@@ -104,13 +104,18 @@ For a newly inserted phase, materialization is not complete when only
 `TASK.md` changes. Update the task contract, `TASK.md`, roadmap/operations
 order, and every required live authority/policy surface coherently; commit that
 complete activation as the first commit in the task branch/worktree; verify
-clean git; run `node bin/ch worktree bootstrap` to perform deterministic
-dependency/build and tracked-procedure readiness checks; then stop the
-predecessor context and explicitly enter a fresh successor Codex task before
-starting the authoritative Harness run. A Codex Desktop local environment may
-run the same setup during worktree creation, but its UI selection is not proof
-by itself. Materialization never opens a successor run or controls a Codex
-task/Goal. It also fails closed unless exactly one installed TaskState owns the
+clean git; then create the successor Codex Desktop task through the native
+task/worktree API. Verify its cwd, branch, and `HEAD` binding, expose its
+identity or link so the user can open it without creating, selecting, or
+searching for a repository or worktree, and stop the predecessor before any
+successor work. If creation or binding cannot be proven, fail closed with typed
+`HANDOFF_CREATION_FAILED`; the predecessor must not bootstrap, start a
+successor run, or execute successor shell work. Only after that proof may the
+successor run `node bin/ch worktree bootstrap` to perform deterministic
+dependency/build and tracked-procedure readiness checks before starting the
+authoritative Harness run. A Codex Desktop local environment may run the same
+setup during worktree creation, but its UI selection is not proof by itself.
+Materialization never opens a successor run. It also fails closed unless exactly one installed TaskState owns the
 new worktree or branch, so every Harness-materialized successor receives the
 recorded immutable base before it can reach `run start`. That successor start
 repeats the deterministic bootstrap before durable run creation; `--verify`
@@ -217,12 +222,14 @@ After commit:
 4. Commit the complete activation authority—`TASK.md`, active task contract,
    roadmap/operations ordering, and affected live policy surfaces—as the first
    commit in that new task branch/worktree.
-5. Verify clean git, then run `node bin/ch worktree bootstrap` in that task
-   worktree to install from the committed lockfile, build, and verify tracked
-   Harness/procedure surfaces.
-6. Stop the predecessor task or Goal from writing and explicitly open a fresh
-   successor Codex task in the prepared worktree; this is an operator handoff,
-   not automatic UI/Goal control.
+5. Verify clean git, then create the successor through the native Codex Desktop
+   task/worktree API; verify its cwd, branch, and `HEAD`, expose its
+   identity/link, and stop the predecessor before successor work. If proof
+   fails, return `HANDOFF_CREATION_FAILED` and do not bootstrap, run start, or
+   execute successor shell work.
+6. Only after successful handoff proof, run `node bin/ch worktree bootstrap`
+   in that task worktree to install from the committed lockfile, build, and
+   verify tracked Harness/procedure surfaces.
 7. Only then run `node bin/ch run start --task TASK.md` in the successor
    worktree.
 8. Run `/plan` again.
