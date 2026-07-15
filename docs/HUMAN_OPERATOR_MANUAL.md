@@ -39,6 +39,14 @@ This document explains how a human operator should use `codex-harness` safely.
    plus tracked-procedure readiness verification. Harness materialization also
    requires exactly one installed TaskState to own that worktree or branch, so
    it can persist the immutable recorded base before the successor is started.
+   If a predecessor is harvested without a recorded next-task decision, or an
+   already-activated successor lacks that uniquely owning TaskState because
+   materialization was skipped, stop fail-closed. The active D task-intake and
+   draft-plan must define the smallest product-owned recovery from the recorded
+   immutable decision base before materialization and activation proof; never
+   manually edit TaskState/database records, substitute current `HEAD` for the
+   base, silently claim an advanced worktree, or start the successor before the
+   owner match is proven.
    A manual transcript alone still does not satisfy runtime evidence for any of
    those procedures; the operator must record it through the product command.
    Procedures outside the active replay scope, such as

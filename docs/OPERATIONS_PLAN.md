@@ -125,6 +125,16 @@ not be symbolic links. It rechecks installed dependencies
 against the lockfile. Stale or nonmatching dependency/build directories cannot
 claim readiness.
 
+The same handoff boundary must detect a harvested predecessor that lacks a
+recorded next-task decision and an already-activated successor that lacks its
+uniquely owning `TaskState` because materialization was skipped. The active D
+task-intake and draft-plan own the smallest product-owned, fail-closed recovery:
+it must re-establish a valid successor context from the recorded immutable
+decision base before materialization and activation proof. It must preserve the
+decision-base and activation authority; manual `TaskState` or database edits,
+using current `HEAD` as a substitute base, silently claiming an advanced
+worktree, or starting the successor before owner-match proof are forbidden.
+
 Hard boundaries:
 
 - no hook authority;

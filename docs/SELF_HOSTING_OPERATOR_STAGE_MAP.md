@@ -123,6 +123,15 @@ the successor run `node bin/ch worktree bootstrap` before
 `node bin/ch run start --task TASK.md`. The harvested run still must not create,
 claim, or mutate the next task branch/worktree as old-run-owned state.
 
+If a harvested predecessor lacks a recorded next-task decision, or an
+already-activated successor lacks its uniquely owning `TaskState` because
+materialization was skipped, the handoff must stop fail-closed. The active D
+task-intake and draft-plan must define the smallest product-owned recovery from
+the recorded immutable decision base before materialization and activation
+proof. Manual `TaskState`/database edits, substituting current `HEAD` for the
+base, silently claiming an advanced worktree, and starting the successor before
+owner-match proof are forbidden.
+
 For a materialized successor, `run start` repeats the deterministic bootstrap
 before durable run creation. Its readiness marker must match the committed
 `HEAD`, source tree, lockfile, and CLI build output, and no authority or

@@ -34,7 +34,10 @@ the worktree/base-commit provenance needed to audit those artifacts later.
 It also owns the narrow successor-Codex-task handoff boundary required before
 D implementation begins. The later D `task-intake` and `draft-plan` must
 determine the smallest compliant implementation and review surface for that
-boundary.
+boundary, including product-owned fail-closed recovery when a harvested
+predecessor lacks a recorded next-task decision or an already-activated
+successor lacks its uniquely owning `TaskState` because materialization was
+skipped.
 
 ## Required behavior
 
@@ -111,6 +114,17 @@ boundary.
   before any successor work. If creation or binding cannot be proven, fail
   closed with typed `HANDOFF_CREATION_FAILED`: do not bootstrap, start a
   successor Harness run, or execute shell work in the successor.
+- Detect the recovery case truthfully: a predecessor may be harvested without
+  a recorded next-task decision, while a successor branch/worktree may already
+  contain activation commits but have no uniquely matching installed
+  `TaskState` because materialization was skipped. Later D `task-intake` and
+  `draft-plan` must specify the smallest product-owned, fail-closed recovery
+  that re-establishes a valid successor context from the recorded immutable
+  decision base before materialization and activation proof. It must preserve
+  immutable decision-base and activation authority; it must not manually edit
+  `TaskState` or databases, substitute the current `HEAD` for the base,
+  silently claim an already-advanced worktree, or run the successor before its
+  owner match is proven.
 
 ## Non-goals
 
