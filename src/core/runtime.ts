@@ -64,7 +64,7 @@ import {
   type SelfHostingProcedureRegistry,
   type SelfHostingReviewLaunchProfile
 } from "./self-hosting-procedures";
-import { listTasks, writeTaskState, type TaskState } from "./tasks";
+import { createTask, getTaskDirectory, listTasks, readTaskStateById, writeTaskState, type TaskState } from "./tasks";
 import { bootstrapWorktree } from "./worktree";
 
 export const RUNTIME_CONTRACT_NAMES = [
@@ -391,6 +391,8 @@ export interface RuntimeTaskMaterializationResult {
   worktreePath: string;
   taskPath: string;
   created: boolean;
+  recoveredExistingActivation: boolean;
+  taskStateId?: string;
   handoffRequired: true;
   nextAction: string;
   state: "prepared" | "preview";
@@ -557,6 +559,7 @@ export interface MaterializeNextTaskOptions extends RuntimeDryRunOptions {
   worktreePath: string;
   create?: boolean;
   enterExisting?: boolean;
+  recoverExistingActivation?: boolean;
 }
 
 export interface RecordPhaseRunInput {
@@ -937,6 +940,118 @@ function persistMaterializedTaskBaseAuthority(
       base_commit_sha: baseCommitSha,
       updated_at: nowIso()
     });
+  }
+}
+
+function validateRecoveredMaterializedTaskStateOwner(
+  projectRoot: string,
+  worktreePath: string,
+  branch: string,
+  baseCommitSha: string
+): TaskState | undefined {
+  if (!detectInstalledLayer(projectRoot)) {
+    throw new Error("Recovered materialization requires an installed Harness task-state owner.");
+  }
+
+  const taskList = listTasks(projectRoot);
+  if (taskList.warnings.length > 0) {
+    throw new Error(`Recovered materialization requires every installed task-state record to be readable: ${taskList.warnings.join("; ")}`);
+  }
+  const normalizedWorktreePath = normalizePathForComparison(worktreePath);
+  const exactOwners = taskList.tasks.filter((candidate) => candidate.branch === branch
+    && typeof candidate.worktree === "string"
+    && normalizePathForComparison(candidate.worktree) === normalizedWorktreePath);
+  const conflictingOwners = taskList.tasks.filter((candidate) => candidate.branch === branch
+    || (typeof candidate.worktree === "string" && normalizePathForComparison(candidate.worktree) === normalizedWorktreePath));
+
+  if (exactOwners.length > 1) {
+    throw new Error("Recovered materialization found multiple TaskState owners for the requested branch/worktree.");
+  }
+  if (exactOwners.length === 1) {
+    const owner = exactOwners[0];
+    if (owner.base_commit_sha && owner.base_commit_sha !== baseCommitSha) {
+      throw new Error(`Recovered materialization found a conflicting immutable base on TaskState ${owner.task_id}.`);
+    }
+    return owner;
+  }
+  if (conflictingOwners.length > 0) {
+    throw new Error("Recovered materialization found a TaskState that partially claims the requested branch/worktree.");
+  }
+
+  return undefined;
+}
+
+function ensureRecoveredMaterializedTaskStateOwner(
+  projectRoot: string,
+  worktreePath: string,
+  branch: string,
+  baseCommitSha: string
+): string | undefined {
+  const owner = validateRecoveredMaterializedTaskStateOwner(projectRoot, worktreePath, branch, baseCommitSha);
+  if (owner) {
+    if (!owner.base_commit_sha) {
+      writeTaskState(projectRoot, owner.task_id, {
+        ...owner,
+        base_commit_sha: baseCommitSha,
+        updated_at: nowIso()
+      });
+    }
+    return undefined;
+  }
+
+  const created = createTask(projectRoot, `Recovered successor ${branch}`, { taskType: "deployment" });
+  try {
+    writeTaskState(projectRoot, created.taskId, {
+      ...readTaskStateById(projectRoot, created.taskId),
+      branch,
+      worktree: worktreePath,
+      base_commit_sha: baseCommitSha,
+      updated_at: nowIso()
+    });
+    persistMaterializedTaskBaseAuthority(projectRoot, worktreePath, branch, baseCommitSha);
+    return created.taskId;
+  } catch (error) {
+    fs.rmSync(getTaskDirectory(projectRoot, created.taskId), { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function assertRecoverableExistingActivation(
+  worktreePath: string,
+  baseCommitSha: string,
+  taskPath: string
+): void {
+  const head = resolveExactCommit(worktreePath, "HEAD");
+  if (head === baseCommitSha || !isCommitAncestor(worktreePath, baseCommitSha, head)) {
+    throw new Error(`Recovered materialization requires a clean successor activation chain descending from recorded base ${baseCommitSha}.`);
+  }
+
+  const activationCommit = firstCommitAfterBase(worktreePath, baseCommitSha);
+  const changedPaths = activationCommit ? changedPathsInCommit(worktreePath, activationCommit) : undefined;
+  const requiredPaths = ["TASK.md", taskPath, "docs/IMPLEMENTATION_ROADMAP.md", "docs/OPERATIONS_PLAN.md"];
+  const missingPaths = changedPaths
+    ? requiredPaths.filter((entry) => !changedPaths.includes(entry))
+    : requiredPaths;
+  if (missingPaths.length > 0) {
+    throw new Error(`Recovered materialization requires the first preserved activation commit to include: ${missingPaths.join(", ")}.`);
+  }
+
+  let resolvedTaskPath: string | undefined;
+  try {
+    const taskPointer = fs.readFileSync(path.join(worktreePath, "TASK.md"), "utf8");
+    const referencedTaskPath = extractActiveTaskPath(taskPointer);
+    if (referencedTaskPath) {
+      const absoluteTaskPath = path.resolve(worktreePath, referencedTaskPath);
+      ensureInsideTargetRoot(worktreePath, absoluteTaskPath);
+      if (fs.existsSync(absoluteTaskPath) && fs.statSync(absoluteTaskPath).isFile()) {
+        resolvedTaskPath = toRepoRelative(worktreePath, absoluteTaskPath);
+      }
+    }
+  } catch {
+    resolvedTaskPath = undefined;
+  }
+  if (resolvedTaskPath !== taskPath) {
+    throw new Error(`Recovered materialization requires TASK.md to resolve to the recorded task ${taskPath}.`);
   }
 }
 
@@ -3963,9 +4078,13 @@ export async function materializeRuntimeNextTask(
   const nextTaskPath = resolvedTask.activeTaskPath ?? resolvedTask.taskPath;
   const createMode = options.create === true;
   const enterExistingMode = options.enterExisting === true;
+  const recoverExistingActivation = options.recoverExistingActivation === true;
 
   if (createMode === enterExistingMode) {
     throw new Error("Choose exactly one materialization mode: --create or --enter-existing.");
+  }
+  if (recoverExistingActivation && !enterExistingMode) {
+    throw new Error("--recover-existing-activation requires --enter-existing.");
   }
 
   if (record.task_path !== nextTaskPath) {
@@ -3983,7 +4102,7 @@ export async function materializeRuntimeNextTask(
 
   const absoluteWorktreePath = path.resolve(targetRoot, options.worktreePath);
   const nextAction = buildMaterializationHandoffAction(absoluteWorktreePath);
-  if (dryRun) {
+  if (dryRun && !recoverExistingActivation) {
     return {
       targetRoot,
       projectRoot: roots.projectRoot,
@@ -3993,6 +4112,7 @@ export async function materializeRuntimeNextTask(
       worktreePath: absoluteWorktreePath,
       taskPath: nextTaskPath,
       created: createMode,
+      recoveredExistingActivation: recoverExistingActivation,
       handoffRequired: true,
       nextAction,
       state: "preview"
@@ -4002,6 +4122,7 @@ export async function materializeRuntimeNextTask(
   let created = false;
   let backupPath: string | undefined;
   let branchCreated = false;
+  let recoveredTaskStateId: string | undefined;
   const taskPointerPath = path.join(absoluteWorktreePath, "TASK.md");
 
   try {
@@ -4035,7 +4156,7 @@ export async function materializeRuntimeNextTask(
       throw new Error(`Materialized worktree branch mismatch. Expected ${options.branch}.`);
     }
 
-    if (resolveExactCommit(absoluteWorktreePath, "HEAD") !== record.base_commit_sha) {
+    if (!recoverExistingActivation && resolveExactCommit(absoluteWorktreePath, "HEAD") !== record.base_commit_sha) {
       throw new Error(`Materialized worktree HEAD does not match the recorded base commit ${record.base_commit_sha}.`);
     }
 
@@ -4048,13 +4169,47 @@ export async function materializeRuntimeNextTask(
       throw new Error(`Next task contract is missing in the materialized worktree: ${nextTaskPath}`);
     }
 
-    if (fs.existsSync(taskPointerPath)) {
+    if (recoverExistingActivation) {
+      assertRecoverableExistingActivation(absoluteWorktreePath, record.base_commit_sha, nextTaskPath);
+      validateRecoveredMaterializedTaskStateOwner(
+        roots.projectRoot,
+        absoluteWorktreePath,
+        options.branch,
+        record.base_commit_sha
+      );
+      if (dryRun) {
+        return {
+          targetRoot,
+          projectRoot: roots.projectRoot,
+          dryRun,
+          decisionId: record.next_task_decision_id,
+          branch: options.branch,
+          worktreePath: absoluteWorktreePath,
+          taskPath: nextTaskPath,
+          created: false,
+          recoveredExistingActivation: true,
+          handoffRequired: true,
+          nextAction,
+          state: "preview"
+        };
+      }
+      recoveredTaskStateId = ensureRecoveredMaterializedTaskStateOwner(
+        roots.projectRoot,
+        absoluteWorktreePath,
+        options.branch,
+        record.base_commit_sha
+      );
+    }
+
+    if (!recoverExistingActivation && fs.existsSync(taskPointerPath)) {
       backupPath = `${taskPointerPath}.codex-harness.bak`;
       fs.copyFileSync(taskPointerPath, backupPath);
     }
-    fs.writeFileSync(taskPointerPath, buildNextTaskPointerMarkdown(nextTaskPath), "utf8");
-    if (fs.readFileSync(taskPointerPath, "utf8") !== buildNextTaskPointerMarkdown(nextTaskPath)) {
-      throw new Error(`Materialized task pointer does not resolve to the recorded next task: ${nextTaskPath}`);
+    if (!recoverExistingActivation) {
+      fs.writeFileSync(taskPointerPath, buildNextTaskPointerMarkdown(nextTaskPath), "utf8");
+      if (fs.readFileSync(taskPointerPath, "utf8") !== buildNextTaskPointerMarkdown(nextTaskPath)) {
+        throw new Error(`Materialized task pointer does not resolve to the recorded next task: ${nextTaskPath}`);
+      }
     }
 
     persistMaterializedTaskBaseAuthority(
@@ -4077,6 +4232,8 @@ export async function materializeRuntimeNextTask(
       worktreePath: absoluteWorktreePath,
       taskPath: nextTaskPath,
       created,
+      recoveredExistingActivation: recoverExistingActivation,
+      ...(recoveredTaskStateId ? { taskStateId: recoveredTaskStateId } : {}),
       handoffRequired: true,
       nextAction,
       state: "prepared"
@@ -4085,6 +4242,10 @@ export async function materializeRuntimeNextTask(
     if (backupPath && fs.existsSync(backupPath)) {
       fs.copyFileSync(backupPath, taskPointerPath);
       fs.rmSync(backupPath, { force: true });
+    }
+
+    if (recoveredTaskStateId) {
+      fs.rmSync(getTaskDirectory(roots.projectRoot, recoveredTaskStateId), { recursive: true, force: true });
     }
 
     if (created) {

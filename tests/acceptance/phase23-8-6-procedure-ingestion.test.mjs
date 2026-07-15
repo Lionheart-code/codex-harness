@@ -4002,3 +4002,166 @@ test("phase 23.8.6 materialize-next-task enters a registered existing worktree w
   const taskState = JSON.parse(fs.readFileSync(taskStatePath, "utf8"));
   assert.equal(taskState.base_commit_sha, baseCommit);
 });
+
+test("phase 23.8.6 recovers a clean committed successor activation into one task-state owner", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-recover-existing-activation-");
+  const nextTaskPath = "tasks/PHASE_23_8_7_PACKET_RESULT_LIFECYCLE_CONTRACT.md";
+  const branch = "task/phase-23-8-7-recovered-existing";
+  writeText(
+    path.join(tempRepo, nextTaskPath),
+    "# Phase 23.8.7 - Packet / Result Lifecycle Contract\n\nInitial contract.\n"
+  );
+  assertSuccess(runCommand("git", ["add", nextTaskPath], { cwd: tempRepo }), "git add recovery task contract base");
+  assertSuccess(runCommand("git", ["commit", "-m", "add recovery task contract base"], { cwd: tempRepo }), "git commit recovery task contract base");
+  const baseCommit = gitHead(tempRepo);
+  const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
+  const sourceArtifactPath = writeProcedureArtifact(tempRepo, run.run_id, "next-task-decision", "Recover a committed existing successor.\n");
+  const decision = runCli(
+    [
+      "run",
+      "record-next-task",
+      "--run",
+      run.run_id,
+      "--task",
+      nextTaskPath,
+      "--base-commit",
+      baseCommit,
+      "--file",
+      path.relative(tempRepo, sourceArtifactPath)
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(decision, "record next task for recovery");
+  const decisionId = parseOperatorOutput(decision.stdout).get("decision id");
+  assert.ok(decisionId, "recovery decision id should be reported");
+
+  writeText(path.join(tempRepo, ".harness", "config.toml"), "[harness]\nversion = \"0.1.0\"\n");
+  writeText(
+    path.join(tempRepo, ".harness", "install.json"),
+    `${JSON.stringify({
+      schema_version: 1,
+      producer_command: "test",
+      harness_version: "0.1.0",
+      templates_version: "0.1.0",
+      installed_at: TIMESTAMP,
+      updated_at: TIMESTAMP,
+      source: "test"
+    }, null, 2)}\n`
+  );
+
+  const worktreePath = path.join(path.dirname(tempRepo), `${path.basename(tempRepo)}-recovered-existing-worktree`);
+  tempDirectories.push(worktreePath);
+  assertSuccess(runCommand("git", ["worktree", "add", "-b", branch, worktreePath, baseCommit], { cwd: tempRepo }), "git worktree add recovery fixture");
+
+  const beforeActivation = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      branch,
+      "--worktree",
+      worktreePath,
+      "--enter-existing",
+      "--recover-existing-activation"
+    ],
+    { cwd: tempRepo }
+  );
+  assertFailure(beforeActivation, "recover existing activation without a committed activation chain");
+  assert.match(beforeActivation.stderr, /requires a clean successor activation chain descending from recorded base/i);
+
+  writeText(path.join(worktreePath, "TASK.md"), `# Current Task\n\nImplement only: ${nextTaskPath}\n\nDo not implement later phases.\n`);
+  fs.appendFileSync(path.join(worktreePath, nextTaskPath), "\nActivation authority.\n", "utf8");
+  fs.appendFileSync(path.join(worktreePath, "docs", "IMPLEMENTATION_ROADMAP.md"), "\nRecovery activation authority.\n", "utf8");
+  fs.appendFileSync(path.join(worktreePath, "docs", "OPERATIONS_PLAN.md"), "\nRecovery activation authority.\n", "utf8");
+  assertSuccess(
+    runCommand("git", ["add", "TASK.md", nextTaskPath, "docs/IMPLEMENTATION_ROADMAP.md", "docs/OPERATIONS_PLAN.md"], { cwd: worktreePath }),
+    "git add committed recovery activation"
+  );
+  assertSuccess(runCommand("git", ["commit", "-m", "commit recovery activation authority"], { cwd: worktreePath }), "git commit recovery activation authority");
+
+  const recoveryPreview = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      branch,
+      "--worktree",
+      worktreePath,
+      "--enter-existing",
+      "--recover-existing-activation",
+      "--dry-run"
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(recoveryPreview, "preview recover existing committed activation");
+  assert.match(recoveryPreview.stdout, /recovered existing activation: true/);
+  assert.equal(fs.existsSync(path.join(tempRepo, ".harness", "tasks")), false, "recovery preview creates no task-state owner");
+
+  const recovered = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      branch,
+      "--worktree",
+      worktreePath,
+      "--enter-existing",
+      "--recover-existing-activation"
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(recovered, "recover existing committed activation");
+  assert.match(recovered.stdout, /recovered existing activation: true/);
+  assert.match(recovered.stdout, /task-state id: /);
+  const statePaths = fs.readdirSync(path.join(tempRepo, ".harness", "tasks"), { recursive: true })
+    .filter((entry) => entry.endsWith(path.join("state.json")));
+  assert.equal(statePaths.length, 1, "recovery creates exactly one task-state owner");
+  const taskState = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "tasks", statePaths[0]), "utf8"));
+  assert.equal(taskState.branch, branch);
+  assert.equal(taskState.worktree, worktreePath);
+  assert.equal(taskState.base_commit_sha, baseCommit);
+  assert.equal(fs.existsSync(path.join(worktreePath, ".harness", "runs", "current.json")), false);
+
+  const repeatedRecovery = runCli(
+    [
+      "run",
+      "materialize-next-task",
+      "--run",
+      run.run_id,
+      "--decision-id",
+      decisionId,
+      "--task",
+      nextTaskPath,
+      "--branch",
+      branch,
+      "--worktree",
+      worktreePath,
+      "--enter-existing",
+      "--recover-existing-activation"
+    ],
+    { cwd: tempRepo }
+  );
+  assertSuccess(repeatedRecovery, "repeat recover existing committed activation");
+  const repeatedStatePaths = fs.readdirSync(path.join(tempRepo, ".harness", "tasks"), { recursive: true })
+    .filter((entry) => entry.endsWith(path.join("state.json")));
+  assert.equal(repeatedStatePaths.length, 1, "recovery remains idempotent");
+});
