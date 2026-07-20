@@ -1036,14 +1036,20 @@ Required scope:
 - reconcile the C1A routing/context allocations against actual C2/D facts
   rather than repeating the research or becoming first owner of that
   architecture;
+- correct only the supervised `codex_cli` file-output review-launch liveness
+  defect: stdout/stderr silence is monitoring-only, never a `SIGTERM` basis;
+  hard timeout and explicit human cancellation remain the only termination
+  authority, one live reviewer remains exclusive until terminal exit, and a
+  delayed valid artifact is accepted by focused regression coverage.
 
 Future-phase impact check:
 - prepares 23.8.7, 23.9, 24A/24B, and later live/planned authority surfaces to
   inherit current facts rather than stale assumptions;
 - preserves Phase 30 as the future home for bounded experimentation and Phase
   31 as the future home for reviewed runner execution;
-- must not become runtime implementation, a Desktop client or generic UI
-  automation framework, background control, or a broad roadmap rewrite.
+- must not become general runtime implementation, a Desktop client or generic
+  UI automation framework, background control, or a broad roadmap rewrite;
+  the listed review-launch liveness correction is the sole runtime exception.
 
 ## Phase 23.8.7 — Hookless Stage-Level Operator Packet Automation v0
 
