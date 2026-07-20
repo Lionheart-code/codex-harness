@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_23_8_6D_PROCEDURE_ARTIFACT_PAYLOAD_STORAGE_AND_WORKTREE_RETENTION.md
+Implement only: tasks/PHASE_23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION.md
 
-Do not implement Phase 23.8.6E or later.
+Do not implement Phase 23.8.7 or later.

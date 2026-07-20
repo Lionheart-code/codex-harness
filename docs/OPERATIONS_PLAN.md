@@ -95,9 +95,12 @@ Harness or Codex Desktop creates the checkout; it never copies ignored private
 state. Its implementation required one independent combined
 architecture/authority and persisted-storage/no-storage-change review; a failed
 labeled verdict routes to a fix pass and then a fresh combined review. Phase
-23.8.6D is now the active durable-procedure payload-storage and worktree-
-retention phase; authority freshness follows in 23.8.6E, and normalized provider-neutral
-stage packet/result and route-intent contracts in 23.8.7. Phase 31 remains the
+23.8.6D completed durable-procedure payload storage, successor recovery, and
+worktree retention. Phase 23.8.6E is now the active authority-freshness phase;
+it will revalidate the generic native Desktop successor-task create/readback
+boundary against the actual persistent app-server `thread/start` path without
+implementing successor execution. Normalized provider-neutral stage
+packet/result and route-intent contracts follow in 23.8.7. Phase 31 remains the
 first general runtime provider-binding and runner-execution boundary.
 
 For a newly inserted phase, materialization is not complete when only
@@ -127,13 +130,16 @@ claim readiness.
 
 The same handoff boundary must detect a harvested predecessor that lacks a
 recorded next-task decision and an already-activated successor that lacks its
-uniquely owning `TaskState` because materialization was skipped. The active D
-task-intake and draft-plan own the smallest product-owned, fail-closed recovery:
-it must re-establish a valid successor context from the recorded immutable
-decision base before materialization and activation proof. It must preserve the
-decision-base and activation authority; manual `TaskState` or database edits,
-using current `HEAD` as a substitute base, silently claiming an advanced
-worktree, or starting the successor before owner-match proof are forbidden.
+uniquely owning `TaskState` because materialization was skipped. The completed D
+implementation provides the smallest product-owned, fail-closed recovery: it
+re-establishes a valid successor context from the recorded immutable decision
+base before materialization and activation proof. It preserves the decision
+base and activation authority; manual `TaskState` or database edits, using
+current `HEAD` as a substitute base, silently claiming an advanced worktree, or
+starting the successor before owner-match proof are forbidden. Active E
+revalidates this general recovery together with the native Desktop task
+creation/readback and predecessor-stop authority against the actual supported
+surface; it does not add successor execution.
 
 Hard boundaries:
 

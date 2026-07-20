@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6C2 Bootstrap Authority Correctness,
+Active implementation phase. Phase 23.8.6C2 Bootstrap Authority Correctness,
 Phase 23.8.6C2A Commit-Backed Task Materialization and Environment Bootstrap,
 and Phase 23.8.6D Procedure Artifact Payload Storage and Worktree Retention
 are complete, reviewed, accepted, and merged.
@@ -78,6 +78,23 @@ are still supposed to guide current or future work.
 - Reconcile context-budget, compaction, and handoff guidance so active task,
   effective plan, approval state, source authority, and validation obligations
   cannot be dropped or replaced by conversational summaries.
+- Revalidate the native Codex Desktop successor-task handoff as one
+  phase-neutral, product-owned transition rather than a D-specific exception.
+  The checked live procedure authority must:
+  - prepare and prove the recorded task/branch/worktree, immutable decision
+    base, committed activation authority, and unique `TaskState` owner before
+    Desktop task creation;
+  - identify the supported persistent native app-server `thread/start` path
+    with the exact prepared worktree `cwd`, followed by native readback that
+    proves the created task's cwd and captured Git branch/`HEAD`;
+  - expose the created task identity/link and stop the predecessor before any
+    successor `turn/start`, bootstrap, Harness run, or shell execution;
+  - use the same binding rules for preview/dry-run reasoning and real
+    execution, remain idempotent for one uniquely matching empty successor
+    task, and fail closed with typed `HANDOFF_CREATION_FAILED` on dirty,
+    ambiguous, conflicting, unrelated, or already-owned contexts; and
+  - contain no phase-specific SHA, branch, task, provider-routing, generic UI
+    automation, background-control, or runner-execution behavior.
 - Distinguish future/live authority surfaces from historical/accepted task
   history.
 - Update only future/live authority surfaces that are stale against current
@@ -96,6 +113,8 @@ are still supposed to guide current or future work.
 - No broad roadmap rewrite.
 - No cleanup of all old tasks for style.
 - No model/subagent runtime policy implementation.
+- No Codex Desktop client, generic UI automation framework, background
+  controller, or successor-turn execution implementation.
 - No replacement for Phase 30 bounded experimentation.
 - No replacement for Phase 31 reviewed runner execution.
 - No domain-pack work.
@@ -116,6 +135,9 @@ git diff --check
   authority, acceptable historical context, or unrelated text.
 - The implementation clearly distinguishes stale future/live authority surfaces
   from historical/accepted task history.
+- The native successor-task handoff wording names the actual product-owned
+  create/readback boundary, proves exact task/worktree/Git/TaskState authority,
+  and does not permit a successor turn before predecessor stop.
 - Only future/live files that are actually stale are updated.
 - Historical/accepted tasks are not broadly rewritten just to make old text
   cleaner.

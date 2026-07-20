@@ -953,8 +953,9 @@ and preserve enough worktree provenance for later audit after local markdown
 files disappear.
 
 Status:
-Active implementation phase. Phase 23.8.6C2 and Phase 23.8.6C2A are complete,
-reviewed, accepted, and merged.
+Complete, reviewed, accepted, and merged. Its durable procedure-payload,
+successor-recovery, and worktree-retention authority now precedes the active E
+freshness revalidation.
 
 Required scope:
 - store raw recorded procedure artifact bodies in SQLite payload tables as
@@ -1007,8 +1008,8 @@ Revalidate future/live authority surfaces after the near-term 23.8.6 chain has
 changed verification policy, bootstrap assumptions, and storage/harvest facts.
 
 Status:
-Planned. Blocked until Phase 23.8.6C2, Phase 23.8.6C2A, and Phase 23.8.6D are
-complete, reviewed, accepted, and merged.
+Active implementation phase. Phase 23.8.6C2, Phase 23.8.6C2A, and Phase
+23.8.6D are complete, reviewed, accepted, and merged.
 
 Required scope:
 - check `TASK.md` active pointer, roadmap active/current wording, task status
@@ -1016,6 +1017,10 @@ Required scope:
   assumptions, storage/harvest assumptions, and downstream dependency notes;
 - reconcile stale present-tense phase claims, checked-in model/profile policy
   versus manual guidance, and context-budget/compaction/handoff authority;
+- revalidate the native Codex Desktop successor-task procedure against the
+  actual persistent app-server `thread/start` plus exact-cwd/Git readback
+  boundary, while preserving phase-neutral immutable-base, activation,
+  unique-owner, idempotency, predecessor-stop, and typed fail-closed rules;
 - include a lightweight mechanical authority-drift check, implemented as a
   repo-owned command if one exists or as a bounded scripted/search checklist
   otherwise, that covers stale current-pointer claims, skipped phase ordering,
@@ -1037,7 +1042,8 @@ Future-phase impact check:
   inherit current facts rather than stale assumptions;
 - preserves Phase 30 as the future home for bounded experimentation and Phase
   31 as the future home for reviewed runner execution;
-- must not become runtime implementation or a broad roadmap rewrite.
+- must not become runtime implementation, a Desktop client or generic UI
+  automation framework, background control, or a broad roadmap rewrite.
 
 ## Phase 23.8.7 — Hookless Stage-Level Operator Packet Automation v0
 
