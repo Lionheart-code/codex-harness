@@ -20,8 +20,9 @@ Orchestrator Entrypoint, Phase 23.8.6C1A Routing, Context, and Model-Policy
 Authority Rebase, Phase 23.8.6C2 Bootstrap Authority Correctness, Phase
 23.8.6C2A Commit-Backed Task Materialization and Environment Bootstrap, Phase
 23.8.6D Procedure Artifact Payload Storage and Worktree Retention, Phase
-23.8.6E Authority Surface Freshness and Downstream Task Revalidation, and
-Phase 23.8.7 Hookless Stage-Level Operator Packet Automation are complete and
+23.8.6E Authority Surface Freshness and Downstream Task Revalidation, Phase
+23.8.6F Cost-Aware Review Context Reuse and Codex Reference Routing, and Phase
+23.8.7 Hookless Stage-Level Operator Packet Automation are complete and
 reviewed, unless a later reviewed decision explicitly defers or waives that
 dependency.
 
@@ -50,11 +51,12 @@ approval.
 - stage state references;
 - stage packet and stage result references when present;
 - waiver references.
-- route intent and route decision references;
+- deterministic-check and route-decision references;
+- routing-policy and provider-binding versions;
 - profile class and actual provider/model/reasoning facts when available;
-- context manifest identity/hash and transport mode;
+- context core, manifest, and delta-overlay identity/hash plus transport mode;
 - required/satisfied independence facts;
-- escalation reason and usage evidence reference;
+- escalation, promotion-decision, and usage evidence references;
 - separate deterministic-evidence and model-judgment references;
 - expected and observed required semantic reviews.
 
@@ -79,6 +81,9 @@ approval.
 - Proof does not override deterministic failures.
 - Proof does not choose routes or providers. Model judgment cannot override a
   deterministic failure.
+- Proof keeps deterministic evidence, model judgment, accepted policy
+  decision, and owner promotion approval as distinct facts. It references but
+  never creates or promotes routing policy.
 - Missing invocation, model, context, or usage facts are explicit and never
   fabricated.
 - Deterministic failure requires an explicit waiver record.
