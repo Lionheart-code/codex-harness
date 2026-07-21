@@ -68,6 +68,23 @@ Current temporary model guidance is advisory only:
 This guidance does not create provider/model routing, runtime profile
 selection, or self-approval logic.
 
+## File-output review launch liveness
+
+For a registered `codex_cli` review profile with `output_mode: file`, the
+checked-in `termination_policy: terminal_completion_only` is binding. The
+original launcher is the sole owner of its direct reviewer child until that
+child reaches terminal exit. `timeout_seconds` is the only automatic deadline
+that may send `SIGTERM`; an explicit human cancellation remains a separate
+human action.
+
+`stale_after_seconds` is monitoring-only. Missing stdout/stderr records a
+`progress_unknown` observation, but never signals the child, starts a
+replacement reviewer, accepts a partial result, or advances lifecycle state.
+PID and output-file changes are liveness observations rather than termination
+authority. If the owner process cannot return to record terminal exit, the
+claim remains fail-closed: do not adopt or clear it. Explicitly cancel through
+the human recovery path, discard the affected run, and use a fresh run.
+
 ## Transitional C1A Cost-Control Bridge
 
 Review tier and model reasoning are separate. `extra-high` controls review

@@ -2,9 +2,9 @@
 
 ## Status
 
-Active implementation phase. Phase 23.8.6C2 Bootstrap Authority Correctness
-and Phase 23.8.6C2A Commit-Backed Task Materialization and Environment
-Bootstrap are complete, reviewed, accepted, and merged.
+Complete, reviewed, accepted, and merged. Its durable procedure-payload,
+successor-recovery, and worktree-retention authority now precedes Phase
+23.8.6E freshness revalidation.
 
 ## Purpose
 

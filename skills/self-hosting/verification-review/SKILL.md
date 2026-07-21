@@ -30,7 +30,7 @@ deterministically.
 - Verification commands are known.
 - Command results or failures are available for review.
 - If local evidence comes from `node bin/ch run verify --run <run-id>`, expect
-  the full self-hosting pack to commonly take 10-16 minutes as the acceptance
+  the full self-hosting pack to commonly take 9-18 minutes as the acceptance
   suite grows. The command prints this expectation when it starts. Wait for
   real exit and do not relaunch a duplicate verification while the first
   process is still alive.
@@ -49,7 +49,7 @@ deterministically.
   failure or a license to start a second copy.
 - Use the recorded per-command `duration_ms` values and the command's reported
   `verification_duration_ms` to compare like-for-like runs. Do not present the
-  10-16 minute full-pack observation as a timeout, SLA, or a duration guarantee
+  9-18 minute full-pack observation as a timeout, SLA, or a duration guarantee
   for a focused command or a reused evidence result.
 - Record explicit evidence gaps instead of inferring success.
 - Distinguish local verification from remote CI state.

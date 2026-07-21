@@ -361,7 +361,7 @@ async function runVerify(args: string[]): Promise<number> {
   if (!dryRunOption(options)) {
     lines([
       "verification: running",
-      "expected_duration: full self-hosting verification commonly takes 10-16 minutes as the suite grows; wait for real exit and do not launch a duplicate while this process is alive."
+      "expected_duration: full self-hosting verification commonly takes 9-18 minutes as the suite grows; wait for real exit and do not launch a duplicate while this process is alive."
     ]);
   }
   const result = await verifyRuntimeRun(process.cwd(), {

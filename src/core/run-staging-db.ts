@@ -21,6 +21,8 @@ import { indexSelfHostingProceduresById, readSelfHostingProcedureRegistry } from
 interface MutateRunOptions {
   expectedRunInstanceId?: string;
   expectedRunRevision?: number;
+  expectedRunPresence?: "present" | "absent";
+  seedRunIfMissing?: Run;
 }
 
 export interface HarnessRoots {
@@ -968,11 +970,22 @@ export class RunStagingDatabase {
     try {
       database.exec("BEGIN IMMEDIATE;");
       const row = database.prepare("SELECT run_json FROM runs WHERE run_id = ?").get(runId) as { run_json?: string } | undefined;
-      if (!row) {
+      if (options.expectedRunPresence === "absent" && row) {
+        throw new Error(`Run ${runId} appeared in staging DB while applying a compatibility mutation; refusing to overwrite authoritative state.`);
+      }
+      if (options.expectedRunPresence === "present" && !row) {
+        throw new Error(`Run ${runId} disappeared from staging DB while applying a staged mutation.`);
+      }
+      if (!row && !options.seedRunIfMissing) {
         throw new Error(`Run not found in staging DB: ${runId}`);
       }
+      if (options.seedRunIfMissing && options.seedRunIfMissing.run_id !== runId) {
+        throw new Error(`Seed run ${options.seedRunIfMissing.run_id} does not match staged mutation run ${runId}.`);
+      }
 
-      const current = parseRunJson(row.run_json, runId);
+      const current = row
+        ? parseRunJson(row.run_json, runId)
+        : options.seedRunIfMissing!;
       if (
         options.expectedRunInstanceId
         && current.run_instance_id

@@ -26,6 +26,7 @@ Non-procedure transitions belong in `next_allowed_action`.
 | `PLAN_REVIEW_REQUIRED` | `plan-review` | run plan-review procedure | draft plan, task contract, review tier | `missing_plan_review` | implementation |
 | `PLAN_AMEND_REQUIRED` | `plan-amend` | run plan-amend procedure | plan review findings | `plan_review_requires_amendment` | implementation |
 | `PLAN_APPROVAL_REQUIRED` | `none` | obtain human approval boundary | reviewed/amended plan | `missing_plan_approval` | implementation |
+| `REVIEW_LAUNCH_IN_PROGRESS` | `none` | wait for the original launcher to record terminal child exit; otherwise use explicit human recovery and discard the run | exclusive review-launch claim plus terminal launch attempt | `review_launch_owner_active_or_unavailable` | replacement launch, procedure recording, approval, implementation, verification, closeout, harvest |
 | `IMPLEMENTATION_READY` | `none` | builder handoff / implementation prompt | approved plan, task contract, allowed scope | `missing_builder_handoff` | closeout |
 | `IMPLEMENTATION_REVIEW_REQUIRED` | `implementation-review` | run implementation-review procedure | implementation report, diff/changed files, test output | `missing_implementation_evidence` | closeout |
 | `FIX_PASS_REQUIRED` | `fix-pass-review` | run fix-pass-review procedure | review findings, fix-pass report/diff/tests | `unresolved_review_findings` | closeout |
@@ -42,7 +43,7 @@ Non-procedure transitions belong in `next_allowed_action`.
 
 ## Verification timing guardrail
 
-The full local self-hosting verification pack normally takes 10-16 minutes as
+The full local self-hosting verification pack normally takes 9-18 minutes as
 the suite grows. A live `run verify` process in that window remains incomplete
 evidence; it does not authorize a duplicate launch or a stage transition. On
 exit, use the durable per-command `duration_ms` values and the reported
@@ -62,6 +63,8 @@ Phase 23.7 should pass fixtures for:
 - draft plan ready but missing plan review;
 - reviewed plan requiring amendment;
 - reviewed plan missing owner approval;
+- review-launch ownership remains exclusive while a file-output reviewer is
+  silent or otherwise still non-terminal;
 - implementation evidence missing;
 - review findings requiring fix-pass;
 - verification evidence missing;

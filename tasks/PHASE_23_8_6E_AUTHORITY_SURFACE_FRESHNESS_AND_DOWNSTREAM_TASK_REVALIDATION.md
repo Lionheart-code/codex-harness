@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6C2 Bootstrap Authority Correctness,
+Active implementation phase. Phase 23.8.6C2 Bootstrap Authority Correctness,
 Phase 23.8.6C2A Commit-Backed Task Materialization and Environment Bootstrap,
 and Phase 23.8.6D Procedure Artifact Payload Storage and Worktree Retention
 are complete, reviewed, accepted, and merged.
@@ -28,9 +28,12 @@ historical task history remains useful.
 
 ## Scope
 
-This is a bounded docs/task-contract revalidation phase only. It checks
-future/live authority surfaces for freshness and updates only the surfaces that
-are still supposed to guide current or future work.
+This is a bounded docs/task-contract revalidation phase. It checks future/live
+authority surfaces for freshness and updates only the surfaces that are still
+supposed to guide current or future work. One narrow runtime correction is
+also in scope: prevent the supervised `codex_cli` file-output review launcher
+from terminating a still-live reviewer merely because it has been silent on
+stdout/stderr.
 
 ## Required behavior
 
@@ -78,6 +81,23 @@ are still supposed to guide current or future work.
 - Reconcile context-budget, compaction, and handoff guidance so active task,
   effective plan, approval state, source authority, and validation obligations
   cannot be dropped or replaced by conversational summaries.
+- Revalidate the native Codex Desktop successor-task handoff as one
+  phase-neutral, product-owned transition rather than a D-specific exception.
+  The checked live procedure authority must:
+  - prepare and prove the recorded task/branch/worktree, immutable decision
+    base, committed activation authority, and unique `TaskState` owner before
+    Desktop task creation;
+  - identify the supported persistent native app-server `thread/start` path
+    with the exact prepared worktree `cwd`, followed by native readback that
+    proves the created task's cwd and captured Git branch/`HEAD`;
+  - expose the created task identity/link and stop the predecessor before any
+    successor `turn/start`, bootstrap, Harness run, or shell execution;
+  - use the same binding rules for preview/dry-run reasoning and real
+    execution, remain idempotent for one uniquely matching empty successor
+    task, and fail closed with typed `HANDOFF_CREATION_FAILED` on dirty,
+    ambiguous, conflicting, unrelated, or already-owned contexts; and
+  - contain no phase-specific SHA, branch, task, provider-routing, generic UI
+    automation, background-control, or runner-execution behavior.
 - Distinguish future/live authority surfaces from historical/accepted task
   history.
 - Update only future/live authority surfaces that are stale against current
@@ -89,13 +109,28 @@ are still supposed to guide current or future work.
 - Record repeated authority-drift patterns as Phase 30 eval or cleanup
   candidates when they are recurring and mechanically checkable; do not turn
   this phase into an experimentation loop.
+- Correct review-launch liveness for registered `codex_cli` profiles with
+  `output_mode: file`:
+  - absence of stdout/stderr is monitoring-only and must never send `SIGTERM`;
+  - the configured `timeout_seconds` remains the only automatic termination
+    deadline, while explicit human cancellation remains separately allowed;
+  - `stale_after_seconds`, when present, records `progress_unknown` observation
+    only and cannot cause a replacement launch or lifecycle transition;
+  - until terminal child exit, one reviewer remains the exclusive owner of the
+    review attempt; PID and output-file changes are liveness observations, not
+    termination authority; and
+  - a silent reviewer that writes a valid artifact after the stale interval is
+    accepted, with focused regression coverage.
 
 ## Non-goals
 
-- No runtime implementation.
+- No runtime implementation except the narrow file-output review-launch
+  liveness correction defined above.
 - No broad roadmap rewrite.
 - No cleanup of all old tasks for style.
 - No model/subagent runtime policy implementation.
+- No Codex Desktop client, generic UI automation framework, background
+  controller, or successor-turn execution implementation.
 - No replacement for Phase 30 bounded experimentation.
 - No replacement for Phase 31 reviewed runner execution.
 - No domain-pack work.
@@ -105,6 +140,7 @@ are still supposed to guide current or future work.
 
 ```bash
 git diff --check
+node --test tests/acceptance/phase23-8-6b1-review-launch.test.mjs
 ```
 
 ## Acceptance behavior
@@ -116,6 +152,9 @@ git diff --check
   authority, acceptable historical context, or unrelated text.
 - The implementation clearly distinguishes stale future/live authority surfaces
   from historical/accepted task history.
+- The native successor-task handoff wording names the actual product-owned
+  create/readback boundary, proves exact task/worktree/Git/TaskState authority,
+  and does not permit a successor turn before predecessor stop.
 - Only future/live files that are actually stale are updated.
 - Historical/accepted tasks are not broadly rewritten just to make old text
   cleaner.
@@ -132,11 +171,15 @@ git diff --check
   task-specific blocker requires more.
 - If a full-pack proof is needed, use `npm test` as the canonical command and
   treat `npm run test:acceptance` as a compatibility alias only.
+- A silent file-output reviewer that produces a valid artifact after the stale
+  interval is accepted without a stale-triggered `SIGTERM`; hard deadline and
+  explicit-cancellation behavior remain distinct from liveness observation.
 
 ## Source/runtime boundary
 
-This phase is docs/task/procedure/policy authority only. It must not implement
-runtime features, SQL storage logic, bootstrap commands, runner behavior,
+This phase is docs/task/procedure/policy authority plus the narrow
+file-output review-launch liveness correction above. It must not implement any
+other runtime feature, SQL storage logic, bootstrap commands, runner behavior,
 provider/model routing, packet execution, or domain-pack behavior.
 
 ## Relationship to previous and next phases

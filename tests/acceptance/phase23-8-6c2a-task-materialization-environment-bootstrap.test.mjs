@@ -78,7 +78,7 @@ test("phase 23.8.6C2A remains the completed bounded task-materialization predece
 
   assert.equal(
     read("TASK.md").trim(),
-    "# Current Task\n\nImplement only: tasks/PHASE_23_8_6D_PROCEDURE_ARTIFACT_PAYLOAD_STORAGE_AND_WORKTREE_RETENTION.md\n\nDo not implement Phase 23.8.6E or later."
+    "# Current Task\n\nImplement only: tasks/PHASE_23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION.md\n\nDo not implement Phase 23.8.7 or later."
   );
   assert.match(task, /^# Phase 23\.8\.6C2A - Commit-Backed Task Materialization and Environment Bootstrap/m);
   assert.match(task, /materialize-next-task[\s\S]*must not start a runtime run/);
@@ -205,9 +205,10 @@ test("downstream contracts require C2A and preserve its ownership boundary", () 
   const stage = read("tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md");
   const proof = read("tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md");
 
-  for (const downstream of [d, e, stage, proof]) {
+  for (const downstream of [e, stage, proof]) {
     assert.match(downstream, /23\.8\.6C2A/);
   }
+  assert.match(d, /C2A/);
   assert.match(d, /No reimplementation of C2A commit-backed task activation/);
   assert.match(stage, /No reimplementation of Phase 23\.8\.6C2A/);
   assert.match(proof, /committed activation[\s\S]*current source snapshot\s+provenance/);

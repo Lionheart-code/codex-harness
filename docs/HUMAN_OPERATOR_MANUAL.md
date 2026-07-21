@@ -56,7 +56,7 @@ This document explains how a human operator should use `codex-harness` safely.
    `.harness/runs/**/run.json` to simulate ingestion.
 7. Run the active task acceptance commands.
    For the current self-hosting flow, `node bin/ch run verify --run <run-id>`
-   commonly takes 10-16 minutes for the full local pack as the suite grows.
+   commonly takes 9-18 minutes for the full local pack as the suite grows.
    Wait for real exit and do not start a second verification run while the
    first is still active. A live process inside that window is incomplete
    evidence, not a failure. The command records `duration_ms` for each command
@@ -261,7 +261,7 @@ the task command list.
 ## Verification timing and observation
 
 For the full local self-hosting pack, the current normal observation window is
-10-16 minutes. This is operator guidance, not a timeout or success claim:
+9-18 minutes. This is operator guidance, not a timeout or success claim:
 focused commands, changed command sets, evidence reuse, and slower machines
 must be evaluated from their own recorded results. `run verify` executes the
 active task commands serially and retains a durable `duration_ms` for every

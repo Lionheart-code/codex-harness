@@ -3,17 +3,36 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { productRoot } from "../helpers/cli-test-utils.mjs";
+import {
+  assertNearTermProgressionMatchesRoadmap,
+  roadmapPhaseSection
+} from "../helpers/phase-authority.mjs";
 
 function readText(relativePath) {
   return fs.readFileSync(path.join(productRoot, relativePath), "utf8");
 }
 
-function section(markdown, heading, nextHeading) {
-  const start = markdown.indexOf(heading);
-  assert.notEqual(start, -1, `missing section: ${heading}`);
-  const end = nextHeading ? markdown.indexOf(nextHeading, start + heading.length) : markdown.length;
-  assert.notEqual(end, -1, `missing next section: ${nextHeading}`);
+function taskContractForPhase(phase) {
+  const matches = fs.readdirSync(path.join(productRoot, "tasks"))
+    .filter((entry) => entry.endsWith(".md"))
+    .map((entry) => ({ entry, markdown: readText(path.join("tasks", entry)) }))
+    .filter(({ markdown }) => markdown.startsWith(`# Phase ${phase} -`));
+  assert.equal(matches.length, 1, `expected exactly one task contract for Phase ${phase}`);
+  return matches[0].markdown;
+}
+
+function statusSection(markdown) {
+  const startMatch = /^## Status\s*$/mu.exec(markdown);
+  assert.ok(startMatch, "task contract must contain a Status section");
+  const start = startMatch.index + startMatch[0].length;
+  const nextHeading = /^## /gmu;
+  nextHeading.lastIndex = start;
+  const end = nextHeading.exec(markdown)?.index ?? markdown.length;
   return markdown.slice(start, end);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 test("phase 23.8.6C1 preserves a decision-complete C2 bootstrap authority task", () => {
@@ -36,32 +55,18 @@ test("phase 23.8.6C1 preserves a decision-complete C2 bootstrap authority task",
 test("phase 23.8.6C1 preserves the near-term authority order", () => {
   const roadmap = readText("docs/IMPLEMENTATION_ROADMAP.md");
   const operations = readText("docs/OPERATIONS_PLAN.md");
-  const headings = [
-    "## Phase 23.8.6C \u2014",
-    "## Phase 23.8.6C1 \u2014",
-    "## Phase 23.8.6C1A \u2014",
-    "## Phase 23.8.6C2 \u2014",
-    "## Phase 23.8.6C2A \u2014",
-    "## Phase 23.8.6D \u2014",
-    "## Phase 23.8.6E \u2014",
-    "## Phase 23.8.7 \u2014",
-    "## Phase 23.9 \u2014"
-  ];
-  const indexes = headings.map((heading) => roadmap.indexOf(heading));
+  const progression = assertNearTermProgressionMatchesRoadmap(operations, roadmap);
+  for (const phase of ["23.8.6C", "23.8.6C1", "23.8.6C1A", "23.8.6C2", "23.8.6C2A", "23.8.6D", "23.8.6E", "23.8.7", "23.9"]) {
+    assert.ok(progression.includes(phase), `near-term progression must retain Phase ${phase}`);
+  }
 
-  assert.equal(indexes.every((index) => index >= 0), true, "every near-term phase must have a roadmap section");
-  assert.deepEqual([...indexes].sort((left, right) => left - right), indexes, "near-term roadmap phases must be ordered");
-  assert.match(
-    operations,
-    /23\.8\.6C ->\s*23\.8\.6C1 -> 23\.8\.6C1A -> 23\.8\.6C2 -> 23\.8\.6C2A -> 23\.8\.6D -> 23\.8\.6E -> 23\.8\.7 -> 23\.9/
-  );
-
-  const cSection = section(roadmap, headings[0], headings[1]);
-  const c1Section = section(roadmap, headings[1], headings[2]);
-  const c1aSection = section(roadmap, headings[2], headings[3]);
-  const c2Section = section(roadmap, headings[3], headings[4]);
-  const c2aSection = section(roadmap, headings[4], headings[5]);
-  const dSection = section(roadmap, headings[5], headings[6]);
+  const cSection = roadmapPhaseSection(roadmap, "23.8.6C");
+  const c1Section = roadmapPhaseSection(roadmap, "23.8.6C1");
+  const c1aSection = roadmapPhaseSection(roadmap, "23.8.6C1A");
+  const c2Section = roadmapPhaseSection(roadmap, "23.8.6C2");
+  const c2aSection = roadmapPhaseSection(roadmap, "23.8.6C2A");
+  const dSection = roadmapPhaseSection(roadmap, "23.8.6D");
+  const eSection = roadmapPhaseSection(roadmap, "23.8.6E");
   assert.match(cSection, /Complete, reviewed, accepted, and merged/);
   assert.match(c1Section, /Complete, reviewed, accepted, and merged/);
   assert.match(c1aSection, /Complete, reviewed, accepted, and merged/);
@@ -72,7 +77,27 @@ test("phase 23.8.6C1 preserves the near-term authority order", () => {
   assert.match(c2aSection, /COMMIT_BACKED_TASK_MATERIALIZATION_AND_ENVIRONMENT_BOOTSTRAP/);
   assert.match(c2aSection, /Complete, reviewed, accepted, and merged/);
   assert.match(c2aSection, /Codex Desktop-managed existing worktree/);
-  assert.match(dSection, /Active implementation phase/);
+  assert.match(dSection, /Complete, reviewed, accepted, and merged/);
+  assert.match(eSection, /Active implementation phase/);
+});
+
+test("phase 23.8.6C1 derives immediate future dependencies from published authority", () => {
+  const progression = assertNearTermProgressionMatchesRoadmap(
+    readText("docs/OPERATIONS_PLAN.md"),
+    readText("docs/IMPLEMENTATION_ROADMAP.md")
+  );
+  const activeIndex = progression.indexOf("23.8.6E");
+  assert.notEqual(activeIndex, -1, "active Phase 23.8.6E must appear in near-term progression");
+
+  for (let index = activeIndex + 1; index < progression.length; index += 1) {
+    const phase = progression[index];
+    const predecessor = progression[index - 1];
+    assert.match(
+      statusSection(taskContractForPhase(phase)),
+      new RegExp(`\\bPhase ${escapeRegExp(predecessor)}\\b`, "u"),
+      `Phase ${phase} status must name immediate predecessor Phase ${predecessor}`
+    );
+  }
 });
 
 test("phase 23.8.6C1 keeps downstream ownership distinct and lightweight", () => {
@@ -80,13 +105,13 @@ test("phase 23.8.6C1 keeps downstream ownership distinct and lightweight", () =>
   const phaseE = readText("tasks/PHASE_23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION.md");
   const phase7 = readText("tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md");
 
-  assert.match(phaseD, /Active implementation phase\. Phase 23\.8\.6C2 Bootstrap Authority Correctness[\s\S]*Phase 23\.8\.6C2A[\s\S]*complete, reviewed, accepted, and merged/);
+  assert.match(phaseD, /Complete, reviewed, accepted, and merged[\s\S]*precedes Phase\s+23\.8\.6E freshness revalidation/i);
   assert.match(phaseD, /canonical procedure ID/);
   assert.match(phaseD, /stable recorded timestamp and content hash/);
   assert.match(phaseD, /exact immutable plan\s+or evidence artifact identity/);
   assert.match(phaseD, /No reimplementation of Phase 23\.8\.6C2 current-bootstrap/);
 
-  assert.match(phaseE, /after Phase 23\.8\.6C2 Bootstrap Authority Correctness,[\s\S]*23\.8\.6C2A/);
+  assert.match(phaseE, /Active implementation phase[\s\S]*Phase 23\.8\.6C2 Bootstrap Authority Correctness,[\s\S]*23\.8\.6C2A[\s\S]*23\.8\.6D/);
   assert.match(phaseE, /model\/profile registry defaults versus manual invocation guidance/);
   assert.match(phaseE, /context-budget, compaction, and handoff guidance/);
   assert.match(phaseE, /stale present-tense phase status claims/);

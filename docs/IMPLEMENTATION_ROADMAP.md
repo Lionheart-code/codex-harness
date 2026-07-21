@@ -953,8 +953,9 @@ and preserve enough worktree provenance for later audit after local markdown
 files disappear.
 
 Status:
-Active implementation phase. Phase 23.8.6C2 and Phase 23.8.6C2A are complete,
-reviewed, accepted, and merged.
+Complete, reviewed, accepted, and merged. Its durable procedure-payload,
+successor-recovery, and worktree-retention authority now precedes the active E
+freshness revalidation.
 
 Required scope:
 - store raw recorded procedure artifact bodies in SQLite payload tables as
@@ -1007,8 +1008,8 @@ Revalidate future/live authority surfaces after the near-term 23.8.6 chain has
 changed verification policy, bootstrap assumptions, and storage/harvest facts.
 
 Status:
-Planned. Blocked until Phase 23.8.6C2, Phase 23.8.6C2A, and Phase 23.8.6D are
-complete, reviewed, accepted, and merged.
+Active implementation phase. Phase 23.8.6C2, Phase 23.8.6C2A, and Phase
+23.8.6D are complete, reviewed, accepted, and merged.
 
 Required scope:
 - check `TASK.md` active pointer, roadmap active/current wording, task status
@@ -1016,6 +1017,10 @@ Required scope:
   assumptions, storage/harvest assumptions, and downstream dependency notes;
 - reconcile stale present-tense phase claims, checked-in model/profile policy
   versus manual guidance, and context-budget/compaction/handoff authority;
+- revalidate the native Codex Desktop successor-task procedure against the
+  actual persistent app-server `thread/start` plus exact-cwd/Git readback
+  boundary, while preserving phase-neutral immutable-base, activation,
+  unique-owner, idempotency, predecessor-stop, and typed fail-closed rules;
 - include a lightweight mechanical authority-drift check, implemented as a
   repo-owned command if one exists or as a bounded scripted/search checklist
   otherwise, that covers stale current-pointer claims, skipped phase ordering,
@@ -1031,13 +1036,39 @@ Required scope:
 - reconcile the C1A routing/context allocations against actual C2/D facts
   rather than repeating the research or becoming first owner of that
   architecture;
+- correct only the supervised `codex_cli` file-output review-launch liveness
+  defect: stdout/stderr silence is monitoring-only, never a `SIGTERM` basis;
+  hard timeout and explicit human cancellation remain the only termination
+  authority, one live reviewer remains exclusive until terminal exit, and a
+  delayed valid artifact is accepted by focused regression coverage.
 
 Future-phase impact check:
 - prepares 23.8.7, 23.9, 24A/24B, and later live/planned authority surfaces to
   inherit current facts rather than stale assumptions;
 - preserves Phase 30 as the future home for bounded experimentation and Phase
   31 as the future home for reviewed runner execution;
-- must not become runtime implementation or a broad roadmap rewrite.
+- must not become general runtime implementation, a Desktop client or generic
+  UI automation framework, background control, or a broad roadmap rewrite;
+  the listed review-launch liveness correction is the sole runtime exception.
+
+## Phase 23.8.6F — Cost-Aware Review Context Reuse and Codex Reference Routing
+
+Task:
+`tasks/PHASE_23_8_6F_COST_AWARE_CONTEXT_REUSE_AND_CODEX_REFERENCE_ROUTING.md`
+
+Goal:
+Add the narrow, provider-neutral self-hosting review-context reuse,
+deterministic route-decision, Codex reference-binding, and usage-telemetry
+substrate before stage-packet automation.
+
+Status:
+Planned. Starts only after Phase 23.8.6E is independently reviewed, accepted,
+closed out, and harvested. It does not activate until E is complete.
+
+Future-phase impact check:
+- 23.8.7 reuses this review context and route substrate for stage packets;
+- 23.8.6F does not add a second adapter, generic runner, or Desktop client;
+- Phase 31 remains the first general reviewed runner-execution boundary.
 
 ## Phase 23.8.7 — Hookless Stage-Level Operator Packet Automation v0
 

@@ -81,7 +81,7 @@ Near-term progression:
 
 ```text
 23.8.6 -> 23.8.6A -> 23.8.6B -> 23.8.6B1 -> 23.8.6B2 -> 23.8.6C ->
-23.8.6C1 -> 23.8.6C1A -> 23.8.6C2 -> 23.8.6C2A -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9
+23.8.6C1 -> 23.8.6C1A -> 23.8.6C2 -> 23.8.6C2A -> 23.8.6D -> 23.8.6E -> 23.8.6F -> 23.8.7 -> 23.9
 ```
 
 Phase 23.8.6C1 is the completed post-bootstrap task-contract rebase. Phase
@@ -95,17 +95,25 @@ Harness or Codex Desktop creates the checkout; it never copies ignored private
 state. Its implementation required one independent combined
 architecture/authority and persisted-storage/no-storage-change review; a failed
 labeled verdict routes to a fix pass and then a fresh combined review. Phase
-23.8.6D is now the active durable-procedure payload-storage and worktree-
-retention phase; authority freshness follows in 23.8.6E, and normalized provider-neutral
-stage packet/result and route-intent contracts in 23.8.7. Phase 31 remains the
-first general runtime provider-binding and runner-execution boundary.
+23.8.6D completed durable-procedure payload storage, successor recovery, and
+worktree retention. Phase 23.8.6E is now the active authority-freshness phase;
+it will revalidate the generic native Desktop successor-task create/readback
+boundary against the actual persistent app-server `thread/start` path without
+implementing successor execution. After E is closed and harvested, 23.8.6F
+adds the narrow reusable review-context, deterministic route-intent, Codex
+reference-binding, and usage-telemetry substrate. Phase 23.8.7 then extends
+that substrate into general stage packets/results. Phase 31 remains the first
+general runtime provider-binding and runner-execution boundary.
 
 For a newly inserted phase, materialization is not complete when only
 `TASK.md` changes. Update the task contract, `TASK.md`, roadmap/operations
 order, and every required live authority/policy surface coherently; commit that
 complete activation as the first commit in the task branch/worktree; verify
 clean git; then create the successor Codex Desktop task through the native
-task/worktree API. Verify its cwd, branch, and `HEAD` binding, expose its
+task/worktree API. The supported product boundary is a persistent native
+app-server `thread/start` using the exact prepared worktree `cwd`, followed by
+native thread readback that proves the created task identity/link plus captured
+cwd, branch, and `HEAD` binding. Expose its
 identity or link so the user can open it without creating, selecting, or
 searching for a repository or worktree, and stop the predecessor before any
 successor work. If creation or binding cannot be proven, fail closed with typed
@@ -127,13 +135,16 @@ claim readiness.
 
 The same handoff boundary must detect a harvested predecessor that lacks a
 recorded next-task decision and an already-activated successor that lacks its
-uniquely owning `TaskState` because materialization was skipped. The active D
-task-intake and draft-plan own the smallest product-owned, fail-closed recovery:
-it must re-establish a valid successor context from the recorded immutable
-decision base before materialization and activation proof. It must preserve the
-decision-base and activation authority; manual `TaskState` or database edits,
-using current `HEAD` as a substitute base, silently claiming an advanced
-worktree, or starting the successor before owner-match proof are forbidden.
+uniquely owning `TaskState` because materialization was skipped. The completed D
+implementation provides the smallest product-owned, fail-closed recovery: it
+re-establishes a valid successor context from the recorded immutable decision
+base before materialization and activation proof. It preserves the decision
+base and activation authority; manual `TaskState` or database edits, using
+current `HEAD` as a substitute base, silently claiming an advanced worktree, or
+starting the successor before owner-match proof are forbidden. Active E
+revalidates this general recovery together with the native Desktop task
+creation/readback and predecessor-stop authority against the actual supported
+surface; it does not add successor execution.
 
 Hard boundaries:
 
@@ -233,7 +244,9 @@ After commit:
    roadmap/operations ordering, and affected live policy surfaces—as the first
    commit in that new task branch/worktree.
 5. Verify clean git, then create the successor through the native Codex Desktop
-   task/worktree API; verify its cwd, branch, and `HEAD`, expose its
+   task/worktree API through persistent native app-server `thread/start` with
+   the exact prepared `cwd`; use native thread readback to verify its cwd,
+   branch, `HEAD`, and created identity/link, then expose its
    identity/link, and stop the predecessor before successor work. If proof
    fails, return `HANDOFF_CREATION_FAILED` and do not bootstrap, run start, or
    execute successor shell work.

@@ -267,7 +267,8 @@
         "sandbox_mode": "read-only",
         "output_mode": "file",
         "timeout_seconds": 1800,
-        "stale_after_seconds": 300
+        "stale_after_seconds": 300,
+        "termination_policy": "terminal_completion_only"
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 lifecycle and accepted-memory authority stay unchanged during pre-implementation planning."
@@ -457,7 +458,8 @@
         "sandbox_mode": "read-only",
         "output_mode": "file",
         "timeout_seconds": 1800,
-        "stale_after_seconds": 300
+        "stale_after_seconds": 300,
+        "termination_policy": "terminal_completion_only"
       },
       "phase_23_5_dependencies": [
         "Phase 23.5 delivery facts, closeout, and harvest remain downstream authority boundaries."

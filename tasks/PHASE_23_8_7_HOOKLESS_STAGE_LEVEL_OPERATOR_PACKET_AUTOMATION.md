@@ -11,8 +11,9 @@ Phase 23.8.6B2 Verification Command Rationalization and Serialization, Phase
 Context, and Model-Policy Authority Rebase, Phase 23.8.6C2 Bootstrap Authority
 Correctness, Phase 23.8.6C2A Commit-Backed Task Materialization and
 Environment Bootstrap, Phase 23.8.6D Procedure Artifact Payload Storage and
-Worktree Retention, and Phase 23.8.6E Authority Surface Freshness and
-Downstream Task Revalidation are complete, reviewed, and accepted.
+Worktree Retention, Phase 23.8.6E Authority Surface Freshness and Downstream
+Task Revalidation, and Phase 23.8.6F Cost-Aware Review Context Reuse and Codex
+Reference Routing are complete, reviewed, and accepted.
 
 ## Purpose
 

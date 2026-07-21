@@ -31,7 +31,8 @@ function loadBuiltModules() {
 
   return {
     runtimeModule: require(path.join(productRoot, "dist", "core", "runtime.js")),
-    registryModule: require(path.join(productRoot, "dist", "core", "self-hosting-procedures.js"))
+    registryModule: require(path.join(productRoot, "dist", "core", "self-hosting-procedures.js")),
+    stagingModule: require(path.join(productRoot, "dist", "core", "run-staging-db.js"))
   };
 }
 
@@ -487,7 +488,7 @@ test("phase 23.8 run verify uses active task acceptance commands before package 
   const verify = runCli(["run", "verify", "--run", run.run_id], { cwd: tempRepo });
   assertSuccess(verify, "run verify uses task acceptance commands");
   assert.match(verify.stdout, /verification: running/);
-  assert.match(verify.stdout, /expected_duration: full self-hosting verification commonly takes 10-16 minutes/);
+  assert.match(verify.stdout, /expected_duration: full self-hosting verification commonly takes 9-18 minutes/);
   assert.match(verify.stdout, /verification: pass/);
   assert.match(verify.stdout, /verification_duration_ms: \d+/);
 
@@ -501,6 +502,27 @@ test("phase 23.8 run verify uses active task acceptance commands before package 
       "git diff --check"
     ]
   );
+});
+
+test("phase 23.8 guarded compatibility mutation rejects a concurrently appeared staging row", () => {
+  const tempRepo = createPhase238Repo("codex-harness-phase23-8-compatibility-race-");
+  const { runtimeModule, stagingModule } = loadBuiltModules();
+  const run = createBaseRun(runtimeModule, tempRepo, "run-compatibility-race");
+  runtimeModule.validateRuntimeRun(run);
+
+  const staging = new stagingModule.RunStagingDatabase(tempRepo, tempRepo, run.run_id);
+  staging.ensureInitialized();
+  staging.saveRun(run);
+
+  assert.throws(
+    () => staging.mutateRun(
+      run.run_id,
+      (current) => current,
+      { expectedRunPresence: "absent", seedRunIfMissing: run }
+    ),
+    /appeared in staging DB while applying a compatibility mutation/
+  );
+  assert.deepEqual(staging.loadRun(run.run_id), run, "concurrent authoritative staging row must remain unchanged");
 });
 
 test("phase 23.8 operator progression requires typed review outcome and treats plan-amend as the latest effective plan update", () => {
