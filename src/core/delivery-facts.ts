@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { type DeliveryFactKind, type DeliveryFactRecord, type DeliveryFactStatus } from "./lifecycle-types";
 import { buildMergeFactOccurrenceId, isMergeFactKind, normalizeMergeFactKind } from "./merge-facts";
+import { PayloadStore, type StorePayloadInput } from "./payload-store";
 import { RunStagingDatabase, resolveHarnessRoots, writeCompatibilityRunArtifacts } from "./run-staging-db";
 import {
   type RemoteCheckResult,
@@ -188,26 +189,26 @@ export function importDeliveryFacts(
   if (!run) {
     throw new Error(`Run not found in staging DB: ${runId}`);
   }
-
   const parsed = parseImportFile(path.resolve(cwd, filePath));
-  const imported: DeliveryFactRecord[] = [];
-  const nextRun: Run = JSON.parse(JSON.stringify(run)) as Run;
-  const knownFacts = new Map<string, DeliveryFactRecord>();
-  for (const existing of nextRun.delivery_facts) {
-    knownFacts.set(existing.delivery_fact_id, existing);
-  }
-  const remoteChecks = new Map(nextRun.remote_checks.map((entry) => [entry.check_result_id, entry] as const));
-  const reviewResults = new Map(nextRun.review_results.map((entry) => [entry.review_result_id, entry] as const));
+  const buildImportedRun = (sourceRun: Run, storeExcerpt?: (input: StorePayloadInput) => string) => {
+    const imported: DeliveryFactRecord[] = [];
+    const nextRun: Run = JSON.parse(JSON.stringify(sourceRun)) as Run;
+    const knownFacts = new Map<string, DeliveryFactRecord>();
+    for (const existing of nextRun.delivery_facts) {
+      knownFacts.set(existing.delivery_fact_id, existing);
+    }
+    const remoteChecks = new Map(nextRun.remote_checks.map((entry) => [entry.check_result_id, entry] as const));
+    const reviewResults = new Map(nextRun.review_results.map((entry) => [entry.review_result_id, entry] as const));
 
-  for (const fact of parsed.facts) {
+    for (const fact of parsed.facts) {
     const normalizedFactKind = normalizeMergeFactKind(fact.fact_kind);
     const deliveryFactId = buildDeliveryFactId(nextRun, fact);
     const existingFact = knownFacts.get(deliveryFactId);
     let excerptPayloadId: string | undefined;
     if (existingFact?.excerpt_payload_id) {
       excerptPayloadId = existingFact.excerpt_payload_id;
-    } else if (fact.excerpt && !dryRun) {
-      excerptPayloadId = staging.storePayload({
+    } else if (fact.excerpt && storeExcerpt) {
+      excerptPayloadId = storeExcerpt({
         parentRecordId: `delivery-fact:${deliveryFactId}`,
         sourceRunId: nextRun.run_id,
         sourcePhaseId: nextRun.phase_id,
@@ -218,7 +219,7 @@ export function importDeliveryFacts(
         searchableText: fact.excerpt.slice(0, 4000),
         boundedExcerpt: fact.excerpt.slice(0, 500),
         retentionClass: "audit"
-      }).payload_id;
+      });
     }
 
     const deliveryFact: DeliveryFactRecord = {
@@ -264,27 +265,42 @@ export function importDeliveryFacts(
     } else if (fact.fact_kind === "review") {
       reviewResults.delete(nextId("review-import", deliveryFactId));
     }
-  }
+    }
 
-  nextRun.delivery_facts = [...knownFacts.values()].sort((left, right) => {
+    nextRun.delivery_facts = [...knownFacts.values()].sort((left, right) => {
     const timeCompare = left.recorded_at.localeCompare(right.recorded_at);
     return timeCompare !== 0 ? timeCompare : left.delivery_fact_id.localeCompare(right.delivery_fact_id);
   });
-  nextRun.remote_checks = [...remoteChecks.values()].sort((left, right) => {
+    nextRun.remote_checks = [...remoteChecks.values()].sort((left, right) => {
     const timeCompare = left.recorded_at.localeCompare(right.recorded_at);
     return timeCompare !== 0 ? timeCompare : left.check_result_id.localeCompare(right.check_result_id);
   });
-  nextRun.review_results = [...reviewResults.values()].sort((left, right) => {
+    nextRun.review_results = [...reviewResults.values()].sort((left, right) => {
     const timeCompare = left.created_at.localeCompare(right.created_at);
     return timeCompare !== 0 ? timeCompare : left.review_result_id.localeCompare(right.review_result_id);
   });
-  nextRun.updated_at = new Date().toISOString();
+    nextRun.updated_at = new Date().toISOString();
+    return { nextRun, imported };
+  };
 
   if (!dryRun) {
-    staging.saveRun(nextRun);
-    writeCompatibilityRunArtifacts(roots.targetRoot, nextRun);
+    let imported: DeliveryFactRecord[] = [];
+    const persistedRun = staging.mutateRunWithDatabase(runId, (latestRun, database) => {
+      if ((latestRun.review_launch_claims?.length ?? 0) > 0) {
+        throw new Error("REVIEW_LAUNCH_OWNERSHIP_ACTIVE: delivery-fact import is blocked until the original review launcher records terminal exit or the run is explicitly discarded.");
+      }
+      const built = buildImportedRun(latestRun, (input) => new PayloadStore(database).store(input).payload_id);
+      imported = built.imported;
+      return built.nextRun;
+    }, { expectedRunInstanceId: run.run_instance_id });
+    writeCompatibilityRunArtifacts(roots.targetRoot, persistedRun);
+    return {
+      run: persistedRun,
+      imported
+    };
   }
 
+  const { nextRun, imported } = buildImportedRun(run);
   return {
     run: nextRun,
     imported

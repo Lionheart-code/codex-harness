@@ -41,6 +41,27 @@
     "harvested_at": { "type": "string" },
     "source_snapshot": { "type": "string" },
     "source_staging_db_path": { "type": "string" },
+    "review_launch_claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim_id", "procedure_id", "owner_token_hash", "created_at", "request_artifact_hash", "expected_output_path", "timeout_seconds", "stale_after_seconds", "termination_policy"],
+        "properties": {
+          "claim_id": { "type": "string", "minLength": 1 },
+          "procedure_id": { "enum": ["plan-review", "implementation-review"] },
+          "owner_token_hash": { "type": "string", "minLength": 1 },
+          "created_at": { "type": "string", "minLength": 1 },
+          "request_artifact_hash": { "type": "string", "minLength": 1 },
+          "expected_output_path": { "type": "string", "minLength": 1 },
+          "timeout_seconds": { "type": "integer", "minimum": 1 },
+          "stale_after_seconds": { "type": "integer", "minimum": 1 },
+          "termination_policy": { "const": "terminal_completion_only" },
+          "pid": { "type": "integer", "minimum": 1 },
+          "progress_unknown_at": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
     "repository": {
       "type": "object",
       "required": ["root_path", "dirty"],

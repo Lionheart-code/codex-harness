@@ -97,7 +97,8 @@
               "sandbox_mode": { "const": "read-only" },
               "output_mode": { "const": "file" },
               "timeout_seconds": { "type": "integer", "minimum": 1 },
-              "stale_after_seconds": { "type": "integer", "minimum": 1 }
+              "stale_after_seconds": { "type": "integer", "minimum": 1 },
+              "termination_policy": { "const": "terminal_completion_only" }
             },
             "additionalProperties": false
           }

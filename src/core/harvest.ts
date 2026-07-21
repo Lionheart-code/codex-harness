@@ -111,53 +111,43 @@ export function harvestRun(
 
   const promotedAt = nowIso();
   const stagingStatus = staging.status();
-  const acceptedRun: Run = {
-    ...run,
-    lifecycle_status: "harvested",
-    harvested_at: promotedAt,
-    updated_at: promotedAt
-  };
   const deliveryFacts = staging.listDeliveryFacts(runId);
-  const harvest: HarvestRecord = {
-    harvest_id: `harvest-${runId}`,
-    run_id: runId,
-    project_run_id: run.run_instance_id,
-    status: run.lifecycle_status === "discarded" ? "discarded" : "promoted",
-    promoted_at: promotedAt,
-    accepted_count: acceptedRun.command_results.length +
-      acceptedRun.verification_results.length +
-      acceptedRun.review_results.length +
-      acceptedRun.findings.length +
-      acceptedRun.decisions.length +
-      acceptedRun.approvals.length +
-      acceptedRun.closeout_receipts.length,
-    discarded_count: Math.max(run.lifecycle_status === "discarded" ? 1 : 0, stagingStatus.discardedPayloadCount),
-    quarantined_count: stagingStatus.quarantinedPayloadCount,
-    redacted_count: Math.max(countRedacted(acceptedRun), stagingStatus.redactedPayloadCount),
-    unresolved_count: countUnresolved(run),
-    source_task_path: acceptedRun.active_task_path ?? acceptedRun.task_path,
-    source_snapshot: acceptedRun.source_snapshot ?? acceptedRun.repository.head_sha ?? "unknown",
-    details: {
-      accepted_record_kinds: [
-        "run",
-        "phase_run",
-        "step",
-        "command_result",
-        "verification_result",
-        "review_result",
-        "finding",
-        "decision",
-        "approval",
-        "closeout_receipt",
-        "delivery_fact"
-      ],
-      delivery_fact_count: deliveryFacts.length
-    }
-  };
-
   project.ensureInitialized();
+  let harvest: HarvestRecord | undefined;
+  let acceptedRun: Run | undefined;
   try {
-    project.saveAcceptedRun(acceptedRun, deliveryFacts, harvest);
+    acceptedRun = staging.mutateRun(runId, (latestRun) => {
+      if ((latestRun.review_launch_claims?.length ?? 0) > 0) {
+        throw new Error("REVIEW_LAUNCH_OWNERSHIP_ACTIVE: harvest is blocked until the original review launcher records terminal exit or the run is explicitly discarded.");
+      }
+      const nextRun: Run = {
+        ...latestRun,
+        lifecycle_status: "harvested",
+        harvested_at: promotedAt,
+        updated_at: promotedAt
+      };
+      harvest = {
+        harvest_id: `harvest-${runId}`,
+        run_id: runId,
+        project_run_id: run.run_instance_id,
+        status: latestRun.lifecycle_status === "discarded" ? "discarded" : "promoted",
+        promoted_at: promotedAt,
+        accepted_count: nextRun.command_results.length + nextRun.verification_results.length + nextRun.review_results.length +
+          nextRun.findings.length + nextRun.decisions.length + nextRun.approvals.length + nextRun.closeout_receipts.length,
+        discarded_count: Math.max(latestRun.lifecycle_status === "discarded" ? 1 : 0, stagingStatus.discardedPayloadCount),
+        quarantined_count: stagingStatus.quarantinedPayloadCount,
+        redacted_count: Math.max(countRedacted(nextRun), stagingStatus.redactedPayloadCount),
+        unresolved_count: countUnresolved(latestRun),
+        source_task_path: nextRun.active_task_path ?? nextRun.task_path,
+        source_snapshot: nextRun.source_snapshot ?? nextRun.repository.head_sha ?? "unknown",
+        details: {
+          accepted_record_kinds: ["run", "phase_run", "step", "command_result", "verification_result", "review_result", "finding", "decision", "approval", "closeout_receipt", "delivery_fact"],
+          delivery_fact_count: deliveryFacts.length
+        }
+      };
+      project.saveAcceptedRun(nextRun, deliveryFacts, harvest);
+      return nextRun;
+    }, { expectedRunInstanceId: run.run_instance_id });
   } catch (error) {
     if (error instanceof HarvestConflictError) {
       const authorityHarvest = project.getHarvestRecordByRunInstanceId(run.run_instance_id);
@@ -173,7 +163,9 @@ export function harvestRun(
 
     throw error;
   }
-  staging.saveRun(acceptedRun);
+  if (!acceptedRun || !harvest) {
+    throw new Error(`Harvest ${runId} did not produce accepted state.`);
+  }
   writeCompatibilityRunArtifacts(targetRoot, acceptedRun);
 
   return {

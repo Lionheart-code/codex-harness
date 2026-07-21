@@ -4,6 +4,10 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import {
+  assertNearTermProgressionMatchesRoadmap,
+  roadmapPhaseSection
+} from "../helpers/phase-authority.mjs";
 
 const productRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const read = (relativePath) => fs.readFileSync(path.join(productRoot, relativePath), "utf8");
@@ -27,19 +31,19 @@ const files = {
   phase31: read("tasks/PHASE_31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP.md")
 };
 
-test("phase 23.8.6D is active after the completed C2A authority correction", () => {
+test("phase 23.8.6E is active after the completed D authority correction", () => {
   assert.equal(
     files.taskPointer.trim(),
-    "# Current Task\n\nImplement only: tasks/PHASE_23_8_6D_PROCEDURE_ARTIFACT_PAYLOAD_STORAGE_AND_WORKTREE_RETENTION.md\n\nDo not implement Phase 23.8.6E or later."
+    "# Current Task\n\nImplement only: tasks/PHASE_23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION.md\n\nDo not implement Phase 23.8.7 or later."
   );
   assert.match(files.c1a, /^# Phase 23\.8\.6C1A - Routing, Context, and Model-Policy Authority Rebase/m);
   assert.match(files.c1a, /Treat this phase as `extra-high`/);
   assert.match(files.c1a, /No runtime router, provider selection, runner execution, or packet generation/);
   assert.match(files.c1a, /node bin\/ch run status --operator --run run-0003/);
   assert.doesNotMatch(files.c1a, /<live-run-id>/);
-  for (const authority of [files.roadmap, files.operations]) {
-    assert.match(authority, /23\.8\.6C1\s*->\s*23\.8\.6C1A\s*->\s*23\.8\.6C2\s*->\s*23\.8\.6C2A\s*->\s*23\.8\.6D\s*->\s*23\.8\.6E\s*->\s*23\.8\.7\s*->\s*23\.9/s);
-  }
+  const progression = assertNearTermProgressionMatchesRoadmap(files.operations, files.roadmap);
+  assert.ok(progression.includes("23.8.6E"), "published near-term progression must contain active Phase 23.8.6E");
+  assert.match(roadmapPhaseSection(files.roadmap, "23.8.6E"), /Active implementation phase/);
 });
 
 test("routing and context policy are deterministic, provider-neutral, and fail closed", () => {
@@ -106,7 +110,8 @@ test("current registry pins the bounded Sol and Terra review bindings", () => {
       sandbox_mode: "read-only",
       output_mode: "file",
       timeout_seconds: 1800,
-      stale_after_seconds: 300
+      stale_after_seconds: 300,
+      termination_policy: "terminal_completion_only"
     },
     {
       id: "implementation-review",
@@ -116,7 +121,8 @@ test("current registry pins the bounded Sol and Terra review bindings", () => {
       sandbox_mode: "read-only",
       output_mode: "file",
       timeout_seconds: 1800,
-      stale_after_seconds: 300
+      stale_after_seconds: 300,
+      termination_policy: "terminal_completion_only"
     }
   ]);
   assert.match(

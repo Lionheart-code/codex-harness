@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -85,7 +86,11 @@ const fs = require("fs");
 const args = process.argv.slice(2);
 const output = args[args.indexOf("-o") + 1];
 const content = process.env.CODEX_FAKE_REVIEW_CONTENT || "";
-if (process.env.CODEX_FAKE_SENTINEL) fs.writeFileSync(process.env.CODEX_FAKE_SENTINEL, "spawned", "utf8");
+if (process.env.CODEX_FAKE_SENTINEL) fs.writeFileSync(process.env.CODEX_FAKE_SENTINEL, String(process.pid), "utf8");
+process.on("SIGTERM", () => {
+  if (process.env.CODEX_FAKE_SIGTERM_SENTINEL) fs.writeFileSync(process.env.CODEX_FAKE_SIGTERM_SENTINEL, "sigterm", "utf8");
+  process.exit(143);
+});
 if (process.env.CODEX_FAKE_EXIT) {
   if (process.env.CODEX_FAKE_STDERR) process.stderr.write(process.env.CODEX_FAKE_STDERR);
   process.exit(Number(process.env.CODEX_FAKE_EXIT));
@@ -102,6 +107,11 @@ if (process.env.CODEX_FAKE_MODE === "stdout") {
   process.exit(0);
 } else if (process.env.CODEX_FAKE_MODE === "sleep") {
   setTimeout(() => process.exit(0), Number(process.env.CODEX_FAKE_SLEEP_MS || 3000));
+} else if (process.env.CODEX_FAKE_MODE === "silent-file-after-delay") {
+  setTimeout(() => {
+    fs.writeFileSync(output, content, "utf8");
+    process.exit(0);
+  }, Number(process.env.CODEX_FAKE_SLEEP_MS || 3000));
 } else {
   fs.writeFileSync(output, content, "utf8");
 }
@@ -229,6 +239,33 @@ function readLatestAttempt(tempRepo, procedureId = "implementation-review") {
   const evidence = [...run.evidence].reverse().find((entry) => entry.kind === `review-launch-attempt:${procedureId}`);
   assert.ok(evidence, `expected review-launch-attempt evidence for ${procedureId}`);
   return JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", "run-0001", evidence.path), "utf8"));
+}
+
+async function waitForFile(filePath, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!fs.existsSync(filePath)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for ${filePath}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+function launchReviewAsync(tempRepo, args, env) {
+  const child = spawn(process.execPath, [path.join(productRoot, "bin", "ch"), ...args], {
+    cwd: tempRepo,
+    env: { ...process.env, ...env },
+    stdio: "pipe"
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
+  child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+  const completed = new Promise((resolve, reject) => {
+    child.on("error", reject);
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+  });
+  return { child, completed };
 }
 
 test("phase 23.8.6B1 launch-review dry-run validates without spawning or writing", () => {
@@ -426,12 +463,14 @@ test("phase 23.8.6B1 launch-review classifies auth or model failures canonically
   assert.equal(readLatestAttempt(tempRepo).failure_classification, "REVIEW_MODEL_OR_AUTH_FAILURE");
 });
 
-test("phase 23.8.6B1 launch-review classifies stale no-output processes canonically", () => {
+test("phase 23.8.6E accepts a silent file-output reviewer after the stale interval without SIGTERM", () => {
   const tempRepo = createB1Repo("codex-harness-b1-review-stale-");
   writeManualFile(tempRepo, "run-0001", "implementation-review-request.md", "review this diff");
   const env = {
-    ...createFakeCodexBin(tempRepo, "sleep"),
-    CODEX_FAKE_SLEEP_MS: "3000"
+    ...createFakeCodexBin(tempRepo, "silent-file-after-delay"),
+    CODEX_FAKE_SLEEP_MS: "1200",
+    CODEX_FAKE_REVIEW_CONTENT: implementationReviewMarkdown("PASS"),
+    CODEX_FAKE_SIGTERM_SENTINEL: path.join(tempRepo, "unexpected-sigterm.txt")
   };
 
   const result = runCli([
@@ -451,9 +490,106 @@ test("phase 23.8.6B1 launch-review classifies stale no-output processes canonica
     "1"
   ], { cwd: tempRepo, env });
 
-  assertFailure(result, "launch-review stale process");
-  assert.match(result.stdout, /failure classification: REVIEW_PROCESS_STALE_NO_OUTPUT/);
-  assert.equal(readLatestAttempt(tempRepo).failure_classification, "REVIEW_PROCESS_STALE_NO_OUTPUT");
+  assertSuccess(result, "launch-review silent delayed artifact");
+  const attempt = readLatestAttempt(tempRepo);
+  assert.equal(attempt.failure_classification, "REVIEW_COMPLETED_ARTIFACT_PRESENT");
+  assert.ok(attempt.progress_unknown_at, "stale interval must be recorded as a monitoring-only observation");
+  assert.equal(attempt.terminal_signal, undefined, "silence must not send SIGTERM");
+  assert.equal(fs.existsSync(env.CODEX_FAKE_SIGTERM_SENTINEL), false, "silent file output must not receive SIGTERM");
+});
+
+test("phase 23.8.6E defaults omitted terminal policy and rejects a concurrent review launch", async () => {
+  const tempRepo = createB1Repo("codex-harness-b1-review-ownership-");
+  const registryPath = path.join(tempRepo, "skills", "self-hosting", "procedure-registry.json");
+  const registry = JSON.parse(fs.readFileSync(registryPath, "utf8"));
+  for (const procedure of registry.procedures) {
+    delete procedure.review_launch_profile?.termination_policy;
+  }
+  fs.writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf8");
+  writeManualFile(tempRepo, "run-0001", "implementation-review-request.md", "review this diff");
+  const outputPath = ".harness/runs/run-0001/manual/implementation-review.md";
+  const sentinelPath = path.join(tempRepo, "reviewer-spawned.txt");
+  const env = {
+    ...createFakeCodexBin(tempRepo, "silent-file-after-delay"),
+    CODEX_FAKE_SENTINEL: sentinelPath,
+    CODEX_FAKE_SLEEP_MS: "10000",
+    CODEX_FAKE_REVIEW_CONTENT: implementationReviewMarkdown("PASS")
+  };
+  const args = [
+    "run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review",
+    "--request", ".harness/runs/run-0001/manual/implementation-review-request.md",
+    "--output", outputPath, "--stale-after-seconds", "1", "--timeout-seconds", "30"
+  ];
+
+  const launched = launchReviewAsync(tempRepo, args, env);
+  await waitForFile(sentinelPath);
+  const status = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(status, "operator status while review owner is active");
+  assert.match(status.stdout, /current_stage: REVIEW_LAUNCH_IN_PROGRESS/);
+
+  const replacement = runCli(args, { cwd: tempRepo, env });
+  assertFailure(replacement, "concurrent review launch");
+  assert.match(replacement.stderr, /REVIEW_LAUNCH_OWNERSHIP_ACTIVE/);
+
+  const deliveryImportPath = writeManualFile(tempRepo, "run-0001", "blocked-delivery-facts.json", JSON.stringify({
+    facts: [{
+      fact_kind: "remote_ci",
+      source: "fixture",
+      status: "pass",
+      recorded_at: "2026-07-21T00:00:00.000Z",
+      summary: "must not write while review ownership is active",
+      excerpt: "payload must not be persisted"
+    }]
+  }));
+  const blockedDelivery = runCli(["memory", "delivery-facts", "import", "--run", "run-0001", "--file", deliveryImportPath], { cwd: tempRepo });
+  assertFailure(blockedDelivery, "delivery payload import during active review launch");
+  assert.match(blockedDelivery.stderr, /REVIEW_LAUNCH_OWNERSHIP_ACTIVE/);
+  assert.equal(readRun(tempRepo).delivery_facts.length, 0, "blocked delivery import must not mutate the run");
+
+  const completed = await launched.completed;
+  assert.equal(completed.status, 0, `original launch should finish: ${completed.stderr}`);
+  const attempt = readLatestAttempt(tempRepo);
+  assert.equal(attempt.termination_policy, "terminal_completion_only");
+});
+
+test("phase 23.8.6E quarantines a lost review owner until explicit cancellation and discard", async () => {
+  const tempRepo = createB1Repo("codex-harness-b1-review-owner-loss-");
+  writeManualFile(tempRepo, "run-0001", "implementation-review-request.md", "review this diff");
+  const outputPath = ".harness/runs/run-0001/manual/implementation-review.md";
+  const sentinelPath = path.join(tempRepo, "reviewer-pid.txt");
+  const env = {
+    ...createFakeCodexBin(tempRepo, "silent-file-after-delay"),
+    CODEX_FAKE_SENTINEL: sentinelPath,
+    CODEX_FAKE_SLEEP_MS: "10000",
+    CODEX_FAKE_REVIEW_CONTENT: implementationReviewMarkdown("PASS")
+  };
+  const args = [
+    "run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review",
+    "--request", ".harness/runs/run-0001/manual/implementation-review-request.md",
+    "--output", outputPath, "--stale-after-seconds", "1", "--timeout-seconds", "30"
+  ];
+  const launched = launchReviewAsync(tempRepo, args, env);
+  await waitForFile(sentinelPath);
+  const fakeReviewerPid = Number(fs.readFileSync(sentinelPath, "utf8"));
+  assert.ok(Number.isInteger(fakeReviewerPid) && fakeReviewerPid > 0, "fake reviewer PID must be observable");
+
+  launched.child.kill("SIGKILL");
+  await launched.completed;
+
+  const replacement = runCli(args, { cwd: tempRepo, env });
+  assertFailure(replacement, "replacement after owner loss");
+  assert.match(replacement.stderr, /REVIEW_LAUNCH_OWNERSHIP_ACTIVE/);
+  const blockedImportPath = writeManualFile(tempRepo, "run-0001", "delivery-facts.json", JSON.stringify({ facts: [] }));
+  const blockedImport = runCli(["memory", "delivery-facts", "import", "--run", "run-0001", "--file", blockedImportPath], { cwd: tempRepo });
+  assertFailure(blockedImport, "delivery import after owner loss");
+  assert.match(blockedImport.stderr, /REVIEW_LAUNCH_OWNERSHIP_ACTIVE/);
+
+  process.kill(fakeReviewerPid, "SIGTERM");
+  const discarded = runCli(["run", "mark-discardable", "--run", "run-0001", "--reason", "Explicit human recovery after lost review owner."], { cwd: tempRepo });
+  assertSuccess(discarded, "discard quarantined owner-loss run");
+  const afterDiscard = runCli(["run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review", "--request", ".harness/runs/run-0001/manual/implementation-review-request.md", "--output", outputPath], { cwd: tempRepo, env });
+  assertFailure(afterDiscard, "discarded run cannot launch a replacement reviewer");
+  assert.match(afterDiscard.stderr, /requires an active run/);
 });
 
 test("phase 23.8.6B1 launch-review distinguishes missing artifact, timeout, and blocker-note failures", () => {
@@ -495,11 +631,19 @@ test("phase 23.8.6B1 launch-review distinguishes missing artifact, timeout, and 
     "1",
     "--stale-after-seconds",
     "10"
-  ], { cwd: timeoutRepo, env: { ...createFakeCodexBin(timeoutRepo, "sleep"), CODEX_FAKE_SLEEP_MS: "3000" } });
+  ], {
+    cwd: timeoutRepo,
+    env: {
+      ...createFakeCodexBin(timeoutRepo, "sleep"),
+      CODEX_FAKE_SLEEP_MS: "3000",
+      CODEX_FAKE_SIGTERM_SENTINEL: path.join(timeoutRepo, "hard-deadline-sigterm.txt")
+    }
+  });
 
   assertFailure(timeoutResult, "launch-review timeout");
   assert.match(timeoutResult.stdout, /failure classification: REVIEW_PROCESS_TIMEOUT/);
   assert.equal(readLatestAttempt(timeoutRepo).failure_classification, "REVIEW_PROCESS_TIMEOUT");
+  assert.equal(fs.existsSync(path.join(timeoutRepo, "hard-deadline-sigterm.txt")), true, "only the hard deadline may send SIGTERM");
 
   const blockerRepo = createB1Repo("codex-harness-b1-review-blocker-note-");
   writeManualFile(blockerRepo, "run-0001", "implementation-review-request.md", "review this diff");

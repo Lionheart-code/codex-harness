@@ -32,6 +32,7 @@ export interface SelfHostingReviewLaunchProfile {
   output_mode: "file";
   timeout_seconds: number;
   stale_after_seconds: number;
+  termination_policy: "terminal_completion_only";
 }
 
 export interface SelfHostingProcedureDescriptor {
@@ -227,7 +228,17 @@ function assertReviewLaunchProfile(
     sandbox_mode: sandboxMode,
     output_mode: outputMode,
     timeout_seconds: assertPositiveInteger(record.timeout_seconds, "timeout_seconds", `${label} review_launch_profile`),
-    stale_after_seconds: assertPositiveInteger(record.stale_after_seconds, "stale_after_seconds", `${label} review_launch_profile`)
+    stale_after_seconds: assertPositiveInteger(record.stale_after_seconds, "stale_after_seconds", `${label} review_launch_profile`),
+    termination_policy: (() => {
+      if (record.termination_policy === undefined) {
+        return "terminal_completion_only" as const;
+      }
+      const policy = assertString(record.termination_policy, "termination_policy", `${label} review_launch_profile`);
+      if (policy !== "terminal_completion_only") {
+        throw new Error(`${label} review_launch_profile termination_policy must be terminal_completion_only.`);
+      }
+      return policy as "terminal_completion_only";
+    })()
   };
 }
 

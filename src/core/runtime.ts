@@ -324,6 +324,7 @@ export interface Run {
   harvested_at?: string;
   source_snapshot?: string;
   source_staging_db_path?: string;
+  review_launch_claims?: ReviewLaunchClaim[];
 }
 
 export interface BuildRuntimeRunInput {
@@ -412,6 +413,20 @@ export type ReviewLaunchStatus =
   | "blocked"
   | "invalid_artifact";
 
+export interface ReviewLaunchClaim {
+  claim_id: string;
+  procedure_id: "plan-review" | "implementation-review";
+  owner_token_hash: string;
+  created_at: string;
+  request_artifact_hash: string;
+  expected_output_path: string;
+  timeout_seconds: number;
+  stale_after_seconds: number;
+  termination_policy: "terminal_completion_only";
+  pid?: number;
+  progress_unknown_at?: string;
+}
+
 export interface ReviewLaunchObservation {
   status: ReviewLaunchStatus;
   attempt_id?: string;
@@ -426,6 +441,7 @@ export interface ReviewLaunchObservation {
   output_mode?: "file";
   timeout_seconds?: number;
   stale_after_seconds?: number;
+  termination_policy?: "terminal_completion_only";
   request_path?: string;
   request_artifact_hash?: string;
   expected_output_path?: string;
@@ -435,6 +451,7 @@ export interface ReviewLaunchObservation {
   pid?: number;
   start_time?: string;
   last_output_time?: string;
+  progress_unknown_at?: string;
   terminal_exit_code?: number;
   terminal_signal?: string;
   artifact_path?: string;
@@ -1988,6 +2005,9 @@ export function validateRuntimeRun(value: unknown): Run {
   const bootstrapHandoff = record.bootstrap_handoff === undefined
     ? undefined
     : validateWorkerHandoff(record.bootstrap_handoff);
+  const reviewLaunchClaims = record.review_launch_claims === undefined
+    ? undefined
+    : validateReviewLaunchClaims(record.review_launch_claims);
 
   return {
     schema_version: CURRENT_SCHEMA_VERSION,
@@ -2032,8 +2052,54 @@ export function validateRuntimeRun(value: unknown): Run {
     ...(typeof record.manual_override_reason === "string" ? { manual_override_reason: record.manual_override_reason } : {}),
     ...(typeof record.harvested_at === "string" ? { harvested_at: record.harvested_at } : {}),
     ...(typeof record.source_snapshot === "string" ? { source_snapshot: record.source_snapshot } : {}),
-    ...(typeof record.source_staging_db_path === "string" ? { source_staging_db_path: record.source_staging_db_path } : {})
+    ...(typeof record.source_staging_db_path === "string" ? { source_staging_db_path: record.source_staging_db_path } : {}),
+    ...(reviewLaunchClaims ? { review_launch_claims: reviewLaunchClaims } : {})
   };
+}
+
+function validateReviewLaunchClaims(value: unknown): ReviewLaunchClaim[] {
+  if (!Array.isArray(value)) {
+    throw new Error("runtime run has invalid review_launch_claims.");
+  }
+
+  return value.map((entry, index) => {
+    const record = assertObject(entry, `runtime run review_launch_claims[${index}]`);
+    assertRequiredString(record, "procedure_id", `runtime run review_launch_claims[${index}]`);
+    const procedureId = String(record.procedure_id);
+    if (procedureId !== "plan-review" && procedureId !== "implementation-review") {
+      throw new Error(`runtime run review_launch_claims[${index}] has invalid procedure_id.`);
+    }
+    assertRequiredString(record, "termination_policy", `runtime run review_launch_claims[${index}]`);
+    const terminationPolicy = String(record.termination_policy);
+    if (terminationPolicy !== "terminal_completion_only") {
+      throw new Error(`runtime run review_launch_claims[${index}] has invalid termination_policy.`);
+    }
+    const timeoutSeconds = record.timeout_seconds;
+    const staleAfterSeconds = record.stale_after_seconds;
+    if (!Number.isInteger(timeoutSeconds) || typeof timeoutSeconds !== "number" || timeoutSeconds <= 0) {
+      throw new Error(`runtime run review_launch_claims[${index}] has invalid timeout_seconds.`);
+    }
+    if (!Number.isInteger(staleAfterSeconds) || typeof staleAfterSeconds !== "number" || staleAfterSeconds <= 0) {
+      throw new Error(`runtime run review_launch_claims[${index}] has invalid stale_after_seconds.`);
+    }
+    if (record.pid !== undefined && (!Number.isInteger(record.pid) || typeof record.pid !== "number" || record.pid <= 0)) {
+      throw new Error(`runtime run review_launch_claims[${index}] has invalid pid.`);
+    }
+
+    return {
+      claim_id: (assertRequiredString(record, "claim_id", `runtime run review_launch_claims[${index}]`), String(record.claim_id)),
+      procedure_id: procedureId,
+      owner_token_hash: (assertRequiredString(record, "owner_token_hash", `runtime run review_launch_claims[${index}]`), String(record.owner_token_hash)),
+      created_at: (assertRequiredString(record, "created_at", `runtime run review_launch_claims[${index}]`), String(record.created_at)),
+      request_artifact_hash: (assertRequiredString(record, "request_artifact_hash", `runtime run review_launch_claims[${index}]`), String(record.request_artifact_hash)),
+      expected_output_path: (assertRequiredString(record, "expected_output_path", `runtime run review_launch_claims[${index}]`), String(record.expected_output_path)),
+      timeout_seconds: timeoutSeconds,
+      stale_after_seconds: staleAfterSeconds,
+      termination_policy: terminationPolicy,
+      ...(typeof record.pid === "number" ? { pid: record.pid } : {}),
+      ...(typeof record.progress_unknown_at === "string" ? { progress_unknown_at: record.progress_unknown_at } : {})
+    };
+  });
 }
 
 export function validateCloseoutReceipt(value: unknown): CloseoutReceipt {
@@ -2437,36 +2503,61 @@ function writeJsonFile(filePath: string, value: unknown): void {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-function writeRuntimeRun(targetRoot: string, run: Run): string {
+function writeRuntimeRun(targetRoot: string, run: Run, guardAction?: string): string {
   const roots = resolveHarnessRoots(targetRoot);
   const staging = new RunStagingDatabase(targetRoot, roots.projectRoot, run.run_id);
   staging.ensureInitialized();
   const existing = staging.loadRun(run.run_id);
-  const nextRun = (() => {
-    if (!existing) {
-      return run;
-    }
-    if (
-      existing.run_instance_id
-      && run.run_instance_id
-      && existing.run_instance_id !== run.run_instance_id
-    ) {
-      throw new Error(
-        `Run ${run.run_id} identity changed from ${existing.run_instance_id} to ${run.run_instance_id}; refusing to overwrite authoritative staging state.`
-      );
-    }
-    const nextRevision = typeof existing.run_revision === "number" && Number.isInteger(existing.run_revision)
-      ? existing.run_revision + 1
-      : 1;
-    return {
-      ...run,
-      ...(existing.run_instance_id ? { run_instance_id: run.run_instance_id ?? existing.run_instance_id } : {}),
-      run_revision: nextRevision
-    };
-  })();
-  staging.saveRun(nextRun);
-  writeCompatibilityRunArtifacts(targetRoot, nextRun);
-  return runFilePath(targetRoot, nextRun.run_id);
+  const persisted = guardAction
+    ? staging.mutateRun(run.run_id, (latestRun) => {
+        assertNoActiveReviewLaunchClaim(latestRun, guardAction);
+        if (
+          latestRun.run_instance_id
+          && run.run_instance_id
+          && latestRun.run_instance_id !== run.run_instance_id
+        ) {
+          throw new Error(
+            `Run ${run.run_id} identity changed from ${latestRun.run_instance_id} to ${run.run_instance_id}; refusing to overwrite authoritative staging state.`
+          );
+        }
+        return {
+          ...run,
+          ...(latestRun.run_instance_id ? { run_instance_id: run.run_instance_id ?? latestRun.run_instance_id } : {})
+        };
+      }, {
+        expectedRunInstanceId: run.run_instance_id,
+        ...(existing?.run_revision !== undefined ? { expectedRunRevision: existing.run_revision } : {}),
+        expectedRunPresence: existing ? "present" : "absent",
+        ...(!existing ? { seedRunIfMissing: run } : {})
+      })
+    : (() => {
+        const nextRun = (() => {
+          if (!existing) {
+            return run;
+          }
+          if (
+            existing.run_instance_id
+            && run.run_instance_id
+            && existing.run_instance_id !== run.run_instance_id
+          ) {
+            throw new Error(
+              `Run ${run.run_id} identity changed from ${existing.run_instance_id} to ${run.run_instance_id}; refusing to overwrite authoritative staging state.`
+            );
+          }
+          const nextRevision = typeof existing.run_revision === "number" && Number.isInteger(existing.run_revision)
+            ? existing.run_revision + 1
+            : 1;
+          return {
+            ...run,
+            ...(existing.run_instance_id ? { run_instance_id: run.run_instance_id ?? existing.run_instance_id } : {}),
+            run_revision: nextRevision
+          };
+        })();
+        staging.saveRun(nextRun);
+        return nextRun;
+      })();
+  writeCompatibilityRunArtifacts(targetRoot, persisted);
+  return runFilePath(targetRoot, persisted.run_id);
 }
 
 function readCurrentRuntimeRun(targetRoot: string): { run: Run; runPath: string } | undefined {
@@ -3053,12 +3144,71 @@ function readValidLaunchArtifact(procedureId: string, outputPath: string, stdout
   }
 }
 
+function activeReviewLaunchClaim(run: Run): ReviewLaunchClaim | undefined {
+  return run.review_launch_claims?.[0];
+}
+
+function assertNoActiveReviewLaunchClaim(run: Run, action: string): void {
+  const claim = activeReviewLaunchClaim(run);
+  if (claim) {
+    throw new Error(
+      `REVIEW_LAUNCH_OWNERSHIP_ACTIVE: ${claim.procedure_id} claim ${claim.claim_id} blocks ${action}. ` +
+      "Do not replace, adopt, or advance it; wait for the owning launcher to record terminal child exit, or use explicit human cancellation and discard the run."
+    );
+  }
+}
+
+function reserveReviewLaunchClaim(
+  targetRoot: string,
+  projectRoot: string,
+  currentRun: Run,
+  input: Omit<ReviewLaunchClaim, "pid" | "progress_unknown_at">
+): Run {
+  const staging = new RunStagingDatabase(targetRoot, projectRoot, currentRun.run_id);
+  if (!staging.loadRun(currentRun.run_id)) {
+    staging.saveRun(currentRun);
+  }
+  const run = staging.mutateRun(currentRun.run_id, (latestRun) => {
+    assertNoActiveReviewLaunchClaim(latestRun, "a new review launch");
+    return withUpdatedAt({
+      ...latestRun,
+      review_launch_claims: [input]
+    }, input.created_at);
+  }, { expectedRunInstanceId: currentRun.run_instance_id });
+  writeCompatibilityRunArtifacts(targetRoot, run);
+  return run;
+}
+
+function updateReviewLaunchClaim(
+  targetRoot: string,
+  projectRoot: string,
+  runId: string,
+  claim: ReviewLaunchClaim,
+  update: Partial<Pick<ReviewLaunchClaim, "pid" | "progress_unknown_at">>
+): Run {
+  const staging = new RunStagingDatabase(targetRoot, projectRoot, runId);
+  const run = staging.mutateRun(runId, (latestRun) => {
+    const active = activeReviewLaunchClaim(latestRun);
+    if (!active || active.claim_id !== claim.claim_id || active.owner_token_hash !== claim.owner_token_hash) {
+      throw new Error("REVIEW_LAUNCH_OWNERSHIP_LOST: only the original launcher may update this review claim.");
+    }
+    return withUpdatedAt({
+      ...latestRun,
+      review_launch_claims: [{ ...active, ...update }]
+    }, nowIso());
+  });
+  writeCompatibilityRunArtifacts(targetRoot, run);
+  return run;
+}
+
 function runCodexCliReview(profile: SelfHostingReviewLaunchProfile, input: {
   targetRoot: string;
   requestMarkdown: string;
   outputPath: string;
   timeoutSeconds: number;
   staleAfterSeconds: number;
+  onSpawn?: (pid: number) => void;
+  onProgressUnknown?: (timestamp: string) => void;
 }): Promise<{
   exitCode?: number;
   signal?: string;
@@ -3066,7 +3216,7 @@ function runCodexCliReview(profile: SelfHostingReviewLaunchProfile, input: {
   stdout: string;
   stderr: string;
   timedOut: boolean;
-  stale: boolean;
+  progressUnknownAt?: string;
   startTime: string;
   lastOutputTime?: string;
   completedTime?: string;
@@ -3100,15 +3250,15 @@ function runCodexCliReview(profile: SelfHostingReviewLaunchProfile, input: {
     let stderr = "";
     let completed = false;
     let timedOut = false;
-    let stale = false;
+    let progressUnknownAt: string | undefined;
     const timeout = setTimeout(() => {
       timedOut = true;
       child.kill("SIGTERM");
     }, input.timeoutSeconds * 1000);
     const staleTimer = setInterval(() => {
-      if (Date.now() - lastOutputAt >= input.staleAfterSeconds * 1000) {
-        stale = true;
-        child.kill("SIGTERM");
+      if (!progressUnknownAt && Date.now() - lastOutputAt >= input.staleAfterSeconds * 1000) {
+        progressUnknownAt = nowIso();
+        input.onProgressUnknown?.(progressUnknownAt);
       }
     }, Math.max(100, Math.min(1000, input.staleAfterSeconds * 1000)));
 
@@ -3125,6 +3275,11 @@ function runCodexCliReview(profile: SelfHostingReviewLaunchProfile, input: {
       markOutput();
       stderr += chunk.toString("utf8");
     });
+    child.on("spawn", () => {
+      if (typeof child.pid === "number" && child.pid > 0) {
+        input.onSpawn?.(child.pid);
+      }
+    });
     child.on("error", (error) => {
       if (completed) {
         return;
@@ -3136,7 +3291,7 @@ function runCodexCliReview(profile: SelfHostingReviewLaunchProfile, input: {
         stdout,
         stderr: `${stderr}${error.message}`,
         timedOut,
-        stale,
+        progressUnknownAt,
         startTime,
         lastOutputTime,
         completedTime: nowIso(),
@@ -3157,7 +3312,7 @@ function runCodexCliReview(profile: SelfHostingReviewLaunchProfile, input: {
         stdout,
         stderr,
         timedOut,
-        stale,
+        progressUnknownAt,
         startTime,
         lastOutputTime,
         completedTime: nowIso(),
@@ -3266,6 +3421,7 @@ function recordLaunchAttempt(
   rootsProjectRoot: string,
   currentRun: Run,
   observation: ReviewLaunchObservation,
+  claim: ReviewLaunchClaim,
   accepted?: {
     artifact: ArtifactRef;
     evidence: EvidenceRef;
@@ -3339,7 +3495,12 @@ function recordLaunchAttempt(
   }
 
   const run = staging.mutateRun(currentRun.run_id, (latestRun) => {
+    const active = activeReviewLaunchClaim(latestRun);
+    if (!active || active.claim_id !== claim.claim_id || active.owner_token_hash !== claim.owner_token_hash) {
+      throw new Error("REVIEW_LAUNCH_OWNERSHIP_LOST: only the original launcher may record terminal review completion.");
+    }
     let next = appendArtifactAndEvidence(latestRun, attempt.artifact, attempt.evidence, timestamp);
+    next = withUpdatedAt({ ...next, review_launch_claims: [] }, timestamp);
 
     if (accepted) {
       next = appendArtifactAndEvidence(next, accepted.artifact, accepted.evidence, timestamp);
@@ -3353,10 +3514,7 @@ function recordLaunchAttempt(
     }
 
     return next;
-  }, {
-    expectedRunInstanceId: currentRun.run_instance_id,
-    expectedRunRevision: currentRun.run_revision
-  });
+  }, { expectedRunInstanceId: currentRun.run_instance_id });
 
   writeCompatibilityRunArtifacts(targetRoot, run);
   return run;
@@ -3367,6 +3525,11 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
   const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  if (current.run.lifecycle_status !== "active") {
+    throw new Error(
+      `Review launch requires an active run. Run ${current.run.run_id} is ${current.run.lifecycle_status}.`
+    );
+  }
   const registry = readSelfHostingProcedureRegistry(targetRoot);
 
   if (!registry) {
@@ -3387,7 +3550,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
   }
 
   const baseObservation = {
-    procedure_id: options.procedureId,
+    procedure_id: options.procedureId as "plan-review" | "implementation-review",
     run_id: current.run.run_id,
     run_instance_id: current.run.run_instance_id,
     ...(current.run.run_instance_id ? { project_run_id: current.run.run_instance_id } : {}),
@@ -3398,6 +3561,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     output_mode: profile.output_mode,
     timeout_seconds: timeoutSeconds,
     stale_after_seconds: staleAfterSeconds,
+    termination_policy: profile.termination_policy,
     request_path: toRepoRelative(targetRoot, requestPath),
     request_artifact_hash: `sha256:${requestHash}`,
     expected_output_path: toRepoRelative(targetRoot, outputPath),
@@ -3430,17 +3594,49 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
         hash: sha256Hex(fs.readFileSync(outputPath, "utf8"))
       }
     : undefined;
+  const ownerToken = randomUUID();
+  const claim: ReviewLaunchClaim = {
+    claim_id: `review-launch-${randomUUID()}`,
+    procedure_id: options.procedureId as "plan-review" | "implementation-review",
+    owner_token_hash: `sha256:${sha256Hex(ownerToken)}`,
+    created_at: nowIso(),
+    request_artifact_hash: `sha256:${requestHash}`,
+    expected_output_path: toRepoRelative(targetRoot, outputPath),
+    timeout_seconds: timeoutSeconds,
+    stale_after_seconds: staleAfterSeconds,
+    termination_policy: profile.termination_policy
+  };
+  const claimedRun = reserveReviewLaunchClaim(targetRoot, roots.projectRoot, current.run, claim);
   const startedAtMs = Date.now();
+  let claimUpdateFailure: Error | undefined;
   const child = await runCodexCliReview(profile, {
     targetRoot,
     requestMarkdown,
     outputPath,
     timeoutSeconds,
-    staleAfterSeconds
+    staleAfterSeconds,
+    onSpawn: (pid) => {
+      try {
+        updateReviewLaunchClaim(targetRoot, roots.projectRoot, claimedRun.run_id, claim, { pid });
+      } catch (error) {
+        claimUpdateFailure = error instanceof Error ? error : new Error(String(error));
+      }
+    },
+    onProgressUnknown: (progressUnknownAt) => {
+      try {
+        updateReviewLaunchClaim(targetRoot, roots.projectRoot, claimedRun.run_id, claim, { progress_unknown_at: progressUnknownAt });
+      } catch (error) {
+        claimUpdateFailure = error instanceof Error ? error : new Error(String(error));
+      }
+    }
   });
 
+  if (claimUpdateFailure) {
+    throw new Error(`REVIEW_LAUNCH_OWNERSHIP_UNAVAILABLE: ${claimUpdateFailure.message}`);
+  }
+
   let observation: ReviewLaunchObservation;
-  let accepted: Parameters<typeof recordLaunchAttempt>[4] | undefined;
+  let accepted: Parameters<typeof recordLaunchAttempt>[5] | undefined;
 
   if (child.timedOut) {
     observation = {
@@ -3455,34 +3651,13 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
       working_directory: targetRoot,
       start_time: child.startTime,
       last_output_time: child.lastOutputTime,
+      ...(child.progressUnknownAt ? { progress_unknown_at: child.progressUnknownAt } : {}),
       artifact_present: fs.existsSync(outputPath),
       artifact_valid: false,
       failure_classification: "REVIEW_PROCESS_TIMEOUT",
       blocked_reason: "review process timed out",
       summary: `${options.procedureId} launch timed out.`,
       next_valid_action: "rerun launch-review after resolving the review process timeout",
-      stdout_tail: boundedTail(child.stdout),
-      stderr_tail: boundedTail(child.stderr)
-    };
-  } else if (child.stale) {
-    observation = {
-      ...baseObservation,
-      status: "timeout",
-      attempt_id: randomUUID(),
-      exit_code: child.exitCode,
-      terminal_exit_code: child.exitCode,
-      terminal_signal: child.signal,
-      pid: child.pid,
-      launch_command: child.launchCommand,
-      working_directory: targetRoot,
-      start_time: child.startTime,
-      last_output_time: child.lastOutputTime,
-      artifact_present: fs.existsSync(outputPath),
-      artifact_valid: false,
-      failure_classification: "REVIEW_PROCESS_STALE_NO_OUTPUT",
-      blocked_reason: "review process produced no output within stale-after window",
-      summary: `${options.procedureId} launch became stale without output.`,
-      next_valid_action: "rerun launch-review after resolving the stale review process",
       stdout_tail: boundedTail(child.stdout),
       stderr_tail: boundedTail(child.stderr)
     };
@@ -3499,6 +3674,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
       working_directory: targetRoot,
       start_time: child.startTime,
       last_output_time: child.lastOutputTime,
+      ...(child.progressUnknownAt ? { progress_unknown_at: child.progressUnknownAt } : {}),
       artifact_present: fs.existsSync(outputPath),
       artifact_valid: false,
       failure_classification: classifyReviewProcessFailure(child.exitCode, child.stdout, child.stderr),
@@ -3537,11 +3713,12 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
         working_directory: targetRoot,
         start_time: child.startTime,
         last_output_time: child.lastOutputTime,
+        ...(child.progressUnknownAt ? { progress_unknown_at: child.progressUnknownAt } : {}),
         artifact_present: artifactPresent,
         artifact_valid: false,
         artifact_hash: outputAfter ? `sha256:${outputAfter.hash}` : undefined,
         failure_classification: staleOutput
-          ? "REVIEW_PROCESS_STALE_NO_OUTPUT"
+          ? "REVIEW_ARTIFACT_STALE_FILE"
           : classifyInvalidReviewArtifact(artifact.invalidReason, artifactPresent),
         blocked_reason: artifact.invalidReason ?? "review artifact was missing or invalid",
         summary: artifact.invalidReason ?? `${options.procedureId} did not produce a valid review artifact.`,
@@ -3552,7 +3729,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     } else {
       fs.mkdirSync(path.dirname(outputPath), { recursive: true });
       fs.writeFileSync(outputPath, artifact.markdown, "utf8");
-      const acceptedArtifact = buildProcedureArtifactFromMarkdown(targetRoot, current.run, options.procedureId, outputPath, artifact.markdown);
+      const acceptedArtifact = buildProcedureArtifactFromMarkdown(targetRoot, claimedRun, options.procedureId, outputPath, artifact.markdown);
       observation = {
         ...baseObservation,
         status: "success",
@@ -3565,6 +3742,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
         working_directory: targetRoot,
         start_time: child.startTime,
         last_output_time: child.lastOutputTime,
+        ...(child.progressUnknownAt ? { progress_unknown_at: child.progressUnknownAt } : {}),
         artifact_path: acceptedArtifact.artifact.path,
         artifact_id: acceptedArtifact.artifact.artifact_id,
         artifact_present: true,
@@ -3587,7 +3765,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     }
   }
 
-  const run = recordLaunchAttempt(targetRoot, roots.projectRoot, current.run, observation, accepted);
+  const run = recordLaunchAttempt(targetRoot, roots.projectRoot, claimedRun, observation, claim, accepted);
   const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id);
 
   return {
@@ -3608,6 +3786,7 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
   const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  assertNoActiveReviewLaunchClaim(current.run, "procedure recording");
   const registry = readSelfHostingProcedureRegistry(targetRoot);
 
   if (!registry) {
@@ -3695,6 +3874,7 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
       staging.saveRun(current.run);
     }
     run = staging.mutateRunWithDatabase(current.run.run_id, (latestRun, database) => {
+      assertNoActiveReviewLaunchClaim(latestRun, "procedure recording");
       const review = buildProcedureReviewResult(latestRun, options.procedureId, artifact, markdown, timestamp);
       const duplicateEvidence = latestRun.evidence.some((entry) =>
         entry.evidence_id === evidence.evidence_id
@@ -3829,6 +4009,7 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
   const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  assertNoActiveReviewLaunchClaim(current.run, "plan approval");
   const absolutePlanPath = path.resolve(targetRoot, options.planPath);
   ensureInsideTargetRoot(targetRoot, absolutePlanPath);
 
@@ -3943,6 +4124,7 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
     }
     let writeCompatibilityArtifact = !hasArtifact || !hasEvidence || !duplicateApproval;
     run = staging.mutateRunWithDatabase(current.run.run_id, (latestRun, database) => {
+      assertNoActiveReviewLaunchClaim(latestRun, "plan approval");
       const latestPlanBinding = resolveExactPlanApprovalBinding(
         targetRoot,
         latestRun.run_id,
@@ -4040,6 +4222,7 @@ export async function recordRuntimeNextTask(cwd: string, options: RecordNextTask
   const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  assertNoActiveReviewLaunchClaim(current.run, "next-task decision recording");
   if (
     current.run.lifecycle_status !== "closed"
     && current.run.lifecycle_status !== "harvested"
@@ -4143,6 +4326,7 @@ export async function recordRuntimeNextTask(cwd: string, options: RecordNextTask
       staging.saveRun(current.run);
     }
     run = staging.mutateRun(current.run.run_id, (latestRun) => {
+      assertNoActiveReviewLaunchClaim(latestRun, "next-task decision recording");
       const duplicateDecision = latestRun.decisions.find((entry) => entry.decision_id === decision.decision_id);
       recorded = !duplicateDecision;
       finalDecision = duplicateDecision ?? decision;
@@ -4195,6 +4379,7 @@ export async function materializeRuntimeNextTask(
   const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  assertNoActiveReviewLaunchClaim(current.run, "next-task materialization");
   const { record } = readNextTaskDecision(current.run, options.decisionId);
   const resolvedTask = resolveTaskReference(targetRoot, options.taskPath);
   const nextTaskPath = resolvedTask.activeTaskPath ?? resolvedTask.taskPath;
@@ -6536,6 +6721,32 @@ function resolveTerminalRunStage(context: OperatorEvaluationContext): OperatorSt
   return undefined;
 }
 
+function resolveActiveReviewLaunchStage(context: OperatorEvaluationContext): OperatorStageDraft | undefined {
+  const claim = context.runContext ? activeReviewLaunchClaim(context.runContext.run) : undefined;
+  if (!claim) {
+    return undefined;
+  }
+
+  return buildOperatorStageDraft({
+    current_stage: "REVIEW_LAUNCH_IN_PROGRESS",
+    next_procedure_id: "none",
+    required_inputs: ["terminal child exit recorded by the owning review launcher"],
+    missing_inputs: [],
+    required_evidence: [`valid ${claim.procedure_id} review artifact or terminal launch attempt`],
+    missing_evidence: [`terminal ${claim.procedure_id} launch attempt`],
+    stop_reason: "review_launch_owner_active_or_unavailable",
+    next_allowed_action: "wait for the original launcher to record terminal child exit; if it cannot return, explicitly cancel through the human recovery path and discard this run before starting a fresh run",
+    forbidden_actions: ["replacement review launch", "procedure recording", "approval", "implementation", "verification", "closeout", "harvest"],
+    notes: [
+      ...context.baseNotes,
+      `review_launch_claim_id: ${claim.claim_id}`,
+      `review_launch_procedure: ${claim.procedure_id}`,
+      ...(claim.pid ? [`review_launch_pid_observation: ${claim.pid}`] : []),
+      ...(claim.progress_unknown_at ? [`review_launch_progress_unknown_at: ${claim.progress_unknown_at}`] : [])
+    ]
+  });
+}
+
 function resolveBootstrapRepairStage(context: OperatorEvaluationContext): OperatorStageDraft | undefined {
   const run = context.runContext?.run;
 
@@ -7279,6 +7490,20 @@ function resolveRuntimeOperatorStatus(cwd: string, options: OperatorEvaluationOp
     };
   }
 
+  const activeReviewLaunchStage = resolveActiveReviewLaunchStage(evaluation.context);
+
+  if (activeReviewLaunchStage) {
+    return {
+      targetRoot: evaluation.targetRoot,
+      projectRoot: evaluation.projectRoot,
+      dryRun: evaluation.dryRun,
+      run: evaluation.context.runContext.run,
+      runPath: evaluation.context.runContext.runPath,
+      closeoutPath: evaluation.context.runContext.closeoutPath,
+      operator: buildOperatorStatus(evaluation.procedureIds, evaluation.reviewTier, activeReviewLaunchStage)
+    };
+  }
+
   const bootstrapRepairStage = resolveBootstrapRepairStage(evaluation.context);
 
   if (bootstrapRepairStage) {
@@ -7747,10 +7972,11 @@ export async function verifyRuntimeRun(cwd: string, options: RuntimeDryRunOption
   const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  assertNoActiveReviewLaunchClaim(current.run, "verification");
   const resolved = await resolveVerification(targetRoot, current.run, dryRun);
   const verification = resolved.verification;
   const run = recordVerificationResult(current.run, verification);
-  const runPath = dryRun ? current.runPath : writeRuntimeRun(targetRoot, run);
+  const runPath = dryRun ? current.runPath : writeRuntimeRun(targetRoot, run, "verification");
 
   if (!dryRun) {
     await appendRuntimeEvidence(
@@ -7829,6 +8055,7 @@ export async function recordRuntimeRemoteStatus(
   const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  assertNoActiveReviewLaunchClaim(current.run, "remote status recording");
   const run = recordRemoteCheckResult(current.run, options);
   const remoteCheck = run.remote_checks[run.remote_checks.length - 1];
 
@@ -7836,7 +8063,7 @@ export async function recordRuntimeRemoteStatus(
     throw new Error("Remote check result was not recorded.");
   }
 
-  const runPath = dryRun ? current.runPath : writeRuntimeRun(targetRoot, run);
+  const runPath = dryRun ? current.runPath : writeRuntimeRun(targetRoot, run, "remote status recording");
 
   if (!dryRun) {
     await appendRuntimeEvidence(
@@ -7942,6 +8169,7 @@ export async function closeoutRuntimeRun(cwd: string, options: RuntimeDryRunOpti
   const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  assertNoActiveReviewLaunchClaim(current.run, "closeout");
   const refreshedRun = refreshRunRepositorySnapshot(current.run);
   const preparedRun = ensureRunHasVerificationAndReview(refreshedRun, targetRoot);
   const receipt = createCloseoutReceipt(preparedRun);
@@ -7966,7 +8194,7 @@ export async function closeoutRuntimeRun(cwd: string, options: RuntimeDryRunOpti
     };
   }
 
-  const runPath = writeRuntimeRun(targetRoot, run);
+  const runPath = writeRuntimeRun(targetRoot, run, "closeout");
   const closeoutPath = closeoutFilePath(targetRoot, run.run_id);
   writeJsonFile(closeoutPath, receipt);
   await appendRuntimeEvidence(
