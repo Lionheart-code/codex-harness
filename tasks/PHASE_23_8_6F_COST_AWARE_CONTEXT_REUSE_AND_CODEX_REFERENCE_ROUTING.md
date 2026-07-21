@@ -291,6 +291,16 @@ this phase:
   execution. This phase is only a narrow optimization of the already existing
   self-hosting review launch path.
 
+### 10. Harvested procedure-artifact transfer observability
+
+Before relying on harvested procedure evidence for context reuse, verify that
+each harvested procedure artifact and its complete retained payloads are
+durably present in the Project DB. Keep storage correctness distinct from
+reporting completeness: a correct transfer is not evidence that the current
+harvest receipt reports it truthfully. If the receipt does not report the
+transfer, add operator-visible procedure-artifact and payload-transfer counts,
+with focused acceptance coverage for those reported counts.
+
 ## Expected implementation surfaces
 
 The implementation plan must re-check exact repo authority before editing, but
