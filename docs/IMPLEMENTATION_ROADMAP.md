@@ -1008,8 +1008,7 @@ Revalidate future/live authority surfaces after the near-term 23.8.6 chain has
 changed verification policy, bootstrap assumptions, and storage/harvest facts.
 
 Status:
-Active implementation phase. Phase 23.8.6C2, Phase 23.8.6C2A, and Phase
-23.8.6D are complete, reviewed, accepted, and merged.
+Complete. Independently reviewed, accepted, merged, closed out, and harvested.
 
 Required scope:
 - check `TASK.md` active pointer, roadmap active/current wording, task status
@@ -1062,8 +1061,8 @@ deterministic route-decision, Codex reference-binding, and usage-telemetry
 substrate before stage-packet automation.
 
 Status:
-Planned. Starts only after Phase 23.8.6E is independently reviewed, accepted,
-closed out, and harvested. It does not activate until E is complete.
+Active implementation phase. Phase 23.8.6E is independently reviewed,
+accepted, merged, closed out, and harvested.
 
 Future-phase impact check:
 - 23.8.7 reuses this review context and route substrate for stage packets;

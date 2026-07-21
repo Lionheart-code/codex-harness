@@ -96,13 +96,12 @@ state. Its implementation required one independent combined
 architecture/authority and persisted-storage/no-storage-change review; a failed
 labeled verdict routes to a fix pass and then a fresh combined review. Phase
 23.8.6D completed durable-procedure payload storage, successor recovery, and
-worktree retention. Phase 23.8.6E is now the active authority-freshness phase;
-it will revalidate the generic native Desktop successor-task create/readback
-boundary against the actual persistent app-server `thread/start` path without
-implementing successor execution. After E is closed and harvested, 23.8.6F
-adds the narrow reusable review-context, deterministic route-intent, Codex
-reference-binding, and usage-telemetry substrate. Phase 23.8.7 then extends
-that substrate into general stage packets/results. Phase 31 remains the first
+worktree retention. Phase 23.8.6E is complete, independently reviewed,
+accepted, merged, closed out, and harvested. Phase 23.8.6F is the active
+implementation phase: it adds the narrow reusable review-context,
+deterministic route-intent, Codex reference-binding, usage-telemetry, and
+native successor-handoff correction substrate. Phase 23.8.7 then extends that
+substrate into general stage packets/results. Phase 31 remains the first
 general runtime provider-binding and runner-execution boundary.
 
 For a newly inserted phase, materialization is not complete when only

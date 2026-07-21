@@ -2,9 +2,9 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6E Authority Surface Freshness and
+Active implementation phase. Phase 23.8.6E Authority Surface Freshness and
 Downstream Task Revalidation is complete, independently reviewed, accepted,
-closed out, and harvested.
+merged, closed out, and harvested.
 
 This phase is inserted immediately after Phase 23.8.6E and before Phase 23.8.7.
 The near-term order becomes:
@@ -12,6 +12,44 @@ The near-term order becomes:
 ```text
 23.8.6E -> 23.8.6F -> 23.8.7 -> 23.9 -> 24A
 ```
+
+## Required successor-handoff corrections
+
+The F implementation must resolve all observed native successor-handoff
+defects, within this bounded contract only:
+
+- The real successor-creation path must use Codex Desktop `create_thread` with
+  its project/worktree target, and that Desktop-created successor task/worktree
+  must exist before activation work begins.
+- Native app-server `thread/start` may only attach a thread to a known existing
+  `cwd`; it must never create a Git branch or worktree. Raw `git worktree add`
+  is forbidden as a fallback where this contract requires Desktop-created
+  successor ownership.
+- If `list_projects`, `create_thread`, `read_thread`, `wait_threads`, cleanup,
+  or an equivalent required Desktop capability is unavailable, the path must
+  fail closed as `HANDOFF_CREATION_FAILED` with an explicit typed blocker and
+  next allowed action. Computer Use and AppleScript must not bypass a product
+  safety denial for controlling Codex Desktop.
+- The Desktop-created successor itself owns branch attachment, `TASK.md`
+  activation, authority edits, and the activation commit. Exactly one successor
+  task, branch, worktree, and `TaskState` may own a transition; a matching
+  successor must be reused idempotently and duplicate threads or worktrees are
+  forbidden.
+- Native and Git readback must prove task identity/link, exact `cwd`, branch,
+  immutable base, activation `HEAD`, persistent state, and expected turn state
+  before any successor turn, bootstrap, Harness run, or implementation. The
+  predecessor must stop before successor implementation begins.
+- Operator documentation must distinguish Desktop worktree creation from
+  app-server thread attachment and state one non-contradictory transition
+  order. Historical phase-specific `TASK.md` assertions must be replaced with
+  a phase-neutral active-pointer invariant.
+- Focused acceptance coverage must reject duplicate-successor instructions and
+  raw-Git fallback. Harness must provide or document a product-owned,
+  recoverable cleanup path for a prepared successor `TaskState`/worktree that
+  never opened a run; manual `TaskState` or database edits remain forbidden.
+- These corrections must not introduce a new Desktop adapter, generic UI
+  automation, generic runner, background daemon, or Phase 23.8.7
+  implementation.
 
 ## Purpose
 
