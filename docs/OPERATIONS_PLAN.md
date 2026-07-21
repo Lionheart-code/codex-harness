@@ -81,7 +81,7 @@ Near-term progression:
 
 ```text
 23.8.6 -> 23.8.6A -> 23.8.6B -> 23.8.6B1 -> 23.8.6B2 -> 23.8.6C ->
-23.8.6C1 -> 23.8.6C1A -> 23.8.6C2 -> 23.8.6C2A -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9
+23.8.6C1 -> 23.8.6C1A -> 23.8.6C2 -> 23.8.6C2A -> 23.8.6D -> 23.8.6E -> 23.8.6F -> 23.8.7 -> 23.9
 ```
 
 Phase 23.8.6C1 is the completed post-bootstrap task-contract rebase. Phase

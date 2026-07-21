@@ -1051,6 +1051,25 @@ Future-phase impact check:
   UI automation framework, background control, or a broad roadmap rewrite;
   the listed review-launch liveness correction is the sole runtime exception.
 
+## Phase 23.8.6F — Cost-Aware Review Context Reuse and Codex Reference Routing
+
+Task:
+`tasks/PHASE_23_8_6F_COST_AWARE_CONTEXT_REUSE_AND_CODEX_REFERENCE_ROUTING.md`
+
+Goal:
+Add the narrow, provider-neutral self-hosting review-context reuse,
+deterministic route-decision, Codex reference-binding, and usage-telemetry
+substrate before stage-packet automation.
+
+Status:
+Planned. Starts only after Phase 23.8.6E is independently reviewed, accepted,
+closed out, and harvested. It does not activate until E is complete.
+
+Future-phase impact check:
+- 23.8.7 reuses this review context and route substrate for stage packets;
+- 23.8.6F does not add a second adapter, generic runner, or Desktop client;
+- Phase 31 remains the first general reviewed runner-execution boundary.
+
 ## Phase 23.8.7 — Hookless Stage-Level Operator Packet Automation v0
 
 Task:
