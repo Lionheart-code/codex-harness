@@ -34,9 +34,12 @@ fork_non_authoritative
 - prompt caching is optimization only and does not satisfy memory, proof,
   provenance, or independence requirements.
 
-Phase 24A owns the first deterministic shared `ContextCore`/`ContextManifest`,
-including stable ordering and hash, explicit size budget, truncation/redaction
-facts, and source provenance. Raw logs remain bounded references.
+Phase 23.8.6F owns the first deterministic shared `ContextCore`,
+`ContextManifest`, and `ReviewDeltaOverlay` for the two existing self-hosting
+review launches, including stable ordering/hash, explicit budgets,
+truncation/redaction facts, and source provenance. Phase 24A consumes those
+records to build deterministic reports and bounded packet/export views; it
+does not create competing context types. Raw logs remain bounded references.
 
 ## Context layers
 

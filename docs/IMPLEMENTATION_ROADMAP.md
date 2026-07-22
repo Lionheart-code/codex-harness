@@ -1066,6 +1066,14 @@ Status:
 Active implementation phase. Phase 23.8.6E is independently reviewed,
 accepted, merged, closed out, and harvested.
 
+Implemented source surfaces include the 15-procedure deterministic/semantic
+policy, deterministic context core/manifest/delta identities, per-invocation
+route and isolated Codex binding, honest JSONL observations, immutable replay
+packets and evaluation/decision/application records, exact harvest transfer
+proof, Desktop-only successor entry/cleanup, and pre-claim reviewer
+anti-recursion. Acceptance and lifecycle review remain required before this
+phase can be declared complete.
+
 Future-phase impact check:
 - 23.8.7 reuses route/policy/binding, context/delta, transport, and usage refs
   in stage packets/results;

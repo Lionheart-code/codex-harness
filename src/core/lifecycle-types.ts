@@ -111,5 +111,10 @@ export interface HarvestRecord {
   unresolved_count: number;
   source_task_path: string;
   source_snapshot: string;
-  details: Record<string, unknown>;
+  details: Record<string, unknown> & {
+    procedure_artifact_transfer_count?: number;
+    procedure_artifact_payload_transfer_count?: number;
+    procedure_artifact_payload_chunk_transfer_count?: number;
+    procedure_artifact_payload_byte_count?: number;
+  };
 }

@@ -112,6 +112,7 @@ export function harvestRun(
   const promotedAt = nowIso();
   const stagingStatus = staging.status();
   const deliveryFacts = staging.listDeliveryFacts(runId);
+  const procedureArtifactTransferStats = staging.getProcedureArtifactTransferStats(run.run_instance_id);
   project.ensureInitialized();
   let harvest: HarvestRecord | undefined;
   let acceptedRun: Run | undefined;
@@ -141,8 +142,9 @@ export function harvestRun(
         source_task_path: nextRun.active_task_path ?? nextRun.task_path,
         source_snapshot: nextRun.source_snapshot ?? nextRun.repository.head_sha ?? "unknown",
         details: {
-          accepted_record_kinds: ["run", "phase_run", "step", "command_result", "verification_result", "review_result", "finding", "decision", "approval", "closeout_receipt", "delivery_fact"],
-          delivery_fact_count: deliveryFacts.length
+          accepted_record_kinds: ["run", "phase_run", "step", "command_result", "verification_result", "review_result", "finding", "decision", "approval", "closeout_receipt", "delivery_fact", "review_invocation", "review_replay_packet", "routing_evaluation", "routing_decision", "routing_policy_application", "prepared_successor_cleanup"],
+          delivery_fact_count: deliveryFacts.length,
+          ...procedureArtifactTransferStats
         }
       };
       project.saveAcceptedRun(nextRun, deliveryFacts, harvest);

@@ -83,6 +83,7 @@ function createFakeCodexBin(tempRepo, mode) {
     scriptPath,
     `#!/usr/bin/env node
 const fs = require("fs");
+const { spawnSync } = require("child_process");
 const args = process.argv.slice(2);
 const output = args[args.indexOf("-o") + 1];
 const content = process.env.CODEX_FAKE_REVIEW_CONTENT || "";
@@ -112,9 +113,21 @@ if (process.env.CODEX_FAKE_MODE === "stdout") {
     fs.writeFileSync(output, content, "utf8");
     process.exit(0);
   }, Number(process.env.CODEX_FAKE_SLEEP_MS || 3000));
+} else if (process.env.CODEX_FAKE_MODE === "nested-review") {
+  const nested = spawnSync(process.execPath, [
+    process.env.CODEX_FAKE_CH,
+    "run", "launch-review",
+    "--run", "run-0001",
+    "--procedure", "plan-review",
+    "--request", process.env.CODEX_FAKE_NESTED_REQUEST,
+    "--output", process.env.CODEX_FAKE_NESTED_OUTPUT
+  ], { cwd: process.cwd(), env: process.env, encoding: "utf8" });
+  fs.writeFileSync(process.env.CODEX_FAKE_NESTED_RESULT, JSON.stringify({ status: nested.status, stdout: nested.stdout, stderr: nested.stderr }), "utf8");
+  fs.writeFileSync(output, content, "utf8");
 } else {
   fs.writeFileSync(output, content, "utf8");
 }
+
 `
   );
   fs.chmodSync(scriptPath, 0o755);
@@ -240,6 +253,64 @@ function readLatestAttempt(tempRepo, procedureId = "implementation-review") {
   assert.ok(evidence, `expected review-launch-attempt evidence for ${procedureId}`);
   return JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", "run-0001", evidence.path), "utf8"));
 }
+
+test("phase 23.8.6F forbids recursive review launch before a second claim or child", () => {
+  const tempRepo = createB1Repo("codex-harness-f-review-recursion-");
+  const outerRequest = writeManualFile(tempRepo, "run-0001", "outer-review-request.md", "review the outer implementation");
+  const nestedRequest = writeManualFile(tempRepo, "run-0001", "nested-review-request.md", "attempt a nested plan review");
+  const nestedOutput = ".harness/runs/run-0001/manual/nested-review-output.md";
+  const nestedResult = path.join(tempRepo, "nested-review-result.json");
+  const env = {
+    ...createFakeCodexBin(tempRepo, "nested-review"),
+    CODEX_FAKE_CH: path.join(productRoot, "bin", "ch"),
+    CODEX_FAKE_NESTED_REQUEST: nestedRequest,
+    CODEX_FAKE_NESTED_OUTPUT: nestedOutput,
+    CODEX_FAKE_NESTED_RESULT: nestedResult,
+    CODEX_FAKE_REVIEW_CONTENT: implementationReviewMarkdown("PASS")
+  };
+
+  const result = runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review",
+    "--request", outerRequest,
+    "--output", ".harness/runs/run-0001/manual/outer-review-output.md",
+    "--timeout-seconds", "10"
+  ], { cwd: tempRepo, env });
+
+  assertSuccess(result, "outer review completes after nested refusal");
+  const refusal = JSON.parse(fs.readFileSync(nestedResult, "utf8"));
+  assert.equal(refusal.status, 1);
+  const refusalOutput = `${refusal.stdout}\n${refusal.stderr}`;
+  assert.match(refusalOutput, /failure classification: REVIEW_RECURSION_FORBIDDEN/);
+  assert.match(refusalOutput, /outer claim validation: matched/);
+  assert.match(refusalOutput, /attempted nested procedure: plan-review/);
+  assert.match(refusalOutput, /claim created: false/);
+  assert.match(refusalOutput, /child spawned: false/);
+  assert.match(refusalOutput, /artifact wait started: false/);
+  assert.equal(fs.existsSync(path.join(tempRepo, nestedOutput)), false);
+  const run = readRun(tempRepo);
+  assert.deepEqual(run.review_launch_claims, []);
+  assert.equal(run.evidence.filter((entry) => entry.kind.startsWith("review-launch-attempt:")).length, 1);
+  assert.equal(run.evidence.filter((entry) => entry.kind === "procedure:implementation-review").length, 1);
+  assert.equal(run.evidence.filter((entry) => entry.kind === "procedure:plan-review").length, 0);
+
+  const invalidMarker = runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "plan-review",
+    "--request", nestedRequest, "--output", nestedOutput
+  ], {
+    cwd: tempRepo,
+    env: {
+      CODEX_HARNESS_REVIEWER_ROLE: "independent_reviewer",
+      CODEX_HARNESS_REVIEW_RUN_INSTANCE_ID: run.run_instance_id,
+      CODEX_HARNESS_REVIEW_PROCEDURE_ID: "implementation-review",
+      CODEX_HARNESS_REVIEW_ATTEMPT_ID: "stale-attempt",
+      CODEX_HARNESS_REVIEW_CLAIM_ID: "stale-claim",
+      CODEX_HARNESS_REVIEW_ATTEMPT_MARKER: `sha256:${"0".repeat(64)}`
+    }
+  });
+  assertFailure(invalidMarker, "stale reviewer marker fails closed");
+  assert.match(`${invalidMarker.stdout}\n${invalidMarker.stderr}`, /outer claim validation: invalid/);
+  assert.match(`${invalidMarker.stdout}\n${invalidMarker.stderr}`, /claim created: false/);
+});
 
 async function waitForFile(filePath, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
@@ -808,4 +879,23 @@ test("phase 23.8.6B1 launched implementation-review FIX_REQUIRED routes to fix-p
   assertSuccess(status, "operator status after launched implementation-review FIX_REQUIRED");
   assert.match(status.stdout, /current_stage: FIX_PASS_REQUIRED/);
   assert.match(status.stdout, /next_procedure_id: fix-pass-review/);
+
+  writeManualFile(tempRepo, "run-0001", "implementation-fix-pass-request.md", "review only the fix-pass delta");
+  const fixPassResult = runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review",
+    "--request", ".harness/runs/run-0001/manual/implementation-fix-pass-request.md",
+    "--output", ".harness/runs/run-0001/manual/implementation-fix-pass.md",
+    "--timeout-seconds", "5"
+  ], {
+    cwd: tempRepo,
+    env: {
+      ...createFakeCodexBin(tempRepo, "file"),
+      CODEX_FAKE_REVIEW_CONTENT: implementationReviewMarkdown("PASS")
+    }
+  });
+  assertSuccess(fixPassResult, "launch-review implementation fix-pass PASS");
+  const invocations = readRun(tempRepo).review_routing_records.filter((entry) => entry.record_kind === "review_invocation");
+  const fixPassInvocation = invocations[invocations.length - 1];
+  assert.equal(fixPassInvocation.payload.pass_kind, "fix_pass_review");
+  assert.equal(fixPassInvocation.payload.evaluation_mode, "approved");
 });

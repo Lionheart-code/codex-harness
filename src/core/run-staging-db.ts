@@ -77,6 +77,13 @@ export interface StagedProcedureArtifactBody {
   body: string;
 }
 
+export interface ProcedureArtifactTransferStats {
+  procedure_artifact_transfer_count: number;
+  procedure_artifact_payload_transfer_count: number;
+  procedure_artifact_payload_chunk_transfer_count: number;
+  procedure_artifact_payload_byte_count: number;
+}
+
 interface NormalizedRecordRow {
   recordKind: string;
   recordId: string;
@@ -618,6 +625,23 @@ function normalizeRecordRows(run: Run): NormalizedRecordRow[] {
     });
   }
 
+  for (const record of safeArray(run.review_routing_records)) {
+    rows.push({
+      recordKind: record.record_kind,
+      recordId: record.record_id,
+      runId: run.run_id,
+      phaseId: run.phase_id,
+      taskPath,
+      createdAt: record.created_at,
+      status: record.status,
+      summary: record.summary,
+      payloadJson: stringify(record.payload),
+      sourceCommand: "node bin/ch run launch-review",
+      sensitivity: "local",
+      retentionClass: record.record_kind === "review_replay_packet" ? "accepted" : "audit"
+    });
+  }
+
   return rows;
 }
 
@@ -1105,6 +1129,28 @@ export class RunStagingDatabase {
         "SELECT fact_json FROM delivery_facts WHERE run_id = ? ORDER BY recorded_at ASC"
       ).all(runId) as Array<{ fact_json?: string }>;
       return rows.flatMap((row) => (typeof row.fact_json === "string" ? [JSON.parse(row.fact_json) as DeliveryFactRecord] : []));
+    } finally {
+      database.close();
+    }
+  }
+
+  getProcedureArtifactTransferStats(runInstanceId: string): ProcedureArtifactTransferStats {
+    const database = this.open();
+    try {
+      const descriptor = database.prepare([
+        "SELECT COUNT(*) AS descriptor_count, COUNT(DISTINCT payload_id) AS payload_count",
+        "FROM procedure_artifacts WHERE run_instance_id = ?"
+      ].join(" ")).get(runInstanceId) as { descriptor_count?: number; payload_count?: number } | undefined;
+      const payload = database.prepare([
+        "SELECT COALESCE(SUM(pi.chunk_count), 0) AS chunk_count, COALESCE(SUM(pi.raw_size_bytes), 0) AS byte_count",
+        "FROM payload_index pi WHERE pi.payload_id IN (SELECT DISTINCT payload_id FROM procedure_artifacts WHERE run_instance_id = ?)"
+      ].join(" ")).get(runInstanceId) as { chunk_count?: number; byte_count?: number } | undefined;
+      return {
+        procedure_artifact_transfer_count: Number(descriptor?.descriptor_count ?? 0),
+        procedure_artifact_payload_transfer_count: Number(descriptor?.payload_count ?? 0),
+        procedure_artifact_payload_chunk_transfer_count: Number(payload?.chunk_count ?? 0),
+        procedure_artifact_payload_byte_count: Number(payload?.byte_count ?? 0)
+      };
     } finally {
       database.close();
     }

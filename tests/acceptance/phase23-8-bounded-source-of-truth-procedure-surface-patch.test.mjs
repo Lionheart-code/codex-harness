@@ -59,7 +59,8 @@ test("phase 23.8 bounded source-of-truth and procedure-surface patch stays withi
 
   assert.match(acceptance, /## Phase 23\.8 source-of-truth\/procedure-surface acceptance additions/);
   assert.match(acceptance, /App Server is presented as current-phase work or guaranteed Phase 25/);
-  assert.match(acceptance, /registry execution, role execution,\s+provider\/model routing/);
+  assert.match(acceptance, /registry or role execution outside an active\s+task's explicit boundary/);
+  assert.match(acceptance, /Phase 23\.8\.6F is an explicit narrow exception/);
 
   assert.match(sourceMap, /## 2\.5 Phase 23\.8 bounded Step R source trace/);
   assert.match(sourceMap, /source_url_or_doc/);

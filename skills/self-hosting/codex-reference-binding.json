@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "producer_command": "manual checked-in product-source artifact",
+  "contract_version": "phase23.8.6f-v1",
+  "binding_id": "codex-cli-reference-binding",
+  "binding_version": "phase23.8.6f-codex-v1",
+  "accepted_binding_version": "phase23.8.6f-codex-v1",
+  "source_trace": [
+    {"source":"muxx/bitgn-ecom1-exoskeleton@61d0530eb31a2b359660d3f05b4d3bfcf412b8da","source_type":"community_pattern_sources","source_status":"advisory","retrieved":"2026-07-21","primitive":"deterministic preflight and evidence ledger","existing_harness_equivalent":"prechecks and evidence refs","incompatibility":"domain exoskeleton is not lifecycle authority","decision":"adapt","target":"procedure execution policy","reason":"reuse existing primitives","dependency_impact":"none"},
+    {"source":"SWE-agent/mini-swe-agent@38c01a19ed1a58dd17dd7c95010e4f69d059c777","source_type":"community_pattern_sources","source_status":"advisory","retrieved":"2026-07-21","primitive":"bounded linear loop","existing_harness_equivalent":"claims timeouts observations","incompatibility":"Python shell agent duplicates launcher","decision":"adapt","target":"runtime context","reason":"retain narrow supervisor","dependency_impact":"none"},
+    {"source":"openai/openai-agents-python@95185352c8b829405a96c3886960f030163bdf07","source_type":"official_codex_sources","source_status":"advisory","retrieved":"2026-07-21","primitive":"filtered history and trace identity","existing_harness_equivalent":"run artifact payload identities","incompatibility":"SDK handoffs add a second runtime","decision":"adapt","target":"context evaluation","reason":"use exact local identities","dependency_impact":"none"},
+    {"source":"langchain-ai/deepagents@89822e105b42840e079e19f905c8f4abe2604750","source_type":"external_advisory_sources","source_status":"advisory","retrieved":"2026-07-21","primitive":"stable state and progressive retrieval","existing_harness_equivalent":"payload retention","incompatibility":"graph state and nondeterministic compaction conflict with stable IDs","decision":"adapt","target":"context core manifest delta","reason":"deterministic local reuse","dependency_impact":"none"},
+    {"source":"aaif-goose/goose@3065c9701fdccd020f86f263c74ae4934a1333b8","source_type":"community_pattern_sources","source_status":"advisory","retrieved":"2026-07-21","primitive":"provider capability seam","existing_harness_equivalent":"codex_cli observations","incompatibility":"provider runtime becomes a general runner","decision":"adapt","target":"Codex reference binding","reason":"keep isolated adapter seam","dependency_impact":"none"},
+    {"source":"Official Codex docs and local CLI 0.144.1 help","source_type":"official_codex_sources","source_status":"authoritative_capability_facts_only","retrieved":"2026-07-21","primitive":"model reasoning JSONL file output read-only Desktop worktrees","existing_harness_equivalent":"existing Codex subprocess","incompatibility":"does not prove Harness safety recall or cost","decision":"adopt","target":"capability snapshot","reason":"pin observed launch facts","dependency_impact":"none"}
+  ],
+  "capability_snapshot": {
+    "adapter_id": "codex_cli",
+    "source_revision": "local codex cli help revalidated 2026-07-21",
+    "read_only_sandbox": true,
+    "file_output": true,
+    "jsonl_observation": true,
+    "safe_session_resume": false,
+    "automatic_procedures": ["implementation-review", "plan-review"]
+  },
+  "profiles": [
+    {
+      "profile_id": "accepted-balanced-routine",
+      "route_class": "balanced_routine",
+      "adapter_id": "codex_cli",
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "high",
+      "verbosity": "low",
+      "status": "accepted",
+      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true}
+    },
+    {
+      "profile_id": "accepted-complex-judgment",
+      "route_class": "complex_judgment",
+      "adapter_id": "codex_cli",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "verbosity": "low",
+      "status": "accepted",
+      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true}
+    },
+    {
+      "profile_id": "accepted-critical-independent",
+      "route_class": "critical_independent",
+      "adapter_id": "codex_cli",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "verbosity": "low",
+      "status": "accepted",
+      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true}
+    },
+    {
+      "profile_id": "candidate-balanced-medium",
+      "route_class": "balanced_routine",
+      "adapter_id": "codex_cli",
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "medium",
+      "verbosity": "low",
+      "status": "candidate",
+      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true}
+    },
+    {
+      "profile_id": "candidate-economy-medium",
+      "route_class": "balanced_routine",
+      "adapter_id": "codex_cli",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "medium",
+      "verbosity": "low",
+      "status": "candidate",
+      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true}
+    },
+    {
+      "profile_id": "candidate-balanced-high",
+      "route_class": "complex_judgment",
+      "adapter_id": "codex_cli",
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "high",
+      "verbosity": "low",
+      "status": "candidate",
+      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true}
+    }
+  ]
+}

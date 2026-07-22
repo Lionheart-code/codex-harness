@@ -1,0 +1,2 @@
+{"type":"response.completed","usage":{"input_tokens":1200,"input_tokens_details":{"cached_tokens":800},"output_tokens":140}}
+{"type":"tool_call","name":"read_file"}

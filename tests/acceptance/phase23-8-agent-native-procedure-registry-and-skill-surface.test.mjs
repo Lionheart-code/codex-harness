@@ -358,6 +358,7 @@ test("phase 23.8 registry is canonical, schema-backed, and preserves procedure s
     );
     assert.ok(procedure.phase_23_5_dependencies.length > 0, `${procedure.procedure_id} must declare Phase 23.5 linkage`);
     assert.equal(procedure.generated_or_install_targets_non_authoritative, true);
+    assert.equal(procedure.execution_policy_ref, `skills/self-hosting/procedure-execution-policy.json#${procedure.procedure_id}`);
   }
 
   const promptWrapperFiles = fs.readdirSync(path.join(productRoot, "prompts", "self-hosting"))
@@ -396,19 +397,22 @@ test("phase 23.8 registry is canonical, schema-backed, and preserves procedure s
   }
   assert.match(planReviewOutputFormat, /Do not invent aliases or human-readable variants for `outcome_state`/);
   assert.equal(planAmend?.operator_contract?.latest_amendment_supersedes_prior_plan, true);
-  assert.equal(planReview?.review_launch_profile?.adapter_id, "codex_cli");
-  assert.equal(planReview?.review_launch_profile?.model, "gpt-5.6-sol");
-  assert.equal(planReview?.review_launch_profile?.reasoning_effort, "high");
-  assert.equal(planReview?.review_launch_profile?.sandbox_mode, "read-only");
-  assert.equal(implementationReview?.review_launch_profile?.adapter_id, "codex_cli");
-  assert.equal(implementationReview?.review_launch_profile?.model, "gpt-5.6-terra");
-  assert.equal(implementationReview?.review_launch_profile?.reasoning_effort, "high");
-  assert.equal(implementationReview?.review_launch_profile?.sandbox_mode, "read-only");
+  assert.equal(planReview?.automatic_launch_capability?.adapter_id, "codex_cli");
+  assert.equal(planReview?.automatic_launch_capability?.transport, "fresh_independent_delta");
+  assert.equal(implementationReview?.automatic_launch_capability?.adapter_id, "codex_cli");
+  assert.equal(implementationReview?.automatic_launch_capability?.transport, "fresh_independent_delta");
   assert.deepEqual(
-    registry.procedures.filter((procedure) => procedure.review_launch_profile).map((procedure) => procedure.procedure_id).sort(),
+    registry.procedures.filter((procedure) => procedure.automatic_launch_capability).map((procedure) => procedure.procedure_id).sort(),
     ["implementation-review", "plan-review"],
-    "review_launch_profile must stay limited to B1 review procedures"
+    "automatic launch capability must stay limited to the two existing review procedures"
   );
+  assert.equal(registry.procedures.some((procedure) => procedure.review_launch_profile), false, "current registry must not duplicate concrete binding profiles");
+  const binding = JSON.parse(fs.readFileSync(path.join(productRoot, "skills/self-hosting/codex-reference-binding.json"), "utf8"));
+  assert.ok(binding.source_trace.length >= 6);
+  assert.ok(binding.source_trace.every((entry) => entry.dependency_impact === "none" && entry.source_type && entry.source_status));
+  for (const schema of ["self-hosting-procedure-execution-policy.schema.json", "self-hosting-review-route-policy.schema.json", "codex-reference-binding.schema.json", "review-routing-evaluation.schema.json", "review-routing-decision.schema.json", "prepared-successor-cleanup.schema.json"]) {
+    assert.ok(fs.existsSync(path.join(productRoot, "schemas", schema)), `missing Phase F schema ${schema}`);
+  }
 
   const registrySchema = JSON.parse(fs.readFileSync(path.join(productRoot, "schemas", "self-hosting-procedure-registry.schema.json"), "utf8"));
   assert.ok(
@@ -424,7 +428,7 @@ test("phase 23.8 registry is canonical, schema-backed, and preserves procedure s
     "^prompts/self-hosting/[a-z0-9-]+\\.md$"
   );
   assert.equal(
-    registrySchema.properties?.procedures?.items?.properties?.review_launch_profile?.properties?.adapter_id?.const,
+    registrySchema.properties?.procedures?.items?.properties?.automatic_launch_capability?.properties?.adapter_id?.const,
     "codex_cli"
   );
 });
@@ -440,6 +444,20 @@ test("phase 23.8 registry validation fails closed on prompt wrapper path mismatc
     (error) => error instanceof Error
       && error.message.includes(`prompt_wrapper_path must be prompts/self-hosting/${firstProcedure.procedure_id}.md`)
   );
+});
+
+test("phase 23.8.6F registry reader preserves legacy concrete schema-v1 compatibility", () => {
+  const { registryModule } = loadBuiltModules();
+  const legacy = JSON.parse(fs.readFileSync(path.join(productRoot, "skills/self-hosting/procedure-registry.json"), "utf8"));
+  delete legacy.contract_version;
+  delete legacy.related_policies;
+  for (const descriptor of legacy.procedures) {
+    delete descriptor.execution_policy_ref;
+    delete descriptor.automatic_launch_capability;
+  }
+  const parsed = registryModule.validateSelfHostingProcedureRegistry(legacy);
+  assert.equal(parsed.contract_version, "legacy_static");
+  assert.equal(parsed.procedures.length, 15);
 });
 
 test("phase 23.8 operator status uses registry required_inputs instead of hard-coded prompt strings", () => {

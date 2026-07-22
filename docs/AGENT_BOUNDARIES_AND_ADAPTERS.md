@@ -43,6 +43,14 @@ Context transport is explicit: independent review uses `fresh_packet` or
 or bounded fix-pass; `fork_non_authoritative` output remains observational
 until independently reviewed and promoted.
 
+Phase 23.8.6F implements four provider-neutral transport contracts:
+`fresh_packet`, `resume_same_role`, `packet_plus_retrieval`, and
+`fresh_independent_delta`. The current Codex adapter supports only the
+capabilities declared in `skills/self-hosting/codex-reference-binding.json`
+and may automatically launch only `plan-review` and `implementation-review`.
+This narrow existing-review-path seam is not a Desktop adapter or a general
+runner. Phase 31 remains the first general external-runner execution boundary.
+
 ## Agent profile
 
 Each agent profile must define:

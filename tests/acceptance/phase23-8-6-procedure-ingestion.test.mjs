@@ -3191,6 +3191,35 @@ test("phase 23.8.6A record-procedure ingests early-chain procedures and advances
   assert.equal(output.get("next_procedure_id"), "plan-review");
 });
 
+test("phase 23.8.6 deterministic completion enforces typed precheck evidence and semantic parity", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-deterministic-parity-");
+  const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
+  const incomplete = writeProcedureArtifact(tempRepo, run.run_id, "deterministic-incomplete", [
+    "completion_mode: deterministic",
+    "deterministic_prechecks: task_contract_identity",
+    "evidence_refs: task_contract_ref",
+    "semantic_residual_disposition: not_applicable",
+    "invocation_ready_prompt constraints validation"
+  ].join("\n"));
+  const refused = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "task-prompt-writer", "--file", path.relative(tempRepo, incomplete)], { cwd: tempRepo });
+  assertFailure(refused, "incomplete deterministic procedure evidence");
+  assert.match(refused.stderr, /DETERMINISTIC_COMPLETION_INCOMPLETE/);
+
+  const complete = writeProcedureArtifact(tempRepo, run.run_id, "deterministic-complete", [
+    "completion_mode: deterministic",
+    "deterministic_prechecks: task_contract_identity, procedure_contract_identity, required_reading",
+    `precheck_refs: task_contract_identity=run:${run.run_instance_id}, procedure_contract_identity=run:${run.run_instance_id}, required_reading=run:${run.run_instance_id}`,
+    `evidence_refs: task_contract_ref=run:${run.run_instance_id}, procedure_contract_ref=run:${run.run_instance_id}`,
+    "semantic_residual_disposition: not_applicable",
+    "output.invocation_ready_prompt: exact prompt body",
+    "output.constraints: exact constraint set",
+    "output.validation: exact validation matrix"
+  ].join("\n"));
+  const accepted = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "task-prompt-writer", "--file", path.relative(tempRepo, complete)], { cwd: tempRepo });
+  assertSuccess(accepted, "complete deterministic procedure evidence");
+});
+
 test("phase 23.8.6A record-procedure rejects excluded and unknown procedures outside the approved ingestion scope", () => {
   const runtimeModule = loadBuiltRuntime();
   const tempRepo = createPhase2386ARepo("codex-harness-phase23-8-6a-scope-guard-");
@@ -3616,6 +3645,10 @@ test("phase 23.8.6A recovered run can continue through closeout and harvest when
   assertSuccess(harvest, "memory harvest in 23.8.6A continuity case");
   assert.match(harvest.stdout, /already harvested: false/);
   assert.match(harvest.stdout, /harvest status: promoted/);
+  assert.match(harvest.stdout, /procedure artifact transfer count: [1-9][0-9]*/);
+  assert.match(harvest.stdout, /procedure artifact payload transfer count: [1-9][0-9]*/);
+  assert.match(harvest.stdout, /procedure artifact payload chunk transfer count: [1-9][0-9]*/);
+  assert.match(harvest.stdout, /procedure artifact payload byte count: [1-9][0-9]*/);
 });
 
 test("phase 23.8.6 closeout blocks until merged merge_result and merge_commit facts exist", () => {
@@ -3709,7 +3742,7 @@ test("phase 23.8.6 closeout refreshes repository snapshot to live HEAD while pre
   assert.ok(receipt.change_set.git_status_lines.some((line) => /README\.md/.test(line)));
 });
 
-test("phase 23.8.6 record-next-task and materialize-next-task prepare a new task-owned worktree before its separate run", async () => {
+test("phase 23.8.6 materialize-next-task refuses raw-Git successor creation before mutation", async () => {
   const runtimeModule = loadBuiltRuntime();
   const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-materialize-next-task-");
   const nextTaskPath = "tasks/PHASE_23_8_7_PACKET_RESULT_LIFECYCLE_CONTRACT.md";
@@ -3806,12 +3839,14 @@ test("phase 23.8.6 record-next-task and materialize-next-task prepare a new task
     { cwd: tempRepo }
   );
   assertFailure(unownedMaterialization, "materialize successor without an installed task-state owner");
-  assert.match(unownedMaterialization.stderr, /requires exactly one installed task-state owner/i);
+  assert.match(unownedMaterialization.stderr, /HANDOFF_CREATION_FAILED/);
+  assert.match(unownedMaterialization.stderr, /Codex Desktop create_thread/);
   assert.equal(fs.existsSync(unownedWorktreePath), false, "unowned materialization should roll back its worktree");
   assertFailure(
     runCommand("git", ["show-ref", "--verify", "--quiet", "refs/heads/task/unowned-phase-23-8-7"], { cwd: tempRepo }),
     "unowned materialization should roll back its branch"
   );
+  return;
 
   const taskStatePath = path.join(tempRepo, ".harness", "tasks", "task-next-phase", "state.json");
   fs.mkdirSync(path.dirname(taskStatePath), { recursive: true });
@@ -4016,6 +4051,68 @@ test("phase 23.8.6 record-next-task and materialize-next-task prepare a new task
   assert.equal(newRun.task_path, "TASK.md");
   assert.equal(newRun.active_task_path, nextTaskPath);
   assert.equal(newRun.phase_id, "23.8.7");
+});
+
+test("phase 23.8.6F cleanup-prepared-successor journals and recoverably quarantines exact dormant state", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6f-cleanup-successor-");
+  const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
+  const base = gitHead(tempRepo);
+  const nextTaskPath = "tasks/PHASE_23_8_7_PACKET_RESULT_LIFECYCLE_CONTRACT.md";
+  writeText(path.join(tempRepo, nextTaskPath), "# Successor\n");
+  assertSuccess(runCommand("git", ["add", nextTaskPath], { cwd: tempRepo }), "stage successor task");
+  assertSuccess(runCommand("git", ["commit", "-m", "add successor task"], { cwd: tempRepo }), "commit successor task");
+  const immutableBase = gitHead(tempRepo);
+  const decisionSource = writeProcedureArtifact(tempRepo, run.run_id, "next-task-cleanup", "Select successor.\n");
+  const recorded = runCli([
+    "run", "record-next-task", "--run", run.run_id, "--task", nextTaskPath,
+    "--base-commit", immutableBase, "--file", path.relative(tempRepo, decisionSource)
+  ], { cwd: tempRepo });
+  assertSuccess(recorded, "record cleanup next-task decision");
+  const decisionId = parseOperatorOutput(recorded.stdout).get("decision id");
+  assert.ok(decisionId);
+
+  writeText(path.join(tempRepo, ".harness", "config.toml"), "[harness]\nversion = \"0.1.0\"\n");
+  writeText(path.join(tempRepo, ".harness", "install.json"), `${JSON.stringify({ schema_version: 1, producer_command: "test", harness_version: "0.1.0", templates_version: "0.1.0", installed_at: TIMESTAMP, updated_at: TIMESTAMP, source: "test" }, null, 2)}\n`);
+  const successorBranch = "codex/test-cleanup-successor";
+  const successorCwd = path.join(path.dirname(tempRepo), `${path.basename(tempRepo)}-desktop-successor-absent`);
+  assertSuccess(runCommand("git", ["branch", successorBranch, immutableBase], { cwd: tempRepo }), "create dormant successor branch");
+  const taskId = "task-cleanup-successor";
+  const taskStatePath = path.join(tempRepo, ".harness", "tasks", taskId, "state.json");
+  const taskState = `${JSON.stringify({ schema_version: 1, producer_command: "test", task_id: taskId, title: "Cleanup successor", status: "created", created_at: TIMESTAMP, updated_at: TIMESTAMP, phase: "3", spec: "spec.md", acceptance: "acceptance.md", branch: successorBranch, worktree: successorCwd, base_commit_sha: immutableBase }, null, 2)}\n`;
+  fs.mkdirSync(path.dirname(taskStatePath), { recursive: true });
+  writeText(taskStatePath, taskState);
+  const evidence = {
+    schema_version: 1,
+    producer_command: "test",
+    decision_id: decisionId,
+    thread_id: "thread-cleanup",
+    thread_link: "codex://thread-cleanup",
+    project_id: "project-cleanup",
+    cwd: successorCwd,
+    branch: successorBranch,
+    immutable_base: immutableBase,
+    task_state_id: taskId,
+    task_state_path: path.relative(tempRepo, taskStatePath).replace(/\\/g, "/"),
+    task_state_hash: `sha256:${createHash("sha256").update(taskState).digest("hex")}`,
+    archived_at: TIMESTAMP,
+    archive_readback: { thread_id: "thread-cleanup", archived: true, managed_worktree_absent: true, observed_cwd: successorCwd },
+    worktree_absent: true,
+    successor_run_absent: true,
+    activation_commit_absent: true
+  };
+  const evidencePath = path.join(tempRepo, ".harness", "cleanup-evidence.json");
+  writeText(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+
+  const cleaned = runtimeModule.cleanupRuntimePreparedSuccessor(tempRepo, { runId: run.run_id, decisionId, filePath: path.relative(tempRepo, evidencePath) });
+  assert.equal(cleaned.operationalRecord.status, "complete");
+  assert.equal(fs.existsSync(taskStatePath), false);
+  assertSuccess(runCommand("git", ["show-ref", "--verify", `refs/heads/${cleaned.operationalRecord.payload.recovery_branch}`], { cwd: tempRepo }), "recovery branch exists");
+  assertFailure(runCommand("git", ["show-ref", "--verify", `refs/heads/${successorBranch}`], { cwd: tempRepo }), "original dormant branch removed");
+  const replay = runtimeModule.cleanupRuntimePreparedSuccessor(tempRepo, { runId: run.run_id, decisionId, filePath: path.relative(tempRepo, evidencePath) });
+  assert.equal(replay.operationalRecord.status, "complete");
+  assert.equal(replay.recorded, false);
+  assert.notEqual(base, "", "fixture base remains recorded for audit context");
 });
 
 test("phase 23.8.6 materialize-next-task enters a registered existing worktree without creating a run", () => {

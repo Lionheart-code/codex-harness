@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import { PAYLOAD_WARNING_THRESHOLD_BYTES } from "./payload-store";
@@ -15,6 +16,7 @@ import {
 } from "./run-staging-db";
 import { type DatabaseLike, openSqliteDatabase } from "./sqlite";
 import { type Run } from "./runtime";
+import { canonicalJson } from "./evidence-types";
 import { indexSelfHostingProceduresById, readSelfHostingProcedureRegistry } from "./self-hosting-procedures";
 
 export class HarvestConflictError extends Error {
@@ -146,6 +148,19 @@ export interface AuthoritativeProcedureArtifactBody {
   reviewed_plan_artifact_id?: string;
   reviewed_plan_content_hash?: string;
   reviewed_evidence_artifact_id?: string;
+}
+
+export interface ReviewReplayEligibility {
+  run_instance_id: string;
+  eligible: boolean;
+  source_status: string;
+  packet_record_id?: string;
+  approved_attempt_id?: string;
+  accepted_artifact_id?: string;
+  accepted_result_id?: string;
+  payload_count: number;
+  reconstructed_payload_count: number;
+  reasons: string[];
 }
 
 function nowIso(): string {
@@ -591,6 +606,148 @@ export class ProjectMemoryDatabase {
     }
   }
 
+  hasRunForSuccessorIdentity(cwd: string, branch: string): boolean {
+    const database = this.open();
+    try {
+      migrateProjectExactAuthority(database);
+      const rows = database.prepare("SELECT run_json FROM project_run_instances").all() as Array<{ run_json?: string }>;
+      return rows.some((row) => {
+        if (!row.run_json) return false;
+        const run = JSON.parse(row.run_json) as Run;
+        return run.repository.branch === branch
+          || run.repository.root_path === cwd
+          || run.repository.task_worktree_path === cwd;
+      });
+    } finally {
+      database.close();
+    }
+  }
+
+  reviewReplayEligibility(runInstanceId: string, packetRecordId?: string): ReviewReplayEligibility {
+    const run = this.getRunByInstanceId(runInstanceId);
+    const harvest = this.getHarvestRecordByRunInstanceId(runInstanceId);
+    const reasons: string[] = [];
+    if (!run) reasons.push("source_run_missing");
+    if (!harvest) reasons.push("source_harvest_missing");
+    if (run && run.lifecycle_status !== "harvested") reasons.push("source_not_harvested");
+    const packets = run?.review_routing_records?.filter((entry) => entry.record_kind === "review_replay_packet") ?? [];
+    const packet = packetRecordId
+      ? packets.find((entry) => entry.record_id === packetRecordId)
+      : packets.length === 1 ? packets[0] : undefined;
+    if (!packetRecordId && packets.length > 1) reasons.push("replay_packet_identity_required");
+    if (packetRecordId && !packet) reasons.push("requested_replay_packet_missing");
+    if (!packet) reasons.push(run?.phase_id === "23.8.6F" ? "review_replay_packet_missing" : "legacy_pre_f_replay_packet_missing");
+    if (packet && packet.record_id !== `sha256:${createHash("sha256").update(canonicalJson(packet.payload)).digest("hex")}`) {
+      reasons.push("review_replay_packet_identity_mismatch");
+    }
+    const payloadIds = packet && Array.isArray(packet.payload.payload_ids)
+      ? packet.payload.payload_ids.filter((entry): entry is string => typeof entry === "string")
+      : [];
+    if (packet && payloadIds.length === 0) reasons.push("replay_payload_index_empty");
+    const payloadKinds = packet?.payload.payload_kinds && typeof packet.payload.payload_kinds === "object"
+      ? packet.payload.payload_kinds as Record<string, unknown>
+      : {};
+    for (const kind of ["review-request-packet", "context-core", "context-manifest", "review-delta-overlay"]) {
+      if (typeof payloadKinds[kind] !== "string" || !payloadIds.includes(payloadKinds[kind] as string)) {
+        reasons.push(`replay_payload_kind_missing:${kind}`);
+      }
+    }
+    const approvedAttemptId = typeof packet?.payload.approved_attempt_id === "string" ? packet.payload.approved_attempt_id : undefined;
+    const acceptedArtifactId = typeof packet?.payload.accepted_artifact_id === "string" ? packet.payload.accepted_artifact_id : undefined;
+    const acceptedResultId = typeof packet?.payload.accepted_result_id === "string" ? packet.payload.accepted_result_id : undefined;
+    const invocation = approvedAttemptId ? run?.review_routing_records?.find((entry) => entry.record_kind === "review_invocation"
+      && entry.status === "success" && entry.payload.attempt_id === approvedAttemptId) : undefined;
+    const result = acceptedResultId ? run?.review_results.find((entry) => entry.review_result_id === acceptedResultId
+      && entry.status === "PASS" && entry.artifact_refs.some((artifact) => artifact.artifact_id === acceptedArtifactId)) : undefined;
+    const artifact = acceptedArtifactId ? run?.artifacts.find((entry) => entry.artifact_id === acceptedArtifactId) : undefined;
+    if (!approvedAttemptId || !invocation) reasons.push("approved_attempt_join_missing");
+    if (!acceptedArtifactId || !artifact) reasons.push("accepted_artifact_join_missing");
+    if (!acceptedResultId || !result) reasons.push("accepted_result_join_missing");
+    const procedureId = typeof packet?.payload.procedure_id === "string" ? packet.payload.procedure_id : undefined;
+    if (!procedureId || invocation?.payload.procedure_id !== procedureId
+      || !result || result.source !== `procedure:${procedureId}`
+      || artifact?.kind !== `procedure-artifact:${procedureId}`) {
+      reasons.push("packet_procedure_join_mismatch");
+    }
+    if (packet?.payload.pass_kind !== invocation?.payload.pass_kind
+      || packet?.payload.immutable_base !== invocation?.payload.immutable_base
+      || canonicalJson(packet?.payload.risk_classes ?? []) !== canonicalJson(invocation?.payload.risk_classes ?? [])) {
+      reasons.push("packet_pass_risk_base_join_mismatch");
+    }
+    for (const [field, invocationField] of [
+      ["context_core_id", "context_core_id"], ["context_manifest_id", "context_manifest_id"], ["delta_overlay_id", "delta_overlay_id"],
+      ["route_decision_id", "route_decision_id"], ["policy_version", "routing_policy_version"], ["binding_version", "binding_version"]
+    ] as const) {
+      if (!packet || typeof packet.payload[field] !== "string" || packet.payload[field] !== invocation?.payload[invocationField]) reasons.push(`packet_attempt_identity_mismatch:${field}`);
+    }
+    if (packet?.payload.run_instance_id !== runInstanceId || packet.payload.source_run_id !== run?.run_id
+      || packet.payload.source_snapshot !== run?.source_snapshot) reasons.push("packet_source_identity_mismatch");
+    let reconstructed = 0;
+    let reconstructedRequestHash: string | undefined;
+    const reconstructedKinds = new Map<string, unknown>();
+    const database = this.open();
+    try {
+      for (const payloadId of payloadIds) {
+        const projectPayloadId = namespaceProjectRowId(runInstanceId, payloadId);
+        const index = database.prepare([
+          "SELECT compression_status, chunk_count, raw_size_bytes, content_hash FROM payload_index WHERE payload_id = ?"
+        ].join(" ")).get(projectPayloadId) as { compression_status?: string; chunk_count?: number; raw_size_bytes?: number; content_hash?: string } | undefined;
+        if (!index) {
+          reasons.push(`payload_missing:${payloadId}`);
+          continue;
+        }
+        const chunks = database.prepare(
+          "SELECT chunk_order, chunk_bytes FROM payload_chunks WHERE payload_id = ? ORDER BY chunk_order ASC"
+        ).all(projectPayloadId) as Array<{ chunk_order: number; chunk_bytes: Uint8Array }>;
+        if (chunks.length !== index.chunk_count || chunks.some((entry, order) => entry.chunk_order !== order)) {
+          reasons.push(`payload_chunks_invalid:${payloadId}`);
+          continue;
+        }
+        const stored = Buffer.concat(chunks.map((entry) => Buffer.from(entry.chunk_bytes)));
+        const raw = index.compression_status === "gzip" ? gunzipSync(stored) : stored;
+        if (raw.byteLength !== index.raw_size_bytes || sha256Hex(raw) !== index.content_hash) {
+          reasons.push(`payload_hash_mismatch:${payloadId}`);
+          continue;
+        }
+        if (payloadId === packet?.payload.request_payload_id) reconstructedRequestHash = `sha256:${sha256Hex(raw)}`;
+        const kind = Object.entries(payloadKinds).find(([, id]) => id === payloadId)?.[0];
+        if (kind && kind !== "review-request-packet") {
+          try {
+            reconstructedKinds.set(kind, JSON.parse(raw.toString("utf8")) as unknown);
+          } catch {
+            reasons.push(`payload_json_invalid:${kind}`);
+          }
+        }
+        reconstructed += 1;
+      }
+    } finally {
+      database.close();
+    }
+    if (!reconstructedRequestHash || reconstructedRequestHash !== packet?.payload.request_content_hash) reasons.push("request_materialization_mismatch");
+    for (const [kind, idField, hashField] of [
+      ["context-core", "context_core_id", "context_core_hash"],
+      ["context-manifest", "context_manifest_id", "context_manifest_hash"],
+      ["review-delta-overlay", "delta_overlay_id", "delta_overlay_hash"]
+    ] as const) {
+      const value = reconstructedKinds.get(kind) as Record<string, unknown> | undefined;
+      if (!value || value[idField] !== packet?.payload[idField] || value.content_hash !== packet?.payload[hashField]) {
+        reasons.push(`payload_object_identity_mismatch:${kind}`);
+      }
+    }
+    return {
+      run_instance_id: runInstanceId,
+      eligible: reasons.length === 0,
+      source_status: run?.lifecycle_status ?? "missing",
+      ...(packet ? { packet_record_id: packet.record_id } : {}),
+      ...(approvedAttemptId ? { approved_attempt_id: approvedAttemptId } : {}),
+      ...(acceptedArtifactId ? { accepted_artifact_id: acceptedArtifactId } : {}),
+      ...(acceptedResultId ? { accepted_result_id: acceptedResultId } : {}),
+      payload_count: payloadIds.length,
+      reconstructed_payload_count: reconstructed,
+      reasons: [...new Set(reasons)].sort()
+    };
+  }
+
   saveAcceptedRun(
     run: Run,
     deliveryFacts: DeliveryFactRecord[],
@@ -599,11 +756,13 @@ export class ProjectMemoryDatabase {
     if (!hasExactRunIdentity(run)) {
       throw new Error(`Accepted run ${run.run_id} lacks exact immutable identity.`);
     }
-    const transfer = run.source_staging_db_path
+    const sourceStagingPath = run.source_staging_db_path
+      ?? path.join(this.targetRoot, ".harness", "runs", run.run_id, "staging.sqlite");
+    const transfer = fs.existsSync(sourceStagingPath)
       ? namespaceProjectTransferSnapshot(
           run.run_instance_id,
           run.run_id,
-          readStagingTransferSnapshot(run.source_staging_db_path, run.run_id, run.run_instance_id)
+          readStagingTransferSnapshot(sourceStagingPath, run.run_id, run.run_instance_id)
         )
       : undefined;
     const namespacedDeliveryFacts = namespaceProjectDeliveryFacts(run.run_instance_id, deliveryFacts);
@@ -841,6 +1000,28 @@ export class ProjectMemoryDatabase {
             fact.excerpt_payload_id ?? null,
             stringify(fact)
           );
+        }
+      }
+
+      const expectedTransfer = harvestRecord.details;
+      const destinationDescriptor = database.prepare([
+        "SELECT COUNT(*) AS descriptor_count, COUNT(DISTINCT payload_id) AS payload_count",
+        "FROM procedure_artifacts WHERE run_instance_id = ?"
+      ].join(" ")).get(run.run_instance_id) as { descriptor_count?: number; payload_count?: number } | undefined;
+      const destinationPayload = database.prepare([
+        "SELECT COALESCE(SUM(pi.chunk_count), 0) AS chunk_count, COALESCE(SUM(pi.raw_size_bytes), 0) AS byte_count",
+        "FROM payload_index pi WHERE pi.payload_id IN (SELECT DISTINCT payload_id FROM procedure_artifacts WHERE run_instance_id = ?)"
+      ].join(" ")).get(run.run_instance_id) as { chunk_count?: number; byte_count?: number } | undefined;
+      const destinationTransfer = {
+        procedure_artifact_transfer_count: Number(destinationDescriptor?.descriptor_count ?? 0),
+        procedure_artifact_payload_transfer_count: Number(destinationDescriptor?.payload_count ?? 0),
+        procedure_artifact_payload_chunk_transfer_count: Number(destinationPayload?.chunk_count ?? 0),
+        procedure_artifact_payload_byte_count: Number(destinationPayload?.byte_count ?? 0)
+      };
+      for (const [field, actual] of Object.entries(destinationTransfer)) {
+        const expected = expectedTransfer[field as keyof typeof expectedTransfer];
+        if (expected !== undefined && expected !== actual) {
+          throw new Error(`Procedure artifact harvest source/destination transfer mismatch for ${field}.`);
         }
       }
 

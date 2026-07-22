@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Codex reference binding",
+  "type": "object",
+  "required": ["schema_version", "producer_command", "contract_version", "binding_id", "binding_version", "accepted_binding_version", "source_trace", "capability_snapshot", "profiles"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "producer_command": {"type": "string", "minLength": 1},
+    "contract_version": {"type": "string", "minLength": 1},
+    "binding_id": {"type": "string", "minLength": 1},
+    "binding_version": {"type": "string", "minLength": 1},
+    "accepted_binding_version": {"type": "string", "minLength": 1},
+    "previous_accepted_binding_version": {"type": "string", "minLength": 1},
+    "source_trace": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["source", "source_type", "source_status", "retrieved", "primitive", "existing_harness_equivalent", "incompatibility", "decision", "target", "reason", "dependency_impact"]}},
+    "capability_snapshot": {"type": "object"},
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["profile_id", "route_class", "adapter_id", "model", "reasoning_effort", "verbosity", "status", "capabilities"],
+        "properties": {
+          "profile_id": {"type": "string", "minLength": 1},
+          "route_class": {"enum": ["deterministic_no_model", "balanced_routine", "complex_judgment", "critical_independent"]},
+          "adapter_id": {"const": "codex_cli"},
+          "model": {"type": "string", "minLength": 1},
+          "reasoning_effort": {"type": "string", "minLength": 1},
+          "verbosity": {"enum": ["low", "medium", "high"]},
+          "status": {"enum": ["accepted", "candidate", "rollback"]},
+          "capabilities": {
+            "type": "object",
+            "required": ["fresh_packet", "resume_same_role", "packet_plus_retrieval", "fresh_independent_delta", "jsonl_usage"],
+            "properties": {
+              "fresh_packet": {"type": "boolean"},
+              "resume_same_role": {"type": "boolean"},
+              "packet_plus_retrieval": {"type": "boolean"},
+              "fresh_independent_delta": {"type": "boolean"},
+              "jsonl_usage": {"type": "boolean"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

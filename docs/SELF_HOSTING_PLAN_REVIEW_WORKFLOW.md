@@ -148,6 +148,17 @@ Final source-owned placement must be exactly one of:
 - explicit owner decision/report-only outcome when no implementation work is
   being assigned.
 
+## Direct reviewer and anti-recursion rule
+
+The existing launcher prepends a mandatory block telling the child it is
+already the independent reviewer and must produce the canonical artifact
+directly. The child must not launch or delegate to another reviewer, invoke
+`codex exec`, or wait on the supervisor's output path. Runtime enforcement is
+separate: inherited reviewer-attempt context is checked against the exact live
+claim, and a nested `run launch-review` returns
+`REVIEW_RECURSION_FORBIDDEN` before any second claim/process/wait. Prompt text
+is not the safety boundary.
+
 The allocation must also say whether the finding is:
 
 - a current blocker;

@@ -22,7 +22,13 @@ export const PRODUCT_SCHEMA_FILE_NAMES = [
   "verified-snapshot.schema.json",
   "change-set-fingerprint.schema.json",
   "evidence-projection.schema.json",
-  "self-hosting-procedure-registry.schema.json"
+  "self-hosting-procedure-registry.schema.json",
+  "self-hosting-procedure-execution-policy.schema.json",
+  "self-hosting-review-route-policy.schema.json",
+  "codex-reference-binding.schema.json",
+  "review-routing-evaluation.schema.json",
+  "review-routing-decision.schema.json",
+  "prepared-successor-cleanup.schema.json"
 ] as const;
 
 export type ProductSchemaFileName = (typeof PRODUCT_SCHEMA_FILE_NAMES)[number];

@@ -26,7 +26,7 @@ import {
   captureVerifiedSnapshot,
   decideLocalVerificationReuse
 } from "./verification-evidence";
-import { detectGitRepository, getGitStatusLines, getGitStatusPaths, runGitCommand, worktreePathExistsInGit } from "./git";
+import { detectGitRepository, getGitDiffPatch, getGitStatusLines, getGitStatusPaths, runGitCommand, worktreePathExistsInGit } from "./git";
 import { harvestRun } from "./harvest";
 import { detectInstalledLayer } from "./install";
 import {
@@ -66,6 +66,35 @@ import {
   type SelfHostingProcedureRegistry,
   type SelfHostingReviewLaunchProfile
 } from "./self-hosting-procedures";
+import {
+  decideReviewRoute,
+  readCodexReferenceBinding,
+  readProcedureExecutionPolicy,
+  readReviewRoutePolicy,
+  reconcileProcedureExecutionPolicy,
+  resolveCodexBinding,
+  type CodexBindingProfile,
+  type ReviewRouteDecision
+} from "./self-hosting-review-policy";
+import {
+  assembleReviewRequest,
+  buildContextCore,
+  buildContextManifest,
+  buildReviewDeltaOverlay,
+  type ContextCore,
+  type ContextManifest,
+  type ReviewDeltaOverlay
+} from "./self-hosting-review-context";
+import {
+  evaluatePromotionGates,
+  routingEvaluationId,
+  validateRoutingEvaluationBundle,
+  type RoutingDecisionKind
+} from "./review-routing-evaluation";
+import {
+  buildPreparedSuccessorCleanupReceipt,
+  readPreparedSuccessorCleanupEvidence
+} from "./prepared-successor-cleanup";
 import { createTask, getTaskDirectory, listTasks, readTaskStateById, writeTaskState, type TaskState } from "./tasks";
 import { bootstrapWorktree } from "./worktree";
 
@@ -325,6 +354,7 @@ export interface Run {
   source_snapshot?: string;
   source_staging_db_path?: string;
   review_launch_claims?: ReviewLaunchClaim[];
+  review_routing_records?: ReviewOperationalRecord[];
 }
 
 export interface BuildRuntimeRunInput {
@@ -415,6 +445,8 @@ export type ReviewLaunchStatus =
 
 export interface ReviewLaunchClaim {
   claim_id: string;
+  attempt_id: string;
+  attempt_marker: string;
   procedure_id: "plan-review" | "implementation-review";
   owner_token_hash: string;
   created_at: string;
@@ -425,6 +457,15 @@ export interface ReviewLaunchClaim {
   termination_policy: "terminal_completion_only";
   pid?: number;
   progress_unknown_at?: string;
+}
+
+export interface ReviewOperationalRecord {
+  record_kind: "review_invocation" | "review_replay_packet" | "routing_evaluation" | "routing_decision" | "routing_policy_application" | "prepared_successor_cleanup";
+  record_id: string;
+  created_at: string;
+  status: string;
+  summary: string;
+  payload: Record<string, unknown>;
 }
 
 export interface ReviewLaunchObservation {
@@ -469,6 +510,59 @@ export interface ReviewLaunchObservation {
   stdout_tail?: string;
   stderr_tail?: string;
   payload_refs?: ReviewLaunchPayloadRef[];
+  route_decision_id?: string;
+  route_class?: string;
+  routing_policy_version?: string;
+  binding_version?: string;
+  binding_profile_id?: string;
+  context_core_id?: string;
+  context_manifest_id?: string;
+  delta_overlay_id?: string;
+  context_mode?: string;
+  context_reuse?: "hit" | "miss" | "rebuilt";
+  context_reuse_reason?: string;
+  request_bytes?: number;
+  core_bytes?: number;
+  delta_bytes?: number;
+  input_tokens?: number;
+  cached_input_tokens?: number;
+  cache_write_tokens?: number;
+  output_tokens?: number;
+  tool_call_count?: number;
+  latency_ms?: number;
+  evaluation_mode?: "approved" | "shadow" | "replay" | "canary";
+  approved_attempt_id?: string;
+  evaluation_case_id?: string;
+  candidate_policy_version?: string;
+  candidate_binding_version?: string;
+  candidate_profile_id?: string;
+  source_application_decision_id?: string;
+  pass_kind?: string;
+  immutable_base?: string;
+  risk_classes?: string[];
+  canary_authorization_id?: string;
+  replay_source_run_instance_id?: string;
+  replay_packet_artifact_id?: string;
+}
+
+export interface ReviewRecursionFacts {
+  failure_classification: "REVIEW_RECURSION_FORBIDDEN";
+  outer_run_instance_id: string;
+  outer_procedure_id: string;
+  outer_attempt_id: string;
+  attempted_nested_procedure_id: string;
+  outer_claim_validation: "matched" | "invalid";
+  claim_created: false;
+  child_spawned: false;
+  artifact_wait_started: false;
+  next_valid_action: "complete the outer reviewer artifact directly";
+}
+
+export class ReviewRecursionForbiddenError extends Error {
+  constructor(public readonly facts: ReviewRecursionFacts) {
+    super("REVIEW_RECURSION_FORBIDDEN: a launched reviewer must complete its artifact directly.");
+    this.name = "ReviewRecursionForbiddenError";
+  }
 }
 
 export interface ReviewLaunchPayloadRef {
@@ -485,6 +579,11 @@ export interface ReviewLaunchPayloadRef {
 
 export interface RuntimeReviewLaunchResult extends RuntimeServiceResult {
   observation: ReviewLaunchObservation;
+}
+
+export interface RuntimeOperationalRecordResult extends RuntimeServiceResult {
+  operationalRecord: ReviewOperationalRecord;
+  recorded: boolean;
 }
 
 export interface RuntimeCloseoutResult extends RuntimeServiceResult {
@@ -559,6 +658,38 @@ export interface LaunchReviewOptions extends RuntimeDryRunOptions {
   outputPath: string;
   timeoutSeconds?: number;
   staleAfterSeconds?: number;
+  evaluationMode?: "approved" | "shadow" | "replay" | "canary";
+  approvedAttemptId?: string;
+  evaluationCaseId?: string;
+  candidatePolicyVersion?: string;
+  candidateBindingVersion?: string;
+  candidateOutputPath?: string;
+  canaryAuthorizationId?: string;
+  replaySourceRunInstanceId?: string;
+  replayPacketArtifactId?: string;
+}
+
+export interface RecordRoutingEvaluationOptions extends RuntimeDryRunOptions { filePath: string; }
+export interface DecideRoutingPolicyOptions extends RuntimeDryRunOptions {
+  evaluationId: string;
+  decision: RoutingDecisionKind;
+  policyVersion: string;
+  bindingVersion: string;
+  approver: string;
+  reason: string;
+  selectorPath?: string;
+  maxInvocations?: number;
+}
+export interface RecordRoutingPolicySourceApplicationOptions extends RuntimeDryRunOptions {
+  decisionId: string;
+  commitSha: string;
+  policyFile: string;
+  bindingFile: string;
+  implementationReviewArtifactId: string;
+}
+export interface CleanupPreparedSuccessorOptions extends RuntimeDryRunOptions {
+  decisionId: string;
+  filePath: string;
 }
 
 export interface ApprovePlanOptions extends RuntimeDryRunOptions {
@@ -2008,6 +2139,9 @@ export function validateRuntimeRun(value: unknown): Run {
   const reviewLaunchClaims = record.review_launch_claims === undefined
     ? undefined
     : validateReviewLaunchClaims(record.review_launch_claims);
+  const reviewOperationalRecords = record.review_routing_records === undefined
+    ? undefined
+    : validateReviewOperationalRecords(record.review_routing_records);
 
   return {
     schema_version: CURRENT_SCHEMA_VERSION,
@@ -2053,8 +2187,29 @@ export function validateRuntimeRun(value: unknown): Run {
     ...(typeof record.harvested_at === "string" ? { harvested_at: record.harvested_at } : {}),
     ...(typeof record.source_snapshot === "string" ? { source_snapshot: record.source_snapshot } : {}),
     ...(typeof record.source_staging_db_path === "string" ? { source_staging_db_path: record.source_staging_db_path } : {}),
-    ...(reviewLaunchClaims ? { review_launch_claims: reviewLaunchClaims } : {})
+    ...(reviewLaunchClaims ? { review_launch_claims: reviewLaunchClaims } : {}),
+    ...(reviewOperationalRecords ? { review_routing_records: reviewOperationalRecords } : {})
   };
+}
+
+function validateReviewOperationalRecords(value: unknown): ReviewOperationalRecord[] {
+  if (!Array.isArray(value)) throw new Error("runtime run has invalid review_routing_records.");
+  return value.map((entry, index) => {
+    const record = assertObject(entry, `runtime run review_routing_records[${index}]`);
+    const kind = String(record.record_kind ?? "");
+    if (!["review_invocation", "review_replay_packet", "routing_evaluation", "routing_decision", "routing_policy_application", "prepared_successor_cleanup"].includes(kind)) {
+      throw new Error(`runtime run review_routing_records[${index}] has invalid record_kind.`);
+    }
+    const payload = assertObject(record.payload, `runtime run review_routing_records[${index}] payload`);
+    return {
+      record_kind: kind as ReviewOperationalRecord["record_kind"],
+      record_id: (assertRequiredString(record, "record_id", `runtime run review_routing_records[${index}]`), String(record.record_id)),
+      created_at: (assertRequiredString(record, "created_at", `runtime run review_routing_records[${index}]`), String(record.created_at)),
+      status: (assertRequiredString(record, "status", `runtime run review_routing_records[${index}]`), String(record.status)),
+      summary: (assertRequiredString(record, "summary", `runtime run review_routing_records[${index}]`), String(record.summary)),
+      payload
+    };
+  });
 }
 
 function validateReviewLaunchClaims(value: unknown): ReviewLaunchClaim[] {
@@ -2088,6 +2243,8 @@ function validateReviewLaunchClaims(value: unknown): ReviewLaunchClaim[] {
 
     return {
       claim_id: (assertRequiredString(record, "claim_id", `runtime run review_launch_claims[${index}]`), String(record.claim_id)),
+      attempt_id: (assertRequiredString(record, "attempt_id", `runtime run review_launch_claims[${index}]`), String(record.attempt_id)),
+      attempt_marker: (assertRequiredString(record, "attempt_marker", `runtime run review_launch_claims[${index}]`), String(record.attempt_marker)),
       procedure_id: procedureId,
       owner_token_hash: (assertRequiredString(record, "owner_token_hash", `runtime run review_launch_claims[${index}]`), String(record.owner_token_hash)),
       created_at: (assertRequiredString(record, "created_at", `runtime run review_launch_claims[${index}]`), String(record.created_at)),
@@ -2475,19 +2632,10 @@ function capitalizeWords(value: string): string {
     .join(" ");
 }
 
-const PHASE_23_8_6A_ALLOWED_PROCEDURE_INGESTION = new Set([
-  "task-intake",
-  "task-prompt-writer",
-  "draft-plan",
-  "plan-review",
-  "plan-amend",
-  "architecture-review",
-  "db-storage-review",
-  "implementation-review",
-  "fix-pass-review",
-  "verification-review",
-  "delivery-facts-review",
-  "phase-closeout-review"
+const LEGACY_PROCEDURE_INGESTION_SCOPE = new Set([
+  "task-intake", "task-prompt-writer", "draft-plan", "plan-review", "plan-amend",
+  "architecture-review", "db-storage-review", "implementation-review", "fix-pass-review",
+  "verification-review", "delivery-facts-review", "phase-closeout-review"
 ]);
 
 const STRICT_REVIEW_RECOMMENDATION_TOKENS = new Set(["PASS", "FIX_REQUIRED", "AMEND_REQUIRED", "BLOCKED"]);
@@ -2994,7 +3142,7 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
   };
 }
 
-function requireReviewLaunchProfile(
+function requireReviewLaunchCapability(
   proceduresById: Map<string, SelfHostingProcedureDescriptor>,
   procedureId: string
 ): SelfHostingReviewLaunchProfile {
@@ -3007,11 +3155,20 @@ function requireReviewLaunchProfile(
     throw new Error(`Unknown self-hosting procedure id: ${procedureId}`);
   }
 
-  if (!descriptor.review_launch_profile) {
-    throw new Error(`Procedure ${procedureId} has no review_launch_profile.`);
+  if (!descriptor.automatic_launch_capability) {
+    if (descriptor.review_launch_profile) return descriptor.review_launch_profile;
+    throw new Error(`Procedure ${procedureId} has no automatic_launch_capability.`);
   }
-
-  return descriptor.review_launch_profile;
+  return {
+    adapter_id: descriptor.automatic_launch_capability.adapter_id,
+    model: "policy-resolved",
+    reasoning_effort: "policy-resolved",
+    sandbox_mode: "read-only",
+    output_mode: "file",
+    timeout_seconds: 1800,
+    stale_after_seconds: 300,
+    termination_policy: "terminal_completion_only"
+  };
 }
 
 function validateLaunchSeconds(value: number | undefined, fallback: number, field: string): number {
@@ -3148,6 +3305,301 @@ function activeReviewLaunchClaim(run: Run): ReviewLaunchClaim | undefined {
   return run.review_launch_claims?.[0];
 }
 
+const REVIEWER_ENV = {
+  role: "CODEX_HARNESS_REVIEWER_ROLE",
+  runInstanceId: "CODEX_HARNESS_REVIEW_RUN_INSTANCE_ID",
+  procedureId: "CODEX_HARNESS_REVIEW_PROCEDURE_ID",
+  attemptId: "CODEX_HARNESS_REVIEW_ATTEMPT_ID",
+  claimId: "CODEX_HARNESS_REVIEW_CLAIM_ID",
+  marker: "CODEX_HARNESS_REVIEW_ATTEMPT_MARKER"
+} as const;
+
+function buildReviewAttemptMarker(input: {
+  runInstanceId: string;
+  procedureId: string;
+  attemptId: string;
+  claimId: string;
+  ownerTokenHash: string;
+}): string {
+  return `sha256:${sha256Hex(canonicalJson({
+    claim_id: input.claimId,
+    owner_token_hash: input.ownerTokenHash,
+    procedure_id: input.procedureId,
+    review_attempt_id: input.attemptId,
+    run_instance_id: input.runInstanceId,
+    role: "independent_reviewer"
+  }))}`;
+}
+
+function findAuthoritativeOuterReviewRun(targetRoot: string, projectRoot: string, runInstanceId: string): Run | undefined {
+  const runsRoot = runtimeRunsDir(targetRoot);
+  if (!fs.existsSync(runsRoot) || !fs.statSync(runsRoot).isDirectory()) return undefined;
+  for (const entry of fs.readdirSync(runsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const compatibilityPath = runFilePath(targetRoot, entry.name);
+    if (!fs.existsSync(compatibilityPath)) continue;
+    try {
+      const compatibility = JSON.parse(fs.readFileSync(compatibilityPath, "utf8")) as { run_instance_id?: unknown };
+      if (compatibility.run_instance_id !== runInstanceId) continue;
+      const staged = new RunStagingDatabase(targetRoot, projectRoot, entry.name).loadRun(entry.name);
+      if (staged?.run_instance_id === runInstanceId) return staged;
+    } catch {
+      // A malformed compatibility candidate cannot authorize nested launch.
+    }
+  }
+  return undefined;
+}
+
+function assertReviewRecursionAllowed(targetRoot: string, projectRoot: string, attemptedProcedureId: string): void {
+  const inherited = {
+    role: process.env[REVIEWER_ENV.role],
+    runInstanceId: process.env[REVIEWER_ENV.runInstanceId],
+    procedureId: process.env[REVIEWER_ENV.procedureId],
+    attemptId: process.env[REVIEWER_ENV.attemptId],
+    claimId: process.env[REVIEWER_ENV.claimId],
+    marker: process.env[REVIEWER_ENV.marker]
+  };
+  if (!Object.values(inherited).some((value) => typeof value === "string" && value.length > 0)) return;
+
+  const outerRun = inherited.runInstanceId
+    ? findAuthoritativeOuterReviewRun(targetRoot, projectRoot, inherited.runInstanceId)
+    : undefined;
+  const active = outerRun ? activeReviewLaunchClaim(outerRun) : undefined;
+  const expectedMarker = active && outerRun?.run_instance_id
+    ? buildReviewAttemptMarker({
+        runInstanceId: outerRun.run_instance_id,
+        procedureId: active.procedure_id,
+        attemptId: active.attempt_id,
+        claimId: active.claim_id,
+        ownerTokenHash: active.owner_token_hash
+      })
+    : undefined;
+  const matched = inherited.role === "independent_reviewer"
+    && !!outerRun
+    && !!active
+    && inherited.runInstanceId === outerRun.run_instance_id
+    && inherited.procedureId === active.procedure_id
+    && inherited.attemptId === active.attempt_id
+    && inherited.claimId === active.claim_id
+    && inherited.marker === active.attempt_marker
+    && inherited.marker === expectedMarker;
+
+  throw new ReviewRecursionForbiddenError({
+    failure_classification: "REVIEW_RECURSION_FORBIDDEN",
+    outer_run_instance_id: inherited.runInstanceId ?? "invalid",
+    outer_procedure_id: inherited.procedureId ?? "invalid",
+    outer_attempt_id: inherited.attemptId ?? "invalid",
+    attempted_nested_procedure_id: attemptedProcedureId,
+    outer_claim_validation: matched ? "matched" : "invalid",
+    claim_created: false,
+    child_spawned: false,
+    artifact_wait_started: false,
+    next_valid_action: "complete the outer reviewer artifact directly"
+  });
+}
+
+function fileContextSource(targetRoot: string, relativePath: string, required: boolean): {
+  path: string;
+  content_hash: string;
+  byte_count: number;
+  required: boolean;
+  retrieval_mode: "read_only_reference";
+} {
+  const absolutePath = path.join(targetRoot, relativePath);
+  if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) {
+    if (required) throw new Error(`CONTEXT_MANDATORY_BLOCK_MISSING: ${relativePath}`);
+    return { path: relativePath, content_hash: "unavailable", byte_count: 0, required, retrieval_mode: "read_only_reference" };
+  }
+  const content = fs.readFileSync(absolutePath);
+  return {
+    path: relativePath,
+    content_hash: `sha256:${sha256Hex(content)}`,
+    byte_count: content.byteLength,
+    required,
+    retrieval_mode: "read_only_reference"
+  };
+}
+
+function reviewChangeInventory(targetRoot: string): {
+  changedFiles: string[];
+  changedSurfaceClasses: string[];
+  riskClasses: string[];
+  materialChangeClasses: string[];
+  candidateId: string;
+} {
+  const changedFiles = [...new Set(getGitStatusPaths(getGitStatusLines(targetRoot)))]
+    .map((entry) => entry.replace(/\\/gu, "/"))
+    .filter((entry) => entry !== ".DS_Store" && !entry.startsWith(".harness/") && !entry.startsWith(".codex/") && !entry.startsWith(".agents/"))
+    .sort();
+  const contentIdentities = changedFiles.map((relativePath) => {
+    const absolutePath = path.join(targetRoot, relativePath);
+    const contentHash = fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile()
+      ? `sha256:${sha256Hex(fs.readFileSync(absolutePath))}`
+      : "deleted";
+    return { path: relativePath, content_hash: contentHash };
+  });
+  const changedSurfaceClasses = [...new Set(changedFiles.map((entry) => {
+    if (entry.startsWith("docs/") || entry.startsWith("tasks/") || entry === "TASK.md") return "authority";
+    if (entry.startsWith("schemas/")) return "schema";
+    if (entry.startsWith("skills/") || entry.startsWith("prompts/")) return "procedure_policy";
+    if (entry.startsWith("tests/")) return "acceptance";
+    if (entry.includes("memory") || entry.includes("staging") || entry.includes("harvest")) return "storage";
+    return "runtime";
+  }))].sort();
+  const riskClasses = [...new Set(changedFiles.flatMap((entry) => {
+    const risks: string[] = [];
+    if (entry.startsWith("docs/") || entry.startsWith("tasks/") || entry === "TASK.md" || entry.startsWith("skills/")) risks.push("authority");
+    if (entry.includes("lifecycle") || entry.includes("runtime") || entry.includes("run.ts")) risks.push("lifecycle");
+    if (entry.includes("memory") || entry.includes("staging") || entry.includes("harvest") || entry.startsWith("schemas/")) risks.push("storage");
+    if (entry.includes("routing") || entry.includes("binding") || entry.includes("review")) risks.push("provider");
+    return risks;
+  }))].sort();
+  const materialChangeClasses = riskClasses.filter((entry) => ["authority", "lifecycle", "storage", "security", "provider"].includes(entry));
+  return {
+    changedFiles,
+    changedSurfaceClasses,
+    riskClasses,
+    materialChangeClasses,
+    candidateId: `sha256:${sha256Hex(canonicalJson({ files: contentIdentities, tracked_patch_hash: `sha256:${sha256Hex(getGitDiffPatch(targetRoot))}` }))}`
+  };
+}
+
+function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "plan-review" | "implementation-review", operatorRequest: string, requestPath: string): {
+  core: ContextCore;
+  manifest: ContextManifest;
+  overlay: ReviewDeltaOverlay;
+  route: ReviewRouteDecision;
+  binding: CodexBindingProfile;
+  requestMarkdown: string;
+  contextReuse: "hit" | "miss" | "rebuilt";
+  policyVersion: string;
+  bindingVersion: string;
+} {
+  const registry = readSelfHostingProcedureRegistry(targetRoot);
+  if (!registry) throw new Error("Self-hosting procedure registry not found.");
+  const executionPolicy = readProcedureExecutionPolicy(targetRoot);
+  const routePolicy = readReviewRoutePolicy(targetRoot);
+  const referenceBinding = readCodexReferenceBinding(targetRoot);
+  reconcileProcedureExecutionPolicy(registry, executionPolicy);
+  const contract = executionPolicy.procedures.find((entry) => entry.procedure_id === procedureId);
+  if (!contract?.automatic_launch) throw new Error(`Procedure ${procedureId} has no automatic execution-policy capability.`);
+  if (!run.run_instance_id || !run.repository.branch || !run.repository.head_sha || !run.source_snapshot) {
+    throw new Error("CONTEXT_MANDATORY_BLOCK_MISSING: exact run, branch, head, or source snapshot identity is unavailable.");
+  }
+  const approved = [...run.approvals].reverse().find((entry) => entry.title === "Reviewed plan approved" && entry.status === "approved");
+  const taskContractRef = run.active_task_path ?? run.task_path;
+  const fallbackPlanContent = fs.readFileSync(path.join(targetRoot, taskContractRef));
+  const planArtifact = approved?.reviewed_plan_artifact_id
+    ? run.artifacts.find((entry) => entry.artifact_id === approved.reviewed_plan_artifact_id)
+    : run.phase_id === "23.8.6F"
+      ? undefined
+      : {
+          artifact_id: `sha256:${sha256Hex(fallbackPlanContent)}`,
+          path: taskContractRef,
+          kind: "legacy-static-task-contract",
+          description: "Pre-F launch compatibility plan reference"
+        };
+  if (!planArtifact) throw new Error("CONTEXT_MANDATORY_BLOCK_MISSING: effective approved plan artifact is unavailable.");
+  const immutableBase = run.bootstrap_facts?.find((fact) => fact.label === "base_commit")?.value ?? run.source_snapshot;
+  const reviewTier = fs.readFileSync(path.join(targetRoot, taskContractRef), "utf8").includes("`extra-high`") ? "extra-high" : "high";
+  const inventory = reviewChangeInventory(targetRoot);
+  const latestVerification = run.verification_results[run.verification_results.length - 1];
+  const verificationComplete = latestVerification?.status === "pass"
+    && latestVerification.command_results.length > 0
+    && latestVerification.command_results.every((entry) => entry.status === "pass" && entry.exit_code === 0);
+  const priorReview = [...run.review_results].reverse().find((entry) => reviewSourceMatchesProcedure(entry.source, procedureId));
+  const priorFindings = run.findings.map((entry) => ({
+    finding_id: entry.finding_id,
+    disposition: entry.status === "open" ? "open" as const : "closed" as const
+  }));
+  const core = buildContextCore({
+    task_id: run.phase_id ?? taskContractRef,
+    task_pointer_ref: "TASK.md",
+    task_contract_ref: taskContractRef,
+    approved_plan_ref: `${planArtifact.path}#${planArtifact.artifact_id}`,
+    procedure_contract_refs: [
+      `skills/self-hosting/${procedureId}/SKILL.md`,
+      "skills/self-hosting/procedure-execution-policy.json",
+      "skills/self-hosting/review-route-policy.json"
+    ],
+    review_tier: reviewTier,
+    changed_surface_classes: inventory.changedSurfaceClasses,
+    risk_classes: inventory.riskClasses,
+    run_id: run.run_id,
+    run_instance_id: run.run_instance_id,
+    branch: run.repository.branch,
+    worktree_ref: ".",
+    source_snapshot: run.source_snapshot,
+    immutable_base: immutableBase,
+    architectural_invariants: ["provider-neutral lifecycle authority", "only two automatic review launch surfaces", "independent review remains fresh"],
+    non_goals: ["no generic runner", "no second adapter", "no daemon", "no automatic owner approval"],
+    acceptance_refs: [taskContractRef, "docs/PHASE_ACCEPTANCE.md"],
+    verification_refs: ["package.json#scripts", "tests/acceptance/phase23-8-6b1-review-launch.test.mjs"],
+    source_provenance: [
+      fileContextSource(targetRoot, "TASK.md", true),
+      fileContextSource(targetRoot, taskContractRef, true),
+      fileContextSource(targetRoot, planArtifact.path.startsWith("evidence/") ? `.harness/runs/${run.run_id}/${planArtifact.path}` : planArtifact.path, true),
+      fileContextSource(targetRoot, `skills/self-hosting/${procedureId}/SKILL.md`, true)
+    ],
+    size_budget_bytes: routePolicy.context_budgets.context_core_bytes
+  });
+  const manifest = buildContextManifest(core, { retrieval_capabilities: ["repo_read_only", "packet_plus_retrieval"] });
+  const overlay = buildReviewDeltaOverlay({
+    context_core_id: core.context_core_id,
+    reviewed_candidate_id: inventory.candidateId,
+    changed_files: inventory.changedFiles,
+    diff_refs: [requestPath, "git-diff:HEAD"],
+    payload_refs: [],
+    ...(priorReview ? { prior_review_result_ref: priorReview.review_result_id } : {}),
+    findings: priorFindings,
+    verification_refs: run.verification_results.map((entry) => entry.verification_result_id),
+    changed_authority_surfaces: inventory.changedFiles.filter((entry) => entry.startsWith("docs/") || entry.startsWith("skills/") || entry.startsWith("tasks/") || entry === "TASK.md"),
+    changed_architecture_surfaces: inventory.changedFiles.filter((entry) => entry.includes("ARCHITECTURE") || entry.includes("runtime") || entry.includes("routing")),
+    missing_evidence: verificationComplete ? [] : ["terminal_verification_pass"],
+    escalation_reasons: inventory.riskClasses,
+    size_budget_bytes: routePolicy.context_budgets.delta_overlay_bytes
+  });
+  const contextReuse = run.review_routing_records?.some((entry) => entry.payload.context_core_id === core.context_core_id)
+    ? "hit"
+    : "miss";
+  const route = decideReviewRoute(routePolicy, contract, {
+    procedure_id: procedureId,
+    review_tier: reviewTier,
+    pass_kind: procedureId === "plan-review" && run.evidence.some((entry) => entry.kind === "procedure:plan-amend")
+      ? "amendment_review"
+      : procedureId === "plan-review" ? "initial_full_review"
+        : priorReview?.status === "FIX_REQUIRED" ? "fix_pass_review" : "implementation_review",
+    pass_index: run.review_results.filter((entry) => reviewSourceMatchesProcedure(entry.source, procedureId)).length,
+    changed_surface_classes: core.changed_surface_classes,
+    risk_classes: core.risk_classes,
+    deterministic_evidence_complete: verificationComplete,
+    prior_failure_count: run.review_results.filter((entry) => reviewSourceMatchesProcedure(entry.source, procedureId) && entry.status !== "PASS").length,
+    independence_required: true,
+    context_reuse_state: contextReuse,
+    owner_budget_class: "balanced",
+    open_blocker_count: run.findings.filter((entry) => entry.blocking && entry.status === "open").length,
+    new_blocker_count: run.findings.filter((entry) => entry.blocking && entry.status === "open" && (!priorReview || entry.created_at >= priorReview.created_at)).length,
+    delta_bytes: overlay.canonical_byte_count,
+    material_change_classes: inventory.materialChangeClasses,
+    ...(priorReview ? { prior_verdict: priorReview.status } : {}),
+    prior_finding_dispositions: priorFindings.map((entry) => `${entry.finding_id}:${entry.disposition}`)
+  });
+  const binding = resolveCodexBinding(referenceBinding, route.route_class, contract.context_transport);
+  if (!binding) throw new Error(`REVIEW_BINDING_CAPABILITY_UNAVAILABLE: no accepted ${route.route_class} binding supports ${contract.context_transport}.`);
+  const requestMarkdown = assembleReviewRequest({
+    operator_request: operatorRequest,
+    context_core: core,
+    context_manifest: manifest,
+    delta_overlay: overlay,
+    procedure_contract_ref: `skills/self-hosting/${procedureId}/SKILL.md`,
+    route_decision_id: route.route_decision_id
+  });
+  if (Buffer.byteLength(requestMarkdown) > routePolicy.context_budgets.request_bytes) {
+    throw new Error("CONTEXT_REQUEST_BUDGET_EXCEEDED: mandatory review request exceeds the approved budget.");
+  }
+  return { core, manifest, overlay, route, binding, requestMarkdown, contextReuse, policyVersion: routePolicy.policy_version, bindingVersion: referenceBinding.binding_version };
+}
+
 function assertNoActiveReviewLaunchClaim(run: Run, action: string): void {
   const claim = activeReviewLaunchClaim(run);
   if (claim) {
@@ -3207,6 +3659,7 @@ function runCodexCliReview(profile: SelfHostingReviewLaunchProfile, input: {
   outputPath: string;
   timeoutSeconds: number;
   staleAfterSeconds: number;
+  childEnvironment: NodeJS.ProcessEnv;
   onSpawn?: (pid: number) => void;
   onProgressUnknown?: (timestamp: string) => void;
 }): Promise<{
@@ -3233,6 +3686,7 @@ function runCodexCliReview(profile: SelfHostingReviewLaunchProfile, input: {
       profile.model,
       "-c",
       `model_reasoning_effort="${profile.reasoning_effort}"`,
+      "--json",
       "-o",
       input.outputPath,
       "-"
@@ -3243,6 +3697,7 @@ function runCodexCliReview(profile: SelfHostingReviewLaunchProfile, input: {
     let lastOutputTime: string | undefined;
     const child = spawn("codex", args, {
       cwd: input.targetRoot,
+      env: input.childEnvironment,
       stdio: ["pipe", "pipe", "pipe"]
     });
 
@@ -3322,6 +3777,45 @@ function runCodexCliReview(profile: SelfHostingReviewLaunchProfile, input: {
 
     child.stdin?.end(input.requestMarkdown);
   });
+}
+
+export function parseCodexJsonlUsage(stdout: string): Pick<ReviewLaunchObservation,
+  "input_tokens" | "cached_input_tokens" | "cache_write_tokens" | "output_tokens" | "tool_call_count"> {
+  let inputTokens: number | undefined;
+  let cachedInputTokens: number | undefined;
+  let cacheWriteTokens: number | undefined;
+  let outputTokens: number | undefined;
+  let toolCallCount = 0;
+  const visit = (value: unknown): void => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    const number = (keys: string[]): number | undefined => {
+      for (const key of keys) if (typeof record[key] === "number" && Number.isFinite(record[key])) return record[key] as number;
+      return undefined;
+    };
+    inputTokens = number(["input_tokens", "prompt_tokens"]) ?? inputTokens;
+    cachedInputTokens = number(["cached_input_tokens", "cached_tokens", "cache_read_tokens"]) ?? cachedInputTokens;
+    cacheWriteTokens = number(["cache_write_tokens"]) ?? cacheWriteTokens;
+    outputTokens = number(["output_tokens", "completion_tokens"]) ?? outputTokens;
+    if (record.type === "tool_call" || record.type === "function_call") toolCallCount += 1;
+    Object.values(record).forEach(visit);
+  };
+  for (const line of stdout.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+    try { visit(JSON.parse(trimmed) as unknown); } catch { /* unsupported observation line */ }
+  }
+  return {
+    ...(inputTokens !== undefined ? { input_tokens: inputTokens } : {}),
+    ...(cachedInputTokens !== undefined ? { cached_input_tokens: cachedInputTokens } : {}),
+    ...(cacheWriteTokens !== undefined ? { cache_write_tokens: cacheWriteTokens } : {}),
+    ...(outputTokens !== undefined ? { output_tokens: outputTokens } : {}),
+    ...(toolCallCount > 0 ? { tool_call_count: toolCallCount } : {})
+  };
 }
 
 function buildReviewLaunchAttemptArtifact(targetRoot: string, run: Run, observation: ReviewLaunchObservation): {
@@ -3427,6 +3921,14 @@ function recordLaunchAttempt(
     evidence: EvidenceRef;
     markdown: string;
     absoluteArtifactPath: string;
+  },
+  packet?: {
+    requestMarkdown: string;
+    core: ContextCore;
+    manifest: ContextManifest;
+    overlay: ReviewDeltaOverlay;
+    policyVersion: string;
+    bindingVersion: string;
   }
 ): Run {
   const timestamp = nowIso();
@@ -3436,6 +3938,28 @@ function recordLaunchAttempt(
   }
   const parentRecordId = `review-launch-attempt:${observation.attempt_id ?? randomUUID()}`;
   const payloadRefs: ReviewLaunchPayloadRef[] = [];
+
+  if (packet) {
+    for (const source of [
+      { kind: "review-request-packet", mediaType: "text/markdown", summary: `${observation.procedure_id} bounded request`, content: packet.requestMarkdown },
+      { kind: "context-core", mediaType: "application/json", summary: `${observation.procedure_id} ContextCore`, content: `${JSON.stringify(packet.core)}\n` },
+      { kind: "context-manifest", mediaType: "application/json", summary: `${observation.procedure_id} ContextManifest`, content: `${JSON.stringify(packet.manifest)}\n` },
+      { kind: "review-delta-overlay", mediaType: "application/json", summary: `${observation.procedure_id} ReviewDeltaOverlay`, content: `${JSON.stringify(packet.overlay)}\n` }
+    ]) {
+      payloadRefs.push(toReviewLaunchPayloadRef(staging.storePayload({
+        parentRecordId,
+        sourceRunId: currentRun.run_id,
+        sourcePhaseId: currentRun.phase_id,
+        kind: source.kind,
+        mediaType: source.mediaType,
+        summary: source.summary,
+        content: source.content,
+        searchableText: source.content.slice(0, 4000),
+        boundedExcerpt: source.content.slice(0, 500),
+        retentionClass: accepted ? "accepted" : "audit"
+      })));
+    }
+  }
 
   if (observation.stdout_tail) {
     payloadRefs.push(toReviewLaunchPayloadRef(staging.storePayload({
@@ -3465,6 +3989,25 @@ function recordLaunchAttempt(
       boundedExcerpt: observation.stderr_tail.slice(0, 500),
       retentionClass: "audit"
     })));
+  }
+
+  if (observation.evaluation_mode && observation.evaluation_mode !== "approved" && observation.artifact_valid) {
+    const candidatePath = path.resolve(targetRoot, observation.output_path);
+    if (fs.existsSync(candidatePath) && fs.statSync(candidatePath).isFile()) {
+      const candidateMarkdown = fs.readFileSync(candidatePath, "utf8");
+      payloadRefs.push(toReviewLaunchPayloadRef(staging.storePayload({
+        parentRecordId,
+        sourceRunId: currentRun.run_id,
+        sourcePhaseId: currentRun.phase_id,
+        kind: "review-evaluation-output",
+        mediaType: "text/markdown",
+        summary: `${observation.procedure_id} non-authoritative evaluation output`,
+        content: candidateMarkdown,
+        searchableText: candidateMarkdown.slice(0, 4000),
+        boundedExcerpt: candidateMarkdown.slice(0, 500),
+        retentionClass: "audit"
+      })));
+    }
   }
 
   if (accepted && observation.provenance && observation.provenance !== "expected_output_file") {
@@ -3501,6 +4044,15 @@ function recordLaunchAttempt(
     }
     let next = appendArtifactAndEvidence(latestRun, attempt.artifact, attempt.evidence, timestamp);
     next = withUpdatedAt({ ...next, review_launch_claims: [] }, timestamp);
+    const invocationRecord: ReviewOperationalRecord = {
+      record_kind: "review_invocation",
+      record_id: `review-invocation-${observation.attempt_id ?? claim.attempt_id}`,
+      created_at: timestamp,
+      status: observation.status,
+      summary: observation.summary,
+      payload: observationWithPayloadRefs as unknown as Record<string, unknown>
+    };
+    next = { ...next, review_routing_records: [...(next.review_routing_records ?? []), invocationRecord] };
 
     if (accepted) {
       next = appendArtifactAndEvidence(next, accepted.artifact, accepted.evidence, timestamp);
@@ -3510,6 +4062,45 @@ function recordLaunchAttempt(
         && entry.artifact_refs.some((ref) => ref.artifact_id === accepted.artifact.artifact_id)
       )) {
         next = recordReviewResult(next, review);
+      }
+      if (packet && currentRun.run_instance_id) {
+        const requestPayload = payloadRefs.find((entry) => entry.kind === "review-request-packet");
+        const replayPayload: Record<string, unknown> = {
+            run_instance_id: currentRun.run_instance_id,
+            source_run_id: currentRun.run_id,
+            procedure_id: observation.procedure_id,
+            pass_kind: observation.pass_kind ?? (observation.procedure_id === "plan-review" ? "initial_full_review" : "implementation_review"),
+            request_payload_id: requestPayload?.payload_id ?? "unavailable",
+            request_content_hash: requestPayload?.content_hash ?? observation.request_artifact_hash ?? "unavailable",
+            context_core_id: packet.core.context_core_id,
+            context_core_hash: packet.core.content_hash,
+            context_manifest_id: packet.manifest.context_manifest_id,
+            context_manifest_hash: packet.manifest.content_hash,
+            delta_overlay_id: packet.overlay.delta_overlay_id,
+            delta_overlay_hash: packet.overlay.content_hash,
+            approved_attempt_id: claim.attempt_id,
+            route_decision_id: observation.route_decision_id ?? "unavailable",
+            policy_version: observation.routing_policy_version ?? packet.policyVersion,
+            binding_version: observation.binding_version ?? packet.bindingVersion,
+            accepted_artifact_id: accepted.artifact.artifact_id,
+            accepted_result_id: review?.review_result_id ?? "unavailable",
+            source_snapshot: currentRun.source_snapshot ?? "unavailable",
+            immutable_base: packet.core.immutable_base,
+            risk_classes: packet.core.risk_classes,
+            retention_class: "accepted",
+            redaction_status: packet.core.redactions?.length ? "redacted" : "not_redacted",
+            payload_ids: payloadRefs.map((entry) => entry.payload_id).sort(),
+            payload_kinds: Object.fromEntries(payloadRefs.map((entry) => [entry.kind, entry.payload_id]))
+        };
+        const replayRecord: ReviewOperationalRecord = {
+          record_kind: "review_replay_packet",
+          record_id: `sha256:${sha256Hex(canonicalJson(replayPayload))}`,
+          created_at: timestamp,
+          status: "retained_not_yet_eligible",
+          summary: `${observation.procedure_id} approved review replay packet`,
+          payload: replayPayload
+        };
+        next = { ...next, review_routing_records: [...(next.review_routing_records ?? []), replayRecord] };
       }
     }
 
@@ -3523,12 +4114,19 @@ function recordLaunchAttempt(
 export async function launchRuntimeReview(cwd: string, options: LaunchReviewOptions): Promise<RuntimeReviewLaunchResult> {
   const roots = resolveHarnessRoots(cwd);
   const targetRoot = roots.targetRoot;
+  assertReviewRecursionAllowed(targetRoot, roots.projectRoot, options.procedureId);
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun, options.runId);
   if (current.run.lifecycle_status !== "active") {
     throw new Error(
       `Review launch requires an active run. Run ${current.run.run_id} is ${current.run.lifecycle_status}.`
     );
+  }
+  const pendingSourceDecision = current.run.review_routing_records?.find((entry) => entry.record_kind === "routing_decision"
+    && ["source_application_required", "rollback_source_update_required"].includes(entry.status)
+    && !current.run.review_routing_records?.some((application) => application.record_kind === "routing_policy_application" && application.payload.decision_id === entry.record_id));
+  if (pendingSourceDecision && options.procedureId !== "implementation-review") {
+    throw new Error(`ROUTING_POLICY_SOURCE_APPLICATION_REQUIRED: decision ${pendingSourceDecision.record_id} blocks model launch until exact reviewed source application.`);
   }
   const registry = readSelfHostingProcedureRegistry(targetRoot);
 
@@ -3537,13 +4135,129 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
   }
 
   const proceduresById = indexSelfHostingProceduresById(registry);
-  const profile = requireReviewLaunchProfile(proceduresById, options.procedureId);
+  const profile = requireReviewLaunchCapability(proceduresById, options.procedureId);
+  const evaluationMode = options.evaluationMode ?? "approved";
+  const evaluationOnly = evaluationMode !== "approved";
+  if (evaluationOnly) {
+    for (const [value, flag] of [
+      [options.approvedAttemptId, "--approved-attempt"],
+      [options.evaluationCaseId, "--evaluation-case"],
+      [options.candidatePolicyVersion, "--candidate-policy-version"],
+      [options.candidateBindingVersion, "--candidate-binding-version"],
+      [options.candidateOutputPath, "--candidate-output"]
+    ] as const) if (!value) throw new Error(`${flag} is required for ${evaluationMode} evaluation.`);
+  }
   const timeoutSeconds = validateLaunchSeconds(options.timeoutSeconds, profile.timeout_seconds, "--timeout-seconds");
   const staleAfterSeconds = validateLaunchSeconds(options.staleAfterSeconds, profile.stale_after_seconds, "--stale-after-seconds");
   const requestPath = resolveLaunchRequestPath(targetRoot, options.requestPath);
-  const outputPath = resolveLaunchOutputPath(targetRoot, current.run, options.outputPath);
-  const requestMarkdown = fs.readFileSync(requestPath, "utf8");
+  const outputPath = resolveLaunchOutputPath(
+    targetRoot,
+    current.run,
+    evaluationOnly ? options.candidateOutputPath! : options.outputPath
+  );
+  const operatorRequestBody = fs.readFileSync(requestPath, "utf8");
+  const sourceApplicationReviewContext = pendingSourceDecision && options.procedureId === "implementation-review"
+    ? [
+        "## Harness-enforced routing source-application review context",
+        `decision_id: ${pendingSourceDecision.record_id}`,
+        `decision_evaluation_id: ${String(pendingSourceDecision.payload.evaluation_id)}`,
+        `candidate_policy_version: ${String(pendingSourceDecision.payload.policy_version)}`,
+        `candidate_binding_version: ${String(pendingSourceDecision.payload.binding_version)}`,
+        `previous_accepted_policy_version: ${String(pendingSourceDecision.payload.previous_accepted_policy_version)}`,
+        `previous_accepted_binding_version: ${String(pendingSourceDecision.payload.previous_accepted_binding_version)}`,
+        `previous_policy_blob_hash: ${String(pendingSourceDecision.payload.previous_policy_blob_hash)}`,
+        `previous_binding_blob_hash: ${String(pendingSourceDecision.payload.previous_binding_blob_hash)}`,
+        "Review the exact owner decision and current policy/binding source diff directly."
+      ].join("\n")
+    : undefined;
+  const operatorRequestMarkdown = sourceApplicationReviewContext
+    ? `${operatorRequestBody.trim()}\n\n${sourceApplicationReviewContext}\n`
+    : operatorRequestBody;
+  const packet = buildReviewExecutionPacket(
+    targetRoot,
+    current.run,
+    options.procedureId as "plan-review" | "implementation-review",
+    operatorRequestMarkdown,
+    toRepoRelative(targetRoot, requestPath)
+  );
+  if (evaluationOnly) {
+    const candidateSource = readCodexReferenceBinding(targetRoot);
+    if (options.candidatePolicyVersion !== readReviewRoutePolicy(targetRoot).policy_version
+      || !candidateSource.profiles.some((entry) => entry.status === "candidate" && entry.profile_id === options.candidateBindingVersion)) {
+      throw new Error("REVIEW_CANDIDATE_VERSION_UNAVAILABLE: candidate policy/profile must be checked in and version-exact.");
+    }
+    if (evaluationMode === "replay") {
+      if (!options.replaySourceRunInstanceId || !options.replayPacketArtifactId) {
+        throw new Error("--replay-source-run-instance and --replay-packet-artifact are required for replay.");
+      }
+      const eligibility = new ProjectMemoryDatabase(targetRoot, roots.projectRoot)
+        .reviewReplayEligibility(options.replaySourceRunInstanceId, options.replayPacketArtifactId);
+      if (!eligibility.eligible || eligibility.packet_record_id !== options.replayPacketArtifactId || eligibility.approved_attempt_id !== options.approvedAttemptId) {
+        throw new Error(`REVIEW_REPLAY_SOURCE_INELIGIBLE: ${eligibility.reasons.join(",") || "packet identity mismatch"}`);
+      }
+    } else {
+      const approvedAttempt = current.run.review_routing_records?.find((entry) =>
+        entry.record_kind === "review_invocation"
+        && entry.payload.attempt_id === options.approvedAttemptId
+        && entry.payload.procedure_id === options.procedureId
+        && entry.status === "success"
+      );
+      if (!approvedAttempt) throw new Error("REVIEW_EVALUATION_APPROVED_ATTEMPT_MISSING: exact accepted baseline attempt is unavailable.");
+    }
+    if (evaluationMode === "canary") {
+      const authorization = current.run.review_routing_records?.find((entry) =>
+        entry.record_kind === "routing_decision"
+        && entry.record_id === options.canaryAuthorizationId
+        && entry.status === "canary_authorized"
+      );
+      if (!authorization) throw new Error("REVIEW_CANARY_NOT_AUTHORIZED: exact owner decision is unavailable.");
+      const invocationCount = current.run.review_routing_records?.filter((entry) => entry.record_kind === "review_invocation"
+        && entry.payload.canary_authorization_id === authorization.record_id).length ?? 0;
+      const maxInvocations = Number(authorization.payload.max_invocations ?? 0);
+      const selector = authorization.payload.selector as {
+        case_ids?: unknown;
+        procedure_ids?: unknown;
+        pass_kinds?: unknown;
+        risk_classes?: unknown;
+      } | undefined;
+      if (invocationCount >= maxInvocations) throw new Error("REVIEW_CANARY_CLOSED: authorized invocation count is exhausted.");
+      if (Array.isArray(selector?.case_ids) && !selector.case_ids.includes(options.evaluationCaseId)) {
+        throw new Error("REVIEW_CANARY_SELECTOR_MISMATCH: evaluation case is outside the owner-approved selector.");
+      }
+      const priorImplementation = [...current.run.review_results].reverse().find((entry) =>
+        reviewSourceMatchesProcedure(entry.source, options.procedureId)
+      );
+      const passKind = options.procedureId === "plan-review"
+        ? (current.run.evidence.some((entry) => entry.kind === "procedure:plan-amend") ? "amendment_review" : "initial_full_review")
+        : priorImplementation?.status === "FIX_REQUIRED" ? "fix_pass_review" : "implementation_review";
+      const selectedProcedures = Array.isArray(selector?.procedure_ids) ? selector.procedure_ids : [];
+      const selectedPassKinds = Array.isArray(selector?.pass_kinds) ? selector.pass_kinds : [];
+      const selectedRiskClasses = Array.isArray(selector?.risk_classes) ? selector.risk_classes : [];
+      if (!selectedProcedures.includes(options.procedureId)
+        || !selectedPassKinds.includes(passKind)
+        || packet.core.risk_classes.some((risk) => !selectedRiskClasses.includes(risk))) {
+        throw new Error("REVIEW_CANARY_SELECTOR_MISMATCH: procedure, pass kind, or risk classes are outside the owner-approved selector.");
+      }
+    }
+  }
+  const requestMarkdown = packet.requestMarkdown;
   const requestHash = sha256Hex(requestMarkdown);
+  const candidateBinding = evaluationOnly
+    ? readCodexReferenceBinding(targetRoot).profiles.find((entry) => entry.status === "candidate"
+      && entry.profile_id === options.candidateBindingVersion && entry.route_class === packet.route.route_class)
+    : undefined;
+  if (evaluationOnly && !candidateBinding) throw new Error("REVIEW_CANDIDATE_BINDING_UNAVAILABLE: checked-in candidate does not satisfy the route.");
+  const pinnedSourceReviewProfile = pendingSourceDecision && options.procedureId === "implementation-review"
+    ? (pendingSourceDecision.payload.previous_accepted_profiles as CodexBindingProfile[] | undefined)?.find((entry) => entry.route_class === packet.route.route_class)
+    : undefined;
+  if (pendingSourceDecision && options.procedureId === "implementation-review" && !pinnedSourceReviewProfile) {
+    throw new Error("ROUTING_POLICY_SOURCE_REVIEW_BINDING_MISSING: pre-decision accepted review profile is unavailable.");
+  }
+  const effectiveProfile: SelfHostingReviewLaunchProfile = {
+    ...profile,
+    model: candidateBinding?.model ?? pinnedSourceReviewProfile?.model ?? packet.binding.model,
+    reasoning_effort: candidateBinding?.reasoning_effort ?? pinnedSourceReviewProfile?.reasoning_effort ?? packet.binding.reasoning_effort
+  };
 
   if (path.resolve(requestPath) === path.resolve(outputPath)) {
     throw new Error("Review request and output paths must be different.");
@@ -3555,8 +4269,8 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     run_instance_id: current.run.run_instance_id,
     ...(current.run.run_instance_id ? { project_run_id: current.run.run_instance_id } : {}),
     adapter_id: profile.adapter_id,
-    model: profile.model,
-    reasoning_effort: profile.reasoning_effort,
+    model: effectiveProfile.model,
+    reasoning_effort: effectiveProfile.reasoning_effort,
     sandbox_mode: profile.sandbox_mode,
     output_mode: profile.output_mode,
     timeout_seconds: timeoutSeconds,
@@ -3565,7 +4279,41 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     request_path: toRepoRelative(targetRoot, requestPath),
     request_artifact_hash: `sha256:${requestHash}`,
     expected_output_path: toRepoRelative(targetRoot, outputPath),
-    output_path: toRepoRelative(targetRoot, outputPath)
+    output_path: toRepoRelative(targetRoot, outputPath),
+    route_decision_id: packet.route.route_decision_id,
+    route_class: packet.route.route_class,
+    pass_kind: options.procedureId === "plan-review"
+      ? (current.run.evidence.some((entry) => entry.kind === "procedure:plan-amend") ? "amendment_review" : "initial_full_review")
+      : ([...current.run.review_results].reverse().find((entry) => reviewSourceMatchesProcedure(entry.source, "implementation-review"))?.status === "FIX_REQUIRED"
+          ? "fix_pass_review" : "implementation_review"),
+    immutable_base: packet.core.immutable_base,
+    risk_classes: packet.core.risk_classes,
+    routing_policy_version: packet.policyVersion,
+    binding_version: pinnedSourceReviewProfile
+      ? String(pendingSourceDecision?.payload.previous_accepted_binding_version)
+      : packet.bindingVersion,
+    binding_profile_id: candidateBinding?.profile_id ?? pinnedSourceReviewProfile?.profile_id ?? packet.binding.profile_id,
+    context_core_id: packet.core.context_core_id,
+    context_manifest_id: packet.manifest.context_manifest_id,
+    delta_overlay_id: packet.overlay.delta_overlay_id,
+    context_mode: "fresh_independent_delta",
+    context_reuse: packet.contextReuse,
+    context_reuse_reason: packet.contextReuse === "hit" ? "identical authoritative core identity" : "no prior identical core identity",
+    request_bytes: Buffer.byteLength(requestMarkdown),
+    core_bytes: packet.core.canonical_byte_count,
+    delta_bytes: packet.overlay.canonical_byte_count
+    ,evaluation_mode: evaluationMode
+    ,...(options.approvedAttemptId ? { approved_attempt_id: options.approvedAttemptId } : {})
+    ,...(options.evaluationCaseId ? { evaluation_case_id: options.evaluationCaseId } : {})
+    ,...(options.candidatePolicyVersion ? { candidate_policy_version: options.candidatePolicyVersion } : {})
+    ,...(options.candidateBindingVersion ? {
+      candidate_binding_version: readCodexReferenceBinding(targetRoot).binding_version,
+      candidate_profile_id: options.candidateBindingVersion
+    } : {})
+    ,...(pendingSourceDecision ? { source_application_decision_id: pendingSourceDecision.record_id } : {})
+    ,...(options.canaryAuthorizationId ? { canary_authorization_id: options.canaryAuthorizationId } : {})
+    ,...(options.replaySourceRunInstanceId ? { replay_source_run_instance_id: options.replaySourceRunInstanceId } : {})
+    ,...(options.replayPacketArtifactId ? { replay_packet_artifact_id: options.replayPacketArtifactId } : {})
   } satisfies Omit<ReviewLaunchObservation, "status" | "summary" | "next_valid_action">;
 
   if (dryRun) {
@@ -3595,10 +4343,23 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
       }
     : undefined;
   const ownerToken = randomUUID();
+  const attemptId = randomUUID();
+  const claimId = `review-launch-${randomUUID()}`;
+  const ownerTokenHash = `sha256:${sha256Hex(ownerToken)}`;
+  const runInstanceId = current.run.run_instance_id;
+  if (!runInstanceId) throw new Error("Review launch requires exact run instance identity.");
   const claim: ReviewLaunchClaim = {
-    claim_id: `review-launch-${randomUUID()}`,
+    claim_id: claimId,
+    attempt_id: attemptId,
+    attempt_marker: buildReviewAttemptMarker({
+      runInstanceId,
+      procedureId: options.procedureId,
+      attemptId,
+      claimId,
+      ownerTokenHash
+    }),
     procedure_id: options.procedureId as "plan-review" | "implementation-review",
-    owner_token_hash: `sha256:${sha256Hex(ownerToken)}`,
+    owner_token_hash: ownerTokenHash,
     created_at: nowIso(),
     request_artifact_hash: `sha256:${requestHash}`,
     expected_output_path: toRepoRelative(targetRoot, outputPath),
@@ -3609,12 +4370,21 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
   const claimedRun = reserveReviewLaunchClaim(targetRoot, roots.projectRoot, current.run, claim);
   const startedAtMs = Date.now();
   let claimUpdateFailure: Error | undefined;
-  const child = await runCodexCliReview(profile, {
+  const child = await runCodexCliReview(effectiveProfile, {
     targetRoot,
     requestMarkdown,
     outputPath,
     timeoutSeconds,
     staleAfterSeconds,
+    childEnvironment: {
+      ...process.env,
+      [REVIEWER_ENV.role]: "independent_reviewer",
+      [REVIEWER_ENV.runInstanceId]: runInstanceId,
+      [REVIEWER_ENV.procedureId]: claim.procedure_id,
+      [REVIEWER_ENV.attemptId]: claim.attempt_id,
+      [REVIEWER_ENV.claimId]: claim.claim_id,
+      [REVIEWER_ENV.marker]: claim.attempt_marker
+    },
     onSpawn: (pid) => {
       try {
         updateReviewLaunchClaim(targetRoot, roots.projectRoot, claimedRun.run_id, claim, { pid });
@@ -3637,12 +4407,16 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
 
   let observation: ReviewLaunchObservation;
   let accepted: Parameters<typeof recordLaunchAttempt>[5] | undefined;
+  const usage = parseCodexJsonlUsage(child.stdout);
+  const latencyMs = Date.now() - startedAtMs;
 
   if (child.timedOut) {
     observation = {
       ...baseObservation,
       status: "timeout",
-      attempt_id: randomUUID(),
+      attempt_id: claim.attempt_id,
+      ...usage,
+      latency_ms: latencyMs,
       exit_code: child.exitCode,
       terminal_exit_code: child.exitCode,
       terminal_signal: child.signal,
@@ -3665,7 +4439,9 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     observation = {
       ...baseObservation,
       status: "failed",
-      attempt_id: randomUUID(),
+      attempt_id: claim.attempt_id,
+      ...usage,
+      latency_ms: latencyMs,
       exit_code: child.exitCode,
       terminal_exit_code: child.exitCode,
       terminal_signal: child.signal,
@@ -3704,7 +4480,9 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
       observation = {
         ...baseObservation,
         status: "invalid_artifact",
-        attempt_id: randomUUID(),
+        attempt_id: claim.attempt_id,
+        ...usage,
+        latency_ms: latencyMs,
         exit_code: child.exitCode,
         terminal_exit_code: child.exitCode,
         terminal_signal: child.signal,
@@ -3729,11 +4507,15 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     } else {
       fs.mkdirSync(path.dirname(outputPath), { recursive: true });
       fs.writeFileSync(outputPath, artifact.markdown, "utf8");
-      const acceptedArtifact = buildProcedureArtifactFromMarkdown(targetRoot, claimedRun, options.procedureId, outputPath, artifact.markdown);
+      const acceptedArtifact = evaluationOnly
+        ? undefined
+        : buildProcedureArtifactFromMarkdown(targetRoot, claimedRun, options.procedureId, outputPath, artifact.markdown);
       observation = {
         ...baseObservation,
         status: "success",
-        attempt_id: randomUUID(),
+        attempt_id: claim.attempt_id,
+        ...usage,
+        latency_ms: latencyMs,
         exit_code: child.exitCode,
         terminal_exit_code: child.exitCode,
         terminal_signal: child.signal,
@@ -3743,29 +4525,39 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
         start_time: child.startTime,
         last_output_time: child.lastOutputTime,
         ...(child.progressUnknownAt ? { progress_unknown_at: child.progressUnknownAt } : {}),
-        artifact_path: acceptedArtifact.artifact.path,
-        artifact_id: acceptedArtifact.artifact.artifact_id,
+        ...(acceptedArtifact ? { artifact_path: acceptedArtifact.artifact.path, artifact_id: acceptedArtifact.artifact.artifact_id } : {}),
         artifact_present: true,
         artifact_valid: true,
-        artifact_hash: acceptedArtifact.artifact.artifact_id,
+        artifact_hash: `sha256:${sha256Hex(artifact.markdown)}`,
         provenance: artifact.provenance,
         provenance_source: artifact.provenance,
-        failure_classification: "REVIEW_COMPLETED_ARTIFACT_PRESENT",
-        summary: `${options.procedureId} review launch produced a valid artifact.`,
-        next_valid_action: "re-check operator status",
+        failure_classification: evaluationOnly ? "REVIEW_EVALUATION_COMPLETED_NON_AUTHORITATIVE" : "REVIEW_COMPLETED_ARTIFACT_PRESENT",
+        summary: evaluationOnly
+          ? `${options.procedureId} ${evaluationMode} candidate produced a valid non-authoritative artifact.`
+          : `${options.procedureId} review launch produced a valid artifact.`,
+        next_valid_action: evaluationOnly ? "record the routing evaluation bundle" : "re-check operator status",
         stdout_tail: boundedTail(child.stdout),
         stderr_tail: boundedTail(child.stderr)
       };
-      accepted = {
-        artifact: acceptedArtifact.artifact,
-        evidence: acceptedArtifact.evidence,
-        markdown: artifact.markdown,
-        absoluteArtifactPath: acceptedArtifact.absolutePath
-      };
+      if (acceptedArtifact) {
+        accepted = {
+          artifact: acceptedArtifact.artifact,
+          evidence: acceptedArtifact.evidence,
+          markdown: artifact.markdown,
+          absoluteArtifactPath: acceptedArtifact.absolutePath
+        };
+      }
     }
   }
 
-  const run = recordLaunchAttempt(targetRoot, roots.projectRoot, claimedRun, observation, claim, accepted);
+  const run = recordLaunchAttempt(targetRoot, roots.projectRoot, claimedRun, observation, claim, accepted, {
+    requestMarkdown,
+    core: packet.core,
+    manifest: packet.manifest,
+    overlay: packet.overlay,
+    policyVersion: packet.policyVersion,
+    bindingVersion: packet.bindingVersion
+  });
   const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id);
 
   return {
@@ -3779,6 +4571,511 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     state: "updated",
     observation
   };
+}
+
+function persistOperationalRecord(
+  targetRoot: string,
+  projectRoot: string,
+  currentRun: Run,
+  record: ReviewOperationalRecord
+): { run: Run; recorded: boolean } {
+  const existing = currentRun.review_routing_records?.find((entry) => entry.record_id === record.record_id);
+  if (existing) {
+    if (canonicalJson(existing) !== canonicalJson(record)) throw new Error(`Operational record identity conflict: ${record.record_id}`);
+    return { run: currentRun, recorded: false };
+  }
+  const staging = new RunStagingDatabase(targetRoot, projectRoot, currentRun.run_id);
+  const run = staging.mutateRun(currentRun.run_id, (latest) => {
+    assertNoActiveReviewLaunchClaim(latest, `${record.record_kind} recording`);
+    return withUpdatedAt({
+      ...latest,
+      review_routing_records: [...(latest.review_routing_records ?? []), record]
+    }, record.created_at);
+  }, { expectedRunInstanceId: currentRun.run_instance_id });
+  writeCompatibilityRunArtifacts(targetRoot, run);
+  return { run, recorded: true };
+}
+
+function operationalResult(
+  roots: { targetRoot: string; projectRoot: string },
+  current: ReturnType<typeof loadRunForMutation>,
+  run: Run,
+  record: ReviewOperationalRecord,
+  recorded: boolean,
+  dryRun: boolean
+): RuntimeOperationalRecordResult {
+  const paths = resolveMemoryDbPaths(roots.targetRoot, roots.projectRoot, run.run_id);
+  return {
+    targetRoot: roots.targetRoot,
+    projectRoot: roots.projectRoot,
+    dryRun,
+    run,
+    runPath: current.runPath,
+    projectDbPath: paths.projectDbPath,
+    stagingDbPath: paths.stagingDbPath,
+    state: dryRun ? "preview" : "updated",
+    operationalRecord: record,
+    recorded
+  };
+}
+
+export function recordRuntimeRoutingEvaluation(cwd: string, options: RecordRoutingEvaluationOptions): RuntimeOperationalRecordResult {
+  const roots = resolveHarnessRoots(cwd);
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(roots.targetRoot, dryRun, options.runId);
+  const filePath = path.resolve(roots.targetRoot, options.filePath);
+  ensureInsideTargetRoot(roots.targetRoot, filePath);
+  if (!fs.existsSync(filePath)) throw new Error(`Routing evaluation bundle not found: ${options.filePath}`);
+  const bundle = validateRoutingEvaluationBundle(JSON.parse(fs.readFileSync(filePath, "utf8")) as unknown);
+  const { evaluation_id: suppliedEvaluationId, ...evaluationIdentity } = bundle;
+  if (routingEvaluationId(evaluationIdentity) !== suppliedEvaluationId) {
+    throw new Error("ROUTING_EVALUATION_IDENTITY_MISMATCH: evaluation_id is not the canonical immutable bundle identity.");
+  }
+  if (!current.run.run_instance_id || bundle.evaluation_host_run_instance_id !== current.run.run_instance_id) {
+    throw new Error("Routing evaluation host run instance does not match the active exact run.");
+  }
+  const candidateBinding = readCodexReferenceBinding(roots.targetRoot);
+  if (candidateBinding.binding_version !== bundle.binding_version
+    || !candidateBinding.profiles.some((entry) => entry.status === "candidate" && entry.profile_id === bundle.candidate_profile_id)) {
+    throw new Error("ROUTING_EVALUATION_CANDIDATE_IDENTITY_INVALID: exact candidate binding version/profile is unavailable.");
+  }
+  const projectMemory = new ProjectMemoryDatabase(roots.targetRoot, roots.projectRoot);
+  const sourceRun = bundle.source_run_instance_id === current.run.run_instance_id
+    ? current.run
+    : projectMemory.getRunByInstanceId(bundle.source_run_instance_id);
+  const sourceEligibility = bundle.source_run_instance_id === current.run.run_instance_id
+    ? undefined
+    : projectMemory.reviewReplayEligibility(
+        bundle.source_run_instance_id,
+        bundle.source_packet_artifact_id
+      );
+  if (bundle.evaluation_mode === "replay" && (!sourceEligibility?.eligible || sourceEligibility.packet_record_id !== bundle.source_packet_artifact_id
+    || sourceEligibility.approved_attempt_id !== bundle.source_approved_attempt_id)) {
+    throw new Error(`ROUTING_EVALUATION_SOURCE_INVALID: ${sourceEligibility?.reasons.join(",") || "source packet/attempt mismatch"}`);
+  }
+  const sourceReviewBody = bundle.evaluation_mode === "replay" && sourceEligibility?.accepted_artifact_id
+    ? new ProjectMemoryDatabase(roots.targetRoot, roots.projectRoot).readProcedureArtifactBody({
+        projectRunId: bundle.source_run_instance_id,
+        procedureArtifactId: sourceEligibility.accepted_artifact_id
+      }).body
+    : undefined;
+  for (const entry of bundle.cases) {
+    const baseline = sourceRun?.review_routing_records?.find((record) => record.record_kind === "review_invocation"
+      && record.record_id === entry.baseline_observation_record_id && record.status === "success"
+      && record.payload.attempt_id === entry.baseline_attempt_id && record.payload.evaluation_mode === "approved");
+    if (!baseline) {
+      throw new Error(`ROUTING_EVALUATION_CASE_UNVERIFIED: ${entry.case_id} baseline observation is unavailable.`);
+    }
+    const candidate = current.run.review_routing_records?.find((record) => record.record_kind === "review_invocation" && record.record_id === entry.candidate_observation_record_id);
+    if (!candidate || candidate.status !== "success" || candidate.payload.attempt_id !== entry.candidate_attempt_id
+      || candidate.payload.evaluation_case_id !== entry.case_id || candidate.payload.candidate_policy_version !== bundle.policy_version
+      || candidate.payload.candidate_binding_version !== bundle.binding_version || candidate.payload.artifact_hash !== entry.candidate_output_hash
+      || candidate.payload.context_core_id !== entry.context_core_id || candidate.payload.context_manifest_id !== entry.context_manifest_id
+      || candidate.payload.delta_overlay_id !== entry.delta_overlay_id
+      || candidate.payload.candidate_profile_id !== bundle.candidate_profile_id
+      || candidate.payload.procedure_id !== entry.procedure_id
+      || candidate.payload.pass_kind !== entry.pass_kind
+      || canonicalJson(candidate.payload.risk_classes ?? []) !== canonicalJson(entry.risk_classes)
+      || !(candidate.payload.payload_refs as Array<{kind?: string}> | undefined)?.some((ref) => ref.kind === "review-evaluation-output")) {
+      throw new Error(`ROUTING_EVALUATION_CASE_UNVERIFIED: ${entry.case_id} candidate observation does not match retained Harness evidence.`);
+    }
+    const candidatePath = typeof candidate.payload.output_path === "string" ? path.resolve(roots.targetRoot, candidate.payload.output_path) : "";
+    const candidateBody = candidatePath && fs.existsSync(candidatePath) ? fs.readFileSync(candidatePath, "utf8") : "";
+    if (baseline.payload.procedure_id !== entry.procedure_id || baseline.payload.pass_kind !== entry.pass_kind
+      || canonicalJson(baseline.payload.risk_classes ?? []) !== canonicalJson(entry.risk_classes)
+      || baseline.payload.context_mode !== "fresh_independent_delta" || candidate.payload.context_mode !== "fresh_independent_delta") {
+      throw new Error(`ROUTING_EVALUATION_CASE_UNVERIFIED: ${entry.case_id} procedure, pass, risk, or independence identity mismatch.`);
+    }
+    const baselinePath = baseline && typeof baseline.payload.output_path === "string" ? path.resolve(roots.targetRoot, baseline.payload.output_path) : "";
+    const baselineBody = sourceReviewBody ?? (baselinePath && fs.existsSync(baselinePath) ? fs.readFileSync(baselinePath, "utf8") : "");
+    if (!candidateBody || !baselineBody || `sha256:${sha256Hex(candidateBody)}` !== entry.candidate_output_hash
+      || !candidateBody.includes(entry.candidate_verdict)
+      || entry.actual_critical_findings.some((finding) => !candidateBody.includes(finding))
+      || !baselineBody.includes(entry.baseline_verdict)
+      || entry.expected_critical_findings.some((finding) => !baselineBody.includes(finding))) {
+      throw new Error(`ROUTING_EVALUATION_CASE_UNVERIFIED: ${entry.case_id} findings or verdicts do not match retained output artifacts.`);
+    }
+    if (bundle.evaluation_mode === "replay" && entry.baseline_attempt_id !== bundle.source_approved_attempt_id) {
+      throw new Error(`ROUTING_EVALUATION_CASE_UNVERIFIED: ${entry.case_id} baseline attempt does not match the retained source packet.`);
+    }
+    const baselineTokens = typeof baseline.payload.input_tokens === "number" && typeof baseline.payload.output_tokens === "number"
+      ? baseline.payload.input_tokens + baseline.payload.output_tokens : undefined;
+    const candidateTokens = typeof candidate.payload.input_tokens === "number" && typeof candidate.payload.output_tokens === "number"
+      ? candidate.payload.input_tokens + candidate.payload.output_tokens : undefined;
+    if ((entry.baseline_total_tokens !== undefined && entry.baseline_total_tokens !== baselineTokens)
+      || (entry.candidate_total_tokens !== undefined && entry.candidate_total_tokens !== candidateTokens)) {
+      throw new Error(`ROUTING_EVALUATION_CASE_UNVERIFIED: ${entry.case_id} usage totals do not match retained observations.`);
+    }
+    const baselineFixPasses = sourceRun?.review_results.filter((result) => reviewSourceMatchesProcedure(result.source, "fix-pass-review")).length ?? 0;
+    if (entry.baseline_fix_passes !== baselineFixPasses || entry.candidate_fix_passes !== 0
+      || !entry.legal_lifecycle || !entry.independence_preserved || !entry.output_valid || !entry.evidence_valid) {
+      throw new Error(`ROUTING_EVALUATION_CASE_UNVERIFIED: ${entry.case_id} contains an unresolved lifecycle, independence, output, or evidence result.`);
+    }
+  }
+  if (bundle.evaluation_mode === "canary") {
+    const authorization = current.run.review_routing_records?.find((record) => record.record_kind === "routing_decision"
+      && record.record_id === bundle.canary_authorization_id && record.status === "canary_authorized");
+    const retainedCanaries = current.run.review_routing_records?.filter((record) => record.record_kind === "review_invocation"
+      && record.status === "success" && record.payload.canary_authorization_id === bundle.canary_authorization_id) ?? [];
+    if (!authorization || retainedCanaries.length !== bundle.canary_invocation_count
+      || retainedCanaries.length !== bundle.cases.length || retainedCanaries.length > Number(authorization.payload.max_invocations ?? 0)) {
+      throw new Error("ROUTING_EVALUATION_CANARY_CLOSURE_INVALID: retained invocations do not close the exact authorization.");
+    }
+  }
+  const record: ReviewOperationalRecord = {
+    record_kind: "routing_evaluation",
+    record_id: bundle.evaluation_id,
+    created_at: bundle.created_at,
+    status: "recorded",
+    summary: `${bundle.evaluation_mode} routing evaluation`,
+    payload: bundle as unknown as Record<string, unknown>
+  };
+  if (dryRun) return operationalResult(roots, current, current.run, record, false, true);
+  const persisted = persistOperationalRecord(roots.targetRoot, roots.projectRoot, current.run, record);
+  return operationalResult(roots, current, persisted.run, record, persisted.recorded, false);
+}
+
+export function decideRuntimeRoutingPolicy(cwd: string, options: DecideRoutingPolicyOptions): RuntimeOperationalRecordResult {
+  const roots = resolveHarnessRoots(cwd);
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(roots.targetRoot, dryRun, options.runId);
+  if (!current.run.run_instance_id) throw new Error("Routing policy decision requires exact run identity.");
+  const evaluationRecord = current.run.review_routing_records?.find((entry) =>
+    entry.record_kind === "routing_evaluation" && entry.record_id === options.evaluationId
+  );
+  if (!evaluationRecord) throw new Error(`Routing evaluation record not found: ${options.evaluationId}`);
+  const bundle = validateRoutingEvaluationBundle(evaluationRecord.payload);
+  const gates = evaluatePromotionGates(bundle);
+  const currentRoutePolicy = readReviewRoutePolicy(roots.targetRoot);
+  const currentBinding = readCodexReferenceBinding(roots.targetRoot);
+  if (options.decision === "rollback") {
+    if (!currentRoutePolicy.previous_accepted_policy_version || !currentBinding.previous_accepted_binding_version
+      || options.policyVersion !== currentRoutePolicy.previous_accepted_policy_version
+      || options.bindingVersion !== currentBinding.previous_accepted_binding_version) {
+      throw new Error("ROUTING_ROLLBACK_REJECTED: rollback must target the exact checked-in previous accepted versions.");
+    }
+  } else if (options.policyVersion !== bundle.policy_version || options.bindingVersion !== bundle.binding_version) {
+    throw new Error("ROUTING_DECISION_VERSION_MISMATCH: owner decision must bind the exact evaluation candidate versions.");
+  }
+  if (options.decision === "promote" && !gates.accepted) {
+    throw new Error(`ROUTING_PROMOTION_REJECTED: ${gates.rejection_reasons.join(", ")}`);
+  }
+  if (options.decision === "promote" && bundle.evaluation_mode !== "canary") {
+    throw new Error("ROUTING_PROMOTION_REJECTED: promotion requires a complete post-canary evaluation bundle.");
+  }
+  if (options.decision === "authorize_canary" && (!options.selectorPath || !options.maxInvocations || options.maxInvocations < 1 || options.maxInvocations > 3)) {
+    throw new Error("--selector and --max-invocations between 1 and 3 are required for canary authorization.");
+  }
+  const selector = options.selectorPath
+    ? JSON.parse(fs.readFileSync(path.resolve(roots.targetRoot, options.selectorPath), "utf8")) as Record<string, unknown>
+    : undefined;
+  if (options.decision === "authorize_canary") {
+    const selected = selector as { case_ids?: unknown; procedure_ids?: unknown; pass_kinds?: unknown; risk_classes?: unknown };
+    for (const [field, value] of [
+      ["case_ids", selected.case_ids], ["procedure_ids", selected.procedure_ids],
+      ["pass_kinds", selected.pass_kinds], ["risk_classes", selected.risk_classes]
+    ] as const) {
+      if (!Array.isArray(value) || value.length === 0 || value.some((entry) => typeof entry !== "string" || !entry.trim())) {
+        throw new Error(`ROUTING_CANARY_SELECTOR_INVALID: ${field} must be a non-empty string array.`);
+      }
+    }
+    const caseIds = new Set(bundle.cases.map((entry) => entry.case_id));
+    if ((selected.case_ids as string[]).some((entry) => !caseIds.has(entry))) {
+      throw new Error("ROUTING_CANARY_SELECTOR_INVALID: case_ids must come from the exact evaluation bundle.");
+    }
+    const selectedCases = bundle.cases.filter((entry) => (selected.case_ids as string[]).includes(entry.case_id));
+    if (selectedCases.some((entry) => !(selected.procedure_ids as string[]).includes(entry.procedure_id)
+      || !(selected.pass_kinds as string[]).includes(entry.pass_kind)
+      || entry.risk_classes.some((risk) => !(selected.risk_classes as string[]).includes(risk)))) {
+      throw new Error("ROUTING_CANARY_SELECTOR_INVALID: procedure, pass, and risk selectors must cover every selected case.");
+    }
+  }
+  const createdAt = nowIso();
+  const state = options.decision === "authorize_canary" ? "canary_authorized"
+    : options.decision === "promote" ? "source_application_required"
+      : options.decision === "rollback" ? "rollback_source_update_required" : "rejected";
+  const payload: Record<string, unknown> = {
+    schema_version: 1,
+    producer_command: "node bin/ch run decide-routing-policy",
+    run_instance_id: current.run.run_instance_id,
+    evaluation_id: options.evaluationId,
+    decision: options.decision,
+    policy_version: options.policyVersion,
+    binding_version: options.bindingVersion,
+    approver: options.approver,
+    reason: options.reason,
+    created_at: createdAt,
+    state,
+    promotion_gates: gates,
+    evaluation_content_hash: `sha256:${sha256Hex(canonicalJson(bundle))}`,
+    previous_accepted_policy_version: readReviewRoutePolicy(roots.targetRoot).accepted_policy_version,
+    previous_accepted_binding_version: readCodexReferenceBinding(roots.targetRoot).accepted_binding_version,
+    previous_policy_blob_hash: `sha256:${sha256Hex(fs.readFileSync(path.join(roots.targetRoot, "skills/self-hosting/review-route-policy.json")))}`,
+    previous_binding_blob_hash: `sha256:${sha256Hex(fs.readFileSync(path.join(roots.targetRoot, "skills/self-hosting/codex-reference-binding.json")))}`,
+    previous_accepted_profiles: currentBinding.profiles.filter((entry) => entry.status === "accepted"),
+    ...(selector ? { selector } : {}),
+    ...(options.maxInvocations ? { max_invocations: options.maxInvocations } : {})
+  };
+  const recordId = `routing-decision-${sha256Hex(canonicalJson(payload))}`;
+  payload.decision_id = recordId;
+  const record: ReviewOperationalRecord = {
+    record_kind: "routing_decision",
+    record_id: recordId,
+    created_at: createdAt,
+    status: state,
+    summary: `${options.decision} routing policy ${options.policyVersion}/${options.bindingVersion}`,
+    payload
+  };
+  if (dryRun) return operationalResult(roots, current, current.run, record, false, true);
+  const persisted = persistOperationalRecord(roots.targetRoot, roots.projectRoot, current.run, record);
+  return operationalResult(roots, current, persisted.run, record, persisted.recorded, false);
+}
+
+export function recordRuntimeRoutingPolicySourceApplication(
+  cwd: string,
+  options: RecordRoutingPolicySourceApplicationOptions
+): RuntimeOperationalRecordResult {
+  const roots = resolveHarnessRoots(cwd);
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(roots.targetRoot, dryRun, options.runId);
+  const decision = current.run.review_routing_records?.find((entry) =>
+    entry.record_kind === "routing_decision" && entry.record_id === options.decisionId
+  );
+  if (!decision || !["source_application_required", "rollback_source_update_required"].includes(decision.status)) {
+    throw new Error("POLICY_SOURCE_APPLICATION_NOT_AUTHORIZED: exact promotion or rollback decision is missing.");
+  }
+  const gitHead = runGitCommand(roots.targetRoot, ["rev-parse", "HEAD"]);
+  if (gitHead.status !== 0 || gitHead.stdout.trim() !== options.commitSha) throw new Error("Policy source application commit does not match HEAD.");
+  const policyPath = path.resolve(roots.targetRoot, options.policyFile);
+  const bindingPath = path.resolve(roots.targetRoot, options.bindingFile);
+  ensureInsideTargetRoot(roots.targetRoot, policyPath);
+  ensureInsideTargetRoot(roots.targetRoot, bindingPath);
+  if (toRepoRelative(roots.targetRoot, policyPath) !== "skills/self-hosting/review-route-policy.json"
+    || toRepoRelative(roots.targetRoot, bindingPath) !== "skills/self-hosting/codex-reference-binding.json") {
+    throw new Error("Policy source application must target the canonical checked-in route policy and Codex binding files.");
+  }
+  const policy = JSON.parse(fs.readFileSync(policyPath, "utf8")) as { policy_version?: string };
+  const binding = JSON.parse(fs.readFileSync(bindingPath, "utf8")) as { binding_version?: string };
+  if (policy.policy_version !== decision.payload.policy_version || binding.binding_version !== decision.payload.binding_version) {
+    throw new Error("Policy source application versions do not match the owner decision.");
+  }
+  const review = current.run.artifacts.find((entry) => entry.artifact_id === options.implementationReviewArtifactId);
+  const reviewResult = current.run.review_results.find((entry) =>
+    entry.status === "PASS" && reviewSourceMatchesProcedure(entry.source, "implementation-review") && entry.created_at > decision.created_at
+      && entry.artifact_refs.some((artifact) => artifact.artifact_id === options.implementationReviewArtifactId)
+  );
+  const reviewInvocation = current.run.review_routing_records?.find((entry) => entry.record_kind === "review_invocation"
+    && entry.status === "success" && entry.payload.artifact_id === options.implementationReviewArtifactId
+    && entry.payload.source_application_decision_id === decision.record_id
+    && entry.payload.routing_policy_version === decision.payload.policy_version
+    && entry.payload.binding_version === decision.payload.previous_accepted_binding_version
+    && entry.payload.context_mode === "fresh_independent_delta");
+  if (!review || !reviewResult || !reviewInvocation) throw new Error("Policy source application requires a post-decision independent PASS review pinned to the pre-decision accepted binding.");
+  const committedPolicy = runGitCommand(roots.targetRoot, ["show", `${options.commitSha}:${options.policyFile}`]);
+  const committedBinding = runGitCommand(roots.targetRoot, ["show", `${options.commitSha}:${options.bindingFile}`]);
+  if (committedPolicy.status !== 0 || committedBinding.status !== 0
+    || `sha256:${sha256Hex(committedPolicy.stdout)}` !== `sha256:${sha256Hex(fs.readFileSync(policyPath))}`
+    || `sha256:${sha256Hex(committedBinding.stdout)}` !== `sha256:${sha256Hex(fs.readFileSync(bindingPath))}`) {
+    throw new Error("Policy source application files do not match the exact committed blobs.");
+  }
+  const createdAt = nowIso();
+  const payload = {
+    decision_id: options.decisionId,
+    source_commit_sha: options.commitSha,
+    policy_file: options.policyFile,
+    policy_blob_hash: `sha256:${sha256Hex(fs.readFileSync(policyPath))}`,
+    binding_file: options.bindingFile,
+    binding_blob_hash: `sha256:${sha256Hex(fs.readFileSync(bindingPath))}`,
+    policy_version: policy.policy_version,
+    binding_version: binding.binding_version,
+    implementation_review_artifact_id: options.implementationReviewArtifactId,
+    run_instance_id: current.run.run_instance_id,
+    applied_at: createdAt
+  };
+  const record: ReviewOperationalRecord = {
+    record_kind: "routing_policy_application",
+    record_id: `routing-policy-application-${sha256Hex(canonicalJson(payload))}`,
+    created_at: createdAt,
+    status: "applied",
+    summary: `Applied routing policy source decision ${options.decisionId}`,
+    payload
+  };
+  if (dryRun) return operationalResult(roots, current, current.run, record, false, true);
+  const persisted = persistOperationalRecord(roots.targetRoot, roots.projectRoot, current.run, record);
+  return operationalResult(roots, current, persisted.run, record, persisted.recorded, false);
+}
+
+export function cleanupRuntimePreparedSuccessor(cwd: string, options: CleanupPreparedSuccessorOptions): RuntimeOperationalRecordResult {
+  const roots = resolveHarnessRoots(cwd);
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(roots.targetRoot, dryRun, options.runId);
+  const evidencePath = path.resolve(roots.targetRoot, options.filePath);
+  ensureInsideTargetRoot(roots.targetRoot, evidencePath);
+  const evidence = readPreparedSuccessorCleanupEvidence(evidencePath);
+  if (evidence.decision_id !== options.decisionId) throw new Error("Prepared-successor cleanup decision identity mismatch.");
+  const { record: nextTaskDecision } = readNextTaskDecision(current.run, options.decisionId);
+  if (nextTaskDecision.base_commit_sha !== evidence.immutable_base) throw new Error("HANDOFF_CLEANUP_BLOCKED: evidence base does not match the predecessor decision.");
+  if (fs.existsSync(evidence.cwd) || worktreePathExistsInGit(roots.targetRoot, evidence.cwd)) throw new Error("HANDOFF_CLEANUP_BLOCKED: successor worktree still exists.");
+  if (new ProjectMemoryDatabase(roots.targetRoot, roots.projectRoot).hasRunForSuccessorIdentity(evidence.cwd, evidence.branch)) {
+    throw new Error("HANDOFF_CLEANUP_BLOCKED: a successor run already exists for this cwd or branch.");
+  }
+  const receipt = buildPreparedSuccessorCleanupReceipt(roots.projectRoot, evidence);
+  const existing = current.run.review_routing_records?.find((entry) => entry.record_kind === "prepared_successor_cleanup" && entry.record_id === receipt.receipt_id);
+  if (existing?.status === "complete") return operationalResult(roots, current, current.run, existing, false, dryRun);
+  const taskStatePath = path.join(getTaskDirectory(roots.projectRoot, evidence.task_state_id), "state.json");
+  const archivedPath = path.resolve(roots.projectRoot, receipt.archived_task_state_path);
+  ensureInsideTargetRoot(roots.projectRoot, archivedPath);
+  const taskList = listTasks(roots.projectRoot);
+  if (taskList.warnings.length > 0) throw new Error(`HANDOFF_CLEANUP_BLOCKED: unreadable TaskState records: ${taskList.warnings.join("; ")}`);
+  const owners = taskList.tasks.filter((task) => task.task_id === evidence.task_state_id && task.branch === evidence.branch
+    && task.worktree === evidence.cwd && task.base_commit_sha === evidence.immutable_base);
+  if (!existing && owners.length !== 1) throw new Error("HANDOFF_CLEANUP_BLOCKED: exactly one matching TaskState owner is required.");
+  const expectedTaskStateRef = path.relative(roots.projectRoot, taskStatePath).replace(/\\/gu, "/");
+  const stateProofPath = fs.existsSync(taskStatePath) ? taskStatePath : archivedPath;
+  if (evidence.task_state_path !== expectedTaskStateRef || !fs.existsSync(stateProofPath)
+    || `sha256:${sha256Hex(fs.readFileSync(stateProofPath))}` !== evidence.task_state_hash) {
+    throw new Error("HANDOFF_CLEANUP_BLOCKED: TaskState path or content hash does not match installed state.");
+  }
+  const originalBranchHead = runGitCommand(roots.targetRoot, ["rev-parse", `refs/heads/${evidence.branch}`]);
+  const recoveryBranchHead = runGitCommand(roots.targetRoot, ["rev-parse", `refs/heads/${receipt.recovery_branch}`]);
+  if ((originalBranchHead.status !== 0 || originalBranchHead.stdout.trim() !== evidence.immutable_base)
+    && (recoveryBranchHead.status !== 0 || recoveryBranchHead.stdout.trim() !== evidence.immutable_base)) {
+    throw new Error("HANDOFF_CLEANUP_BLOCKED: dormant branch does not equal the immutable base.");
+  }
+  const journal: ReviewOperationalRecord = {
+    record_kind: "prepared_successor_cleanup",
+    record_id: receipt.receipt_id,
+    created_at: nowIso(),
+    status: dryRun ? "prepared" : "journaled",
+    summary: `Prepared recoverable cleanup for ${evidence.branch}`,
+    payload: receipt as unknown as Record<string, unknown>
+  };
+  if (dryRun) return operationalResult(roots, current, current.run, journal, false, true);
+  const journaled = existing ? { run: current.run } : persistOperationalRecord(roots.targetRoot, roots.projectRoot, current.run, journal);
+  const completedSteps = new Set(Array.isArray(existing?.payload.completed_steps) ? existing.payload.completed_steps.filter((entry): entry is string => typeof entry === "string") : ["journaled"]);
+  const updateJournal = (status: string, summary: string): Run => {
+    const update: ReviewOperationalRecord = { ...journal, status, summary, payload: { ...receipt, status, completed_steps: [...completedSteps] } };
+    const staging = new RunStagingDatabase(roots.targetRoot, roots.projectRoot, current.run.run_id);
+    const updated = staging.mutateRun(current.run.run_id, (latest) => ({ ...latest, updated_at: nowIso(), review_routing_records: (latest.review_routing_records ?? []).map((entry) => entry.record_id === update.record_id ? update : entry) }), { expectedRunInstanceId: current.run.run_instance_id });
+    writeCompatibilityRunArtifacts(roots.targetRoot, updated);
+    return updated;
+  };
+  let latestRun = journaled.run;
+  try {
+    if (!completedSteps.has("branch_quarantined")) {
+      if (originalBranchHead.status === 0) {
+        const renameBranch = runGitCommand(roots.targetRoot, ["branch", "-m", evidence.branch, receipt.recovery_branch]);
+        if (renameBranch.status !== 0) throw new Error(renameBranch.stderr.trim() || "branch quarantine failed");
+      }
+      completedSteps.add("branch_quarantined");
+      latestRun = updateJournal("journaled", `Branch quarantined for ${evidence.branch}`);
+    }
+    if (!completedSteps.has("task_state_quarantined")) {
+      if (!fs.existsSync(taskStatePath) && !fs.existsSync(archivedPath)) throw new Error("TaskState disappeared after cleanup journal creation");
+      if (fs.existsSync(taskStatePath)) {
+        fs.mkdirSync(path.dirname(archivedPath), { recursive: true });
+        fs.renameSync(taskStatePath, archivedPath);
+      }
+      if (`sha256:${sha256Hex(fs.readFileSync(archivedPath))}` !== evidence.task_state_hash) throw new Error("archived TaskState hash mismatch");
+      completedSteps.add("task_state_quarantined");
+      latestRun = updateJournal("journaled", `TaskState quarantined for ${evidence.branch}`);
+    }
+  } catch (error) {
+    updateJournal("partial", `HANDOFF_CLEANUP_PARTIAL: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`HANDOFF_CLEANUP_PARTIAL: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const complete: ReviewOperationalRecord = {
+    ...journal,
+    status: "complete",
+    summary: `Recoverably quarantined prepared successor ${evidence.branch}`,
+    payload: {
+      ...receipt,
+      status: "complete",
+      completed_steps: ["journaled", "branch_quarantined", "task_state_quarantined"],
+      next_action: "create a fresh Desktop successor from the recorded immutable base if recovery is required"
+    }
+  };
+  const staging = new RunStagingDatabase(roots.targetRoot, roots.projectRoot, current.run.run_id);
+  const run = staging.mutateRun(current.run.run_id, (latest) => ({
+    ...latest,
+    updated_at: complete.created_at,
+    review_routing_records: (latest.review_routing_records ?? []).map((entry) => entry.record_id === complete.record_id ? complete : entry)
+  }), { expectedRunInstanceId: latestRun.run_instance_id });
+  writeCompatibilityRunArtifacts(roots.targetRoot, run);
+  return operationalResult(roots, current, run, complete, true, false);
+}
+
+function runtimeReferenceExists(targetRoot: string, run: Run, reference: string): boolean {
+  if (reference === `run:${run.run_instance_id}` || reference === `source:${run.source_snapshot}`
+    || reference === `branch:${run.repository.branch}`) return true;
+  if (reference.startsWith("file:")) {
+    const match = /^file:([^#]+)#(sha256:[a-f0-9]{64})$/u.exec(reference);
+    if (!match) return false;
+    const absolute = path.resolve(targetRoot, match[1]);
+    ensureInsideTargetRoot(targetRoot, absolute);
+    return fs.existsSync(absolute) && fs.statSync(absolute).isFile()
+      && `sha256:${sha256Hex(fs.readFileSync(absolute))}` === match[2];
+  }
+  return run.artifacts.some((entry) => entry.artifact_id === reference)
+    || run.evidence.some((entry) => entry.evidence_id === reference || entry.artifact_id === reference)
+    || run.verification_results.some((entry) => entry.verification_result_id === reference
+      || entry.artifact_refs.some((artifact) => artifact.artifact_id === reference)
+      || entry.command_results.some((command) => command.command_result_id === reference))
+    || run.review_results.some((entry) => entry.review_result_id === reference
+      || entry.artifact_refs.some((artifact) => artifact.artifact_id === reference))
+    || run.approvals.some((entry) => entry.approval_id === reference
+      || entry.reviewed_plan_artifact_id === reference || entry.reviewed_evidence_artifact_id === reference)
+    || run.decisions.some((entry) => entry.decision_id === reference)
+    || run.delivery_facts.some((entry) => entry.delivery_fact_id === reference)
+    || (run.review_routing_records ?? []).some((entry) => entry.record_id === reference);
+}
+
+function deterministicPrecheckSatisfied(targetRoot: string, run: Run, procedureId: string, precheck: string): boolean {
+  const latestVerification = run.verification_results[run.verification_results.length - 1];
+  const verificationPassed = latestVerification?.status === "pass"
+    && latestVerification.command_results.length > 0
+    && latestVerification.command_results.every((entry) => entry.status === "pass" && entry.exit_code === 0);
+  switch (precheck) {
+    case "task_contract_identity":
+      return fs.existsSync(path.join(targetRoot, run.active_task_path ?? run.task_path));
+    case "procedure_contract_identity":
+      return fs.existsSync(path.join(targetRoot, "skills", "self-hosting", procedureId, "SKILL.md"));
+    case "required_reading":
+      return run.evidence.length > 0;
+    case "required_command_inventory":
+      return (latestVerification?.command_results.length ?? 0) > 0;
+    case "command_results":
+    case "verification_pass":
+    case "link_and_path_checks":
+      return verificationPassed;
+    case "snapshot_identity":
+      return Boolean(run.source_snapshot && run.repository.head_sha);
+    case "commit_identity":
+      return Boolean(run.repository.head_sha);
+    case "branch_identity":
+      return Boolean(run.repository.branch);
+    case "remote_fact_inventory":
+    case "delivery_facts":
+      return run.delivery_facts.length > 0;
+    case "implementation_review_pass":
+      return run.review_results.some((entry) => reviewSourceMatchesProcedure(entry.source, "implementation-review") && entry.status === "PASS");
+    case "next_task_decision":
+      return run.decisions.some((entry) => entry.title === "Next task decision");
+    case "changed_docs_inventory":
+      return reviewChangeInventory(targetRoot).changedFiles.some((entry) => entry.startsWith("docs/") || entry.startsWith("tasks/"));
+    case "canonical_source_refs":
+      return fs.existsSync(path.join(targetRoot, "TASK.md")) && fs.existsSync(path.join(targetRoot, "docs", "MASTER_ARCHITECTURE.md"));
+    case "runtime_state_identity":
+      return Boolean(run.run_instance_id && run.run_revision);
+    case "claim_inventory":
+      return Array.isArray(run.review_launch_claims);
+    case "artifact_inventory":
+      return run.artifacts.length > 0;
+    case "lifecycle_projection":
+      return run.lifecycle_status === "active";
+    default:
+      return false;
+  }
 }
 
 export async function recordRuntimeProcedure(cwd: string, options: RecordProcedureOptions): Promise<RuntimeProcedureResult> {
@@ -3797,11 +5094,13 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
   if (!proceduresById.has(options.procedureId)) {
     throw new Error(`Unknown self-hosting procedure id: ${options.procedureId}`);
   }
-  if (!PHASE_23_8_6A_ALLOWED_PROCEDURE_INGESTION.has(options.procedureId)) {
-    throw new Error(
-      `Procedure ${options.procedureId} is outside the Phase 23.8.6A replay and re-ingestion scope.`
-    );
+  if (current.run.phase_id !== "23.8.6F" && !LEGACY_PROCEDURE_INGESTION_SCOPE.has(options.procedureId)) {
+    throw new Error(`Procedure ${options.procedureId} is outside the Phase ${current.run.phase_id ?? "pre-F"} replay and re-ingestion scope.`);
   }
+  const executionPolicy = readProcedureExecutionPolicy(targetRoot);
+  reconcileProcedureExecutionPolicy(registry, executionPolicy);
+  const executionContract = executionPolicy.procedures.find((entry) => entry.procedure_id === options.procedureId);
+  if (!executionContract) throw new Error(`Procedure ${options.procedureId} has no exact execution-policy contract.`);
 
   const absoluteSourcePath = path.resolve(targetRoot, options.filePath);
   ensureInsideTargetRoot(targetRoot, absoluteSourcePath);
@@ -3813,6 +5112,46 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
   const markdown = fs.readFileSync(absoluteSourcePath, "utf8");
   if (markdown.trim().length === 0) {
     throw new Error(`Procedure artifact is empty: ${options.filePath}`);
+  }
+  if (/^completion_mode:\s*deterministic\s*$/imu.test(markdown)) {
+    if (!executionContract.deterministic_completion_supported || executionContract.semantic_class === "semantic_required") {
+      throw new Error(`DETERMINISTIC_COMPLETION_FORBIDDEN: ${options.procedureId} still requires semantic judgment.`);
+    }
+    const precheckLine = markdown.match(/^deterministic_prechecks:\s*(.+)$/imu)?.[1] ?? "";
+    const precheckRefLine = markdown.match(/^precheck_refs:\s*(.+)$/imu)?.[1] ?? "";
+    const evidenceLine = markdown.match(/^evidence_refs:\s*(.+)$/imu)?.[1] ?? "";
+    const completedPrechecks = new Set(precheckLine.split(",").map((entry) => entry.trim()).filter(Boolean));
+    const precheckRefs = new Map(precheckRefLine.split(",").map((entry) => entry.trim()).filter(Boolean).map((entry) => {
+      const separator = entry.indexOf("=");
+      return separator > 0 ? [entry.slice(0, separator).trim(), entry.slice(separator + 1).trim()] : [entry, ""];
+    }));
+    const evidenceRefs = new Map(evidenceLine.split(",").map((entry) => entry.trim()).filter(Boolean).map((entry) => {
+      const separator = entry.indexOf("=");
+      return separator > 0 ? [entry.slice(0, separator).trim(), entry.slice(separator + 1).trim()] : [entry, ""];
+    }));
+    const missingPrechecks = executionContract.deterministic_prechecks.filter((entry) => {
+      const reference = precheckRefs.get(entry);
+      return !completedPrechecks.has(entry) || !reference || !runtimeReferenceExists(targetRoot, current.run, reference)
+        || !deterministicPrecheckSatisfied(targetRoot, current.run, options.procedureId, entry);
+    });
+    const missingEvidence = executionContract.required_evidence_contract.filter((entry) => {
+      const reference = evidenceRefs.get(entry);
+      return !reference || !runtimeReferenceExists(targetRoot, current.run, reference);
+    });
+    const missingOutputs = executionContract.required_output_contract.filter((entry) => {
+      const value = markdown.match(new RegExp(`^output\\.${escapeRegExpPattern(entry)}:\\s*(.+)$`, "imu"))?.[1]?.trim();
+      return !value;
+    });
+    const residualDisposition = markdown.match(/^semantic_residual_disposition:\s*(.+)$/imu)?.[1]?.trim();
+    const independenceRef = markdown.match(/^independence_ref:\s*(.+)$/imu)?.[1]?.trim();
+    const approvalRef = markdown.match(/^approval_ref:\s*(.+)$/imu)?.[1]?.trim();
+    if (missingPrechecks.length || missingEvidence.length || missingOutputs.length
+      || (executionContract.semantic_residual.length > 0 && residualDisposition !== "not_applicable")
+      || (executionContract.independence === "independent" && (!independenceRef || !runtimeReferenceExists(targetRoot, current.run, independenceRef)))
+      || (approvalRef ? !runtimeReferenceExists(targetRoot, current.run, approvalRef)
+        : executionContract.required_evidence_contract.some((entry) => entry.includes("approval")))) {
+      throw new Error(`DETERMINISTIC_COMPLETION_INCOMPLETE: prechecks=${missingPrechecks.join(",")} evidence=${missingEvidence.join(",")} outputs=${missingOutputs.join(",")}`);
+    }
   }
 
   if (options.procedureId === "plan-review") {
@@ -4387,8 +5726,15 @@ export async function materializeRuntimeNextTask(
   const enterExistingMode = options.enterExisting === true;
   const recoverExistingActivation = options.recoverExistingActivation === true;
 
-  if (createMode === enterExistingMode) {
-    throw new Error("Choose exactly one materialization mode: --create or --enter-existing.");
+  if (createMode) {
+    throw new Error(
+      "HANDOFF_CREATION_FAILED: Harness cannot create a successor branch/worktree. " +
+      "next_allowed_action=create the successor with Codex Desktop create_thread, verify native/Git/TaskState readback, then rerun with --enter-existing."
+    );
+  }
+
+  if (!enterExistingMode) {
+    throw new Error("--enter-existing is required after Codex Desktop creates the successor task/worktree.");
   }
   if (recoverExistingActivation && !enterExistingMode) {
     throw new Error("--recover-existing-activation requires --enter-existing.");
@@ -4426,37 +5772,16 @@ export async function materializeRuntimeNextTask(
     };
   }
 
-  let created = false;
   let backupPath: string | undefined;
-  let branchCreated = false;
   let recoveredTaskStateId: string | undefined;
   const taskPointerPath = path.join(absoluteWorktreePath, "TASK.md");
 
   try {
-    if (createMode) {
-      if (fs.existsSync(absoluteWorktreePath)) {
-        throw new Error(`Materialization worktree path already exists: ${absoluteWorktreePath}`);
-      }
-      if (gitBranchExists(targetRoot, options.branch)) {
-        throw new Error(`Materialization branch already exists: ${options.branch}`);
-      }
-      fs.mkdirSync(path.dirname(absoluteWorktreePath), { recursive: true });
-      const addResult = runGitCommand(targetRoot, ["worktree", "add", "-b", options.branch, absoluteWorktreePath, record.base_commit_sha]);
-      if (addResult.error) {
-        throw addResult.error;
-      }
-      if (addResult.status !== 0) {
-        throw new Error(addResult.stderr.trim() || "git worktree add failed");
-      }
-      created = true;
-      branchCreated = true;
-    } else {
-      if (!fs.existsSync(absoluteWorktreePath)) {
-        throw new Error(`Existing worktree path does not exist: ${absoluteWorktreePath}`);
-      }
-      if (!worktreePathExistsInGit(targetRoot, absoluteWorktreePath)) {
-        throw new Error(`Existing worktree is not registered with git: ${absoluteWorktreePath}`);
-      }
+    if (!fs.existsSync(absoluteWorktreePath)) {
+      throw new Error(`Existing Desktop-created worktree path does not exist: ${absoluteWorktreePath}`);
+    }
+    if (!worktreePathExistsInGit(targetRoot, absoluteWorktreePath)) {
+      throw new Error(`Existing Desktop-created worktree is not registered with git: ${absoluteWorktreePath}`);
     }
 
     if (gitCurrentBranch(absoluteWorktreePath) !== options.branch) {
@@ -4538,7 +5863,7 @@ export async function materializeRuntimeNextTask(
       branch: options.branch,
       worktreePath: absoluteWorktreePath,
       taskPath: nextTaskPath,
-      created,
+      created: false,
       recoveredExistingActivation: recoverExistingActivation,
       ...(recoveredTaskStateId ? { taskStateId: recoveredTaskStateId } : {}),
       handoffRequired: true,
@@ -4553,26 +5878,6 @@ export async function materializeRuntimeNextTask(
 
     if (recoveredTaskStateId) {
       fs.rmSync(getTaskDirectory(roots.projectRoot, recoveredTaskStateId), { recursive: true, force: true });
-    }
-
-    if (created) {
-      const removeResult = runGitCommand(targetRoot, ["worktree", "remove", "--force", absoluteWorktreePath]);
-      if (removeResult.error) {
-        throw removeResult.error;
-      }
-      if (removeResult.status !== 0) {
-        throw new Error(removeResult.stderr.trim() || "git worktree remove failed during rollback");
-      }
-
-      if (branchCreated) {
-        const deleteBranchResult = runGitCommand(targetRoot, ["branch", "-D", options.branch]);
-        if (deleteBranchResult.error) {
-          throw deleteBranchResult.error;
-        }
-        if (deleteBranchResult.status !== 0) {
-          throw new Error(deleteBranchResult.stderr.trim() || "git branch delete failed during rollback");
-        }
-      }
     }
 
     throw error;

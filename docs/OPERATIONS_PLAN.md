@@ -110,19 +110,20 @@ Phase 31 remains the first general external-runner provider-binding and
 execution boundary.
 
 For a newly inserted phase, materialization is not complete when only
-`TASK.md` changes. Update the task contract, `TASK.md`, roadmap/operations
-order, and every required live authority/policy surface coherently; commit that
-complete activation as the first commit in the task branch/worktree; verify
-clean git; then create the successor Codex Desktop task through the native
-task/worktree API. The supported product boundary is a persistent native
-app-server `thread/start` using the exact prepared worktree `cwd`, followed by
-native thread readback that proves the created task identity/link plus captured
-cwd, branch, and `HEAD` binding. Expose its
+`TASK.md` changes. Record the immutable next-task decision, create the
+successor task/worktree with Codex Desktop `create_thread`, and use native
+readback to prove its identity/link, cwd, branch, and base HEAD. Then enter that
+exact checkout with `run materialize-next-task --enter-existing`; update the
+task contract, `TASK.md`, roadmap/operations order, and every required live
+authority/policy surface coherently; commit that complete activation as the
+first commit in the task branch/worktree; and verify clean git. Raw Git and
+app-server `thread/start` are not successor-creation authority. Expose the
 identity or link so the user can open it without creating, selecting, or
 searching for a repository or worktree, and stop the predecessor before any
-successor work. If creation or binding cannot be proven, fail closed with typed
-`HANDOFF_CREATION_FAILED`; the predecessor must not bootstrap, start a
-successor run, or execute successor shell work. Only after that proof may the
+successor implementation work. If creation or binding cannot be proven, fail
+closed with typed `HANDOFF_CREATION_FAILED`; archive the Desktop task first,
+then use `run cleanup-prepared-successor` to quarantine the exact dormant
+branch and TaskState. Only after successful proof may the
 successor run `node bin/ch worktree bootstrap` to perform deterministic
 dependency/build and tracked-procedure readiness checks before starting the
 authoritative Harness run. A Codex Desktop local environment may run the same
@@ -240,20 +241,22 @@ After commit:
 
 1. Record the next task decision if closeout/harvest has not already done so.
    Use `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`.
-2. Create or enter the branch/worktree owned by that task with
-   `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`.
-3. Let that materialization step write `TASK.md` for the next task in the task
-   worktree; it must not start a successor run.
-4. Commit the complete activation authority—`TASK.md`, active task contract,
+2. Create the successor task/worktree with Codex Desktop `create_thread`, then
+   read it back and verify the exact task identity, cwd, branch, and base HEAD.
+   Harness never substitutes raw Git or app-server `thread/start` for that
+   product-owned creation.
+3. Enter that exact existing checkout with
+   `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> --enter-existing`.
+   It writes `TASK.md` but does not start a successor run.
+4. In the successor task, commit the complete activation authority—`TASK.md`, active task contract,
    roadmap/operations ordering, and affected live policy surfaces—as the first
    commit in that new task branch/worktree.
-5. Verify clean git, then create the successor through the native Codex Desktop
-   task/worktree API through persistent native app-server `thread/start` with
-   the exact prepared `cwd`; use native thread readback to verify its cwd,
-   branch, `HEAD`, and created identity/link, then expose its
-   identity/link, and stop the predecessor before successor work. If proof
-   fails, return `HANDOFF_CREATION_FAILED` and do not bootstrap, run start, or
-   execute successor shell work.
+5. Verify clean git and repeat native task readback. Expose the task identity
+   or link and stop the predecessor before successor implementation work. If
+   proof fails, archive the Desktop task first so Desktop removes its managed
+   worktree, then use `run cleanup-prepared-successor` with exact archive,
+   decision, base, no-run, and TaskState evidence. Cleanup quarantines branch
+   and TaskState recoverably; it never deletes or controls Desktop.
 6. Only after successful handoff proof, run `node bin/ch worktree bootstrap`
    in that task worktree to install from the committed lockfile, build, and
    verify tracked Harness/procedure surfaces.

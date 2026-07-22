@@ -31,10 +31,10 @@ const files = {
   phase31: read("tasks/PHASE_31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP.md")
 };
 
-test("phase 23.8.6E is active after the completed D authority correction", () => {
+test("phase 23.8.6F is active after the completed E authority correction", () => {
   assert.equal(
     files.taskPointer.trim(),
-    "# Current Task\n\nImplement only: tasks/PHASE_23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION.md\n\nDo not implement Phase 23.8.7 or later."
+    "# Current Task\n\nImplement only: tasks/PHASE_23_8_6F_COST_AWARE_CONTEXT_REUSE_AND_CODEX_REFERENCE_ROUTING.md\n\nDo not implement Phase 23.8.7 or later."
   );
   assert.match(files.c1a, /^# Phase 23\.8\.6C1A - Routing, Context, and Model-Policy Authority Rebase/m);
   assert.match(files.c1a, /Treat this phase as `extra-high`/);
@@ -42,19 +42,16 @@ test("phase 23.8.6E is active after the completed D authority correction", () =>
   assert.match(files.c1a, /node bin\/ch run status --operator --run run-0003/);
   assert.doesNotMatch(files.c1a, /<live-run-id>/);
   const progression = assertNearTermProgressionMatchesRoadmap(files.operations, files.roadmap);
-  assert.ok(progression.includes("23.8.6E"), "published near-term progression must contain active Phase 23.8.6E");
-  assert.match(roadmapPhaseSection(files.roadmap, "23.8.6E"), /Active implementation phase/);
+  assert.ok(progression.includes("23.8.6F"), "published near-term progression must contain active Phase 23.8.6F");
+  assert.match(roadmapPhaseSection(files.roadmap, "23.8.6F"), /Active implementation phase/);
 });
 
 test("routing and context policy are deterministic, provider-neutral, and fail closed", () => {
   for (const routeClass of [
     "deterministic_no_model",
-    "mechanical_low_cost",
-    "routine_balanced",
+    "balanced_routine",
     "complex_judgment",
-    "critical_escalation",
-    "parallel_audit_leaf",
-    "parallel_audit_arbiter"
+    "critical_independent"
   ]) {
     assert.match(files.routing, new RegExp(`\\b${routeClass}\\b`));
   }
@@ -76,11 +73,11 @@ test("downstream ownership stays separated and provider-neutral", () => {
   assert.match(files.d, /immutable payload identity[\s\S]*stable content hash[\s\S]*bounded payload\/chunk references[\s\S]*worktree\/source\/base provenance/);
   assert.match(files.d, /No context bundle, `ContextCore`, or `ContextManifest` construction/);
   assert.match(files.e, /post-implementation\s+freshness reconciliation[\s\S]*does\s+not repeat the research/i);
-  assert.match(files.stage, /provider-neutral `RouteIntent`/);
-  assert.match(files.stage, /`StagePacket`\s+preparation does not launch a runner/);
+  assert.match(files.stage, /approved Phase 23\.8\.6F provider-neutral route decision/);
+  assert.match(files.stage, /Packet preparation does not launch a runner/);
   assert.match(files.proof, /separate deterministic-evidence and model-judgment references/);
   assert.match(files.proof, /Missing invocation, model, context, or usage facts are explicit and never\s+fabricated/);
-  assert.match(files.phase24a, /deterministic shared `ContextCore`\/`ContextManifest`/);
+  assert.match(files.phase24a, /report\/export view over the Phase 23\.8\.6F[\s\S]*`ContextCore`\/`ContextManifest`/);
   assert.match(files.phase24a, /mandatory\s+context is never removed for budget/);
   assert.match(files.phase24b, /Distinct semantic\s+reviews retain separate rubrics, verdicts, evidence trails, and independence/);
 });
@@ -90,41 +87,24 @@ test("Phase 30 rejects unsafe candidates and Phase 31 remains first runtime bind
   assert.match(files.phase30, /illegal lifecycle progression or independence violation/);
   assert.match(files.phase30, /invalid\s+structured output/);
   assert.match(files.phase30, /reduces cost without preserving quality/);
-  assert.match(files.phase31, /first general runtime owner of `RouteDecision`/);
+  assert.match(files.phase31, /first general external-runner runtime owner of `RouteDecision`/);
   assert.match(files.phase31, /`ProviderBindingRegistry`/);
   assert.match(files.phase31, /No LLM-based default router, silent downgrade, unbounded subagent fan-out/);
   assert.match(files.phase31, /write-capable\s+parallel leaves sharing a worktree/);
 });
 
-test("current registry pins the bounded Sol and Terra review bindings", () => {
+test("current registry separates procedure capability from the bounded Codex binding", () => {
   const registry = JSON.parse(read("skills/self-hosting/procedure-registry.json"));
-  const profiles = registry.procedures
-    .filter((procedure) => procedure.review_launch_profile)
-    .map((procedure) => ({ id: procedure.procedure_id, ...procedure.review_launch_profile }));
-  assert.deepEqual(profiles, [
-    {
-      id: "plan-review",
-      adapter_id: "codex_cli",
-      model: "gpt-5.6-sol",
-      reasoning_effort: "high",
-      sandbox_mode: "read-only",
-      output_mode: "file",
-      timeout_seconds: 1800,
-      stale_after_seconds: 300,
-      termination_policy: "terminal_completion_only"
-    },
-    {
-      id: "implementation-review",
-      adapter_id: "codex_cli",
-      model: "gpt-5.6-terra",
-      reasoning_effort: "high",
-      sandbox_mode: "read-only",
-      output_mode: "file",
-      timeout_seconds: 1800,
-      stale_after_seconds: 300,
-      termination_policy: "terminal_completion_only"
-    }
+  assert.equal(registry.procedures.length, 15);
+  assert.ok(registry.procedures.every((procedure) => procedure.execution_policy_ref));
+  assert.ok(registry.procedures.every((procedure) => !procedure.review_launch_profile));
+  const binding = JSON.parse(read("skills/self-hosting/codex-reference-binding.json"));
+  assert.deepEqual(binding.capability_snapshot.automatic_procedures, [
+    "implementation-review",
+    "plan-review"
   ]);
+  assert.equal(binding.profiles.find((profile) => profile.profile_id === "accepted-complex-judgment")?.model, "gpt-5.6-sol");
+  assert.equal(binding.profiles.find((profile) => profile.profile_id === "accepted-balanced-routine")?.model, "gpt-5.6-terra");
   assert.match(
     files.roadmap,
     /`plan-review` to the locally supported `gpt-5\.6-sol` High[\s\S]*`implementation-review` to the locally supported[\s\S]*`gpt-5\.6-terra` High binding/

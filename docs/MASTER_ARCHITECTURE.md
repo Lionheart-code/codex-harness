@@ -16,9 +16,11 @@ Codex-first means Codex is the first supported runner, not the only future
 runner or model. Future runner/model selection must flow through explicit
 profiles, permissions, evidence contracts, and verification gates owned by the
 harness.
-Before later runner enforcement exists, self-hosting model/risk routing and
-separate review-launch discipline remain checked-in policy only; see
-`docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md`.
+Phase 23.8.6F is the narrow exception before general runner enforcement: it
+applies checked-in deterministic context and route policy only to the existing
+self-hosting `plan-review` and `implementation-review` Codex CLI launch
+surfaces. Phase 31 remains the first general reviewed external-runner boundary;
+see `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md`.
 
 Lightweight control remains the primary product direction. The harness should
 not become a process-product expansion, generic orchestration platform,
@@ -98,9 +100,10 @@ run.json
   compatibility projection, not manual repair authority
 ```
 
-Agents and future runners execute only scoped packets when a later phase
-explicitly adds runner invocation. The operator interprets state and prepares
-allowed next actions; it does not execute agents by itself.
+Agents and future general runners execute only scoped packets when a later
+phase explicitly adds runner invocation. The Phase F existing-review-path
+exception remains limited to two read-only reviewer procedures and does not
+turn the operator into a generic agent executor.
 
 ## 4. Repository model
 

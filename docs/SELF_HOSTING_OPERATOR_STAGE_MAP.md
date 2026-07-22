@@ -116,22 +116,22 @@ review-required evidence and must not be treated as an accepted review result.
 
 Procedure ingestion may record that closeout/harvest selected the next task.
 New-cycle materialization is separate. Phase 23.8.6 now provides the current
-narrow
-command path for it: `run record-next-task` followed by
-`run materialize-next-task`. That sequence prepares, rather than starts, the
-new task run. The sequence is not complete until the new task worktree writes
+narrow command path for it: `run record-next-task`, Codex Desktop
+`create_thread` plus exact native readback, then
+`run materialize-next-task --enter-existing`. Harness rejects raw-Git creation
+with `HANDOFF_CREATION_FAILED`. This sequence prepares, rather than starts, the
+new task run. It is not complete until the new task worktree writes
 `TASK.md`, the complete activation authority is committed as the first commit
 in that branch/worktree, clean git is confirmed, and deterministic dependency/build
 plus tracked-procedure readiness checks pass. A Codex Desktop managed worktree
-may be entered instead of recreated, but a Desktop UI setup selection does not
+must be entered, never recreated by Harness; a Desktop UI setup selection does not
 replace those readiness checks. A working-tree-only `TASK.md` change is not
-enough to treat the new task as active. After clean git, create the successor
-through the native Codex Desktop task/worktree API; verify its cwd, branch, and
-`HEAD` binding, expose its identity/link for the user to open without
-repository/worktree creation, selection, or search, and stop the predecessor
-before any successor work. If creation or binding cannot be proven, fail closed
-with typed `HANDOFF_CREATION_FAILED`: do not bootstrap, start a successor run,
-or execute successor shell work from the predecessor. Only after that proof may
+enough to treat the new task as active. After clean git, repeat native readback,
+expose the task identity/link, and stop the predecessor before successor
+implementation work. If creation or binding cannot be proven, archive the
+Desktop task first and invoke `run cleanup-prepared-successor` with exact
+archive/no-worktree/base-only/no-run evidence; it journals and recoverably
+quarantines the dormant branch and TaskState. Only after successful proof may
 the successor run `node bin/ch worktree bootstrap` before
 `node bin/ch run start --task TASK.md`. The harvested run still must not create,
 claim, or mutate the next task branch/worktree as old-run-owned state.

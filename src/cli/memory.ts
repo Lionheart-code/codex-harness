@@ -28,6 +28,7 @@ function printMemoryHelp(): void {
     "  node bin/ch memory run status --run <run-id>",
     "  node bin/ch memory harvest --help",
     "  node bin/ch memory harvest --run <run-id> [--dry-run]",
+    "  node bin/ch memory replay-eligibility --run-instance <exact-run-instance-id> [--packet-record <sha256:id>]",
     "  node bin/ch memory delivery-facts --help",
     "  node bin/ch memory delivery-facts import --run <run-id> --file <path> [--dry-run]",
     "  node bin/ch memory rebuild [--dry-run]",
@@ -311,7 +312,11 @@ async function runHarvest(args: string[]): Promise<number> {
     `quarantined count: ${result.harvest.quarantined_count}`,
     `redacted count: ${result.harvest.redacted_count}`,
     `unresolved count: ${result.harvest.unresolved_count}`,
-    `delivery facts: ${result.run.delivery_facts.length}`
+    `delivery facts: ${result.run.delivery_facts.length}`,
+    `procedure artifact transfer count: ${result.harvest.details.procedure_artifact_transfer_count ?? "unknown (legacy receipt)"}`,
+    `procedure artifact payload transfer count: ${result.harvest.details.procedure_artifact_payload_transfer_count ?? "unknown (legacy receipt)"}`,
+    `procedure artifact payload chunk transfer count: ${result.harvest.details.procedure_artifact_payload_chunk_transfer_count ?? "unknown (legacy receipt)"}`,
+    `procedure artifact payload byte count: ${result.harvest.details.procedure_artifact_payload_byte_count ?? "unknown (legacy receipt)"}`
   ]);
   return 0;
 }
@@ -362,6 +367,31 @@ async function runRebuild(args: string[]): Promise<number> {
   output.push("status: audit projection is rebuildable");
   lines(output);
   return 0;
+}
+
+async function runReplayEligibility(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run-instance", "packet-record"]));
+  const runInstanceId = stringOption(options, "run-instance");
+  if (!runInstanceId) throw new Error("--run-instance is required.");
+  const roots = resolveHarnessRoots(process.cwd());
+  const result = new ProjectMemoryDatabase(roots.targetRoot, roots.projectRoot).reviewReplayEligibility(
+    runInstanceId,
+    stringOption(options, "packet-record")
+  );
+  lines([
+    "codex-harness memory replay-eligibility",
+    `run instance: ${result.run_instance_id}`,
+    `eligible: ${result.eligible ? "true" : "false"}`,
+    `source status: ${result.source_status}`,
+    `packet record: ${result.packet_record_id ?? "missing"}`,
+    `approved attempt: ${result.approved_attempt_id ?? "missing"}`,
+    `accepted artifact: ${result.accepted_artifact_id ?? "missing"}`,
+    `accepted result: ${result.accepted_result_id ?? "missing"}`,
+    `payload count: ${result.payload_count}`,
+    `reconstructed payload count: ${result.reconstructed_payload_count}`,
+    `reasons: ${JSON.stringify(result.reasons)}`
+  ]);
+  return result.eligible ? 0 : 1;
 }
 
 async function runRuns(args: string[]): Promise<number> {
@@ -500,6 +530,8 @@ export async function runMemory(args: string[]): Promise<number> {
           return 0;
         }
         return await runHarvest(subcommandArgs);
+      case "replay-eligibility":
+        return await runReplayEligibility(subcommandArgs);
       case "delivery-facts":
         return await runDeliveryFacts(subcommandArgs);
       case "rebuild":

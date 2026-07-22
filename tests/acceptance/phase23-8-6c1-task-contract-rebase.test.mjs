@@ -56,7 +56,7 @@ test("phase 23.8.6C1 preserves the near-term authority order", () => {
   const roadmap = readText("docs/IMPLEMENTATION_ROADMAP.md");
   const operations = readText("docs/OPERATIONS_PLAN.md");
   const progression = assertNearTermProgressionMatchesRoadmap(operations, roadmap);
-  for (const phase of ["23.8.6C", "23.8.6C1", "23.8.6C1A", "23.8.6C2", "23.8.6C2A", "23.8.6D", "23.8.6E", "23.8.7", "23.9"]) {
+  for (const phase of ["23.8.6C", "23.8.6C1", "23.8.6C1A", "23.8.6C2", "23.8.6C2A", "23.8.6D", "23.8.6E", "23.8.6F", "23.8.7", "23.9"]) {
     assert.ok(progression.includes(phase), `near-term progression must retain Phase ${phase}`);
   }
 
@@ -67,6 +67,7 @@ test("phase 23.8.6C1 preserves the near-term authority order", () => {
   const c2aSection = roadmapPhaseSection(roadmap, "23.8.6C2A");
   const dSection = roadmapPhaseSection(roadmap, "23.8.6D");
   const eSection = roadmapPhaseSection(roadmap, "23.8.6E");
+  const fSection = roadmapPhaseSection(roadmap, "23.8.6F");
   assert.match(cSection, /Complete, reviewed, accepted, and merged/);
   assert.match(c1Section, /Complete, reviewed, accepted, and merged/);
   assert.match(c1aSection, /Complete, reviewed, accepted, and merged/);
@@ -78,7 +79,8 @@ test("phase 23.8.6C1 preserves the near-term authority order", () => {
   assert.match(c2aSection, /Complete, reviewed, accepted, and merged/);
   assert.match(c2aSection, /Codex Desktop-managed existing worktree/);
   assert.match(dSection, /Complete, reviewed, accepted, and merged/);
-  assert.match(eSection, /Active implementation phase/);
+  assert.match(eSection, /Complete\. Independently reviewed, accepted, merged, closed out, and harvested/);
+  assert.match(fSection, /Active implementation phase/);
 });
 
 test("phase 23.8.6C1 derives immediate future dependencies from published authority", () => {
@@ -86,15 +88,15 @@ test("phase 23.8.6C1 derives immediate future dependencies from published author
     readText("docs/OPERATIONS_PLAN.md"),
     readText("docs/IMPLEMENTATION_ROADMAP.md")
   );
-  const activeIndex = progression.indexOf("23.8.6E");
-  assert.notEqual(activeIndex, -1, "active Phase 23.8.6E must appear in near-term progression");
+  const activeIndex = progression.indexOf("23.8.6F");
+  assert.notEqual(activeIndex, -1, "active Phase 23.8.6F must appear in near-term progression");
 
   for (let index = activeIndex + 1; index < progression.length; index += 1) {
     const phase = progression[index];
     const predecessor = progression[index - 1];
     assert.match(
       statusSection(taskContractForPhase(phase)),
-      new RegExp(`\\bPhase ${escapeRegExp(predecessor)}\\b`, "u"),
+      new RegExp(`\\bPhase\\s+${escapeRegExp(predecessor)}\\b`, "u"),
       `Phase ${phase} status must name immediate predecessor Phase ${predecessor}`
     );
   }
@@ -111,14 +113,14 @@ test("phase 23.8.6C1 keeps downstream ownership distinct and lightweight", () =>
   assert.match(phaseD, /exact immutable plan\s+or evidence artifact identity/);
   assert.match(phaseD, /No reimplementation of Phase 23\.8\.6C2 current-bootstrap/);
 
-  assert.match(phaseE, /Active implementation phase[\s\S]*Phase 23\.8\.6C2 Bootstrap Authority Correctness,[\s\S]*23\.8\.6C2A[\s\S]*23\.8\.6D/);
+  assert.match(phaseE, /Complete\. Independently reviewed, accepted, merged, closed out, and harvested/);
   assert.match(phaseE, /model\/profile registry defaults versus manual invocation guidance/);
   assert.match(phaseE, /context-budget, compaction, and handoff guidance/);
   assert.match(phaseE, /stale present-tense phase status claims/);
 
-  assert.match(phase7, /Phase 23\.8\.6C1A[\s\S]*Phase 23\.8\.6C2 Bootstrap Authority\s+Correctness[\s\S]*23\.8\.6C2A/);
+  assert.match(phase7, /Phase 23\.8\.6C1A[\s\S]*Phase 23\.8\.6C2 Bootstrap Authority\s+Correctness[\s\S]*23\.8\.6C2A[\s\S]*Phase 23\.8\.6F/);
   assert.match(phase7, /Extend and normalize the existing Phase 23\.8\.6C `RunIssue` and/);
-  assert.match(phase7, /required review procedures from the review tier and changed-surface/);
+  assert.match(phase7, /consume the approved Phase 23\.8\.6F provider-neutral route decision/i);
   assert.match(phase7, /promotion of a currently manual procedure/);
   assert.match(phase7, /No Codex execution from operator/);
   assert.match(phase7, /No external runner adapter/);

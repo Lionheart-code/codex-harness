@@ -33,10 +33,17 @@ Rules:
 - These procedure files are repo-owned operating artifacts and are intentionally
   outside the current packaged runtime allowlist.
 
-## Current review bindings and future routing
+## Phase F review policy sources
 
-Current self-hosting procedure runs may record advisory manual model/reasoning
-guidance without turning it into runtime routing.
+The registry is reconciled at load time with three separate source concepts:
+
+- `procedure-execution-policy.json` covers all registered procedures and keeps
+  deterministic completion subject to the same typed identity, evidence,
+  independence, and approval rules;
+- `review-route-policy.json` owns provider-neutral per-invocation route inputs,
+  adjacent downgrade/reopen rules, budgets, and accepted policy identity;
+- `codex-reference-binding.json` isolates current Codex CLI model/reasoning and
+  capability facts from lifecycle authority.
 
 - task, planning, and builder routes are provider-neutral policy classes;
   concrete model names remain provisional bindings and must not become
@@ -55,11 +62,17 @@ guidance without turning it into runtime routing.
 - `xhigh`, `max`, and `ultra` are escalation-only with separately recorded
   reasons; Phase 31 retains generalized routing ownership.
 
-This guidance is operator advisory only. It must not be implemented as current
-provider/model routing, runtime profile selection, or self-approval logic.
+Phase 23.8.6F enforces these sources only through the already existing
+`plan-review` and `implementation-review` launch surfaces. It does not add an
+automatic binding for any other procedure, a generic runner, or self-approval.
 Independent review uses a fresh packet or packet plus read-only retrieval;
 transcript, hidden reasoning, cache state, and forked sessions are not review
 authority. Phase 31 remains the first general runtime binding/execution owner.
+
+Every automatically launched reviewer receives a parent-owned attempt marker.
+Nested `run launch-review` is refused as `REVIEW_RECURSION_FORBIDDEN` before a
+second claim, process, or artifact wait. The environment is only a guardrail;
+exact active claim ownership in Harness state remains authoritative.
 
 ## Required procedures
 
