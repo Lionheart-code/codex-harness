@@ -1,0 +1,42 @@
+{
+  "legacy_pre_f_audit": {
+    "eligible": false,
+    "reason": "legacy_pre_f_replay_packet_missing"
+  },
+  "source": {
+    "run_id": "run-0001",
+    "run_instance_id": "source-instance",
+    "lifecycle_status": "harvested",
+    "immutable_base": "base-source",
+    "source_snapshot": "snapshot-source",
+    "procedure_id": "implementation-review",
+    "approved_attempt_id": "attempt-source",
+    "accepted_artifact_id": "sha256:accepted-source",
+    "accepted_result_id": "review-result-source",
+    "packet": {
+      "record_kind": "review_replay_packet",
+      "record_id": "sha256:packet-source",
+      "context_core_id": "context-core-source",
+      "context_core_hash": "sha256:core-source",
+      "context_manifest_id": "context-manifest-source",
+      "context_manifest_hash": "sha256:manifest-source",
+      "delta_overlay_id": "review-delta-source",
+      "delta_overlay_hash": "sha256:delta-source",
+      "request_payload_id": "payload-request-source",
+      "request_content_hash": "sha256:request-source",
+      "payload_ids": ["payload-core-source", "payload-delta-source", "payload-manifest-source", "payload-request-source"],
+      "payload_kinds": {
+        "review-request-packet": "payload-request-source",
+        "context-core": "payload-core-source",
+        "context-manifest": "payload-manifest-source",
+        "review-delta-overlay": "payload-delta-source"
+      }
+    }
+  },
+  "evaluation_host": {
+    "run_id": "run-0002",
+    "run_instance_id": "host-instance",
+    "source_run_instance_id": "source-instance",
+    "stores_candidate_only_on_host": true
+  }
+}

@@ -30,7 +30,16 @@
     "unresolved_count": { "type": "integer", "minimum": 0 },
     "source_task_path": { "type": "string", "minLength": 1 },
     "source_snapshot": { "type": "string", "minLength": 1 },
-    "details": { "type": "object" }
+    "details": {
+      "type": "object",
+      "properties": {
+        "procedure_artifact_transfer_count": {"type": "integer", "minimum": 0},
+        "procedure_artifact_payload_transfer_count": {"type": "integer", "minimum": 0},
+        "procedure_artifact_payload_chunk_transfer_count": {"type": "integer", "minimum": 0},
+        "procedure_artifact_payload_byte_count": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    }
   },
   "additionalProperties": true
 }

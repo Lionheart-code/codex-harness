@@ -1008,8 +1008,7 @@ Revalidate future/live authority surfaces after the near-term 23.8.6 chain has
 changed verification policy, bootstrap assumptions, and storage/harvest facts.
 
 Status:
-Active implementation phase. Phase 23.8.6C2, Phase 23.8.6C2A, and Phase
-23.8.6D are complete, reviewed, accepted, and merged.
+Complete. Independently reviewed, accepted, merged, closed out, and harvested.
 
 Required scope:
 - check `TASK.md` active pointer, roadmap active/current wording, task status
@@ -1057,16 +1056,29 @@ Task:
 `tasks/PHASE_23_8_6F_COST_AWARE_CONTEXT_REUSE_AND_CODEX_REFERENCE_ROUTING.md`
 
 Goal:
-Add the narrow, provider-neutral self-hosting review-context reuse,
-deterministic route-decision, Codex reference-binding, and usage-telemetry
-substrate before stage-packet automation.
+Add the narrow, provider-neutral deterministic-first procedure contract,
+self-hosting review-context reuse, route-decision, Codex reference-binding,
+routing-eval/promotion, and usage-telemetry substrate before stage-packet
+automation. Automatic Codex launch remains limited to the existing
+`plan-review` and `implementation-review` surfaces.
 
 Status:
-Planned. Starts only after Phase 23.8.6E is independently reviewed, accepted,
-closed out, and harvested. It does not activate until E is complete.
+Active implementation phase. Phase 23.8.6E is independently reviewed,
+accepted, merged, closed out, and harvested.
+
+Implemented source surfaces include the 15-procedure deterministic/semantic
+policy, deterministic context core/manifest/delta identities, per-invocation
+route and isolated Codex binding, honest JSONL observations, immutable replay
+packets and evaluation/decision/application records, exact harvest transfer
+proof, Desktop-only successor entry/cleanup, and pre-claim reviewer
+anti-recursion. Acceptance and lifecycle review remain required before this
+phase can be declared complete.
 
 Future-phase impact check:
-- 23.8.7 reuses this review context and route substrate for stage packets;
+- 23.8.7 reuses route/policy/binding, context/delta, transport, and usage refs
+  in stage packets/results;
+- 23.9 adds proof provenance, 24A adds deterministic report/export views, and
+  Phase 30 generalizes experimentation without duplicating F records;
 - 23.8.6F does not add a second adapter, generic runner, or Desktop client;
 - Phase 31 remains the first general reviewed runner-execution boundary.
 
@@ -1083,7 +1095,8 @@ bootstrap and materialization authority.
 Status:
 Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
 23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C1A, Phase 23.8.6C2,
-Phase 23.8.6C2A, Phase 23.8.6D, and Phase 23.8.6E are complete and reviewed.
+Phase 23.8.6C2A, Phase 23.8.6D, Phase 23.8.6E, and Phase 23.8.6F are complete
+and reviewed.
 
 Required scope:
 - define `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,
@@ -1112,10 +1125,11 @@ Required scope:
   review artifacts, blocker-note-as-accept, source edits before valid
   lifecycle approval, reviewer hang, failed verification, scope creep, and
   fake closeout.
-- derive a deterministic provider-neutral `RouteIntent` with profile and
-  reasoning floors/ceilings, changed surfaces, risk, deterministic evidence,
-  independence, context manifest/transport, required semantic reviews,
-  parallel policy, budget class, and escalation triggers;
+- consume the approved Phase 23.8.6F route decision, routing-policy and
+  provider-binding versions, context core/delta/manifest, transport, usage,
+  and escalation refs in `StagePacket`/`StageResult`;
+- generalize those refs to stage packets/results without creating a second
+  router, context substrate, or telemetry model;
 - block packet preparation on missing required route/context evidence and keep
   provider/model selection and runner launch out of this phase;
 
@@ -1155,8 +1169,8 @@ procedure/stage records.
 Status:
 Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
 23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C1A, Phase 23.8.6C2,
-Phase 23.8.6C2A, Phase 23.8.6D, Phase 23.8.6E, and Phase 23.8.7 are complete and reviewed,
-unless a later
+Phase 23.8.6C2A, Phase 23.8.6D, Phase 23.8.6E, Phase 23.8.6F, and Phase
+23.8.7 are complete and reviewed, unless a later
 reviewed decision explicitly defers or waives that dependency.
 This phase must not become a separate lifecycle authority. Operator/proof
 schemas remain provisional sketches unless tightened during implementation.
@@ -1176,9 +1190,12 @@ Must preserve:
 - proof can be produced from a completed or reviewed run;
 - proof states what was verified, reviewed, assumed, and missing;
 - proof format supports Phase 24A packets later.
-- proof records route intent/decision, profile, actual invocation, context
-  manifest/transport, independence, escalation, usage, deterministic evidence,
-  model judgment, and expected/observed review provenance when available;
+- proof records deterministic-check, route decision, routing-policy and
+  provider-binding versions, actual invocation, context core/manifest/delta,
+  transport, independence, escalation, promotion, usage, model judgment, and
+  expected/observed review provenance when available;
+- deterministic evidence, model judgment, policy decision, and owner promotion
+  approval remain distinct, and proof never becomes routing authority;
 - missing invocation/usage facts remain explicit, and model judgment never
   overrides deterministic failure.
 
@@ -1206,13 +1223,15 @@ until Phase 23.9 is complete and reviewed.
 
 Scope:
 - one deterministic run evidence/closeout report;
-- one deterministic shared `ContextCore`/`ContextManifest` plus a distinct
-  bounded implementation-review overlay/packet;
+- one deterministic report/export view over the Phase 23.8.6F
+  `ContextCore`/`ContextManifest` plus a bounded packet view over its
+  `ReviewDeltaOverlay`;
+- no competing context-core, manifest, or overlay type;
 - stable manifest identity/hash, deterministic ordering, size budget,
   truncation/redaction facts, source provenance, and fail-closed mandatory
   context handling;
-- accepted Project Memory DB records and operator/procedure/proof state as
-  inputs;
+- accepted Project Memory DB records, operator/procedure/proof state, and
+  Phase F/23.8.7 route/context/policy/binding/transport/usage records as inputs;
 - deterministic output where practical;
 - evidence-linked, inference-marked, or missing/unknown material claims;
 - redaction before export;
@@ -1493,6 +1512,10 @@ uncontrolled self-improvement, not autonomous product development, and not a
 replacement for architecture review.
 
 Required scope highlights:
+- consume Phase 23.8.6F eval cases, shadow/replay/canary results,
+  promotion/rejection decisions, policy versions, rejected candidates, and
+  rollback records without recreating F's current-path telemetry or promotion
+  lifecycle;
 - procedure-trigger evals with negative cases, blocker semantics, and
   output-format conformance;
 - refine procedures, reviewers, routes, and packets only after the minimum
@@ -1530,10 +1553,13 @@ auto-merge, unrestricted write access, provider-specific core logic, or
 domain-core execution behavior is allowed.
 This phase is the reviewed external runner-adapter boundary only. It must not
 become a coding agent, replacement Codex, or unrestricted autonomous repair
-loop. It remains the first general runtime `RouteDecision`, provider-binding,
-context/budget enforcement, usage telemetry, typed escalation, and packet-bound
-execution boundary. It must block rather than silently downgrade and must not
-use an LLM as the default router or allow unbounded/parallel write agents.
+loop. It consumes and generalizes the approved Phase 23.8.6F narrow
+self-hosting route-policy, binding, context, telemetry, escalation, promotion,
+and rollback contracts. It remains the first general external-runner runtime
+`RouteDecision`, provider-binding, context/budget enforcement, usage telemetry,
+typed escalation, and packet-bound execution boundary. It must block rather
+than silently downgrade and must not use an LLM as the default router or allow
+unbounded/parallel write agents.
 
 ## Pilot — Research Ops pack
 

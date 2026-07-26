@@ -351,10 +351,15 @@ test("phase 23.5 closeout stays distinct from harvest and blocks worktree deleti
   assertSuccess(harvest, "memory harvest");
   assert.match(harvest.stdout, /already harvested: false/);
   assert.match(harvest.stdout, /harvest status: promoted/);
+  assert.match(harvest.stdout, /procedure artifact transfer count: 0/);
+  assert.match(harvest.stdout, /procedure artifact payload transfer count: 0/);
+  assert.match(harvest.stdout, /procedure artifact payload chunk transfer count: 0/);
+  assert.match(harvest.stdout, /procedure artifact payload byte count: 0/);
 
   const harvestAgain = runCli(["memory", "harvest", "--run", "run-0001"], { cwd: tempRepo });
   assertSuccess(harvestAgain, "memory harvest idempotent retry");
   assert.match(harvestAgain.stdout, /already harvested: true/);
+  assert.match(harvestAgain.stdout, /procedure artifact transfer count: 0/);
 
   const harvestedRun = readJson(getRunPath(tempRepo));
   assert.equal(harvestedRun.lifecycle_status, "harvested");

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"case_id": "initial-plan", "pass_kind": "initial_full_review", "risk": "routine"},
+    {"case_id": "amended-plan", "pass_kind": "amendment_review", "risk": "routine"},
+    {"case_id": "implementation", "pass_kind": "implementation_review", "risk": "routine"},
+    {"case_id": "fix-pass", "pass_kind": "fix_pass_review", "risk": "routine"},
+    {"case_id": "regression-reopen", "pass_kind": "regression_reopen", "risk": "architecture"},
+    {"case_id": "structured-output", "pass_kind": "implementation_review", "risk": "weak_evidence"},
+    {"case_id": "deterministic-completion", "pass_kind": "verification_check", "risk": "routine"},
+    {"case_id": "authority-conflict", "pass_kind": "initial_full_review", "risk": "authority"},
+    {"case_id": "lifecycle-conflict", "pass_kind": "implementation_review", "risk": "lifecycle"},
+    {"case_id": "storage-corruption", "pass_kind": "implementation_review", "risk": "storage"},
+    {"case_id": "security-boundary", "pass_kind": "implementation_review", "risk": "security"},
+    {"case_id": "missing-evidence", "pass_kind": "closeout_check", "risk": "weak_evidence"}
+  ]
+}

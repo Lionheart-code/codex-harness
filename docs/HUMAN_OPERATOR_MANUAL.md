@@ -30,8 +30,8 @@ This document explains how a human operator should use `codex-harness` safely.
    by a fresh combined review before verification can continue.
    For next-cycle continuity in the same phase, use
    `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`
-   and then
-   `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`.
+   and then create the successor with Codex Desktop `create_thread`, verify native
+   readback, then run `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> --enter-existing`.
    That command path prepares, rather than starts, the new task
    branch/worktree. The next task is never active source authority until the
    new task worktree has a first-commit-backed `TASK.md`, task contract,
@@ -376,22 +376,18 @@ Only after commit and closeout/harvest decision:
 
 1. record the next task decision with
    `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`;
-2. materialize the new task context with
-   `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing)`;
-   for a Codex Desktop worktree, use `--enter-existing` after the Desktop task
-   has created its worktree and branch rather than creating a second checkout;
+2. create the successor with Codex Desktop `create_thread`, verify native
+   identity/cwd/branch/base readback, then run
+   `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> --enter-existing`;
 3. confirm the new task worktree, active `TASK.md`, new task contract,
    roadmap/operations order, and required live authority surfaces are coherent;
 4. commit the complete activation/materialization authority change as the
    first commit in that new task branch/worktree;
 5. verify clean `git status` in that new task context;
-6. after clean git, create the successor through the native Codex Desktop
-   task/worktree API. Verify the created task's cwd, branch, and `HEAD`
-   binding, expose its identity/link for the user to open without
-   repository/worktree creation, selection, or search, and stop the predecessor
-   before any successor work. If creation or binding cannot be proven, fail
-   closed with `HANDOFF_CREATION_FAILED`: do not bootstrap, start a successor
-   run, or execute successor shell work from the predecessor;
+6. after clean git, repeat native task readback, expose its identity/link, and
+   stop the predecessor before successor implementation work. If binding
+   cannot be proven, archive the Desktop task first, then run
+   `node bin/ch run cleanup-prepared-successor --run <run-id> --decision-id <id> --file <evidence.json>`;
 7. only after successful handoff proof, run `node bin/ch worktree bootstrap` in
    that worktree. It installs from the committed lockfile, builds, and verifies tracked Harness/procedure surfaces.
    Its readiness marker binds that setup to the committed `HEAD`, source tree,

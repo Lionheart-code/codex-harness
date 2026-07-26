@@ -2,10 +2,7 @@
 
 ## Status
 
-Active implementation phase. Phase 23.8.6C2 Bootstrap Authority Correctness,
-Phase 23.8.6C2A Commit-Backed Task Materialization and Environment Bootstrap,
-and Phase 23.8.6D Procedure Artifact Payload Storage and Worktree Retention
-are complete, reviewed, accepted, and merged.
+Complete. Independently reviewed, accepted, merged, closed out, and harvested.
 
 ## Purpose
 

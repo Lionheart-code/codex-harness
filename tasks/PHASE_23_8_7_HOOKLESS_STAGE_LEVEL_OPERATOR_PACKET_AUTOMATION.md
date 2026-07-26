@@ -70,22 +70,28 @@ Required behavior:
 - When later evidence supersedes earlier placeholder or incomplete
   review/delivery facts, preserve both references but mark which result is
   current versus superseded.
-- Any advisory packet routing/model fields must inherit the checked-in policy
-  boundary from `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` without launching
-  reviewers or runners.
-- Add deterministic provider-neutral `RouteIntent` or equivalent fields:
-  `route_policy_ref`, `route_class`, `profile_floor`, `reasoning_default`,
-  `reasoning_ceiling`, `changed_surface_classes`, `risk_classes`,
-  `deterministic_evidence_state`, `independence_mode`,
+- Consume the approved Phase 23.8.6F provider-neutral route decision,
+  routing-policy version, provider-binding version, `ContextCore`,
+  `ReviewDeltaOverlay`, context-transport facts, and usage facts without
+  launching reviewers or runners.
+- Carry deterministic Phase 23.8.6F route fields or refs including
+  `route_decision_ref`, `route_policy_ref`, `provider_binding_ref`,
+  `route_class`, `profile_floor`, `reasoning_default`, `reasoning_ceiling`,
+  `changed_surface_classes`, `risk_classes`, `deterministic_evidence_state`,
+  `independence_mode`, `context_core_ref`, `delta_overlay_ref`,
   `context_manifest_ref`, `context_transport_mode`,
-  `required_semantic_reviews`, `parallel_policy`, `budget_class`, and
-  `escalation_triggers`.
+  `required_semantic_reviews`, `parallel_policy`, `budget_class`,
+  `usage_facts_ref`, and `escalation_triggers`.
 - Identical authoritative inputs yield the same route intent. Missing required
   route/context evidence blocks packet preparation. Required semantic reviews
   derive deterministically from procedure, tier, surface, and risk policy.
-- Provider/model names are absent from lifecycle authority. `StagePacket`
-  preparation does not launch a runner, and `StageResult` may record supplied
-  invocation facts but never selects providers.
+- An approved Phase F route decision is authoritative route input rather than
+  advisory prose. Provider/model selection remains outside `StagePacket`
+  lifecycle authority. Packet preparation does not launch a runner, and
+  `StageResult` may record supplied invocation and usage facts but never
+  selects providers.
+- Generalize Phase F records to stage packets/results without creating a
+  second router, context substrate, or telemetry model.
 - Keep the minimum lifecycle-failure fixtures explicit: self-approval
   attempt, skipped architecture-review, skipped db-storage-review,
   `AMEND_REQUIRED` without valid amended-plan review, missing
@@ -109,7 +115,9 @@ Required behavior:
 `effective_plan_ref`, `procedure_artifact_ref`, `payload_refs`,
 `evidence_refs`, `input_refs`, `output_contract`, `required_result_schema`,
 `stopping_condition`, `validation_refs`, `progress_log_contract`,
-`execution_policy_ref`.
+`execution_policy_ref`, `route_decision_ref`, `route_policy_ref`,
+`provider_binding_ref`, `context_core_ref`, `delta_overlay_ref`,
+`context_transport_ref`, `usage_facts_ref`.
 
 `RunnerProfile`: `runner_id`, `runner_kind`, `supported_roles`,
 `supported_packet_kinds`, `structured_output_support`, `write_capability`,
@@ -123,6 +131,7 @@ Required behavior:
 `project_run_id`, `runner_id`, `runner_metadata`, `files_changed`,
 `commands_run`, `outputs`, `declared_blockers`, `blocked_disposition`,
 `payload_refs`, `evidence_refs`, `validation_results`, `progress_log_ref`,
+`route_decision_ref`, `actual_invocation_facts`, `usage_facts_ref`,
 `result_schema_valid`.
 
 `RunIssue`: extend the current Phase 23.8.6C record with `stage_id`, `severity`,
@@ -161,6 +170,9 @@ preserving source issue links and an explicit migration/normalization rule.
 
 - Prepares Phase 23.9 proof, Phase 24A packets/reports, and Phase 25A
   read-only access by creating stable stage/packet/result records.
+- Reuses and generalizes the completed and reviewed Phase 23.8.6F route,
+  context, binding-version, transport, telemetry, and usage records rather
+  than duplicating them.
 - Must not pre-implement proof generation, report catalog, API layer, MCP
   adapter, domain packs, or planner execution.
 - Preserves the domain/core boundary by keeping packets procedure/stage-oriented

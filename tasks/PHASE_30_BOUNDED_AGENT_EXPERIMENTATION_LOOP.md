@@ -17,6 +17,10 @@ Earlier phases may preserve hooks, adapters, runner comparisons, reviewer
 improvements, and packet optimization as deferred candidates. They must not run
 experimentation loops before evaluator/proof/report foundations exist or
 become the first place where base lifecycle-failure fixtures are introduced.
+Phase 23.8.6F owns only the bounded routing-eval bootstrap and owner-approved
+promotion lifecycle for the existing self-hosting Codex review path. Phase 30
+consumes and generalizes that evidence; it does not recreate F's basic routing
+telemetry or current-path promotion records.
 
 ## Scope
 
@@ -45,6 +49,9 @@ Required behavior:
   after explicit review.
 - Keep experiment records, evaluator references, keep/revert decisions, and
   review outcomes durable and auditable.
+- Consume Phase 23.8.6F eval cases, shadow/replay/canary results,
+  promotion/rejection decisions, policy versions, rejected candidates, and
+  rollback records as inputs to generalized experimentation.
 - When experimentation consumes supervised review-launch evidence from
   Phase 23.8.6B1, keep that telemetry keyed by or explicitly resolvable
   through exact run identity rather than display `run_id` alone.
@@ -66,6 +73,11 @@ Each local/offline experiment records `experiment_id`, fixture IDs, baseline
 route, candidate routes, context-packet variant, immutable evaluator, expected
 critical findings and lifecycle outcome, quality/economic gates, bias
 controls, and keep/reject decision.
+
+Phase 30 adds immutable-evaluator governance and cross-provider, packet,
+decomposer, procedure, and broader harness experiments. It does not mutate an
+accepted Phase F policy silently or treat an F canary result as generalized
+promotion authority.
 
 Metrics include critical-blocker recall, false acceptance, false positives,
 illegal lifecycle progression, scope leakage, output-contract validity, review

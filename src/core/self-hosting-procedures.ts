@@ -35,6 +35,13 @@ export interface SelfHostingReviewLaunchProfile {
   termination_policy: "terminal_completion_only";
 }
 
+export interface SelfHostingAutomaticLaunchCapability {
+  adapter_id: "codex_cli";
+  transport: "fresh_independent_delta";
+  policy_ref: "skills/self-hosting/procedure-execution-policy.json";
+  binding_ref: "skills/self-hosting/codex-reference-binding.json";
+}
+
 export interface SelfHostingProcedureDescriptor {
   procedure_id: string;
   title: string;
@@ -51,6 +58,8 @@ export interface SelfHostingProcedureDescriptor {
   phase_24_packet_dependencies: string[];
   authority_level: SelfHostingProcedureAuthorityLevel;
   generated_or_install_targets_non_authoritative: boolean;
+  execution_policy_ref?: string;
+  automatic_launch_capability?: SelfHostingAutomaticLaunchCapability;
   operator_contract?: SelfHostingOperatorContract;
   review_launch_profile?: SelfHostingReviewLaunchProfile;
 }
@@ -59,7 +68,13 @@ export interface SelfHostingProcedureRegistry {
   schema_version: typeof CURRENT_SCHEMA_VERSION;
   producer_command: string;
   registry_id: string;
+  contract_version: string;
   canonical_root: string;
+  related_policies: {
+    procedure_execution: "skills/self-hosting/procedure-execution-policy.json";
+    review_route: "skills/self-hosting/review-route-policy.json";
+    codex_reference_binding: "skills/self-hosting/codex-reference-binding.json";
+  };
   discovery_targets: SelfHostingDiscoveryTarget[];
   procedures: SelfHostingProcedureDescriptor[];
 }
@@ -242,6 +257,20 @@ function assertReviewLaunchProfile(
   };
 }
 
+function assertAutomaticLaunchCapability(value: unknown, procedureId: string, label: string): SelfHostingAutomaticLaunchCapability | undefined {
+  if (value === undefined) return undefined;
+  if (procedureId !== "plan-review" && procedureId !== "implementation-review") {
+    throw new Error(`${label} automatic_launch_capability is only allowed for plan-review and implementation-review.`);
+  }
+  const record = assertObject(value, `${label} automatic_launch_capability`);
+  if (record.adapter_id !== "codex_cli" || record.transport !== "fresh_independent_delta"
+    || record.policy_ref !== "skills/self-hosting/procedure-execution-policy.json"
+    || record.binding_ref !== "skills/self-hosting/codex-reference-binding.json") {
+    throw new Error(`${label} has an invalid automatic_launch_capability.`);
+  }
+  return record as unknown as SelfHostingAutomaticLaunchCapability;
+}
+
 export function validateSelfHostingProcedureRegistry(value: unknown): SelfHostingProcedureRegistry {
   const record = assertObject(value, "self-hosting procedure registry");
   assertSupportedSchemaVersion(record.schema_version, SELF_HOSTING_PROCEDURE_REGISTRY_PATH);
@@ -251,9 +280,25 @@ export function validateSelfHostingProcedureRegistry(value: unknown): SelfHostin
 
   const producerCommand = assertString(record.producer_command, "producer_command", "self-hosting procedure registry");
   const registryId = assertString(record.registry_id, "registry_id", "self-hosting procedure registry");
+  const contractVersion = record.contract_version === undefined
+    ? "legacy_static"
+    : assertString(record.contract_version, "contract_version", "self-hosting procedure registry");
   const canonicalRoot = assertString(record.canonical_root, "canonical_root", "self-hosting procedure registry");
   const normalizedCanonicalRoot = toPortablePath(canonicalRoot);
   const discoveryTargets = assertDiscoveryTargets(record.discovery_targets, "self-hosting procedure registry");
+  const relatedPolicies = record.related_policies === undefined ? undefined : assertObject(record.related_policies, "self-hosting procedure registry related_policies");
+  if (!relatedPolicies && contractVersion !== "legacy_static") throw new Error("Current registry contract requires related_policies.");
+  const procedureExecutionPolicy = relatedPolicies ? assertString(relatedPolicies.procedure_execution, "procedure_execution", "self-hosting procedure registry related_policies") : "skills/self-hosting/procedure-execution-policy.json";
+  const reviewRoutePolicy = relatedPolicies ? assertString(relatedPolicies.review_route, "review_route", "self-hosting procedure registry related_policies") : "skills/self-hosting/review-route-policy.json";
+  const codexReferenceBinding = relatedPolicies ? assertString(relatedPolicies.codex_reference_binding, "codex_reference_binding", "self-hosting procedure registry related_policies") : "skills/self-hosting/codex-reference-binding.json";
+
+  if (
+    procedureExecutionPolicy !== "skills/self-hosting/procedure-execution-policy.json"
+    || reviewRoutePolicy !== "skills/self-hosting/review-route-policy.json"
+    || codexReferenceBinding !== "skills/self-hosting/codex-reference-binding.json"
+  ) {
+    throw new Error("self-hosting procedure registry related_policies must use the canonical Phase F paths.");
+  }
 
   if (normalizedCanonicalRoot !== "skills/self-hosting/") {
     throw new Error("self-hosting procedure registry canonical_root must remain skills/self-hosting/.");
@@ -292,6 +337,11 @@ export function validateSelfHostingProcedureRegistry(value: unknown): SelfHostin
       procedureId,
       `self-hosting procedure registry procedure ${procedureId}`
     );
+    const executionPolicyRef = item.execution_policy_ref === undefined ? undefined : assertString(item.execution_policy_ref, "execution_policy_ref", `self-hosting procedure registry procedure ${procedureId}`);
+    if (contractVersion !== "legacy_static" && executionPolicyRef !== `skills/self-hosting/procedure-execution-policy.json#${procedureId}`) {
+      throw new Error(`self-hosting procedure registry procedure ${procedureId} has an invalid execution_policy_ref.`);
+    }
+    const automaticLaunchCapability = assertAutomaticLaunchCapability(item.automatic_launch_capability, procedureId, `self-hosting procedure registry procedure ${procedureId}`);
 
     return {
       procedure_id: procedureId,
@@ -354,7 +404,9 @@ export function validateSelfHostingProcedureRegistry(value: unknown): SelfHostin
         `self-hosting procedure registry procedures[${index}]`
       ),
       ...(operatorContract ? { operator_contract: operatorContract } : {}),
-      ...(reviewLaunchProfile ? { review_launch_profile: reviewLaunchProfile } : {})
+      ...(reviewLaunchProfile ? { review_launch_profile: reviewLaunchProfile } : {}),
+      ...(executionPolicyRef ? { execution_policy_ref: executionPolicyRef } : {}),
+      ...(automaticLaunchCapability ? { automatic_launch_capability: automaticLaunchCapability } : {})
     };
   });
 
@@ -362,7 +414,13 @@ export function validateSelfHostingProcedureRegistry(value: unknown): SelfHostin
     schema_version: CURRENT_SCHEMA_VERSION,
     producer_command: producerCommand,
     registry_id: registryId,
+    contract_version: contractVersion,
     canonical_root: normalizedCanonicalRoot,
+    related_policies: {
+      procedure_execution: procedureExecutionPolicy,
+      review_route: reviewRoutePolicy,
+      codex_reference_binding: codexReferenceBinding
+    },
     discovery_targets: discoveryTargets,
     procedures
   };

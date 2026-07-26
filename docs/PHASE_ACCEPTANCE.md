@@ -109,6 +109,17 @@ Phase 23.8 acceptance must also fail if:
 - CLI is no longer described as the current baseline access surface;
 - API-key billing becomes the default path or hidden token-metered execution is
   introduced in the documented access boundary;
-- the implementation introduces Phase 23.8 registry execution, role execution,
-  provider/model routing, App Server integration, MCP adapter work, external
+- the implementation introduces registry or role execution outside an active
+  task's explicit boundary, App Server integration, MCP adapter work, external
   API execution, domain-pack implementation, or autonomous loop behavior.
+
+Phase 23.8.6F is an explicit narrow exception: it may enforce deterministic
+context/route policy and the isolated Codex binding only for the existing
+`plan-review` and `implementation-review` launch surfaces. Acceptance fails if
+that exception creates another automatic procedure binding, generic runner,
+daemon, self-approval, or provider-specific lifecycle authority.
+
+Phase F acceptance also fails if a launched reviewer can recursively create a
+second reviewer claim/process/wait, if `REVIEW_RECURSION_FORBIDDEN` is not
+state-validated before mutation, or if prompt-only instructions are treated as
+the product guardrail.

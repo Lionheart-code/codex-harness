@@ -454,6 +454,40 @@ function writeProcedureArtifact(tempRepo, runId, name, content) {
   return artifactPath;
 }
 
+function createFakeCodexReviewEnv(tempRepo, reviewBody) {
+  const binDir = path.join(tempRepo, "fake-codex-bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  const scriptPath = path.join(binDir, "codex");
+  writeText(scriptPath, [
+    "#!/usr/bin/env node",
+    "const fs = require('node:fs');",
+    "const args = process.argv.slice(2);",
+    "const output = args[args.indexOf('-o') + 1];",
+    "fs.mkdirSync(require('node:path').dirname(output), { recursive: true });",
+    "fs.writeFileSync(output, process.env.CODEX_FAKE_REVIEW_CONTENT, 'utf8');",
+    ""
+  ].join("\n"));
+  fs.chmodSync(scriptPath, 0o755);
+  return {
+    PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    CODEX_FAKE_REVIEW_CONTENT: reviewBody
+  };
+}
+
+function exactImplementationReviewPass() {
+  return [
+    "## Review Surface", "", "Reviewed exact replay source.",
+    "## Findings", "", "No findings.",
+    "## Task And Plan Compliance", "", "Within Phase F scope.",
+    "## Verification Coverage", "", "Focused evidence reviewed.",
+    "## Policy Findings", "", "All controls pass.",
+    "## Source Trace", "", "Exact Harness packet and source identity.",
+    "## Skill Risk Check", "", "No additional skill risk.",
+    "## Scope Creep Check", "", "No future phase leakage.",
+    "## Recommendation", "", "PASS", ""
+  ].join("\n");
+}
+
 function parseOperatorOutput(stdout) {
   const parsed = new Map();
 
@@ -3191,6 +3225,347 @@ test("phase 23.8.6A record-procedure ingests early-chain procedures and advances
   assert.equal(output.get("next_procedure_id"), "plan-review");
 });
 
+test("phase 23.8.6 deterministic completion enforces typed precheck evidence and semantic parity", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-deterministic-parity-");
+  const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
+  const outputArtifacts = Object.fromEntries(["invocation_ready_prompt", "constraints", "validation"].map((role) => {
+    const body = `deterministic ${role} output\n`;
+    const artifact = {
+      artifact_id: `sha256:${createHash("sha256").update(body).digest("hex")}`,
+      path: `evidence/deterministic-${role}.txt`,
+      kind: `procedure-output:task-prompt-writer:${role}`,
+      producer_command: "test deterministic producer",
+      description: `output_role:${role}`
+    };
+    run.artifacts.push(artifact);
+    writeText(path.join(tempRepo, ".harness", "runs", run.run_id, artifact.path), body);
+    return [role, artifact];
+  }));
+  writeRuntimeRunFixture(tempRepo, run);
+  const incomplete = writeProcedureArtifact(tempRepo, run.run_id, "deterministic-incomplete", [
+    "completion_mode: deterministic",
+    "deterministic_prechecks: task_contract_identity",
+    "evidence_refs: task_contract_ref",
+    "semantic_residual_disposition: not_applicable",
+    "invocation_ready_prompt constraints validation"
+  ].join("\n"));
+  const refused = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "task-prompt-writer", "--file", path.relative(tempRepo, incomplete)], { cwd: tempRepo });
+  assertFailure(refused, "incomplete deterministic procedure evidence");
+  assert.match(refused.stderr, /DETERMINISTIC_COMPLETION_INCOMPLETE/);
+
+  const exactFileRef = (relativePath) => `file:${relativePath}#sha256:${createHash("sha256")
+    .update(fs.readFileSync(path.join(tempRepo, relativePath))).digest("hex")}`;
+  const completeLines = [
+    "completion_mode: deterministic",
+    "deterministic_prechecks: task_contract_identity, procedure_contract_identity, required_reading",
+    `precheck_refs: task_contract_identity=${exactFileRef(ACTIVE_TASK_PATH)}, procedure_contract_identity=${exactFileRef("skills/self-hosting/task-prompt-writer/SKILL.md")}, required_reading=${exactFileRef(ACTIVE_TASK_PATH)}`,
+    `evidence_refs: task_contract_ref=${exactFileRef(ACTIVE_TASK_PATH)}, procedure_contract_ref=${exactFileRef("skills/self-hosting/task-prompt-writer/SKILL.md")}`,
+    "semantic_residual_disposition: not_applicable",
+    `output.invocation_ready_prompt: artifact:${outputArtifacts.invocation_ready_prompt.artifact_id}`,
+    `output.constraints: artifact:${outputArtifacts.constraints.artifact_id}`,
+    `output.validation: artifact:${outputArtifacts.validation.artifact_id}`
+  ];
+  for (const [name, mutate] of [
+    ["wrong-precheck-role", (lines) => lines.map((line) => line.startsWith("precheck_refs:")
+      ? line.replace(`task_contract_identity=${exactFileRef(ACTIVE_TASK_PATH)}`, `task_contract_identity=run:${run.run_instance_id}`)
+      : line)],
+    ["wrong-evidence-role", (lines) => lines.map((line) => line.startsWith("evidence_refs:")
+      ? line.replace(`task_contract_ref=${exactFileRef(ACTIVE_TASK_PATH)}`, `task_contract_ref=run:${run.run_instance_id}`)
+      : line)],
+    ["wrong-output-role", (lines) => lines.map((line) => line.startsWith("output.validation:")
+      ? `output.validation: artifact:${outputArtifacts.constraints.artifact_id}`
+      : line)]
+  ]) {
+    const invalidPath = writeProcedureArtifact(tempRepo, run.run_id, name, mutate([...completeLines]).join("\n"));
+    const invalid = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "task-prompt-writer", "--file", path.relative(tempRepo, invalidPath)], { cwd: tempRepo });
+    assertFailure(invalid, name);
+    assert.match(invalid.stderr, /DETERMINISTIC_COMPLETION_INCOMPLETE/);
+  }
+  const complete = writeProcedureArtifact(tempRepo, run.run_id, "deterministic-complete", completeLines.join("\n"));
+  const accepted = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "task-prompt-writer", "--file", path.relative(tempRepo, complete)], { cwd: tempRepo });
+  assertSuccess(accepted, "complete deterministic procedure evidence");
+});
+
+test("phase 23.8.6F deterministic verification completion requires the exact approved command inventory", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6f-deterministic-inventory-");
+  const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
+  run.phase_id = "23.8.6F";
+  run.repository.head_sha = gitHead(tempRepo);
+  run.source_snapshot = run.repository.head_sha;
+  const approvedPlanBody = [
+    "# Effective plan", "",
+    "## Effective Validation", "",
+    "1. `npm run build`",
+    "2. `node --test tests/acceptance/phase23-8-6f-cost-aware-context-routing.test.mjs`",
+    "3. `npm test`",
+    "4. `git diff --check`",
+    "5. `git add -- src/core/runtime.ts`",
+    ""
+  ].join("\n");
+  const approvedPlanArtifact = {
+    artifact_id: `sha256:${createHash("sha256").update(approvedPlanBody).digest("hex")}`,
+    path: "evidence/approved-effective-plan.md",
+    kind: "procedure-artifact:plan-amend"
+  };
+  run.artifacts.push(approvedPlanArtifact);
+  run.approvals.push({
+    approval_id: "approval-effective-plan",
+    title: "Reviewed plan approved",
+    status: "approved",
+    created_at: "2026-06-24T00:30:00.000Z",
+    approver: "owner",
+    reviewed_plan_artifact_id: approvedPlanArtifact.artifact_id,
+    reviewed_plan_content_hash: approvedPlanArtifact.artifact_id.replace(/^sha256:/u, "")
+  });
+  writeText(path.join(tempRepo, ".harness", "runs", run.run_id, approvedPlanArtifact.path), approvedPlanBody);
+  const outputArtifacts = Object.fromEntries(["command_matrix", "evidence_gaps", "verdict"].map((role) => {
+    const body = `typed verification ${role}\n`;
+    const artifact = {
+      artifact_id: `sha256:${createHash("sha256").update(body).digest("hex")}`,
+      path: `evidence/typed-verification-${role}.txt`,
+      kind: `procedure-output:verification-review:${role}`,
+      producer_command: "test deterministic producer",
+      description: `output_role:${role}`
+    };
+    run.artifacts.push(artifact);
+    writeText(path.join(tempRepo, ".harness", "runs", run.run_id, artifact.path), body);
+    return [role, artifact];
+  }));
+  const verification = {
+    verification_result_id: "verification-exact-inventory",
+    status: "pass",
+    created_at: TIMESTAMP,
+    summary: "Candidate verification",
+    source: "self-hosting",
+    artifact_refs: [],
+    command_results: ["npm run build", "npm test", "npm run test:acceptance", "git diff --check"].map((command, index) => ({
+      command_result_id: `verification-command-${index + 1}`,
+      command,
+      exit_code: 0,
+      status: "pass",
+      completed_at: TIMESTAMP,
+      artifact_refs: []
+    }))
+  };
+  run.verification_results = [verification];
+  writeRuntimeRunFixture(tempRepo, run);
+  const artifactBody = (verificationId) => [
+    "completion_mode: deterministic",
+    "deterministic_prechecks: required_command_inventory, command_results, snapshot_identity",
+    `precheck_refs: required_command_inventory=verification:${verificationId}, command_results=verification:${verificationId}, snapshot_identity=source:${run.source_snapshot}`,
+    `evidence_refs: command_result_refs=verification:${verificationId}, snapshot_ref=verification:${verificationId}, exact_run_identity=run:${run.run_instance_id}`,
+    "semantic_residual_disposition: not_applicable",
+    `independence_ref: verification:${verificationId}`,
+    "approval_ref: approval:approval-effective-plan",
+    `output.command_matrix: artifact:${outputArtifacts.command_matrix.artifact_id}`,
+    `output.evidence_gaps: artifact:${outputArtifacts.evidence_gaps.artifact_id}`,
+    `output.verdict: artifact:${outputArtifacts.verdict.artifact_id}`
+  ].join("\n");
+  const incompletePath = writeProcedureArtifact(tempRepo, run.run_id, "verification-incomplete-inventory", artifactBody(verification.verification_result_id));
+  const incomplete = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, incompletePath)], { cwd: tempRepo });
+  assertFailure(incomplete, "partial verification matrix");
+  assert.match(incomplete.stderr, /DETERMINISTIC_COMPLETION_INCOMPLETE/);
+
+  const requiredCommands = [
+    "npm run build",
+    "node --test tests/acceptance/phase23-8-6f-cost-aware-context-routing.test.mjs",
+    "npm test",
+    "git diff --check",
+    "git add -- src/core/runtime.ts"
+  ];
+  verification.command_results = requiredCommands.map((command, index) => ({
+    command_result_id: `verification-command-${index + 1}`,
+    command,
+    exit_code: 0,
+    status: "pass",
+    completed_at: TIMESTAMP,
+    artifact_refs: []
+  }));
+  writeRuntimeRunFixture(tempRepo, run);
+  const completePath = writeProcedureArtifact(tempRepo, run.run_id, "verification-complete-inventory", artifactBody(verification.verification_result_id));
+  verification.command_results = [verification.command_results[1], verification.command_results[0], ...verification.command_results.slice(2)];
+  writeRuntimeRunFixture(tempRepo, run);
+  const reordered = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
+  assertFailure(reordered, "reordered verification matrix");
+  assert.match(reordered.stderr, /DETERMINISTIC_COMPLETION_INCOMPLETE/);
+  verification.command_results = requiredCommands.map((command, index) => ({
+    command_result_id: `verification-command-${index + 1}`,
+    command,
+    exit_code: 0,
+    status: "pass",
+    completed_at: TIMESTAMP,
+    artifact_refs: []
+  }));
+  const approvedAuthorities = run.approvals;
+  run.approvals = run.approvals.filter((entry) => entry.title !== "Reviewed plan approved");
+  writeRuntimeRunFixture(tempRepo, run);
+  const absentApproval = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
+  assertFailure(absentApproval, "Phase F absent approved-plan authority");
+  assert.match(absentApproval.stderr, /VERIFICATION_AUTHORITY_PLAN_MISSING/);
+  run.phase_id = "23.8.7";
+  writeRuntimeRunFixture(tempRepo, run);
+  const postFFallback = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
+  assertFailure(postFFallback, "post-F absent approved-plan authority");
+  assert.match(postFFallback.stderr, /VERIFICATION_AUTHORITY_PLAN_MISSING/);
+  run.phase_id = "23.8.6F";
+  run.approvals = approvedAuthorities;
+  const emptyPlanBody = "# Approved plan without effective validation\n";
+  const emptyPlanArtifact = {
+    artifact_id: `sha256:${createHash("sha256").update(emptyPlanBody).digest("hex")}`,
+    path: "evidence/approved-plan-without-validation.md",
+    kind: "procedure-artifact:plan-amend"
+  };
+  run.artifacts.push(emptyPlanArtifact);
+  run.approvals.push({
+    approval_id: "approval-empty-validation",
+    title: "Reviewed plan approved",
+    status: "approved",
+    created_at: "2026-06-24T00:30:30.000Z",
+    approver: "owner",
+    reviewed_plan_artifact_id: emptyPlanArtifact.artifact_id,
+    reviewed_plan_content_hash: emptyPlanArtifact.artifact_id.slice("sha256:".length)
+  });
+  writeText(path.join(tempRepo, ".harness", "runs", run.run_id, emptyPlanArtifact.path), emptyPlanBody);
+  writeRuntimeRunFixture(tempRepo, run);
+  const absentInventory = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
+  assertFailure(absentInventory, "Phase F absent effective-validation inventory");
+  assert.match(absentInventory.stderr, /VERIFICATION_AUTHORITY_INVENTORY_MISSING/);
+  run.approvals.pop();
+  run.artifacts.pop();
+  run.artifacts = run.artifacts.filter((entry) => entry.artifact_id !== approvedPlanArtifact.artifact_id);
+  writeRuntimeRunFixture(tempRepo, run);
+  const missingPlan = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
+  assertFailure(missingPlan, "missing approved plan artifact");
+  assert.match(missingPlan.stderr, /VERIFICATION_AUTHORITY_PLAN_MISSING/);
+  run.artifacts.push(approvedPlanArtifact);
+  writeRuntimeRunFixture(tempRepo, run);
+  writeText(path.join(tempRepo, ".harness", "runs", run.run_id, approvedPlanArtifact.path), `${approvedPlanBody}corrupt`);
+  const corruptPlan = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
+  assertFailure(corruptPlan, "corrupt approved plan artifact");
+  assert.match(corruptPlan.stderr, /VERIFICATION_AUTHORITY_PLAN_IDENTITY_MISMATCH/);
+  writeText(path.join(tempRepo, ".harness", "runs", run.run_id, approvedPlanArtifact.path), approvedPlanBody);
+  const wrongIndependencePath = writeProcedureArtifact(
+    tempRepo,
+    run.run_id,
+    "verification-wrong-independence",
+    artifactBody(verification.verification_result_id).replace(
+      `independence_ref: verification:${verification.verification_result_id}`,
+      `independence_ref: review:${run.review_results[0].review_result_id}`
+    )
+  );
+  const wrongIndependence = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, wrongIndependencePath)], { cwd: tempRepo });
+  assertFailure(wrongIndependence, "wrong independence role");
+  assert.match(wrongIndependence.stderr, /DETERMINISTIC_COMPLETION_INCOMPLETE/);
+  const wrongApprovalPath = writeProcedureArtifact(
+    tempRepo,
+    run.run_id,
+    "verification-wrong-approval",
+    artifactBody(verification.verification_result_id).replace(
+      "approval_ref: approval:approval-effective-plan",
+      `approval_ref: approval:${run.approvals[0].approval_id}`
+    )
+  );
+  const wrongApproval = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, wrongApprovalPath)], { cwd: tempRepo });
+  assertFailure(wrongApproval, "wrong approval role");
+  assert.match(wrongApproval.stderr, /DETERMINISTIC_COMPLETION_INCOMPLETE/);
+  const newerPlanBody = approvedPlanBody.replace("# Effective plan", "# Newer effective plan");
+  const newerPlanArtifact = {
+    artifact_id: `sha256:${createHash("sha256").update(newerPlanBody).digest("hex")}`,
+    path: "evidence/newer-approved-effective-plan.md",
+    kind: "procedure-artifact:plan-amend"
+  };
+  run.artifacts.push(newerPlanArtifact);
+  run.approvals.push({
+    approval_id: "approval-newer-plan",
+    title: "Reviewed plan approved",
+    status: "approved",
+    created_at: "2026-06-24T00:31:00.000Z",
+    approver: "owner",
+    reviewed_plan_artifact_id: newerPlanArtifact.artifact_id,
+    reviewed_plan_content_hash: newerPlanArtifact.artifact_id.replace(/^sha256:/u, "")
+  });
+  writeText(path.join(tempRepo, ".harness", "runs", run.run_id, newerPlanArtifact.path), newerPlanBody);
+  writeRuntimeRunFixture(tempRepo, run);
+  const supersededApproval = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
+  assertFailure(supersededApproval, "superseded approved plan");
+  assert.match(supersededApproval.stderr, /DETERMINISTIC_COMPLETION_INCOMPLETE/);
+  writeText(
+    completePath,
+    artifactBody(verification.verification_result_id).replace(
+      "approval_ref: approval:approval-effective-plan",
+      "approval_ref: approval:approval-newer-plan"
+    )
+  );
+  const implementationReview = run.review_results.find((entry) =>
+    entry.source === "procedure:implementation-review" && entry.status === "PASS"
+  );
+  const closeoutDelivery = run.delivery_facts.find((entry) => entry.status !== "unknown");
+  let nextTaskDecision = run.decisions.find((entry) => entry.title === "Next task decision");
+  if (!nextTaskDecision) {
+    nextTaskDecision = {
+      decision_id: "decision-next-task",
+      title: "Next task decision",
+      rationale: "Defer successor activation.",
+      created_at: TIMESTAMP
+    };
+    run.decisions.push(nextTaskDecision);
+  }
+  assert.ok(implementationReview);
+  assert.ok(closeoutDelivery);
+  const closeoutOutputs = Object.fromEntries(["gate_matrix", "blockers", "verdict"].map((role) => {
+    const body = `typed closeout ${role}\n`;
+    const artifact = {
+      artifact_id: `sha256:${createHash("sha256").update(body).digest("hex")}`,
+      path: `evidence/typed-closeout-${role}.txt`,
+      kind: `procedure-output:phase-closeout-review:${role}`,
+      producer_command: "test deterministic closeout producer",
+      description: `output_role:${role}`
+    };
+    run.artifacts.push(artifact);
+    writeText(path.join(tempRepo, ".harness", "runs", run.run_id, artifact.path), body);
+    return [role, artifact];
+  }));
+  writeRuntimeRunFixture(tempRepo, run);
+  const closeoutBody = [
+    "completion_mode: deterministic",
+    "deterministic_prechecks: verification_pass, implementation_review_pass, delivery_facts, next_task_decision",
+    `precheck_refs: verification_pass=verification:${verification.verification_result_id}, implementation_review_pass=review:${implementationReview.review_result_id}, delivery_facts=delivery:${closeoutDelivery.delivery_fact_id}, next_task_decision=decision:${nextTaskDecision.decision_id}`,
+    `evidence_refs: verification_ref=verification:${verification.verification_result_id}, review_ref=review:${implementationReview.review_result_id}, delivery_refs=delivery:${closeoutDelivery.delivery_fact_id}, decision_ref=decision:${nextTaskDecision.decision_id}`,
+    "semantic_residual_disposition: not_applicable",
+    `independence_ref: decision:${nextTaskDecision.decision_id}`,
+    "approval_ref: approval:approval-newer-plan",
+    `output.gate_matrix: artifact:${closeoutOutputs.gate_matrix.artifact_id}`,
+    `output.blockers: artifact:${closeoutOutputs.blockers.artifact_id}`,
+    `output.verdict: artifact:${closeoutOutputs.verdict.artifact_id}`
+  ].join("\n");
+  const decisionIndependencePath = writeProcedureArtifact(tempRepo, run.run_id, "closeout-decision-independence", closeoutBody);
+  const decisionIndependence = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "phase-closeout-review", "--file", path.relative(tempRepo, decisionIndependencePath)], { cwd: tempRepo });
+  assertFailure(decisionIndependence, "closeout decision-substituted independence");
+  assert.match(decisionIndependence.stderr, /DETERMINISTIC_COMPLETION_INCOMPLETE/);
+  const exactCloseoutPath = writeProcedureArtifact(
+    tempRepo,
+    run.run_id,
+    "closeout-exact-review-independence",
+    closeoutBody.replace(
+      `independence_ref: decision:${nextTaskDecision.decision_id}`,
+      `independence_ref: review:${implementationReview.review_result_id}`
+    )
+  );
+  const exactCloseout = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "phase-closeout-review", "--file", path.relative(tempRepo, exactCloseoutPath)], { cwd: tempRepo });
+  assertSuccess(exactCloseout, "closeout exact implementation-review independence");
+  const verdictPath = path.join(tempRepo, ".harness", "runs", run.run_id, outputArtifacts.verdict.path);
+  const verdictBody = fs.readFileSync(verdictPath, "utf8");
+  writeText(verdictPath, `${verdictBody}corrupt`);
+  const corruptOutput = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
+  assertFailure(corruptOutput, "corrupt typed output artifact");
+  assert.match(corruptOutput.stderr, /DETERMINISTIC_COMPLETION_INCOMPLETE/);
+  writeText(verdictPath, verdictBody);
+  const complete = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
+  assertSuccess(complete, "exact verification matrix");
+});
+
 test("phase 23.8.6A record-procedure rejects excluded and unknown procedures outside the approved ingestion scope", () => {
   const runtimeModule = loadBuiltRuntime();
   const tempRepo = createPhase2386ARepo("codex-harness-phase23-8-6a-scope-guard-");
@@ -3599,6 +3974,46 @@ test("phase 23.8.6A recovered run can continue through closeout and harvest when
     { cwd: tempRepo }
   ), "record phase-closeout-review in 23.8.6A continuity case");
 
+  const { RunStagingDatabase, resolveHarnessRoots } = require(path.join(productRoot, "dist", "core", "run-staging-db.js"));
+  const { ProjectMemoryDatabase } = require(path.join(productRoot, "dist", "core", "project-memory-db.js"));
+  const roots = resolveHarnessRoots(tempRepo);
+  const staging = new RunStagingDatabase(tempRepo, roots.projectRoot, run.run_id);
+  const stagedRun = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  const deliveryArtifactId = stagedRun.evidence.find((entry) => entry.kind === "procedure:delivery-facts-review")?.artifact_id;
+  assert.ok(deliveryArtifactId);
+  const deliveryDescriptor = staging.readProcedureArtifact(
+    stagedRun.run_instance_id,
+    "delivery-facts-review",
+    deliveryArtifactId
+  );
+  assert.ok(deliveryDescriptor);
+  staging.mutateRunWithDatabase(run.run_id, (latest, database) => {
+    const exactProvenance = JSON.stringify({
+      phase_id: latest.phase_id ?? "23.8.6A",
+      task_path: latest.active_task_path ?? latest.task_path,
+      worktree: tempRepo,
+      branch: latest.repository.branch ?? "codex/test",
+      head: latest.repository.head_sha ?? gitHead(tempRepo),
+      source_snapshot: latest.source_snapshot ?? gitHead(tempRepo),
+      base_commit: latest.source_snapshot ?? gitHead(tempRepo),
+      compatibility_path: deliveryDescriptor.artifact_id
+    });
+    database.prepare(
+      "UPDATE procedure_artifacts SET provenance_json = ? WHERE run_instance_id = ? AND procedure_id = ? AND artifact_id = ?"
+    ).run(exactProvenance, latest.run_instance_id, deliveryDescriptor.procedure_id, deliveryDescriptor.artifact_id);
+    database.prepare(
+      "INSERT OR IGNORE INTO payload_links (payload_id, parent_record_id, link_role, created_at) VALUES (?, ?, ?, ?)"
+    ).run(deliveryDescriptor.payload_id, deliveryDescriptor.artifact_id, "procedure-artifact-body:docs-consistency-review", TIMESTAMP);
+    staging.storeProcedureArtifact(database, {
+      ...deliveryDescriptor,
+      provenance_json: exactProvenance,
+      procedure_id: "docs-consistency-review"
+    });
+    return latest;
+  }, { expectedRunInstanceId: stagedRun.run_instance_id });
+  const transferStats = staging.getProcedureArtifactTransferStats(stagedRun.run_instance_id);
+  assert.ok(transferStats.procedure_artifact_transfer_count > transferStats.procedure_artifact_payload_transfer_count);
+
   let output = runOperatorStatus(tempRepo, run.run_id);
   assert.equal(output.get("current_stage"), "CLOSEOUT_REVIEW_REQUIRED");
   assert.equal(output.get("next_procedure_id"), "none");
@@ -3612,10 +4027,61 @@ test("phase 23.8.6A recovered run can continue through closeout and harvest when
   assert.equal(output.get("current_stage"), "HARVEST_READY");
   assert.equal(output.get("next_procedure_id"), "none");
 
+  const project = new ProjectMemoryDatabase(tempRepo, roots.projectRoot);
+  let originalChunk;
+  staging.mutateRunWithDatabase(run.run_id, (latest, database) => {
+    const row = database.prepare(
+      "SELECT chunk_bytes FROM payload_chunks WHERE payload_id = ? AND chunk_order = 0"
+    ).get(deliveryDescriptor.payload_id);
+    originalChunk = Buffer.from(row.chunk_bytes ?? []);
+    assert.ok(originalChunk.length > 0);
+    const corrupted = Buffer.from(originalChunk);
+    corrupted[0] ^= 0xff;
+    database.prepare(
+      "UPDATE payload_chunks SET chunk_bytes = ? WHERE payload_id = ? AND chunk_order = 0"
+    ).run(corrupted, deliveryDescriptor.payload_id);
+    return latest;
+  }, { expectedRunInstanceId: stagedRun.run_instance_id });
+  const corruptHarvest = runCli(["memory", "harvest", "--run", run.run_id], { cwd: tempRepo });
+  assertFailure(corruptHarvest, "corrupt procedure payload harvest");
+  assert.match(corruptHarvest.stderr, /payload body mismatch|body hash/i);
+  assert.equal(project.getHarvestRecordByRunInstanceId(stagedRun.run_instance_id), undefined);
+  staging.mutateRunWithDatabase(run.run_id, (latest, database) => {
+    database.prepare(
+      "UPDATE payload_chunks SET chunk_bytes = ? WHERE payload_id = ? AND chunk_order = 0"
+    ).run(originalChunk, deliveryDescriptor.payload_id);
+    return latest;
+  }, { expectedRunInstanceId: stagedRun.run_instance_id });
+
   const harvest = runCli(["memory", "harvest", "--run", run.run_id], { cwd: tempRepo });
   assertSuccess(harvest, "memory harvest in 23.8.6A continuity case");
   assert.match(harvest.stdout, /already harvested: false/);
   assert.match(harvest.stdout, /harvest status: promoted/);
+  for (const [label, value] of [
+    ["procedure artifact transfer count", transferStats.procedure_artifact_transfer_count],
+    ["procedure artifact payload transfer count", transferStats.procedure_artifact_payload_transfer_count],
+    ["procedure artifact payload chunk transfer count", transferStats.procedure_artifact_payload_chunk_transfer_count],
+    ["procedure artifact payload byte count", transferStats.procedure_artifact_payload_byte_count]
+  ]) assert.match(harvest.stdout, new RegExp(`${label}: ${value}`));
+  const originalBody = project.readProcedureArtifactBody({
+    projectRunId: stagedRun.run_instance_id,
+    procedureArtifactId: deliveryDescriptor.artifact_id,
+    procedureId: "delivery-facts-review"
+  });
+  const sharedBody = project.readProcedureArtifactBody({
+    projectRunId: stagedRun.run_instance_id,
+    procedureArtifactId: deliveryDescriptor.artifact_id,
+    procedureId: "docs-consistency-review"
+  });
+  assert.equal(sharedBody.body, originalBody.body);
+  assert.throws(() => project.readProcedureArtifactBody({
+    projectRunId: stagedRun.run_instance_id,
+    procedureArtifactId: deliveryDescriptor.artifact_id
+  }), /could not prove one exact descriptor/);
+  const harvestRetry = runCli(["memory", "harvest", "--run", run.run_id], { cwd: tempRepo });
+  assertSuccess(harvestRetry, "idempotent harvest transfer retry");
+  assert.match(harvestRetry.stdout, /already harvested: true/);
+  assert.match(harvestRetry.stdout, new RegExp(`procedure artifact transfer count: ${transferStats.procedure_artifact_transfer_count}`));
 });
 
 test("phase 23.8.6 closeout blocks until merged merge_result and merge_commit facts exist", () => {
@@ -3709,7 +4175,7 @@ test("phase 23.8.6 closeout refreshes repository snapshot to live HEAD while pre
   assert.ok(receipt.change_set.git_status_lines.some((line) => /README\.md/.test(line)));
 });
 
-test("phase 23.8.6 record-next-task and materialize-next-task prepare a new task-owned worktree before its separate run", async () => {
+test("phase 23.8.6 materialize-next-task refuses raw-Git successor creation before mutation", async () => {
   const runtimeModule = loadBuiltRuntime();
   const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-materialize-next-task-");
   const nextTaskPath = "tasks/PHASE_23_8_7_PACKET_RESULT_LIFECYCLE_CONTRACT.md";
@@ -3806,12 +4272,14 @@ test("phase 23.8.6 record-next-task and materialize-next-task prepare a new task
     { cwd: tempRepo }
   );
   assertFailure(unownedMaterialization, "materialize successor without an installed task-state owner");
-  assert.match(unownedMaterialization.stderr, /requires exactly one installed task-state owner/i);
+  assert.match(unownedMaterialization.stderr, /HANDOFF_CREATION_FAILED/);
+  assert.match(unownedMaterialization.stderr, /Codex Desktop create_thread/);
   assert.equal(fs.existsSync(unownedWorktreePath), false, "unowned materialization should roll back its worktree");
   assertFailure(
     runCommand("git", ["show-ref", "--verify", "--quiet", "refs/heads/task/unowned-phase-23-8-7"], { cwd: tempRepo }),
     "unowned materialization should roll back its branch"
   );
+  return;
 
   const taskStatePath = path.join(tempRepo, ".harness", "tasks", "task-next-phase", "state.json");
   fs.mkdirSync(path.dirname(taskStatePath), { recursive: true });
@@ -4016,6 +4484,393 @@ test("phase 23.8.6 record-next-task and materialize-next-task prepare a new task
   assert.equal(newRun.task_path, "TASK.md");
   assert.equal(newRun.active_task_path, nextTaskPath);
   assert.equal(newRun.phase_id, "23.8.7");
+});
+
+test("phase 23.8.6F cleanup-prepared-successor journals and recoverably quarantines exact dormant state", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6f-cleanup-successor-");
+  const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
+  const base = gitHead(tempRepo);
+  const nextTaskPath = "tasks/PHASE_23_8_7_PACKET_RESULT_LIFECYCLE_CONTRACT.md";
+  writeText(path.join(tempRepo, nextTaskPath), "# Successor\n");
+  assertSuccess(runCommand("git", ["add", nextTaskPath], { cwd: tempRepo }), "stage successor task");
+  assertSuccess(runCommand("git", ["commit", "-m", "add successor task"], { cwd: tempRepo }), "commit successor task");
+  const immutableBase = gitHead(tempRepo);
+  const decisionSource = writeProcedureArtifact(tempRepo, run.run_id, "next-task-cleanup", "Select successor.\n");
+  const recorded = runCli([
+    "run", "record-next-task", "--run", run.run_id, "--task", nextTaskPath,
+    "--base-commit", immutableBase, "--file", path.relative(tempRepo, decisionSource)
+  ], { cwd: tempRepo });
+  assertSuccess(recorded, "record cleanup next-task decision");
+  const decisionId = parseOperatorOutput(recorded.stdout).get("decision id");
+  assert.ok(decisionId);
+
+  writeText(path.join(tempRepo, ".harness", "config.toml"), "[harness]\nversion = \"0.1.0\"\n");
+  writeText(path.join(tempRepo, ".harness", "install.json"), `${JSON.stringify({ schema_version: 1, producer_command: "test", harness_version: "0.1.0", templates_version: "0.1.0", installed_at: TIMESTAMP, updated_at: TIMESTAMP, source: "test" }, null, 2)}\n`);
+  const successorBranch = "codex/test-cleanup-successor";
+  const successorCwd = path.join(path.dirname(tempRepo), `${path.basename(tempRepo)}-desktop-successor-absent`);
+  assertSuccess(runCommand("git", ["branch", successorBranch, immutableBase], { cwd: tempRepo }), "create dormant successor branch");
+  const taskId = "task-cleanup-successor";
+  const taskStatePath = path.join(tempRepo, ".harness", "tasks", taskId, "state.json");
+  const taskState = `${JSON.stringify({ schema_version: 1, producer_command: "test", task_id: taskId, title: "Cleanup successor", status: "created", created_at: TIMESTAMP, updated_at: TIMESTAMP, phase: "3", spec: "spec.md", acceptance: "acceptance.md", branch: successorBranch, worktree: successorCwd, base_commit_sha: immutableBase }, null, 2)}\n`;
+  fs.mkdirSync(path.dirname(taskStatePath), { recursive: true });
+  writeText(taskStatePath, taskState);
+  const evidence = {
+    schema_version: 1,
+    producer_command: "test",
+    decision_id: decisionId,
+    thread_id: "thread-cleanup",
+    thread_link: "codex://thread-cleanup",
+    project_id: "project-cleanup",
+    cwd: successorCwd,
+    branch: successorBranch,
+    immutable_base: immutableBase,
+    task_state_id: taskId,
+    task_state_path: path.relative(tempRepo, taskStatePath).replace(/\\/g, "/"),
+    task_state_hash: `sha256:${createHash("sha256").update(taskState).digest("hex")}`,
+    archived_at: TIMESTAMP,
+    archive_readback: { thread_id: "thread-cleanup", archived: true, managed_worktree_absent: true, observed_cwd: successorCwd },
+    worktree_absent: true,
+    successor_run_absent: true,
+    activation_commit_absent: true
+  };
+  const evidencePath = path.join(tempRepo, ".harness", "cleanup-evidence.json");
+  writeText(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+
+  const cleanupModule = require(path.join(productRoot, "dist", "core", "prepared-successor-cleanup.js"));
+  const preparedReceipt = cleanupModule.buildPreparedSuccessorCleanupReceipt(tempRepo, evidence);
+  const conflictingArchivePath = path.join(tempRepo, preparedReceipt.archived_task_state_path);
+  fs.mkdirSync(conflictingArchivePath, { recursive: true });
+  assert.throws(
+    () => runtimeModule.cleanupRuntimePreparedSuccessor(tempRepo, { runId: run.run_id, decisionId, filePath: path.relative(tempRepo, evidencePath) }),
+    /HANDOFF_CLEANUP_PARTIAL/
+  );
+  const partialRun = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  const partialRecord = partialRun.review_routing_records.find((entry) => entry.record_id === preparedReceipt.receipt_id);
+  assert.equal(partialRecord.status, "partial");
+  assert.deepEqual(partialRecord.payload.completed_steps, ["journaled", "branch_quarantined"]);
+  fs.rmSync(conflictingArchivePath, { recursive: true });
+
+  const cleaned = runtimeModule.cleanupRuntimePreparedSuccessor(tempRepo, { runId: run.run_id, decisionId, filePath: path.relative(tempRepo, evidencePath) });
+  assert.equal(cleaned.operationalRecord.status, "complete");
+  assert.equal(fs.existsSync(taskStatePath), false);
+  assertSuccess(runCommand("git", ["show-ref", "--verify", `refs/heads/${cleaned.operationalRecord.payload.recovery_branch}`], { cwd: tempRepo }), "recovery branch exists");
+  assertFailure(runCommand("git", ["show-ref", "--verify", `refs/heads/${successorBranch}`], { cwd: tempRepo }), "original dormant branch removed");
+  const replay = runtimeModule.cleanupRuntimePreparedSuccessor(tempRepo, { runId: run.run_id, decisionId, filePath: path.relative(tempRepo, evidencePath) });
+  assert.equal(replay.operationalRecord.status, "complete");
+  assert.equal(replay.recorded, false);
+  assert.notEqual(base, "", "fixture base remains recorded for audit context");
+});
+
+test("phase 23.8.6F source application accepts only the exact decision-reviewed committed blobs", async () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6f-source-application-");
+  const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
+  run.lifecycle_status = "active";
+  const policyFile = "skills/self-hosting/review-route-policy.json";
+  const bindingFile = "skills/self-hosting/codex-reference-binding.json";
+  const policyBody = fs.readFileSync(path.join(tempRepo, policyFile));
+  const bindingBody = fs.readFileSync(path.join(tempRepo, bindingFile));
+  const policy = JSON.parse(policyBody);
+  const binding = JSON.parse(bindingBody);
+  const policyHash = `sha256:${createHash("sha256").update(policyBody).digest("hex")}`;
+  const bindingHash = `sha256:${createHash("sha256").update(bindingBody).digest("hex")}`;
+  const decisionId = "routing-decision-source-application";
+  const evaluationId = "routing-evaluation-source-application";
+  const reviewBody = [
+    "## Review Surface", "Exact source application.", "",
+    "## Findings", "No findings.", "",
+    "## Task And Plan Compliance", "Compliant.", "",
+    "## Verification Coverage", "Exact identity verified.", "",
+    "## Policy Findings", "No policy findings.", "",
+    "## Source Trace", "Decision and blobs traced.", "",
+    "## Skill Risk Check", "No new skill risk.", "",
+    "## Scope Creep Check", "No scope creep.", "",
+    "## Recommendation", "PASS", ""
+  ].join("\n");
+  const reviewArtifact = {
+    artifact_id: `sha256:${createHash("sha256").update(reviewBody).digest("hex")}`,
+    path: "evidence/implementation-review-source-application.md",
+    kind: "procedure-artifact:implementation-review"
+  };
+  writeText(path.join(tempRepo, ".harness", "runs", run.run_id, reviewArtifact.path), reviewBody);
+  run.artifacts.push(reviewArtifact);
+  run.review_results.push({
+    review_result_id: "review-source-application",
+    status: "PASS",
+    created_at: "2026-06-24T00:20:00.000Z",
+    summary: "Implementation Review passed",
+    source: "procedure:implementation-review",
+    blockers: [],
+    artifact_refs: [reviewArtifact]
+  });
+  run.review_routing_records = [{
+    record_kind: "routing_decision",
+    record_id: decisionId,
+    created_at: "2026-06-24T00:19:00.000Z",
+    status: "source_application_required",
+    summary: "promote exact source",
+    payload: {
+      evaluation_id: evaluationId,
+      policy_version: policy.policy_version,
+      binding_version: binding.binding_version,
+      previous_accepted_binding_version: binding.accepted_binding_version
+    }
+  }];
+  const candidateIdentityBody = JSON.stringify({
+    binding_blob_hash: bindingHash,
+    binding_file: bindingFile,
+    decision_id: decisionId,
+    evaluation_id: evaluationId,
+    policy_blob_hash: policyHash,
+    policy_file: policyFile
+  });
+  const exactCandidateId = `sha256:${createHash("sha256").update(candidateIdentityBody).digest("hex")}`;
+  const invocation = {
+    record_kind: "review_invocation",
+    record_id: "review-invocation-source-application",
+    created_at: "2026-06-24T00:20:00.000Z",
+    status: "success",
+    summary: "exact source review",
+    payload: {
+      artifact_id: reviewArtifact.artifact_id,
+      source_application_decision_id: decisionId,
+      source_application_evaluation_id: evaluationId,
+      routing_policy_version: policy.policy_version,
+      binding_version: binding.accepted_binding_version,
+      context_mode: "fresh_independent_delta",
+      source_policy_file: policyFile,
+      source_policy_blob_hash: `sha256:${"0".repeat(64)}`,
+      source_binding_file: bindingFile,
+      source_binding_blob_hash: bindingHash,
+      source_candidate_id: exactCandidateId
+    }
+  };
+  run.review_routing_records.push(invocation);
+  writeRuntimeRunFixture(tempRepo, run);
+  const sourceReviewRequest = writeProcedureArtifact(tempRepo, run.run_id, "source-application-review-request", "Review exact source application.\n");
+  await assert.rejects(
+    runtimeModule.launchRuntimeReview(tempRepo, {
+      runId: run.run_id,
+      procedureId: "implementation-review",
+      requestPath: path.relative(tempRepo, sourceReviewRequest),
+      outputPath: `.harness/runs/${run.run_id}/manual/source-application-review-output.md`
+    }),
+    /ROUTING_POLICY_SOURCE_APPLICATION_DECISION_REQUIRED/
+  );
+  const options = {
+    runId: run.run_id,
+    decisionId,
+    commitSha: gitHead(tempRepo),
+    policyFile,
+    bindingFile,
+    implementationReviewArtifactId: reviewArtifact.artifact_id
+  };
+  assert.throws(
+    () => runtimeModule.recordRuntimeRoutingPolicySourceApplication(tempRepo, options),
+    /ROUTING_POLICY_SOURCE_REVIEW_IDENTITY_MISMATCH/
+  );
+
+  invocation.payload.source_policy_blob_hash = policyHash;
+  writeRuntimeRunFixture(tempRepo, run);
+  const applied = runtimeModule.recordRuntimeRoutingPolicySourceApplication(tempRepo, options);
+  assert.equal(applied.operationalRecord.status, "applied");
+  assert.equal(applied.operationalRecord.payload.policy_blob_hash, policyHash);
+  assert.equal(applied.operationalRecord.payload.binding_blob_hash, bindingHash);
+});
+
+test("phase 23.8.6F harvested replay proves distinct-host eligibility and rejects every exact join mutation", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6f-replay-integration-");
+  const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
+  run.phase_id = "23.8.6F";
+  run.lifecycle_status = "active";
+  run.source_snapshot = gitHead(tempRepo);
+  run.repository.head_sha = run.source_snapshot;
+  run.repository.branch = runCommand("git", ["branch", "--show-current"], { cwd: tempRepo }).stdout.trim();
+  run.review_results = run.review_results.filter((entry) => entry.source !== "procedure:implementation-review");
+  const sourcePlanBody = [
+    "# Exact approved replay source plan", "",
+    "## Effective Validation", "",
+    "1. `git diff --check`", ""
+  ].join("\n");
+  const sourcePlanArtifact = {
+    artifact_id: `sha256:${createHash("sha256").update(sourcePlanBody).digest("hex")}`,
+    path: "evidence/replay-source-approved-plan.md",
+    kind: "procedure-artifact:plan-amend"
+  };
+  run.artifacts.push(sourcePlanArtifact);
+  run.evidence.push({
+    evidence_id: "procedure-plan-amend-replay-source",
+    kind: "procedure:plan-amend",
+    summary: "Exact approved replay source plan",
+    path: sourcePlanArtifact.path,
+    artifact_id: sourcePlanArtifact.artifact_id
+  });
+  run.approvals.push({
+    approval_id: "approval-replay-source-plan",
+    title: "Reviewed plan approved",
+    status: "approved",
+    created_at: "2026-06-24T00:30:00.000Z",
+    approver: "owner",
+    reviewed_plan_artifact_id: sourcePlanArtifact.artifact_id,
+    reviewed_plan_content_hash: sourcePlanArtifact.artifact_id.slice("sha256:".length)
+  });
+  writeText(path.join(tempRepo, ".harness", "runs", run.run_id, sourcePlanArtifact.path), sourcePlanBody);
+  writeRuntimeRunFixture(tempRepo, run);
+  const requestPath = writeProcedureArtifact(tempRepo, run.run_id, "replay-source-request", "Review exact replay source.\n");
+  const sourceOutput = `.harness/runs/${run.run_id}/manual/replay-source-output.md`;
+  const fakeCodexEnv = createFakeCodexReviewEnv(tempRepo, exactImplementationReviewPass());
+  const sourceLaunch = runCli([
+    "run", "launch-review", "--run", run.run_id, "--procedure", "implementation-review",
+    "--request", path.relative(tempRepo, requestPath),
+    "--output", sourceOutput
+  ], { cwd: tempRepo, env: fakeCodexEnv });
+  assertSuccess(sourceLaunch, "product-created approved replay source launch");
+  const launchedRun = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  const invocation = [...launchedRun.review_routing_records].reverse().find((entry) =>
+    entry.record_kind === "review_invocation" && entry.status === "success" && entry.payload.evaluation_mode === "approved"
+  );
+  const packet = [...launchedRun.review_routing_records].reverse().find((entry) =>
+    entry.record_kind === "review_replay_packet" && entry.payload.approved_attempt_id === invocation?.payload.attempt_id
+  );
+  assert.ok(invocation);
+  assert.ok(packet);
+  assert.equal(packet.payload.accepted_result_id, launchedRun.review_results.at(-1).review_result_id);
+  assert.equal(packet.payload.accepted_artifact_id, launchedRun.review_results.at(-1).artifact_refs[0].artifact_id);
+  assert.deepEqual(
+    Object.keys(packet.payload.payload_kinds).sort(),
+    ["context-core", "context-manifest", "review-delta-overlay", "review-request-packet"]
+  );
+  launchedRun.lifecycle_status = "closed";
+  launchedRun.updated_at = TIMESTAMP;
+  writeRuntimeRunFixture(tempRepo, launchedRun);
+
+  const { resolveHarnessRoots } = require(path.join(productRoot, "dist", "core", "run-staging-db.js"));
+  const { ProjectMemoryDatabase } = require(path.join(productRoot, "dist", "core", "project-memory-db.js"));
+  const { openSqliteDatabase } = require(path.join(productRoot, "dist", "core", "sqlite.js"));
+  const { canonicalContextJson } = require(path.join(productRoot, "dist", "core", "self-hosting-review-context.js"));
+  const roots = resolveHarnessRoots(tempRepo);
+  const harvested = runCli(["memory", "harvest", "--run", run.run_id], { cwd: tempRepo });
+  assertSuccess(harvested, "harvest exact replay source");
+  const project = new ProjectMemoryDatabase(tempRepo, roots.projectRoot);
+  const eligible = project.reviewReplayEligibility(run.run_instance_id, packet.record_id);
+  assert.equal(eligible.eligible, true, eligible.reasons.join(","));
+  assert.equal(eligible.reconstructed_payload_count, 4);
+  const eligibilityCli = runCli([
+    "memory", "replay-eligibility", "--run-instance", run.run_instance_id, "--packet-record", packet.record_id
+  ], { cwd: tempRepo });
+  assertSuccess(eligibilityCli, "CLI replay eligibility");
+  assert.match(eligibilityCli.stdout, /eligible: true/);
+  assert.match(eligibilityCli.stdout, /reconstructed payload count: 4/);
+
+  const hostStart = runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo });
+  assertSuccess(hostStart, "start distinct replay host");
+  const hostPointer = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", "current.json"), "utf8"));
+  assert.notEqual(hostPointer.run_id, run.run_id);
+  const hostRequestPath = writeProcedureArtifact(tempRepo, hostPointer.run_id, "replay-host-request", "Review replay candidate.\n");
+  const binding = JSON.parse(fs.readFileSync(path.join(tempRepo, "skills/self-hosting/codex-reference-binding.json"), "utf8"));
+  const policy = JSON.parse(fs.readFileSync(path.join(tempRepo, "skills/self-hosting/review-route-policy.json"), "utf8"));
+  const replayLaunch = runCli([
+    "run", "launch-review", "--run", hostPointer.run_id, "--procedure", "implementation-review",
+    "--request", path.relative(tempRepo, hostRequestPath),
+    "--output", `.harness/runs/${hostPointer.run_id}/manual/replay-approved-output.md`,
+    "--evaluation-mode", "replay",
+    "--approved-attempt", invocation.payload.attempt_id,
+    "--evaluation-case", "isolated-replay",
+    "--candidate-policy-version", policy.policy_version,
+    "--candidate-binding-version", binding.binding_version,
+    "--candidate-profile-id", "candidate-balanced-high",
+    "--candidate-output", `.harness/runs/${hostPointer.run_id}/manual/replay-candidate-output.md`,
+    "--replay-source-run-instance", run.run_instance_id,
+    "--replay-packet-artifact", packet.record_id
+  ], { cwd: tempRepo, env: fakeCodexEnv });
+  assertSuccess(replayLaunch, "distinct host non-dry-run replay");
+  const hostRun = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", hostPointer.run_id, "run.json"), "utf8"));
+  const replayObservation = [...hostRun.review_routing_records].reverse().find((entry) =>
+    entry.record_kind === "review_invocation" && entry.payload.evaluation_mode === "replay"
+  );
+  assert.equal(replayObservation?.status, "success");
+  assert.equal(replayObservation?.payload.replay_source_run_instance_id, run.run_instance_id);
+  assert.equal(replayObservation?.payload.replay_packet_artifact_id, packet.record_id);
+  assert.ok(replayObservation?.payload.payload_refs.some((entry) => entry.kind === "review-evaluation-output"));
+
+  const projectDbPath = path.join(roots.projectRoot, ".harness", "memory", "project.sqlite");
+  let database = openSqliteDatabase(projectDbPath);
+  const storedRow = database.prepare("SELECT run_json FROM project_run_instances WHERE run_instance_id = ?").get(run.run_instance_id);
+  const storedRun = JSON.parse(storedRow.run_json);
+  database.close();
+  const writeProjectRun = (value) => {
+    const mutationDb = openSqliteDatabase(projectDbPath);
+    const update = mutationDb.prepare(
+      "UPDATE project_run_instances SET run_json = ? WHERE run_instance_id = ?"
+    ).run(JSON.stringify(value), run.run_instance_id);
+    assert.equal(update.changes, 1);
+    const compatibilityUpdate = mutationDb.prepare(
+      "UPDATE runs SET run_json = ? WHERE run_id = ?"
+    ).run(JSON.stringify(value), run.run_id);
+    assert.equal(compatibilityUpdate.changes, 1);
+    const readback = mutationDb.prepare(
+      "SELECT run_json FROM project_run_instances WHERE run_instance_id = ?"
+    ).get(run.run_instance_id);
+    mutationDb.close();
+    return JSON.parse(readback.run_json);
+  };
+  const mutationCases = [
+    ["approved_attempt_join_missing", (payload) => { payload.approved_attempt_id = "attempt-missing"; }],
+    ["accepted_result_join_missing", (payload) => { payload.accepted_result_id = "review-missing"; }],
+    ["accepted_artifact_join_missing", (payload) => { payload.accepted_artifact_id = `sha256:${"f".repeat(64)}`; }],
+    ["packet_procedure_join_mismatch", (payload) => { payload.procedure_id = "plan-review"; }],
+    ["packet_pass_risk_base_join_mismatch", (payload) => { payload.pass_kind = "fix_pass_review"; }],
+    ["packet_pass_risk_base_join_mismatch", (payload) => { payload.risk_classes = [...payload.risk_classes, "mutated"]; }],
+    ["packet_pass_risk_base_join_mismatch", (payload) => { payload.immutable_base = "base-mutated"; }],
+    ["packet_attempt_identity_mismatch:context_core_id", (payload) => { payload.context_core_id = "context-core-mutated"; }],
+    ["packet_attempt_identity_mismatch:context_manifest_id", (payload) => { payload.context_manifest_id = "context-manifest-mutated"; }],
+    ["packet_attempt_identity_mismatch:delta_overlay_id", (payload) => { payload.delta_overlay_id = "delta-overlay-mutated"; }],
+    ["packet_attempt_identity_mismatch:route_decision_id", (payload) => { payload.route_decision_id = "route-mutated"; }],
+    ["packet_attempt_identity_mismatch:policy_version", (payload) => { payload.policy_version = "policy-mutated"; }],
+    ["packet_attempt_identity_mismatch:binding_version", (payload) => { payload.binding_version = "binding-mutated"; }],
+    ["payload_object_identity_mismatch:context-core", (payload) => { payload.context_core_hash = `sha256:${"a".repeat(64)}`; }],
+    ["payload_object_identity_mismatch:context-manifest", (payload) => { payload.context_manifest_hash = `sha256:${"b".repeat(64)}`; }],
+    ["payload_object_identity_mismatch:review-delta-overlay", (payload) => { payload.delta_overlay_hash = `sha256:${"c".repeat(64)}`; }],
+    ["request_materialization_mismatch", (payload) => { payload.request_payload_id = "payload-missing"; }],
+    ["request_materialization_mismatch", (payload) => { payload.request_content_hash = `sha256:${"d".repeat(64)}`; }],
+    ["replay_payload_kind_missing:context-core", (payload) => { payload.payload_kinds["context-core"] = "payload-missing"; }],
+    ["packet_source_identity_mismatch", (payload) => { payload.source_snapshot = "snapshot-mutated"; }],
+    ["packet_source_identity_mismatch", (payload) => { payload.source_run_id = "run-mutated"; }],
+    ["packet_source_identity_mismatch", (payload) => { payload.run_instance_id = "instance-mutated"; }],
+    ["source_not_harvested", (_payload, sourceRun) => { sourceRun.lifecycle_status = "closed"; }]
+  ];
+  for (const [expectedReason, mutate] of mutationCases) {
+    const mutatedRun = structuredClone(storedRun);
+    const mutatedPacket = mutatedRun.review_routing_records.find((entry) => entry.record_kind === "review_replay_packet");
+    mutate(mutatedPacket.payload, mutatedRun);
+    mutatedPacket.record_id = `sha256:${createHash("sha256").update(canonicalContextJson(mutatedPacket.payload)).digest("hex")}`;
+    const mutationReadback = writeProjectRun(mutatedRun);
+    assert.equal(
+      mutationReadback.review_routing_records.find((entry) => entry.record_kind === "review_replay_packet").record_id,
+      mutatedPacket.record_id
+    );
+    const refused = project.reviewReplayEligibility(run.run_instance_id, mutatedPacket.record_id);
+    assert.equal(refused.eligible, false);
+    assert.ok(refused.reasons.includes(expectedReason), `${expectedReason}: ${refused.reasons.join(",")}`);
+  }
+  writeProjectRun(storedRun);
+  database = openSqliteDatabase(projectDbPath);
+  const projectPayloadId = `${run.run_instance_id}:${packet.payload.payload_kinds["context-core"]}`;
+  const chunk = database.prepare(
+    "SELECT chunk_bytes FROM payload_chunks WHERE payload_id = ? AND chunk_order = 0"
+  ).get(projectPayloadId);
+  const originalChunk = Buffer.from(chunk.chunk_bytes);
+  const corruptChunk = Buffer.from(originalChunk);
+  corruptChunk[0] ^= 0xff;
+  database.prepare(
+    "UPDATE payload_chunks SET chunk_bytes = ? WHERE payload_id = ? AND chunk_order = 0"
+  ).run(corruptChunk, projectPayloadId);
+  database.close();
+  const corrupt = project.reviewReplayEligibility(run.run_instance_id, packet.record_id);
+  assert.equal(corrupt.eligible, false);
+  assert.ok(corrupt.reasons.some((entry) => entry.startsWith("payload_hash_mismatch:")));
 });
 
 test("phase 23.8.6 materialize-next-task enters a registered existing worktree without creating a run", () => {

@@ -6,9 +6,10 @@ Define the checked-in policy for self-hosting model/risk routing, bounded
 helper use, and separate review launch discipline during the current manual
 CLI-first phase.
 
-This document is policy and documentation only. It does not add runtime model
-selection, runner execution, provider-specific lifecycle logic, packet
-automation, or approval authority.
+Phase 23.8.6F implements the checked-in provider-neutral route policy and
+isolated Codex reference binding only for existing `plan-review` and
+`implementation-review` launches. It does not add general runner execution,
+provider-specific lifecycle logic, packet automation, or approval authority.
 
 `codex-harness` is not a worker. It is a lightweight supervisor,
 orchestrator, and evaluator shell around external worker agents such as Codex,
@@ -104,8 +105,22 @@ For the current C1A review chain:
 
 `xhigh`, `max`, and `ultra` are prohibited as defaults. Each requires a
 separately recorded escalation reason. This is a bounded current binding and
-cost-control bridge only; Phase 31 remains the owner of generalized dynamic
-routing and runtime enforcement.
+cost-control bridge. Phase 23.8.6F owns the narrow existing-review-path runtime
+enforcement; Phase 31 remains the owner of generalized dynamic routing and
+external-runner enforcement.
+
+## Review anti-recursion
+
+Every Harness-launched reviewer receives a fixed parent-owned role, exact run
+instance, procedure, attempt, claim, and marker environment context. A nested
+`run launch-review` validates that context against the exact live Harness claim
+and returns `REVIEW_RECURSION_FORBIDDEN` before creating an attempt, claim,
+child, or artifact wait. Missing or conflicting inherited fields fail closed.
+The environment marker is an early guardrail only; live Harness state remains
+authority. The generated request also requires direct artifact completion and
+forbids delegation or output-path polling. Existing timeout, cancellation,
+exclusive ownership, observation, artifact validation, and ingestion remain
+unchanged; no process-tree supervisor is introduced.
 
 The C1A final report must state whether any extreme-reasoning escalation
 occurred and cite its recorded trigger and reason; otherwise it states that no
@@ -123,12 +138,9 @@ Authoritative route classes:
 
 ```text
 deterministic_no_model
-mechanical_low_cost
-routine_balanced
+balanced_routine
 complex_judgment
-critical_escalation
-parallel_audit_leaf
-parallel_audit_arbiter
+critical_independent
 ```
 
 Route precedence is:
@@ -154,16 +166,34 @@ procedure name alone never fixes one reasoning level.
 Provisional bindings are not lifecycle authority:
 
 ```text
-mechanical_low_cost: GPT-5.6 Luna
-routine_balanced: GPT-5.6 Terra
+deterministic_no_model: no model
+balanced_routine: GPT-5.6 Terra
 complex_judgment: GPT-5.6 Sol
-critical_escalation: GPT-5.6 Sol with higher reasoning
+critical_independent: GPT-5.6 Sol with independent review
 ```
 
-Luna and Terra remain evaluation candidates until Phase 30 promotes them.
+Candidate profiles remain non-authoritative until a retained evaluation,
+bounded canary, explicit owner decision, reviewed source application, and
+exact application record change the accepted checked-in version. Phase 30
+consumes these records and generalizes experimentation; it is not required to
+enforce the narrow Phase F lifecycle.
 Core contracts describe capabilities, while provider/model bindings remain
 behind adapter/profile boundaries for Codex, Claude, Gemini, local models, and
 future reviewed workers.
+
+## Primary-source pattern decisions
+
+Sources were revalidated on 2026-07-21. BitGN's deterministic exoskeleton is
+adapted for prechecks and evidence-ledger discipline; mini-SWE-agent's bounded
+linear loop is adapted to existing claims/timeouts; OpenAI Agents SDK handoff
+and tracing concepts are adapted to filtered context and exact identities;
+Deep Agents context patterns are adapted to stable core/manifest/delta
+separation; Goose capability seams are adapted to the isolated binding. Their
+agent runtimes are rejected as dependencies because Harness already owns the
+required primitives and Phase F must not add a second execution framework.
+Official Codex CLI/model/worktree documentation and local CLI 0.144.1 help are
+adopted only for capability facts, never as proof of repository-specific
+safety or cost superiority. Dependency impact for every decision is `none`.
 
 ## Context Transport And Independence
 

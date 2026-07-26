@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "producer_command": "fixture",
+  "decision_id": "decision-successor",
+  "thread_id": "thread-successor",
+  "thread_link": "codex://thread-successor",
+  "project_id": "project-test",
+  "cwd": "/tmp/desktop-created-successor",
+  "branch": "codex/successor",
+  "immutable_base": "1111111111111111111111111111111111111111",
+  "task_state_id": "task-state-successor",
+  "task_state_path": ".harness/tasks/task-state-successor/state.json",
+  "task_state_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "archived_at": "2026-07-21T00:00:00.000Z",
+  "archive_readback": {
+    "thread_id": "thread-successor",
+    "archived": true,
+    "managed_worktree_absent": true,
+    "observed_cwd": "/tmp/desktop-created-successor"
+  },
+  "worktree_absent": true,
+  "successor_run_absent": true,
+  "activation_commit_absent": true
+}

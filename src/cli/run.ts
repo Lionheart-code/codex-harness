@@ -7,6 +7,10 @@ import {
   type RecordNextTaskOptions,
   type RecordProcedureOptions,
   type LaunchReviewOptions,
+  type RecordRoutingEvaluationOptions,
+  type DecideRoutingPolicyOptions,
+  type RecordRoutingPolicySourceApplicationOptions,
+  type CleanupPreparedSuccessorOptions,
   type RecordRemoteStatusOptions,
   type RemoteGateStatus,
   type RuntimeReviewLaunchResult,
@@ -28,7 +32,12 @@ import {
   recordRuntimeProcedure,
   recordRuntimeRemoteStatus,
   startRuntimeRun,
-  verifyRuntimeRun
+  verifyRuntimeRun,
+  ReviewRecursionForbiddenError,
+  recordRuntimeRoutingEvaluation,
+  decideRuntimeRoutingPolicy,
+  recordRuntimeRoutingPolicySourceApplication,
+  cleanupRuntimePreparedSuccessor
 } from "../core/runtime";
 
 type ParsedOptions = Record<string, string | boolean>;
@@ -44,10 +53,14 @@ function printRunHelp(): void {
     "  node bin/ch run verify [--run <run-id>] [--dry-run]",
     "  node bin/ch run closeout [--run <run-id>] [--dry-run]",
     "  node bin/ch run record-procedure --run <run-id> --procedure <id> --file <path> [--dry-run]",
-    "  node bin/ch run launch-review --run <run-id> --procedure <plan-review|implementation-review> --request <path> --output <path> [--timeout-seconds <n>] [--stale-after-seconds <n>] [--dry-run]",
+    "  node bin/ch run launch-review --run <run-id> --procedure <plan-review|implementation-review> --request <path> --output <path> [--timeout-seconds <n>] [--stale-after-seconds <n>] [--evaluation-mode approved|shadow|replay|canary] [--candidate-policy-version <id> --candidate-binding-version <id> --candidate-profile-id <id>] [--source-application-decision <id>] [--dry-run]",
+    "  node bin/ch run record-routing-evaluation --run <run-id> --file <bundle.json> [--dry-run]",
+    "  node bin/ch run decide-routing-policy --run <run-id> --evaluation <id> --decision authorize-canary|promote|reject|rollback --policy-version <id> --binding-version <id> --approver <name> --reason <text> [--selector <file>] [--max-invocations <1-3>] [--dry-run]",
+    "  node bin/ch run record-routing-policy-source-application --run <run-id> --decision <id> --commit <sha> --policy-file <path> --binding-file <path> --implementation-review <artifact-id> [--dry-run]",
+    "  node bin/ch run cleanup-prepared-successor --run <run-id> --decision-id <id> --file <evidence.json> [--dry-run]",
     "  node bin/ch run approve-plan --run <run-id> --plan <path> --approver <name> [--reason <text>] [--dry-run]",
     "  node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>] [--dry-run]",
-    "  node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> (--create|--enter-existing) [--recover-existing-activation] [--dry-run]",
+    "  node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <Desktop-created-path> --enter-existing [--recover-existing-activation] [--dry-run]",
     "  node bin/ch run mark-discardable --run <run-id> --reason <reason> [--dry-run]",
     "  node bin/ch run remote-status [--run <provider-run-id>] [--provider <provider>] [--gate <gate-id>] [--name <name>] [--status pass|failed|skipped|missing|unknown] [--required true|false] [--explanation <text>] [--dry-run]",
     "",
@@ -58,9 +71,13 @@ function printRunHelp(): void {
     "  closeout      Create a structured closeout receipt for the current runtime run.",
     "  record-procedure Record a self-hosting procedure artifact as durable run evidence.",
     "  launch-review Supervise a read-only review launch and record structured launch evidence.",
+    "  record-routing-evaluation Record an immutable routing evaluation bundle.",
+    "  decide-routing-policy Record an explicit owner canary, promotion, rejection, or rollback decision.",
+    "  record-routing-policy-source-application Validate and record reviewed source application.",
+    "  cleanup-prepared-successor Recoverably quarantine an unopened Desktop-created successor.",
     "  approve-plan  Record explicit human approval of the reviewed plan.",
     "  record-next-task Record the next task decision with exact base-commit authority.",
-    "  materialize-next-task Create or enter the next task branch/worktree and prepare a separate handoff/start.",
+    "  materialize-next-task Validate and enter a Codex Desktop-created successor worktree; never create one with raw Git.",
     "  mark-discardable Record an explicit discard reason for a run.",
     "  remote-status Record provider-neutral remote gate status for the current run."
   ]);
@@ -258,6 +275,15 @@ function renderReviewLaunchLines(result: RuntimeReviewLaunchResult): string[] {
   return output;
 }
 
+function renderOperationalRecordLines(title: string, result: import("../core/runtime").RuntimeOperationalRecordResult): string[] {
+  const output = renderRunLines(title, result);
+  output.push(`record kind: ${result.operationalRecord.record_kind}`);
+  output.push(`record id: ${result.operationalRecord.record_id}`);
+  output.push(`record status: ${result.operationalRecord.status}`);
+  output.push(`recorded: ${result.recorded ? "true" : "false"}`);
+  return output;
+}
+
 function parsePositiveIntegerOption(options: ParsedOptions, name: string): number | undefined {
   const value = stringOption(options, name);
   if (value === undefined) {
@@ -423,10 +449,20 @@ async function runRecordProcedure(args: string[]): Promise<number> {
 }
 
 async function runLaunchReview(args: string[]): Promise<number> {
-  const options = parseOptions(args, new Set(["run", "procedure", "request", "output", "timeout-seconds", "stale-after-seconds"]));
+  const options = parseOptions(args, new Set([
+    "run", "procedure", "request", "output", "timeout-seconds", "stale-after-seconds",
+    "evaluation-mode", "approved-attempt", "evaluation-case", "candidate-policy-version",
+    "candidate-binding-version", "candidate-profile-id", "candidate-output", "canary-authorization",
+    "source-application-decision",
+    "replay-source-run-instance", "replay-packet-artifact"
+  ]));
   const procedureId = stringOption(options, "procedure");
   const requestPath = stringOption(options, "request");
   const outputPath = stringOption(options, "output");
+  const evaluationMode = stringOption(options, "evaluation-mode");
+  if (evaluationMode && !["approved", "shadow", "replay", "canary"].includes(evaluationMode)) {
+    throw new Error("--evaluation-mode must be one of: approved, shadow, replay, canary.");
+  }
 
   if (!procedureId) {
     throw new Error("--procedure is required.");
@@ -445,10 +481,94 @@ async function runLaunchReview(args: string[]): Promise<number> {
     requestPath,
     outputPath,
     timeoutSeconds: parsePositiveIntegerOption(options, "timeout-seconds"),
-    staleAfterSeconds: parsePositiveIntegerOption(options, "stale-after-seconds")
+    staleAfterSeconds: parsePositiveIntegerOption(options, "stale-after-seconds"),
+    evaluationMode: evaluationMode as LaunchReviewOptions["evaluationMode"],
+    approvedAttemptId: stringOption(options, "approved-attempt"),
+    evaluationCaseId: stringOption(options, "evaluation-case"),
+    candidatePolicyVersion: stringOption(options, "candidate-policy-version"),
+    candidateBindingVersion: stringOption(options, "candidate-binding-version"),
+    candidateProfileId: stringOption(options, "candidate-profile-id"),
+    candidateOutputPath: stringOption(options, "candidate-output"),
+    sourceApplicationDecisionId: stringOption(options, "source-application-decision"),
+    canaryAuthorizationId: stringOption(options, "canary-authorization"),
+    replaySourceRunInstanceId: stringOption(options, "replay-source-run-instance"),
+    replayPacketArtifactId: stringOption(options, "replay-packet-artifact")
   } satisfies LaunchReviewOptions);
   lines(renderReviewLaunchLines(result));
   return result.observation.status === "success" || result.observation.status === "dry_run" ? 0 : 1;
+}
+
+async function runRecordRoutingEvaluation(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run", "file"]));
+  const filePath = stringOption(options, "file");
+  if (!filePath) throw new Error("--file is required.");
+  const result = recordRuntimeRoutingEvaluation(process.cwd(), {
+    runId: stringOption(options, "run"), filePath, dryRun: dryRunOption(options)
+  } satisfies RecordRoutingEvaluationOptions);
+  lines(renderOperationalRecordLines("codex-harness run record-routing-evaluation", result));
+  return 0;
+}
+
+async function runDecideRoutingPolicy(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set([
+    "run", "evaluation", "decision", "policy-version", "binding-version", "approver", "reason", "selector", "max-invocations"
+  ]));
+  const required = (name: string): string => {
+    const value = stringOption(options, name);
+    if (!value) throw new Error(`--${name} is required.`);
+    return value;
+  };
+  const decision = required("decision");
+  if (!["authorize-canary", "promote", "reject", "rollback"].includes(decision)) {
+    throw new Error("--decision must be one of: authorize-canary, promote, reject, rollback.");
+  }
+  const result = decideRuntimeRoutingPolicy(process.cwd(), {
+    runId: stringOption(options, "run"),
+    evaluationId: required("evaluation"),
+    decision: decision.replace("-", "_") as DecideRoutingPolicyOptions["decision"],
+    policyVersion: required("policy-version"),
+    bindingVersion: required("binding-version"),
+    approver: required("approver"),
+    reason: required("reason"),
+    selectorPath: stringOption(options, "selector"),
+    maxInvocations: parsePositiveIntegerOption(options, "max-invocations"),
+    dryRun: dryRunOption(options)
+  });
+  lines(renderOperationalRecordLines("codex-harness run decide-routing-policy", result));
+  return 0;
+}
+
+async function runRecordRoutingPolicySourceApplication(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run", "decision", "commit", "policy-file", "binding-file", "implementation-review"]));
+  const required = (name: string): string => {
+    const value = stringOption(options, name);
+    if (!value) throw new Error(`--${name} is required.`);
+    return value;
+  };
+  const result = recordRuntimeRoutingPolicySourceApplication(process.cwd(), {
+    runId: stringOption(options, "run"),
+    decisionId: required("decision"),
+    commitSha: required("commit"),
+    policyFile: required("policy-file"),
+    bindingFile: required("binding-file"),
+    implementationReviewArtifactId: required("implementation-review"),
+    dryRun: dryRunOption(options)
+  });
+  lines(renderOperationalRecordLines("codex-harness run record-routing-policy-source-application", result));
+  return 0;
+}
+
+async function runCleanupPreparedSuccessor(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run", "decision-id", "file"]));
+  const decisionId = stringOption(options, "decision-id");
+  const filePath = stringOption(options, "file");
+  if (!decisionId) throw new Error("--decision-id is required.");
+  if (!filePath) throw new Error("--file is required.");
+  const result = cleanupRuntimePreparedSuccessor(process.cwd(), {
+    runId: stringOption(options, "run"), decisionId, filePath, dryRun: dryRunOption(options)
+  });
+  lines(renderOperationalRecordLines("codex-harness run cleanup-prepared-successor", result));
+  return 0;
 }
 
 async function runApprovePlan(args: string[]): Promise<number> {
@@ -619,7 +739,15 @@ export async function runRuntime(args: string[]): Promise<number> {
       case "record-procedure":
         return runRecordProcedure(commandArgs);
       case "launch-review":
-        return runLaunchReview(commandArgs);
+        return await runLaunchReview(commandArgs);
+      case "record-routing-evaluation":
+        return runRecordRoutingEvaluation(commandArgs);
+      case "decide-routing-policy":
+        return runDecideRoutingPolicy(commandArgs);
+      case "record-routing-policy-source-application":
+        return runRecordRoutingPolicySourceApplication(commandArgs);
+      case "cleanup-prepared-successor":
+        return runCleanupPreparedSuccessor(commandArgs);
       case "approve-plan":
         return runApprovePlan(commandArgs);
       case "record-next-task":
@@ -636,6 +764,29 @@ export async function runRuntime(args: string[]): Promise<number> {
         return 1;
     }
   } catch (runError) {
+    const recursionError = runError instanceof ReviewRecursionForbiddenError
+      ? runError
+      : runError && typeof runError === "object"
+        && (runError as { name?: unknown }).name === "ReviewRecursionForbiddenError"
+        && (runError as { facts?: unknown }).facts
+        ? runError as ReviewRecursionForbiddenError
+        : undefined;
+    if (recursionError) {
+      const facts = recursionError.facts;
+      lines([
+        `failure classification: ${facts.failure_classification}`,
+        `outer run instance: ${facts.outer_run_instance_id}`,
+        `outer procedure: ${facts.outer_procedure_id}`,
+        `outer attempt id: ${facts.outer_attempt_id}`,
+        `attempted nested procedure: ${facts.attempted_nested_procedure_id}`,
+        `outer claim validation: ${facts.outer_claim_validation}`,
+        `claim created: ${facts.claim_created ? "true" : "false"}`,
+        `child spawned: ${facts.child_spawned ? "true" : "false"}`,
+        `artifact wait started: ${facts.artifact_wait_started ? "true" : "false"}`,
+        `next valid action: ${facts.next_valid_action}`
+      ]);
+      return 1;
+    }
     const message = runError instanceof Error ? runError.message : String(runError);
     error(message);
     return 1;

@@ -77,6 +77,13 @@ export interface StagedProcedureArtifactBody {
   body: string;
 }
 
+export interface ProcedureArtifactTransferStats {
+  procedure_artifact_transfer_count: number;
+  procedure_artifact_payload_transfer_count: number;
+  procedure_artifact_payload_chunk_transfer_count: number;
+  procedure_artifact_payload_byte_count: number;
+}
+
 interface NormalizedRecordRow {
   recordKind: string;
   recordId: string;
@@ -618,6 +625,23 @@ function normalizeRecordRows(run: Run): NormalizedRecordRow[] {
     });
   }
 
+  for (const record of safeArray(run.review_routing_records)) {
+    rows.push({
+      recordKind: record.record_kind,
+      recordId: record.record_id,
+      runId: run.run_id,
+      phaseId: run.phase_id,
+      taskPath,
+      createdAt: record.created_at,
+      status: record.status,
+      summary: record.summary,
+      payloadJson: stringify(record.payload),
+      sourceCommand: "node bin/ch run launch-review",
+      sensitivity: "local",
+      retentionClass: record.record_kind === "review_replay_packet" ? "accepted" : "audit"
+    });
+  }
+
   return rows;
 }
 
@@ -765,8 +789,10 @@ export class RunStagingDatabase {
       const rows = database.prepare([
         "SELECT run_instance_id, source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json,",
         "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
-        "FROM procedure_artifacts WHERE run_instance_id = ? AND artifact_id = ?"
-      ].join(" ")).all(input.runInstanceId, input.procedureArtifactId) as Array<ProcedureArtifactDescriptor>;
+        `FROM procedure_artifacts WHERE run_instance_id = ? AND artifact_id = ?${input.procedureId ? " AND procedure_id = ?" : ""}`
+      ].join(" ")).all(...(input.procedureId
+        ? [input.runInstanceId, input.procedureArtifactId, input.procedureId]
+        : [input.runInstanceId, input.procedureArtifactId])) as Array<ProcedureArtifactDescriptor>;
       if (rows.length !== 1) {
         throw new Error(`Authoritative procedure-artifact staging readback could not prove one exact descriptor for ${input.procedureArtifactId}.`);
       }
@@ -795,8 +821,12 @@ export class RunStagingDatabase {
         "SELECT parent_record_id, source_run_id, kind, media_type, compression_status, chunk_count, raw_size_bytes, content_hash",
         "FROM payload_index WHERE payload_id = ?"
       ].join(" ")).get(row.payload_id) as Record<string, unknown> | undefined;
-      if (!index || index.parent_record_id !== row.artifact_id || index.source_run_id !== input.sourceRunId
-        || index.kind !== `procedure-artifact-body:${row.procedure_id}` || index.media_type !== "text/markdown"
+      const linked = database.prepare(
+        "SELECT 1 AS linked FROM payload_links WHERE payload_id = ? AND parent_record_id = ? AND link_role = ?"
+      ).get(row.payload_id, row.artifact_id, `procedure-artifact-body:${row.procedure_id}`) as { linked?: number } | undefined;
+      const direct = index?.parent_record_id === row.artifact_id && index?.kind === `procedure-artifact-body:${row.procedure_id}`;
+      if (!index || (!direct && linked?.linked !== 1) || index.source_run_id !== input.sourceRunId
+        || index.media_type !== "text/markdown"
         || !["identity", "gzip"].includes(String(index.compression_status)) || index.content_hash !== row.content_hash) {
         throw new Error("Authoritative procedure-artifact staging payload index does not match its descriptor.");
       }
@@ -1105,6 +1135,28 @@ export class RunStagingDatabase {
         "SELECT fact_json FROM delivery_facts WHERE run_id = ? ORDER BY recorded_at ASC"
       ).all(runId) as Array<{ fact_json?: string }>;
       return rows.flatMap((row) => (typeof row.fact_json === "string" ? [JSON.parse(row.fact_json) as DeliveryFactRecord] : []));
+    } finally {
+      database.close();
+    }
+  }
+
+  getProcedureArtifactTransferStats(runInstanceId: string): ProcedureArtifactTransferStats {
+    const database = this.open();
+    try {
+      const descriptor = database.prepare([
+        "SELECT COUNT(*) AS descriptor_count, COUNT(DISTINCT payload_id) AS payload_count",
+        "FROM procedure_artifacts WHERE run_instance_id = ?"
+      ].join(" ")).get(runInstanceId) as { descriptor_count?: number; payload_count?: number } | undefined;
+      const payload = database.prepare([
+        "SELECT COALESCE(SUM(pi.chunk_count), 0) AS chunk_count, COALESCE(SUM(pi.raw_size_bytes), 0) AS byte_count",
+        "FROM payload_index pi WHERE pi.payload_id IN (SELECT DISTINCT payload_id FROM procedure_artifacts WHERE run_instance_id = ?)"
+      ].join(" ")).get(runInstanceId) as { chunk_count?: number; byte_count?: number } | undefined;
+      return {
+        procedure_artifact_transfer_count: Number(descriptor?.descriptor_count ?? 0),
+        procedure_artifact_payload_transfer_count: Number(descriptor?.payload_count ?? 0),
+        procedure_artifact_payload_chunk_transfer_count: Number(payload?.chunk_count ?? 0),
+        procedure_artifact_payload_byte_count: Number(payload?.byte_count ?? 0)
+      };
     } finally {
       database.close();
     }

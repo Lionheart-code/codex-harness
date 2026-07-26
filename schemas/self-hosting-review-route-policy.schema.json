@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Self-hosting review route policy",
+  "type": "object",
+  "required": ["schema_version", "producer_command", "contract_version", "policy_id", "policy_version", "accepted_policy_version", "ordered_route_ladder", "ordered_reasoning_ladder", "critical_risk_classes", "reopen_triggers", "context_budgets", "promotion_thresholds"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "producer_command": {"type": "string", "minLength": 1},
+    "contract_version": {"type": "string", "minLength": 1},
+    "policy_id": {"type": "string", "minLength": 1},
+    "policy_version": {"type": "string", "minLength": 1},
+    "accepted_policy_version": {"type": "string", "minLength": 1},
+    "previous_accepted_policy_version": {"type": "string", "minLength": 1},
+    "ordered_route_ladder": {"type": "array", "minItems": 4, "uniqueItems": true, "items": {"enum": ["deterministic_no_model", "balanced_routine", "complex_judgment", "critical_independent"]}},
+    "ordered_reasoning_ladder": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "critical_risk_classes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "reopen_triggers": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "context_budgets": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}},
+    "promotion_thresholds": {"type": "object", "additionalProperties": {"type": ["number", "boolean"]}}
+  },
+  "additionalProperties": false
+}

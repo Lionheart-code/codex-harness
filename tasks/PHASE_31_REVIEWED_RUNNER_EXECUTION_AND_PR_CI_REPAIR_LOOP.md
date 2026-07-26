@@ -21,6 +21,8 @@ By this point the harness should already have:
 - reports/packets;
 - read-only access and optional adapter parity;
 - bounded experimentation and evaluator-backed keep/revert rules.
+- the approved narrow Phase 23.8.6F self-hosting route policy, Codex binding,
+  context, telemetry, escalation, and promotion contracts.
 
 This phase turns those foundations into a reviewed operational runner-execution
 surface without allowing self-approval, hidden provider logic, or unrestricted
@@ -58,12 +60,18 @@ Required behavior:
 - Preserve human review and approval boundaries for high-risk writes, merges,
   and lifecycle transitions.
 - Treat `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` as the reviewed policy
-  baseline that this phase may enforce through runtime contracts without
-  reintroducing ad hoc launch folklore into core behavior.
+  baseline, including its implemented Phase 23.8.6F reconciliation, that this
+  phase may generalize through runtime contracts without reintroducing ad hoc
+  launch folklore into core behavior.
+- Consume approved Phase F route-policy, provider-binding, context, telemetry,
+  escalation, promotion, and rollback records; do not recreate ad hoc
+  provider/model selection.
 
-Phase 31 is the first general runtime owner of `RouteDecision`,
+Phase 31 is the first general external-runner runtime owner of `RouteDecision`,
 `ProviderBindingRegistry`, `RunnerProfile`, `ExecutionPolicy`, context-transport
-enforcement, budget enforcement, usage telemetry, and typed escalation.
+enforcement, budget enforcement, usage telemetry, and typed escalation. Phase
+F remains the narrow owner for routing the already existing self-hosting Codex
+review-launch path.
 
 Runtime order is deterministic checks, provider-neutral route intent/profile
 floor, cheapest approved safe binding, independence/context enforcement,

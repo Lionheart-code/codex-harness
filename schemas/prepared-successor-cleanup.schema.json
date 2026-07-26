@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prepared successor cleanup evidence",
+  "type": "object",
+  "required": ["schema_version", "producer_command", "decision_id", "thread_id", "thread_link", "project_id", "cwd", "branch", "immutable_base", "task_state_id", "task_state_path", "task_state_hash", "archived_at", "archive_readback", "worktree_absent", "successor_run_absent", "activation_commit_absent"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "producer_command": {"type": "string", "minLength": 1},
+    "decision_id": {"type": "string", "minLength": 1},
+    "thread_id": {"type": "string", "minLength": 1},
+    "thread_link": {"type": "string", "minLength": 1},
+    "project_id": {"type": "string", "minLength": 1},
+    "cwd": {"type": "string", "minLength": 1},
+    "branch": {"type": "string", "minLength": 1},
+    "immutable_base": {"type": "string", "minLength": 1},
+    "task_state_id": {"type": "string", "minLength": 1},
+    "task_state_path": {"type": "string", "minLength": 1},
+    "task_state_hash": {"type": "string", "minLength": 1},
+    "archived_at": {"type": "string", "minLength": 1},
+    "archive_readback": {
+      "type": "object",
+      "required": ["thread_id", "archived", "managed_worktree_absent", "observed_cwd"],
+      "properties": {
+        "thread_id": {"type": "string", "minLength": 1},
+        "archived": {"const": true},
+        "managed_worktree_absent": {"const": true},
+        "observed_cwd": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "worktree_absent": {"const": true},
+    "successor_run_absent": {"const": true},
+    "activation_commit_absent": {"const": true}
+  },
+  "additionalProperties": false
+}

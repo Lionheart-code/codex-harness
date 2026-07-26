@@ -45,9 +45,11 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["claim_id", "procedure_id", "owner_token_hash", "created_at", "request_artifact_hash", "expected_output_path", "timeout_seconds", "stale_after_seconds", "termination_policy"],
+        "required": ["claim_id", "attempt_id", "attempt_marker", "procedure_id", "owner_token_hash", "created_at", "request_artifact_hash", "expected_output_path", "timeout_seconds", "stale_after_seconds", "termination_policy"],
         "properties": {
           "claim_id": { "type": "string", "minLength": 1 },
+          "attempt_id": { "type": "string", "minLength": 1 },
+          "attempt_marker": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
           "procedure_id": { "enum": ["plan-review", "implementation-review"] },
           "owner_token_hash": { "type": "string", "minLength": 1 },
           "created_at": { "type": "string", "minLength": 1 },
@@ -58,6 +60,22 @@
           "termination_policy": { "const": "terminal_completion_only" },
           "pid": { "type": "integer", "minimum": 1 },
           "progress_unknown_at": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "review_routing_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["record_kind", "record_id", "created_at", "status", "summary", "payload"],
+        "properties": {
+          "record_kind": {"enum": ["review_invocation", "review_replay_packet", "routing_evaluation", "routing_decision", "routing_policy_application", "prepared_successor_cleanup"]},
+          "record_id": {"type": "string", "minLength": 1},
+          "created_at": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "minLength": 1},
+          "summary": {"type": "string", "minLength": 1},
+          "payload": {"type": "object"}
         },
         "additionalProperties": false
       }

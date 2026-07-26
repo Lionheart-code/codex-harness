@@ -24,6 +24,38 @@ source material
 -> later evidence/packet linkage
 ```
 
+Phase 23.8.6F adds three canonical related-policy artifacts without changing
+procedure identity or source authority:
+
+```text
+skills/self-hosting/procedure-execution-policy.json
+skills/self-hosting/review-route-policy.json
+skills/self-hosting/codex-reference-binding.json
+```
+
+They are `script_or_tooling` policy inputs except the binding's external model
+capability facts, which are `external_or_network`. They contain no executable
+skill, credential, shell fragment, dependency, or generated authority.
+
+Phase F source/risk decisions, revalidated 2026-07-21:
+
+| Source and revision | Type/status | Primitive and Harness equivalent | Incompatibility | Decision / target / dependency impact |
+|---|---|---|---|---|
+| BitGN insight 2026-06-15; `muxx/bitgn-ecom1-exoskeleton@61d0530eb31a2b359660d3f05b4d3bfcf412b8da` | `community_pattern_sources`; `advisory` | deterministic preflight/evidence ledger; existing prechecks and evidence refs | domain exoskeleton is not lifecycle authority | adapt in execution policy/ingestion; no dependency |
+| `SWE-agent/mini-swe-agent@38c01a19ed1a58dd17dd7c95010e4f69d059c777` | `community_pattern_sources`; `advisory` | bounded linear loop/trajectory; existing claim, timeout, observation | Python shell agent would duplicate the launcher | adapt limits/trajectory in runtime/context; reject dependency |
+| `openai/openai-agents-python@95185352c8b829405a96c3886960f030163bdf07` | `official_codex_sources`; `advisory` | filtered history/typed trace identity; existing run/artifact/payload IDs | SDK handoffs add a second runtime | adapt filtering/identity in context/evaluation; reject dependency |
+| `langchain-ai/deepagents@89822e105b42840e079e19f905c8f4abe2604750` | `external_advisory_sources`; `advisory` | stable state/progressive retrieval; existing payload retention | graph state and nondeterministic compaction conflict with stable IDs | adapt core/manifest/delta; reject dependency |
+| `aaif-goose/goose@3065c9701fdccd020f86f263c74ae4934a1333b8` | `community_pattern_sources`; `advisory` | capability/provider seam; existing `codex_cli` observation | provider/ACP/MCP runtime becomes a general runner | adapt isolated binding; reject dependency |
+| Official Codex model/CLI/worktree docs plus local CLI 0.144.1 | `official_codex_sources`; authoritative for capability facts only | model/reasoning, JSONL, `-o`, read-only, Desktop worktrees | does not prove Harness safety, recall, or cost | adopt capability snapshot only; no SDK dependency |
+
+Risk classification: `procedure-execution-policy.json` and
+`review-route-policy.json` are local `script_or_tooling` inputs;
+`codex-reference-binding.json` is `external_or_network` because fixed model
+facts feed the existing read-only subprocess. None contains executable code,
+shell interpolation, credentials, network calls, path traversal, generated
+authority, or a new dependency. Any newly discovered behavior outside this
+classification is `BLOCKED_SKILL_RISK_UNCLEAR`.
+
 ## 2. Source classes
 
 ### A. Internal authoritative sources

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "producer_command": "manual checked-in product-source artifact",
+  "contract_version": "phase23.8.6f-v1",
+  "policy_id": "self-hosting-review-route-policy",
+  "policy_version": "phase23.8.6f-route-v1",
+  "accepted_policy_version": "phase23.8.6f-route-v1",
+  "ordered_route_ladder": ["deterministic_no_model", "balanced_routine", "complex_judgment", "critical_independent"],
+  "ordered_reasoning_ladder": ["low", "medium", "high"],
+  "critical_risk_classes": ["authority", "lifecycle", "storage", "security", "provider", "conflicting_evidence", "weak_evidence"],
+  "reopen_triggers": ["task", "approved_plan", "immutable_base", "architecture", "authority", "lifecycle", "storage", "security", "review_tier", "required_lenses"],
+  "context_budgets": {
+    "context_core_bytes": 65536,
+    "delta_overlay_bytes": 32768,
+    "request_bytes": 131072
+  },
+  "promotion_thresholds": {
+    "critical_blocker_recall": 1,
+    "legal_lifecycle_rate": 1,
+    "independence_rate": 1,
+    "output_validity_rate": 1,
+    "max_noncritical_stricter_disagreements": 1,
+    "require_lower_full_run_cost": true
+  }
+}

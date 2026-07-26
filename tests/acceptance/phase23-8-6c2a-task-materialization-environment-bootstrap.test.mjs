@@ -78,7 +78,7 @@ test("phase 23.8.6C2A remains the completed bounded task-materialization predece
 
   assert.equal(
     read("TASK.md").trim(),
-    "# Current Task\n\nImplement only: tasks/PHASE_23_8_6E_AUTHORITY_SURFACE_FRESHNESS_AND_DOWNSTREAM_TASK_REVALIDATION.md\n\nDo not implement Phase 23.8.7 or later."
+    "# Current Task\n\nImplement only: tasks/PHASE_23_8_6F_COST_AWARE_CONTEXT_REUSE_AND_CODEX_REFERENCE_ROUTING.md\n\nDo not implement Phase 23.8.7 or later."
   );
   assert.match(task, /^# Phase 23\.8\.6C2A - Commit-Backed Task Materialization and Environment Bootstrap/m);
   assert.match(task, /materialize-next-task[\s\S]*must not start a runtime run/);
@@ -95,14 +95,17 @@ test("phase 23.8.6C2A remains the completed bounded task-materialization predece
   assert.match(operations, /failed\s+labeled verdict routes to a fix pass/i);
   assert.match(operations, /exactly one installed TaskState owns the\s+new worktree or branch/i);
   assert.match(operations, /Materialization never opens a successor run\./);
-  assert.match(operations, /then create the successor Codex Desktop task through the native\s+task\/worktree API/);
+  assert.match(operations, /Codex Desktop `create_thread`/);
+  assert.match(operations, /materialize-next-task[\s\S]*--enter-existing/);
+  assert.doesNotMatch(operations, /\(--create\|--enter-existing\)/);
   assert.match(manual, /node bin\/ch worktree bootstrap/);
   assert.match(manual, /fresh combined review before verification/i);
   assert.match(manual, /requires exactly one installed TaskState/i);
   assert.doesNotMatch(manual, /Until C2A is\s+delivered/);
-  assert.match(stageMap, /stop the predecessor\s+before any successor work/);
+  assert.match(stageMap, /stop\s+the predecessor before successor\s+implementation work/);
   assert.match(stageMap, /COMBINED_ARCHITECTURE_DB_REVIEW_REQUIRED/);
-  assert.match(stageMap, /native Codex Desktop task\/worktree API/);
+  assert.match(stageMap, /Codex Desktop[\s\S]*`create_thread`/);
+  assert.match(stageMap, /cleanup-prepared-successor/);
   assert.match(stageMap, /HANDOFF_CREATION_FAILED/);
   assert.match(roadmap, /## Phase 23\.8\.6C2A — Commit-Backed Task Materialization and Environment Bootstrap/);
 });
@@ -205,7 +208,8 @@ test("downstream contracts require C2A and preserve its ownership boundary", () 
   const stage = read("tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md");
   const proof = read("tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md");
 
-  for (const downstream of [e, stage, proof]) {
+  assert.match(e, /Complete\. Independently reviewed, accepted, merged, closed out, and harvested/);
+  for (const downstream of [stage, proof]) {
     assert.match(downstream, /23\.8\.6C2A/);
   }
   assert.match(d, /C2A/);

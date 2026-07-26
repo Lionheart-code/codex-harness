@@ -16,15 +16,18 @@ broader Phase 24 report catalog is attempted.
 Implement only:
 
 - one deterministic run evidence or closeout report;
-- one deterministic shared `ContextCore`/`ContextManifest`;
-- one bounded implementation-review packet using a distinct `ReviewOverlay`.
+- one deterministic report/export view over the Phase 23.8.6F
+  `ContextCore`/`ContextManifest`;
+- one bounded implementation-review packet view using the Phase 23.8.6F
+  `ReviewDeltaOverlay`.
 
-The shared core contains task identity/contract refs, effective approved plan
-refs, procedure-contract refs, review tier, surface/risk classes, exact
-run/worktree/source/base identity, and architectural invariants. The review
-overlay contains diff and changed-file manifests, implementation claims,
-verification summary, prior `FIX_REQUIRED` findings, required lenses, missing
-evidence, and bounded payload references.
+Reuse the Phase 23.8.6F shared core, manifest, and overlay records; do not create
+competing context-core, manifest, or review-overlay types. The shared records
+contain task identity/contract refs, effective approved plan refs,
+procedure-contract refs, review tier, surface/risk classes, exact
+run/worktree/source/base identity, architectural invariants, changed-file and
+diff refs, prior findings/dispositions, verification, missing evidence, and
+bounded payload refs.
 
 The manifest records a stable ID and content hash, deterministic ordering,
 size budget, truncation/redaction facts, and source provenance. Identical
@@ -36,7 +39,8 @@ transcript authority.
 Required behavior preserved from the original Phase 24 task:
 
 - reports/packets consume accepted Project Memory DB records and
-  operator/procedure/proof state;
+  operator/procedure/proof state plus Phase 23.8.6F and 23.8.7 route, context,
+  policy/binding-version, transport, usage, and invocation records;
 - reports/packets do not decide lifecycle;
 - output is deterministic where practical;
 - claims link to evidence or are marked inference/missing;
@@ -49,6 +53,8 @@ Required behavior preserved from the original Phase 24 task:
   failed-step excerpts when failed;
 - no hidden model-side summarization;
 - no LLM call required for deterministic report generation;
+- report route summary, deterministic-versus-semantic split, context
+  size/reuse, missing evidence, and redaction/truncation facts;
 - no domain-specific prompt logic in core.
 
 ## Non-goals

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"case_id": "stable-core", "expected": "identical_hash"},
+    {"case_id": "changed-plan", "expected": "core_rebuild"},
+    {"case_id": "amendment-delta", "expected": "fresh_independent_delta"},
+    {"case_id": "critical-authority", "expected": "critical_independent"},
+    {"case_id": "adjacent-downgrade", "expected": "one_step_maximum"},
+    {"case_id": "undefined-ladder", "expected": "blocked"},
+    {"case_id": "missing-mandatory", "expected": "blocked"},
+    {"case_id": "unsupported-resume", "expected": "fresh_packet"}
+  ]
+}
