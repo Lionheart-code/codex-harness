@@ -1498,9 +1498,7 @@ function extractEffectiveValidationCommands(markdown: string): string[] {
   for (const line of section.split(/\r?\n/u)) {
     const match = /^\s*\d+\.\s+`([^`]+)`\s*$/u.exec(line);
     if (!match?.[1]) continue;
-    const command = match[1].trim();
-    if (/^(?:git\s+add\b|git\s+commit\b|git\s+push\b|gh\s+pr\b)/u.test(command)) break;
-    commands.push(command);
+    commands.push(match[1].trim());
   }
   return commands;
 }
@@ -2873,25 +2871,48 @@ function buildRuntimeVerificationDisplayCommand(command: RuntimeVerificationComm
   return command.displayCommand ?? formatCommandForDisplay(command.command, command.args);
 }
 
-function buildSelfHostingVerificationCommands(targetRoot: string, run: Run): RuntimeVerificationCommand[] | undefined {
-  const approved = [...run.approvals].reverse().find((entry) =>
-    entry.title === "Reviewed plan approved" && entry.status === "approved" && entry.reviewed_plan_artifact_id
+function resolveExactApprovedPlanAuthority(
+  targetRoot: string,
+  run: Run
+): { approval: Approval; artifact: ArtifactRef; body: string; contentHash: string } | undefined {
+  const approval = [...run.approvals].reverse().find((entry) =>
+    entry.title === "Reviewed plan approved" && entry.status === "approved"
   );
-  const approvedPlanArtifact = approved?.reviewed_plan_artifact_id
-    ? run.artifacts.find((entry) => entry.artifact_id === approved.reviewed_plan_artifact_id)
-    : undefined;
-  if (approvedPlanArtifact) {
-    const approvedPlanPath = path.join(runDirectory(targetRoot, run.run_id), approvedPlanArtifact.path);
-    if (!fs.existsSync(approvedPlanPath) || !fs.statSync(approvedPlanPath).isFile()) {
-      throw new Error("VERIFICATION_AUTHORITY_PLAN_MISSING: the exact effective approved-plan artifact is unavailable.");
-    }
-    const approvedPlanBody = fs.readFileSync(approvedPlanPath, "utf8");
-    if (`sha256:${sha256Hex(approvedPlanBody)}` !== approvedPlanArtifact.artifact_id
-      || (approved?.reviewed_plan_content_hash
-        && approved.reviewed_plan_content_hash.replace(/^sha256:/u, "") !== sha256Hex(approvedPlanBody))) {
-      throw new Error("VERIFICATION_AUTHORITY_PLAN_IDENTITY_MISMATCH: the effective approved-plan artifact hash is not exact.");
-    }
-    const effectiveCommands = extractEffectiveValidationCommands(approvedPlanBody);
+  if (!approval) return undefined;
+  if (!approval.reviewed_plan_artifact_id || !/^sha256:[a-f0-9]{64}$/u.test(approval.reviewed_plan_artifact_id)
+    || !/^[a-f0-9]{64}$/u.test(approval.reviewed_plan_content_hash ?? "")
+    || approval.reviewed_plan_content_hash !== approval.reviewed_plan_artifact_id.slice("sha256:".length)) {
+    if (run.phase_id !== "23.8.6F") return undefined;
+    throw new Error("VERIFICATION_AUTHORITY_PLAN_IDENTITY_MISMATCH: the latest reviewed-plan approval lacks an exact plan binding.");
+  }
+  const artifact = run.artifacts.find((entry) =>
+    entry.artifact_id === approval.reviewed_plan_artifact_id
+    && ["procedure-artifact:draft-plan", "procedure-artifact:plan-amend"].includes(entry.kind)
+  );
+  if (!artifact) {
+    if (run.phase_id !== "23.8.6F") return undefined;
+    throw new Error("VERIFICATION_AUTHORITY_PLAN_MISSING: the exact effective approved-plan artifact is unavailable.");
+  }
+  const runRoot = runDirectory(targetRoot, run.run_id);
+  const approvedPlanPath = path.resolve(runRoot, artifact.path);
+  ensureInsideTargetRoot(runRoot, approvedPlanPath);
+  if (!fs.existsSync(approvedPlanPath) || !fs.statSync(approvedPlanPath).isFile()) {
+    if (run.phase_id !== "23.8.6F") return undefined;
+    throw new Error("VERIFICATION_AUTHORITY_PLAN_MISSING: the exact effective approved-plan artifact is unavailable.");
+  }
+  const body = fs.readFileSync(approvedPlanPath, "utf8");
+  const contentHash = sha256Hex(body);
+  if (`sha256:${contentHash}` !== artifact.artifact_id || approval.reviewed_plan_content_hash !== contentHash) {
+    if (run.phase_id !== "23.8.6F") return undefined;
+    throw new Error("VERIFICATION_AUTHORITY_PLAN_IDENTITY_MISMATCH: the effective approved-plan artifact hash is not exact.");
+  }
+  return { approval, artifact, body, contentHash };
+}
+
+function buildSelfHostingVerificationCommands(targetRoot: string, run: Run): RuntimeVerificationCommand[] | undefined {
+  const approvedPlan = resolveExactApprovedPlanAuthority(targetRoot, run);
+  if (approvedPlan) {
+    const effectiveCommands = extractEffectiveValidationCommands(approvedPlan.body);
     if (effectiveCommands.length > 0) {
       return effectiveCommands.map((commandLine) => buildTaskAcceptanceVerificationCommand(commandLine));
     }
@@ -5262,7 +5283,8 @@ function independenceReferenceQualifies(targetRoot: string, run: Run, procedureI
   }
   if (kind === "review") {
     const review = run.review_results.find((entry) => entry.review_result_id === id);
-    return Boolean(review?.status === "PASS" && review.source.startsWith("procedure:"));
+    return procedureId === "phase-closeout-review"
+      && Boolean(review?.status === "PASS" && reviewSourceMatchesProcedure(review.source, "implementation-review"));
   }
   if (kind === "delivery") {
     return procedureId === "delivery-facts-review"
@@ -5275,11 +5297,14 @@ function independenceReferenceQualifies(targetRoot: string, run: Run, procedureI
   return false;
 }
 
-function approvalReferenceQualifies(run: Run, reference: string): boolean {
+function approvalReferenceQualifies(targetRoot: string, run: Run, reference: string): boolean {
   if (!reference.startsWith("approval:")) return false;
   const approvalId = reference.slice("approval:".length);
-  return run.approvals.some((entry) => entry.approval_id === approvalId && entry.status === "approved"
-    && entry.title === "Reviewed plan approved" && Boolean(entry.reviewed_plan_artifact_id));
+  try {
+    return resolveExactApprovedPlanAuthority(targetRoot, run)?.approval.approval_id === approvalId;
+  } catch {
+    return false;
+  }
 }
 
 function deterministicOutputReferenceQualifies(
@@ -5301,7 +5326,7 @@ function deterministicOutputReferenceQualifies(
 
 function deterministicPrecheckSatisfied(targetRoot: string, run: Run, procedureId: string, precheck: string): boolean {
   const latestVerification = run.verification_results[run.verification_results.length - 1];
-  const verificationPassed = verificationSatisfiesRequiredCommandInventory(targetRoot, run, latestVerification);
+  const verificationPassed = () => verificationSatisfiesRequiredCommandInventory(targetRoot, run, latestVerification);
   switch (precheck) {
     case "task_contract_identity":
       return fs.existsSync(path.join(targetRoot, run.active_task_path ?? run.task_path));
@@ -5310,11 +5335,11 @@ function deterministicPrecheckSatisfied(targetRoot: string, run: Run, procedureI
     case "required_reading":
       return run.evidence.length > 0;
     case "required_command_inventory":
-      return verificationPassed;
+      return verificationPassed();
     case "command_results":
     case "verification_pass":
     case "link_and_path_checks":
-      return verificationPassed;
+      return verificationPassed();
     case "snapshot_identity":
       return Boolean(run.source_snapshot && run.repository.head_sha);
     case "commit_identity":
@@ -5421,8 +5446,8 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
       || (executionContract.independence === "independent" && (!independenceRef
         || !completionReferences.has(independenceRef)
         || !independenceReferenceQualifies(targetRoot, current.run, options.procedureId, independenceRef)))
-      || (approvalRef ? !approvalReferenceQualifies(current.run, approvalRef)
-        : executionContract.required_evidence_contract.some((entry) => entry.includes("approval")))) {
+      || (executionContract.independence === "independent"
+        && (!approvalRef || !approvalReferenceQualifies(targetRoot, current.run, approvalRef)))) {
       throw new Error(`DETERMINISTIC_COMPLETION_INCOMPLETE: prechecks=${missingPrechecks.join(",")} evidence=${missingEvidence.join(",")} outputs=${missingOutputs.join(",")}`);
     }
   }
