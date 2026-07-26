@@ -3398,6 +3398,42 @@ test("phase 23.8.6F deterministic verification completion requires the exact app
     completed_at: TIMESTAMP,
     artifact_refs: []
   }));
+  const approvedAuthorities = run.approvals;
+  run.approvals = run.approvals.filter((entry) => entry.title !== "Reviewed plan approved");
+  writeRuntimeRunFixture(tempRepo, run);
+  const absentApproval = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
+  assertFailure(absentApproval, "Phase F absent approved-plan authority");
+  assert.match(absentApproval.stderr, /VERIFICATION_AUTHORITY_PLAN_MISSING/);
+  run.phase_id = "23.8.7";
+  writeRuntimeRunFixture(tempRepo, run);
+  const postFFallback = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
+  assertFailure(postFFallback, "post-F absent approved-plan authority");
+  assert.match(postFFallback.stderr, /VERIFICATION_AUTHORITY_PLAN_MISSING/);
+  run.phase_id = "23.8.6F";
+  run.approvals = approvedAuthorities;
+  const emptyPlanBody = "# Approved plan without effective validation\n";
+  const emptyPlanArtifact = {
+    artifact_id: `sha256:${createHash("sha256").update(emptyPlanBody).digest("hex")}`,
+    path: "evidence/approved-plan-without-validation.md",
+    kind: "procedure-artifact:plan-amend"
+  };
+  run.artifacts.push(emptyPlanArtifact);
+  run.approvals.push({
+    approval_id: "approval-empty-validation",
+    title: "Reviewed plan approved",
+    status: "approved",
+    created_at: "2026-06-24T00:30:30.000Z",
+    approver: "owner",
+    reviewed_plan_artifact_id: emptyPlanArtifact.artifact_id,
+    reviewed_plan_content_hash: emptyPlanArtifact.artifact_id.slice("sha256:".length)
+  });
+  writeText(path.join(tempRepo, ".harness", "runs", run.run_id, emptyPlanArtifact.path), emptyPlanBody);
+  writeRuntimeRunFixture(tempRepo, run);
+  const absentInventory = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
+  assertFailure(absentInventory, "Phase F absent effective-validation inventory");
+  assert.match(absentInventory.stderr, /VERIFICATION_AUTHORITY_INVENTORY_MISSING/);
+  run.approvals.pop();
+  run.artifacts.pop();
   run.artifacts = run.artifacts.filter((entry) => entry.artifact_id !== approvedPlanArtifact.artifact_id);
   writeRuntimeRunFixture(tempRepo, run);
   const missingPlan = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
@@ -3462,6 +3498,63 @@ test("phase 23.8.6F deterministic verification completion requires the exact app
       "approval_ref: approval:approval-newer-plan"
     )
   );
+  const implementationReview = run.review_results.find((entry) =>
+    entry.source === "procedure:implementation-review" && entry.status === "PASS"
+  );
+  const closeoutDelivery = run.delivery_facts.find((entry) => entry.status !== "unknown");
+  let nextTaskDecision = run.decisions.find((entry) => entry.title === "Next task decision");
+  if (!nextTaskDecision) {
+    nextTaskDecision = {
+      decision_id: "decision-next-task",
+      title: "Next task decision",
+      rationale: "Defer successor activation.",
+      created_at: TIMESTAMP
+    };
+    run.decisions.push(nextTaskDecision);
+  }
+  assert.ok(implementationReview);
+  assert.ok(closeoutDelivery);
+  const closeoutOutputs = Object.fromEntries(["gate_matrix", "blockers", "verdict"].map((role) => {
+    const body = `typed closeout ${role}\n`;
+    const artifact = {
+      artifact_id: `sha256:${createHash("sha256").update(body).digest("hex")}`,
+      path: `evidence/typed-closeout-${role}.txt`,
+      kind: `procedure-output:phase-closeout-review:${role}`,
+      producer_command: "test deterministic closeout producer",
+      description: `output_role:${role}`
+    };
+    run.artifacts.push(artifact);
+    writeText(path.join(tempRepo, ".harness", "runs", run.run_id, artifact.path), body);
+    return [role, artifact];
+  }));
+  writeRuntimeRunFixture(tempRepo, run);
+  const closeoutBody = [
+    "completion_mode: deterministic",
+    "deterministic_prechecks: verification_pass, implementation_review_pass, delivery_facts, next_task_decision",
+    `precheck_refs: verification_pass=verification:${verification.verification_result_id}, implementation_review_pass=review:${implementationReview.review_result_id}, delivery_facts=delivery:${closeoutDelivery.delivery_fact_id}, next_task_decision=decision:${nextTaskDecision.decision_id}`,
+    `evidence_refs: verification_ref=verification:${verification.verification_result_id}, review_ref=review:${implementationReview.review_result_id}, delivery_refs=delivery:${closeoutDelivery.delivery_fact_id}, decision_ref=decision:${nextTaskDecision.decision_id}`,
+    "semantic_residual_disposition: not_applicable",
+    `independence_ref: decision:${nextTaskDecision.decision_id}`,
+    "approval_ref: approval:approval-newer-plan",
+    `output.gate_matrix: artifact:${closeoutOutputs.gate_matrix.artifact_id}`,
+    `output.blockers: artifact:${closeoutOutputs.blockers.artifact_id}`,
+    `output.verdict: artifact:${closeoutOutputs.verdict.artifact_id}`
+  ].join("\n");
+  const decisionIndependencePath = writeProcedureArtifact(tempRepo, run.run_id, "closeout-decision-independence", closeoutBody);
+  const decisionIndependence = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "phase-closeout-review", "--file", path.relative(tempRepo, decisionIndependencePath)], { cwd: tempRepo });
+  assertFailure(decisionIndependence, "closeout decision-substituted independence");
+  assert.match(decisionIndependence.stderr, /DETERMINISTIC_COMPLETION_INCOMPLETE/);
+  const exactCloseoutPath = writeProcedureArtifact(
+    tempRepo,
+    run.run_id,
+    "closeout-exact-review-independence",
+    closeoutBody.replace(
+      `independence_ref: decision:${nextTaskDecision.decision_id}`,
+      `independence_ref: review:${implementationReview.review_result_id}`
+    )
+  );
+  const exactCloseout = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "phase-closeout-review", "--file", path.relative(tempRepo, exactCloseoutPath)], { cwd: tempRepo });
+  assertSuccess(exactCloseout, "closeout exact implementation-review independence");
   const verdictPath = path.join(tempRepo, ".harness", "runs", run.run_id, outputArtifacts.verdict.path);
   const verdictBody = fs.readFileSync(verdictPath, "utf8");
   writeText(verdictPath, `${verdictBody}corrupt`);

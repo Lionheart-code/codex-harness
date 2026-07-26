@@ -2871,6 +2871,19 @@ function buildRuntimeVerificationDisplayCommand(command: RuntimeVerificationComm
   return command.displayCommand ?? formatCommandForDisplay(command.command, command.args);
 }
 
+function isPrePhaseFVerificationCompatibility(phaseId: string | undefined): boolean {
+  if (!phaseId) return true;
+  const match = /^(\d+)(?:\.(\d+))?(?:\.(\d+))?([A-Z].*)?$/u.exec(phaseId);
+  if (!match) return false;
+  const numeric = [match[1], match[2] ?? "0", match[3] ?? "0"].map((entry) => Number.parseInt(entry, 10));
+  const boundary = [23, 8, 6];
+  for (let index = 0; index < boundary.length; index += 1) {
+    if (numeric[index] !== boundary[index]) return numeric[index] < boundary[index];
+  }
+  const suffix = match[4];
+  return !suffix || suffix[0] < "F";
+}
+
 function resolveExactApprovedPlanAuthority(
   targetRoot: string,
   run: Run
@@ -2878,11 +2891,14 @@ function resolveExactApprovedPlanAuthority(
   const approval = [...run.approvals].reverse().find((entry) =>
     entry.title === "Reviewed plan approved" && entry.status === "approved"
   );
-  if (!approval) return undefined;
+  if (!approval) {
+    if (isPrePhaseFVerificationCompatibility(run.phase_id)) return undefined;
+    throw new Error("VERIFICATION_AUTHORITY_PLAN_MISSING: Phase F and later require exact reviewed-plan approval authority.");
+  }
   if (!approval.reviewed_plan_artifact_id || !/^sha256:[a-f0-9]{64}$/u.test(approval.reviewed_plan_artifact_id)
     || !/^[a-f0-9]{64}$/u.test(approval.reviewed_plan_content_hash ?? "")
     || approval.reviewed_plan_content_hash !== approval.reviewed_plan_artifact_id.slice("sha256:".length)) {
-    if (run.phase_id !== "23.8.6F") return undefined;
+    if (isPrePhaseFVerificationCompatibility(run.phase_id)) return undefined;
     throw new Error("VERIFICATION_AUTHORITY_PLAN_IDENTITY_MISMATCH: the latest reviewed-plan approval lacks an exact plan binding.");
   }
   const artifact = run.artifacts.find((entry) =>
@@ -2890,20 +2906,20 @@ function resolveExactApprovedPlanAuthority(
     && ["procedure-artifact:draft-plan", "procedure-artifact:plan-amend"].includes(entry.kind)
   );
   if (!artifact) {
-    if (run.phase_id !== "23.8.6F") return undefined;
+    if (isPrePhaseFVerificationCompatibility(run.phase_id)) return undefined;
     throw new Error("VERIFICATION_AUTHORITY_PLAN_MISSING: the exact effective approved-plan artifact is unavailable.");
   }
   const runRoot = runDirectory(targetRoot, run.run_id);
   const approvedPlanPath = path.resolve(runRoot, artifact.path);
   ensureInsideTargetRoot(runRoot, approvedPlanPath);
   if (!fs.existsSync(approvedPlanPath) || !fs.statSync(approvedPlanPath).isFile()) {
-    if (run.phase_id !== "23.8.6F") return undefined;
+    if (isPrePhaseFVerificationCompatibility(run.phase_id)) return undefined;
     throw new Error("VERIFICATION_AUTHORITY_PLAN_MISSING: the exact effective approved-plan artifact is unavailable.");
   }
   const body = fs.readFileSync(approvedPlanPath, "utf8");
   const contentHash = sha256Hex(body);
   if (`sha256:${contentHash}` !== artifact.artifact_id || approval.reviewed_plan_content_hash !== contentHash) {
-    if (run.phase_id !== "23.8.6F") return undefined;
+    if (isPrePhaseFVerificationCompatibility(run.phase_id)) return undefined;
     throw new Error("VERIFICATION_AUTHORITY_PLAN_IDENTITY_MISMATCH: the effective approved-plan artifact hash is not exact.");
   }
   return { approval, artifact, body, contentHash };
@@ -2915,6 +2931,9 @@ function buildSelfHostingVerificationCommands(targetRoot: string, run: Run): Run
     const effectiveCommands = extractEffectiveValidationCommands(approvedPlan.body);
     if (effectiveCommands.length > 0) {
       return effectiveCommands.map((commandLine) => buildTaskAcceptanceVerificationCommand(commandLine));
+    }
+    if (!isPrePhaseFVerificationCompatibility(run.phase_id)) {
+      throw new Error("VERIFICATION_AUTHORITY_INVENTORY_MISSING: Phase F and later require a non-empty approved Effective Validation inventory.");
     }
   }
   const activeTaskMarkdown = resolveRunActiveTaskMarkdown(targetRoot, run);
@@ -5289,10 +5308,6 @@ function independenceReferenceQualifies(targetRoot: string, run: Run, procedureI
   if (kind === "delivery") {
     return procedureId === "delivery-facts-review"
       && run.delivery_facts.some((entry) => entry.delivery_fact_id === id && entry.run_id === run.run_id && entry.status !== "unknown");
-  }
-  if (kind === "decision") {
-    return procedureId === "phase-closeout-review"
-      && run.decisions.some((entry) => entry.decision_id === id && entry.title === "Next task decision");
   }
   return false;
 }
