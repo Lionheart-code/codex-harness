@@ -789,8 +789,10 @@ export class RunStagingDatabase {
       const rows = database.prepare([
         "SELECT run_instance_id, source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json,",
         "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
-        "FROM procedure_artifacts WHERE run_instance_id = ? AND artifact_id = ?"
-      ].join(" ")).all(input.runInstanceId, input.procedureArtifactId) as Array<ProcedureArtifactDescriptor>;
+        `FROM procedure_artifacts WHERE run_instance_id = ? AND artifact_id = ?${input.procedureId ? " AND procedure_id = ?" : ""}`
+      ].join(" ")).all(...(input.procedureId
+        ? [input.runInstanceId, input.procedureArtifactId, input.procedureId]
+        : [input.runInstanceId, input.procedureArtifactId])) as Array<ProcedureArtifactDescriptor>;
       if (rows.length !== 1) {
         throw new Error(`Authoritative procedure-artifact staging readback could not prove one exact descriptor for ${input.procedureArtifactId}.`);
       }
@@ -819,8 +821,12 @@ export class RunStagingDatabase {
         "SELECT parent_record_id, source_run_id, kind, media_type, compression_status, chunk_count, raw_size_bytes, content_hash",
         "FROM payload_index WHERE payload_id = ?"
       ].join(" ")).get(row.payload_id) as Record<string, unknown> | undefined;
-      if (!index || index.parent_record_id !== row.artifact_id || index.source_run_id !== input.sourceRunId
-        || index.kind !== `procedure-artifact-body:${row.procedure_id}` || index.media_type !== "text/markdown"
+      const linked = database.prepare(
+        "SELECT 1 AS linked FROM payload_links WHERE payload_id = ? AND parent_record_id = ? AND link_role = ?"
+      ).get(row.payload_id, row.artifact_id, `procedure-artifact-body:${row.procedure_id}`) as { linked?: number } | undefined;
+      const direct = index?.parent_record_id === row.artifact_id && index?.kind === `procedure-artifact-body:${row.procedure_id}`;
+      if (!index || (!direct && linked?.linked !== 1) || index.source_run_id !== input.sourceRunId
+        || index.media_type !== "text/markdown"
         || !["identity", "gzip"].includes(String(index.compression_status)) || index.content_hash !== row.content_hash) {
         throw new Error("Authoritative procedure-artifact staging payload index does not match its descriptor.");
       }

@@ -918,10 +918,14 @@ export class ProjectMemoryDatabase {
             "SELECT parent_record_id, source_run_id, kind, media_type, compression_status, chunk_count, raw_size_bytes, content_hash",
             "FROM payload_index WHERE payload_id = ?"
           ].join(" ")).get(row.payload_id) as Record<string, unknown> | undefined;
+          const linked = database.prepare(
+            "SELECT 1 AS linked FROM payload_links WHERE payload_id = ? AND parent_record_id = ? AND link_role = ?"
+          ).get(row.payload_id, `${row.run_instance_id}:${row.artifact_id}`, `procedure-artifact-body:${row.procedure_id}`) as { linked?: number } | undefined;
+          const direct = payloadIndex?.parent_record_id === `${row.run_instance_id}:${row.artifact_id}`
+            && payloadIndex?.kind === `procedure-artifact-body:${row.procedure_id}`;
           if (!payloadIndex
-            || payloadIndex.parent_record_id !== `${row.run_instance_id}:${row.artifact_id}`
+            || (!direct && linked?.linked !== 1)
             || payloadIndex.source_run_id !== row.source_run_id
-            || payloadIndex.kind !== `procedure-artifact-body:${row.procedure_id}`
             || payloadIndex.media_type !== "text/markdown"
             || !["identity", "gzip"].includes(String(payloadIndex.compression_status))
             || payloadIndex.content_hash !== row.content_hash) {
@@ -1087,8 +1091,10 @@ export class ProjectMemoryDatabase {
       const rows = database.prepare([
         "SELECT run_instance_id, source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json,",
         "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
-        "FROM procedure_artifacts WHERE run_instance_id = ? AND artifact_id = ?"
-      ].join(" ")).all(input.projectRunId, input.procedureArtifactId) as ProcedureArtifactRow[];
+        `FROM procedure_artifacts WHERE run_instance_id = ? AND artifact_id = ?${input.procedureId ? " AND procedure_id = ?" : ""}`
+      ].join(" ")).all(...(input.procedureId
+        ? [input.projectRunId, input.procedureArtifactId, input.procedureId]
+        : [input.projectRunId, input.procedureArtifactId])) as ProcedureArtifactRow[];
       if (rows.length !== 1) {
         throw new Error(`Authoritative procedure-artifact readback could not prove one exact descriptor for ${input.procedureArtifactId}.`);
       }
@@ -1125,8 +1131,13 @@ export class ProjectMemoryDatabase {
         "SELECT parent_record_id, source_run_id, kind, media_type, compression_status, chunk_count, raw_size_bytes, content_hash",
         "FROM payload_index WHERE payload_id = ?"
       ].join(" ")).get(row.payload_id) as Record<string, unknown> | undefined;
-      if (!index || index.parent_record_id !== `${input.projectRunId}:${row.artifact_id}` || index.source_run_id !== input.projectRunId
-        || index.kind !== `procedure-artifact-body:${row.procedure_id}` || index.media_type !== "text/markdown"
+      const linked = database.prepare(
+        "SELECT 1 AS linked FROM payload_links WHERE payload_id = ? AND parent_record_id = ? AND link_role = ?"
+      ).get(row.payload_id, `${input.projectRunId}:${row.artifact_id}`, `procedure-artifact-body:${row.procedure_id}`) as { linked?: number } | undefined;
+      const direct = index?.parent_record_id === `${input.projectRunId}:${row.artifact_id}`
+        && index?.kind === `procedure-artifact-body:${row.procedure_id}`;
+      if (!index || (!direct && linked?.linked !== 1) || index.source_run_id !== input.projectRunId
+        || index.media_type !== "text/markdown"
         || !["identity", "gzip"].includes(String(index.compression_status)) || index.content_hash !== row.content_hash) {
         throw new Error("Authoritative procedure-artifact payload index does not match its descriptor.");
       }

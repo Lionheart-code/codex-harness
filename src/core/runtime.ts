@@ -1491,6 +1491,20 @@ function extractAcceptanceCommands(markdown: string): string[] {
     .filter((command): command is string => Boolean(command));
 }
 
+function extractEffectiveValidationCommands(markdown: string): string[] {
+  const section = extractMarkdownSection(markdown, "Effective Validation");
+  if (!section) return [];
+  const commands: string[] = [];
+  for (const line of section.split(/\r?\n/u)) {
+    const match = /^\s*\d+\.\s+`([^`]+)`\s*$/u.exec(line);
+    if (!match?.[1]) continue;
+    const command = match[1].trim();
+    if (/^(?:git\s+add\b|git\s+commit\b|git\s+push\b|gh\s+pr\b)/u.test(command)) break;
+    commands.push(command);
+  }
+  return commands;
+}
+
 function resolveRunActiveTaskMarkdown(targetRoot: string, run: Run): string | undefined {
   const candidatePaths = [run.active_task_path]
     .filter((candidate): candidate is string => typeof candidate === "string" && candidate.trim().length > 0);
@@ -2860,6 +2874,28 @@ function buildRuntimeVerificationDisplayCommand(command: RuntimeVerificationComm
 }
 
 function buildSelfHostingVerificationCommands(targetRoot: string, run: Run): RuntimeVerificationCommand[] | undefined {
+  const approved = [...run.approvals].reverse().find((entry) =>
+    entry.title === "Reviewed plan approved" && entry.status === "approved" && entry.reviewed_plan_artifact_id
+  );
+  const approvedPlanArtifact = approved?.reviewed_plan_artifact_id
+    ? run.artifacts.find((entry) => entry.artifact_id === approved.reviewed_plan_artifact_id)
+    : undefined;
+  if (approvedPlanArtifact) {
+    const approvedPlanPath = path.join(runDirectory(targetRoot, run.run_id), approvedPlanArtifact.path);
+    if (!fs.existsSync(approvedPlanPath) || !fs.statSync(approvedPlanPath).isFile()) {
+      throw new Error("VERIFICATION_AUTHORITY_PLAN_MISSING: the exact effective approved-plan artifact is unavailable.");
+    }
+    const approvedPlanBody = fs.readFileSync(approvedPlanPath, "utf8");
+    if (`sha256:${sha256Hex(approvedPlanBody)}` !== approvedPlanArtifact.artifact_id
+      || (approved?.reviewed_plan_content_hash
+        && approved.reviewed_plan_content_hash.replace(/^sha256:/u, "") !== sha256Hex(approvedPlanBody))) {
+      throw new Error("VERIFICATION_AUTHORITY_PLAN_IDENTITY_MISMATCH: the effective approved-plan artifact hash is not exact.");
+    }
+    const effectiveCommands = extractEffectiveValidationCommands(approvedPlanBody);
+    if (effectiveCommands.length > 0) {
+      return effectiveCommands.map((commandLine) => buildTaskAcceptanceVerificationCommand(commandLine));
+    }
+  }
   const activeTaskMarkdown = resolveRunActiveTaskMarkdown(targetRoot, run);
   const taskAcceptanceCommands = activeTaskMarkdown ? extractAcceptanceCommands(activeTaskMarkdown) : [];
 
@@ -5147,22 +5183,73 @@ function resolveRuntimeReference(targetRoot: string, run: Run, reference: string
   }
 }
 
-function runtimeReferenceExists(targetRoot: string, run: Run, reference: string): boolean {
-  return resolveRuntimeReference(targetRoot, run, reference) !== undefined;
-}
+const PRECHECK_REFERENCE_KINDS: Readonly<Record<string, readonly RuntimeReferenceKind[]>> = {
+  task_contract_identity: ["file"],
+  procedure_contract_identity: ["file"],
+  required_reading: ["file", "artifact", "evidence"],
+  required_command_inventory: ["verification"],
+  command_results: ["verification", "command"],
+  snapshot_identity: ["source", "verification"],
+  commit_identity: ["source"],
+  branch_identity: ["branch"],
+  remote_fact_inventory: ["delivery"],
+  verification_pass: ["verification"],
+  implementation_review_pass: ["review"],
+  delivery_facts: ["delivery"],
+  next_task_decision: ["decision"],
+  changed_docs_inventory: ["file", "artifact"],
+  canonical_source_refs: ["file"],
+  link_and_path_checks: ["verification", "command"],
+  runtime_state_identity: ["run"],
+  claim_inventory: ["run", "routing"],
+  artifact_inventory: ["artifact"],
+  lifecycle_projection: ["run"]
+};
+
+const EVIDENCE_REFERENCE_KINDS: Readonly<Record<string, readonly RuntimeReferenceKind[]>> = {
+  acceptance_refs: ["file", "artifact"],
+  approved_plan_ref: ["artifact"],
+  architecture_refs: ["file", "artifact", "evidence"],
+  artifact_refs: ["artifact"],
+  canonical_source_refs: ["file"],
+  command_result_refs: ["command", "verification"],
+  commit_ref: ["source"],
+  decision_ref: ["decision"],
+  delivery_refs: ["delivery"],
+  delta_ref: ["artifact", "routing"],
+  diff_ref: ["artifact", "file"],
+  diff_refs: ["artifact", "file"],
+  docs_diff_ref: ["artifact", "file"],
+  exact_plan_ref: ["artifact"],
+  exact_run_identity: ["run"],
+  finding_refs: ["review", "artifact"],
+  intake_artifact_ref: ["artifact", "evidence"],
+  operator_status_ref: ["run"],
+  plan_ref: ["artifact"],
+  prior_plan_ref: ["artifact"],
+  prior_review_ref: ["review"],
+  procedure_contract_ref: ["file"],
+  remote_fact_refs: ["delivery"],
+  review_ref: ["review"],
+  review_tier_lenses: ["artifact", "evidence"],
+  roadmap_refs: ["file"],
+  run_state_ref: ["run"],
+  schema_refs: ["file"],
+  snapshot_ref: ["verification", "source"],
+  source_identity: ["source"],
+  source_refs: ["file", "artifact", "evidence"],
+  storage_trace_refs: ["artifact", "evidence", "routing"],
+  task_contract_ref: ["file"],
+  task_contract_refs: ["file"],
+  task_pointer_ref: ["file"],
+  task_ref: ["file"],
+  test_refs: ["command", "verification", "artifact"],
+  verification_ref: ["verification"],
+  verification_refs: ["verification", "command"]
+};
 
 function evidenceRoleAcceptsReference(role: string, kind: RuntimeReferenceKind): boolean {
-  if (/approval/iu.test(role)) return kind === "approval";
-  if (/exact_run_identity|run_state|operator_status/iu.test(role)) return kind === "run";
-  if (/command_result|test_ref/iu.test(role)) return kind === "command" || kind === "verification" || kind === "artifact";
-  if (/verification|snapshot/iu.test(role)) return kind === "verification" || kind === "command" || kind === "artifact";
-  if (/review|finding/iu.test(role)) return kind === "review" || kind === "artifact";
-  if (/decision/iu.test(role)) return kind === "decision" || kind === "routing";
-  if (/delivery|remote_fact|commit_ref/iu.test(role)) return kind === "delivery" || kind === "source" || kind === "branch";
-  if (/task|plan|source|acceptance|procedure_contract|canonical_source|docs_diff|architecture|schema/iu.test(role)) {
-    return kind === "file" || kind === "artifact" || kind === "evidence";
-  }
-  return kind === "artifact" || kind === "evidence" || kind === "file" || kind === "routing";
+  return EVIDENCE_REFERENCE_KINDS[role]?.includes(kind) ?? false;
 }
 
 function independenceReferenceQualifies(targetRoot: string, run: Run, procedureId: string, reference: string): boolean {
@@ -5170,22 +5257,46 @@ function independenceReferenceQualifies(targetRoot: string, run: Run, procedureI
   const id = reference.slice(reference.indexOf(":") + 1);
   if (kind === "verification") {
     const verification = run.verification_results.find((entry) => entry.verification_result_id === id);
-    return procedureId === "verification-review"
+    return ["verification-review", "docs-consistency-review", "harness-audit"].includes(procedureId)
       && verificationSatisfiesRequiredCommandInventory(targetRoot, run, verification);
   }
   if (kind === "review") {
     const review = run.review_results.find((entry) => entry.review_result_id === id);
     return Boolean(review?.status === "PASS" && review.source.startsWith("procedure:"));
   }
-  if (kind === "delivery") return procedureId === "delivery-facts-review";
-  if (kind === "decision") return procedureId === "phase-closeout-review";
+  if (kind === "delivery") {
+    return procedureId === "delivery-facts-review"
+      && run.delivery_facts.some((entry) => entry.delivery_fact_id === id && entry.run_id === run.run_id && entry.status !== "unknown");
+  }
+  if (kind === "decision") {
+    return procedureId === "phase-closeout-review"
+      && run.decisions.some((entry) => entry.decision_id === id && entry.title === "Next task decision");
+  }
   return false;
 }
 
 function approvalReferenceQualifies(run: Run, reference: string): boolean {
   if (!reference.startsWith("approval:")) return false;
   const approvalId = reference.slice("approval:".length);
-  return run.approvals.some((entry) => entry.approval_id === approvalId && entry.status === "approved");
+  return run.approvals.some((entry) => entry.approval_id === approvalId && entry.status === "approved"
+    && entry.title === "Reviewed plan approved" && Boolean(entry.reviewed_plan_artifact_id));
+}
+
+function deterministicOutputReferenceQualifies(
+  targetRoot: string,
+  run: Run,
+  procedureId: string,
+  outputRole: string,
+  reference: string
+): boolean {
+  if (!reference.startsWith("artifact:")) return false;
+  const artifactId = reference.slice("artifact:".length);
+  const artifact = run.artifacts.find((entry) => entry.artifact_id === artifactId);
+  if (!artifact || artifact.kind !== `procedure-output:${procedureId}:${outputRole}`
+    || artifact.description !== `output_role:${outputRole}` || !artifact.producer_command) return false;
+  const artifactPath = path.join(runDirectory(targetRoot, run.run_id), artifact.path);
+  return fs.existsSync(artifactPath) && fs.statSync(artifactPath).isFile()
+    && `sha256:${sha256Hex(fs.readFileSync(artifactPath))}` === artifact.artifact_id;
 }
 
 function deterministicPrecheckSatisfied(targetRoot: string, run: Run, procedureId: string, precheck: string): boolean {
@@ -5287,7 +5398,9 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
     }));
     const missingPrechecks = executionContract.deterministic_prechecks.filter((entry) => {
       const reference = precheckRefs.get(entry);
-      return !completedPrechecks.has(entry) || !reference || !runtimeReferenceExists(targetRoot, current.run, reference)
+      const referenceKind = reference ? resolveRuntimeReference(targetRoot, current.run, reference) : undefined;
+      const allowedKinds = PRECHECK_REFERENCE_KINDS[entry];
+      return !completedPrechecks.has(entry) || !reference || !referenceKind || !allowedKinds?.includes(referenceKind)
         || !deterministicPrecheckSatisfied(targetRoot, current.run, options.procedureId, entry);
     });
     const missingEvidence = executionContract.required_evidence_contract.filter((entry) => {
@@ -5297,14 +5410,16 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
     });
     const missingOutputs = executionContract.required_output_contract.filter((entry) => {
       const value = markdown.match(new RegExp(`^output\\.${escapeRegExpPattern(entry)}:\\s*(.+)$`, "imu"))?.[1]?.trim();
-      return !value || resolveRuntimeReference(targetRoot, current.run, value) !== "artifact";
+      return !value || !deterministicOutputReferenceQualifies(targetRoot, current.run, options.procedureId, entry, value);
     });
     const residualDisposition = markdown.match(/^semantic_residual_disposition:\s*(.+)$/imu)?.[1]?.trim();
     const independenceRef = markdown.match(/^independence_ref:\s*(.+)$/imu)?.[1]?.trim();
     const approvalRef = markdown.match(/^approval_ref:\s*(.+)$/imu)?.[1]?.trim();
+    const completionReferences = new Set([...precheckRefs.values(), ...evidenceRefs.values()]);
     if (missingPrechecks.length || missingEvidence.length || missingOutputs.length
       || (executionContract.semantic_residual.length > 0 && residualDisposition !== "not_applicable")
       || (executionContract.independence === "independent" && (!independenceRef
+        || !completionReferences.has(independenceRef)
         || !independenceReferenceQualifies(targetRoot, current.run, options.procedureId, independenceRef)))
       || (approvalRef ? !approvalReferenceQualifies(current.run, approvalRef)
         : executionContract.required_evidence_contract.some((entry) => entry.includes("approval")))) {
