@@ -287,7 +287,18 @@ test("phase 22.5 runtime schemas are provider-neutral and package-visible", () =
 test("phase 22.5 run dry-run commands do not create product runtime state", () => {
   ensureBuiltCli();
 
+  const tempRepo = createRuntimeRepo();
+  assertSuccess(runCommand("git", ["add", "TASK.md", "tasks/PHASE_22_5_CORE_RUNTIME_NORMALIZATION.md"], { cwd: tempRepo }), "stage Phase 22.5 fixture");
+  assertSuccess(
+    runCommand(
+      "git",
+      ["-c", "user.name=Codex Harness Test", "-c", "user.email=codex-harness-test@example.invalid", "commit", "-m", "seed Phase 22.5 fixture"],
+      { cwd: tempRepo }
+    ),
+    "commit Phase 22.5 fixture"
+  );
   const beforeStatus = getGitStatus(productRoot);
+  const beforeTempStatus = getGitStatus(tempRepo);
   const commands = [
     ["run", "--help"],
     ["run", "start", "--task", "TASK.md", "--dry-run"],
@@ -298,7 +309,7 @@ test("phase 22.5 run dry-run commands do not create product runtime state", () =
   ];
 
   for (const args of commands) {
-    const result = runCli(args, { cwd: productRoot });
+    const result = runCli(args, { cwd: tempRepo });
     assertSuccess(result, `node bin/ch ${args.join(" ")}`);
 
     if (args.includes("--dry-run")) {
@@ -307,7 +318,9 @@ test("phase 22.5 run dry-run commands do not create product runtime state", () =
   }
 
   const afterStatus = getGitStatus(productRoot);
+  const afterTempStatus = getGitStatus(tempRepo);
   assert.equal(afterStatus, beforeStatus, "dry-run commands changed product-repo git status");
+  assert.equal(afterTempStatus, beforeTempStatus, "dry-run commands changed the Phase 22.5 fixture repo");
   assertProductRepoBoundaryState();
 });
 
