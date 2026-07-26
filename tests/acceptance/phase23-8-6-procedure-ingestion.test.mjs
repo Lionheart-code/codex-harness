@@ -3195,6 +3195,16 @@ test("phase 23.8.6 deterministic completion enforces typed precheck evidence and
   const runtimeModule = loadBuiltRuntime();
   const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6-deterministic-parity-");
   const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
+  const typedOutputBody = "deterministic typed output\n";
+  const typedOutputId = `sha256:${createHash("sha256").update(typedOutputBody).digest("hex")}`;
+  const exactOutputArtifact = {
+    artifact_id: typedOutputId,
+    path: "evidence/deterministic-typed-output.txt",
+    kind: "deterministic-procedure-output"
+  };
+  run.artifacts.push(exactOutputArtifact);
+  writeText(path.join(tempRepo, ".harness", "runs", run.run_id, exactOutputArtifact.path), typedOutputBody);
+  writeRuntimeRunFixture(tempRepo, run);
   const incomplete = writeProcedureArtifact(tempRepo, run.run_id, "deterministic-incomplete", [
     "completion_mode: deterministic",
     "deterministic_prechecks: task_contract_identity",
@@ -3206,18 +3216,83 @@ test("phase 23.8.6 deterministic completion enforces typed precheck evidence and
   assertFailure(refused, "incomplete deterministic procedure evidence");
   assert.match(refused.stderr, /DETERMINISTIC_COMPLETION_INCOMPLETE/);
 
+  const exactFileRef = (relativePath) => `file:${relativePath}#sha256:${createHash("sha256")
+    .update(fs.readFileSync(path.join(tempRepo, relativePath))).digest("hex")}`;
   const complete = writeProcedureArtifact(tempRepo, run.run_id, "deterministic-complete", [
     "completion_mode: deterministic",
     "deterministic_prechecks: task_contract_identity, procedure_contract_identity, required_reading",
     `precheck_refs: task_contract_identity=run:${run.run_instance_id}, procedure_contract_identity=run:${run.run_instance_id}, required_reading=run:${run.run_instance_id}`,
-    `evidence_refs: task_contract_ref=run:${run.run_instance_id}, procedure_contract_ref=run:${run.run_instance_id}`,
+    `evidence_refs: task_contract_ref=${exactFileRef(ACTIVE_TASK_PATH)}, procedure_contract_ref=${exactFileRef("skills/self-hosting/task-prompt-writer/SKILL.md")}`,
     "semantic_residual_disposition: not_applicable",
-    "output.invocation_ready_prompt: exact prompt body",
-    "output.constraints: exact constraint set",
-    "output.validation: exact validation matrix"
+    `output.invocation_ready_prompt: artifact:${exactOutputArtifact.artifact_id}`,
+    `output.constraints: artifact:${exactOutputArtifact.artifact_id}`,
+    `output.validation: artifact:${exactOutputArtifact.artifact_id}`
   ].join("\n"));
   const accepted = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "task-prompt-writer", "--file", path.relative(tempRepo, complete)], { cwd: tempRepo });
   assertSuccess(accepted, "complete deterministic procedure evidence");
+});
+
+test("phase 23.8.6F deterministic verification completion requires the exact approved command inventory", () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6f-deterministic-inventory-");
+  const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
+  run.repository.head_sha = gitHead(tempRepo);
+  run.source_snapshot = run.repository.head_sha;
+  const outputBody = "typed verification matrix\n";
+  const outputArtifact = {
+    artifact_id: `sha256:${createHash("sha256").update(outputBody).digest("hex")}`,
+    path: "evidence/typed-verification-matrix.txt",
+    kind: "deterministic-procedure-output"
+  };
+  run.artifacts.push(outputArtifact);
+  writeText(path.join(tempRepo, ".harness", "runs", run.run_id, outputArtifact.path), outputBody);
+  const verification = {
+    verification_result_id: "verification-exact-inventory",
+    status: "pass",
+    created_at: TIMESTAMP,
+    summary: "Candidate verification",
+    source: "self-hosting",
+    artifact_refs: [],
+    command_results: [{
+      command_result_id: "verification-command-1",
+      command: "npm run build",
+      exit_code: 0,
+      status: "pass",
+      completed_at: TIMESTAMP,
+      artifact_refs: []
+    }]
+  };
+  run.verification_results = [verification];
+  writeRuntimeRunFixture(tempRepo, run);
+  const artifactBody = (verificationId) => [
+    "completion_mode: deterministic",
+    "deterministic_prechecks: required_command_inventory, command_results, snapshot_identity",
+    `precheck_refs: required_command_inventory=verification:${verificationId}, command_results=verification:${verificationId}, snapshot_identity=source:${run.source_snapshot}`,
+    `evidence_refs: command_result_refs=command:verification-command-1, snapshot_ref=verification:${verificationId}, exact_run_identity=run:${run.run_instance_id}`,
+    "semantic_residual_disposition: not_applicable",
+    `independence_ref: verification:${verificationId}`,
+    `output.command_matrix: artifact:${outputArtifact.artifact_id}`,
+    `output.evidence_gaps: artifact:${outputArtifact.artifact_id}`,
+    `output.verdict: artifact:${outputArtifact.artifact_id}`
+  ].join("\n");
+  const incompletePath = writeProcedureArtifact(tempRepo, run.run_id, "verification-incomplete-inventory", artifactBody(verification.verification_result_id));
+  const incomplete = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, incompletePath)], { cwd: tempRepo });
+  assertFailure(incomplete, "partial verification matrix");
+  assert.match(incomplete.stderr, /DETERMINISTIC_COMPLETION_INCOMPLETE/);
+
+  const requiredCommands = ["npm run build", "npm test", "npm run test:acceptance", "git diff --check"];
+  verification.command_results = requiredCommands.map((command, index) => ({
+    command_result_id: `verification-command-${index + 1}`,
+    command,
+    exit_code: 0,
+    status: "pass",
+    completed_at: TIMESTAMP,
+    artifact_refs: []
+  }));
+  writeRuntimeRunFixture(tempRepo, run);
+  const completePath = writeProcedureArtifact(tempRepo, run.run_id, "verification-complete-inventory", artifactBody(verification.verification_result_id));
+  const complete = runCli(["run", "record-procedure", "--run", run.run_id, "--procedure", "verification-review", "--file", path.relative(tempRepo, completePath)], { cwd: tempRepo });
+  assertSuccess(complete, "exact verification matrix");
 });
 
 test("phase 23.8.6A record-procedure rejects excluded and unknown procedures outside the approved ingestion scope", () => {
@@ -4104,6 +4179,20 @@ test("phase 23.8.6F cleanup-prepared-successor journals and recoverably quaranti
   const evidencePath = path.join(tempRepo, ".harness", "cleanup-evidence.json");
   writeText(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
 
+  const cleanupModule = require(path.join(productRoot, "dist", "core", "prepared-successor-cleanup.js"));
+  const preparedReceipt = cleanupModule.buildPreparedSuccessorCleanupReceipt(tempRepo, evidence);
+  const conflictingArchivePath = path.join(tempRepo, preparedReceipt.archived_task_state_path);
+  fs.mkdirSync(conflictingArchivePath, { recursive: true });
+  assert.throws(
+    () => runtimeModule.cleanupRuntimePreparedSuccessor(tempRepo, { runId: run.run_id, decisionId, filePath: path.relative(tempRepo, evidencePath) }),
+    /HANDOFF_CLEANUP_PARTIAL/
+  );
+  const partialRun = JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", run.run_id, "run.json"), "utf8"));
+  const partialRecord = partialRun.review_routing_records.find((entry) => entry.record_id === preparedReceipt.receipt_id);
+  assert.equal(partialRecord.status, "partial");
+  assert.deepEqual(partialRecord.payload.completed_steps, ["journaled", "branch_quarantined"]);
+  fs.rmSync(conflictingArchivePath, { recursive: true });
+
   const cleaned = runtimeModule.cleanupRuntimePreparedSuccessor(tempRepo, { runId: run.run_id, decisionId, filePath: path.relative(tempRepo, evidencePath) });
   assert.equal(cleaned.operationalRecord.status, "complete");
   assert.equal(fs.existsSync(taskStatePath), false);
@@ -4113,6 +4202,123 @@ test("phase 23.8.6F cleanup-prepared-successor journals and recoverably quaranti
   assert.equal(replay.operationalRecord.status, "complete");
   assert.equal(replay.recorded, false);
   assert.notEqual(base, "", "fixture base remains recorded for audit context");
+});
+
+test("phase 23.8.6F source application accepts only the exact decision-reviewed committed blobs", async () => {
+  const runtimeModule = loadBuiltRuntime();
+  const tempRepo = createPhase2386Repo("codex-harness-phase23-8-6f-source-application-");
+  const run = buildClosedRun(runtimeModule, tempRepo, "run-0001");
+  run.lifecycle_status = "active";
+  const policyFile = "skills/self-hosting/review-route-policy.json";
+  const bindingFile = "skills/self-hosting/codex-reference-binding.json";
+  const policyBody = fs.readFileSync(path.join(tempRepo, policyFile));
+  const bindingBody = fs.readFileSync(path.join(tempRepo, bindingFile));
+  const policy = JSON.parse(policyBody);
+  const binding = JSON.parse(bindingBody);
+  const policyHash = `sha256:${createHash("sha256").update(policyBody).digest("hex")}`;
+  const bindingHash = `sha256:${createHash("sha256").update(bindingBody).digest("hex")}`;
+  const decisionId = "routing-decision-source-application";
+  const evaluationId = "routing-evaluation-source-application";
+  const reviewBody = [
+    "## Review Surface", "Exact source application.", "",
+    "## Findings", "No findings.", "",
+    "## Task And Plan Compliance", "Compliant.", "",
+    "## Verification Coverage", "Exact identity verified.", "",
+    "## Policy Findings", "No policy findings.", "",
+    "## Source Trace", "Decision and blobs traced.", "",
+    "## Skill Risk Check", "No new skill risk.", "",
+    "## Scope Creep Check", "No scope creep.", "",
+    "## Recommendation", "PASS", ""
+  ].join("\n");
+  const reviewArtifact = {
+    artifact_id: `sha256:${createHash("sha256").update(reviewBody).digest("hex")}`,
+    path: "evidence/implementation-review-source-application.md",
+    kind: "procedure-artifact:implementation-review"
+  };
+  writeText(path.join(tempRepo, ".harness", "runs", run.run_id, reviewArtifact.path), reviewBody);
+  run.artifacts.push(reviewArtifact);
+  run.review_results.push({
+    review_result_id: "review-source-application",
+    status: "PASS",
+    created_at: "2026-06-24T00:20:00.000Z",
+    summary: "Implementation Review passed",
+    source: "procedure:implementation-review",
+    blockers: [],
+    artifact_refs: [reviewArtifact]
+  });
+  run.review_routing_records = [{
+    record_kind: "routing_decision",
+    record_id: decisionId,
+    created_at: "2026-06-24T00:19:00.000Z",
+    status: "source_application_required",
+    summary: "promote exact source",
+    payload: {
+      evaluation_id: evaluationId,
+      policy_version: policy.policy_version,
+      binding_version: binding.binding_version,
+      previous_accepted_binding_version: binding.accepted_binding_version
+    }
+  }];
+  const candidateIdentityBody = JSON.stringify({
+    binding_blob_hash: bindingHash,
+    binding_file: bindingFile,
+    decision_id: decisionId,
+    evaluation_id: evaluationId,
+    policy_blob_hash: policyHash,
+    policy_file: policyFile
+  });
+  const exactCandidateId = `sha256:${createHash("sha256").update(candidateIdentityBody).digest("hex")}`;
+  const invocation = {
+    record_kind: "review_invocation",
+    record_id: "review-invocation-source-application",
+    created_at: "2026-06-24T00:20:00.000Z",
+    status: "success",
+    summary: "exact source review",
+    payload: {
+      artifact_id: reviewArtifact.artifact_id,
+      source_application_decision_id: decisionId,
+      source_application_evaluation_id: evaluationId,
+      routing_policy_version: policy.policy_version,
+      binding_version: binding.accepted_binding_version,
+      context_mode: "fresh_independent_delta",
+      source_policy_file: policyFile,
+      source_policy_blob_hash: `sha256:${"0".repeat(64)}`,
+      source_binding_file: bindingFile,
+      source_binding_blob_hash: bindingHash,
+      source_candidate_id: exactCandidateId
+    }
+  };
+  run.review_routing_records.push(invocation);
+  writeRuntimeRunFixture(tempRepo, run);
+  const sourceReviewRequest = writeProcedureArtifact(tempRepo, run.run_id, "source-application-review-request", "Review exact source application.\n");
+  await assert.rejects(
+    runtimeModule.launchRuntimeReview(tempRepo, {
+      runId: run.run_id,
+      procedureId: "implementation-review",
+      requestPath: path.relative(tempRepo, sourceReviewRequest),
+      outputPath: `.harness/runs/${run.run_id}/manual/source-application-review-output.md`
+    }),
+    /ROUTING_POLICY_SOURCE_APPLICATION_DECISION_REQUIRED/
+  );
+  const options = {
+    runId: run.run_id,
+    decisionId,
+    commitSha: gitHead(tempRepo),
+    policyFile,
+    bindingFile,
+    implementationReviewArtifactId: reviewArtifact.artifact_id
+  };
+  assert.throws(
+    () => runtimeModule.recordRuntimeRoutingPolicySourceApplication(tempRepo, options),
+    /ROUTING_POLICY_SOURCE_REVIEW_IDENTITY_MISMATCH/
+  );
+
+  invocation.payload.source_policy_blob_hash = policyHash;
+  writeRuntimeRunFixture(tempRepo, run);
+  const applied = runtimeModule.recordRuntimeRoutingPolicySourceApplication(tempRepo, options);
+  assert.equal(applied.operationalRecord.status, "applied");
+  assert.equal(applied.operationalRecord.payload.policy_blob_hash, policyHash);
+  assert.equal(applied.operationalRecord.payload.binding_blob_hash, bindingHash);
 });
 
 test("phase 23.8.6 materialize-next-task enters a registered existing worktree without creating a run", () => {

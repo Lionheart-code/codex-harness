@@ -537,6 +537,12 @@ export interface ReviewLaunchObservation {
   candidate_binding_version?: string;
   candidate_profile_id?: string;
   source_application_decision_id?: string;
+  source_application_evaluation_id?: string;
+  source_policy_file?: string;
+  source_policy_blob_hash?: string;
+  source_binding_file?: string;
+  source_binding_blob_hash?: string;
+  source_candidate_id?: string;
   pass_kind?: string;
   immutable_base?: string;
   risk_classes?: string[];
@@ -663,7 +669,9 @@ export interface LaunchReviewOptions extends RuntimeDryRunOptions {
   evaluationCaseId?: string;
   candidatePolicyVersion?: string;
   candidateBindingVersion?: string;
+  candidateProfileId?: string;
   candidateOutputPath?: string;
+  sourceApplicationDecisionId?: string;
   canaryAuthorizationId?: string;
   replaySourceRunInstanceId?: string;
   replayPacketArtifactId?: string;
@@ -2890,6 +2898,18 @@ function buildSelfHostingVerificationCommands(targetRoot: string, run: Run): Run
   }
 }
 
+function verificationSatisfiesRequiredCommandInventory(
+  targetRoot: string,
+  run: Run,
+  verification: VerificationResult | undefined
+): boolean {
+  const required = buildSelfHostingVerificationCommands(targetRoot, run)?.map(buildRuntimeVerificationDisplayCommand) ?? [];
+  if (!verification || verification.status !== "pass" || required.length === 0) return false;
+  const actual = verification.command_results.map((entry) => entry.command);
+  return canonicalJson(actual) === canonicalJson(required)
+    && verification.command_results.every((entry) => entry.status === "pass" && entry.exit_code === 0);
+}
+
 function commandSpecsToEvidence(commands: RuntimeVerificationCommand[]): VerificationCommandSpec[] {
   return commands.map((command) => ({
     command: buildRuntimeVerificationDisplayCommand(command)
@@ -3464,6 +3484,43 @@ function reviewChangeInventory(targetRoot: string): {
   };
 }
 
+function priorReviewArtifactFindings(
+  targetRoot: string,
+  run: Run,
+  review: ReviewResult | undefined
+): Array<{ finding_id: string; disposition: "open" | "claimed_fixed" | "closed" | "superseded" }> {
+  if (!review) return [];
+  const artifact = review.artifact_refs[0];
+  if (!artifact) throw new Error("REVIEW_DELTA_PRIOR_ARTIFACT_MISSING: prior review has no exact artifact reference.");
+  const artifactPath = path.join(runDirectory(targetRoot, run.run_id), artifact.path);
+  if (!fs.existsSync(artifactPath) || !fs.statSync(artifactPath).isFile()) {
+    throw new Error("REVIEW_DELTA_PRIOR_ARTIFACT_MISSING: prior review artifact body is unavailable.");
+  }
+  const markdown = fs.readFileSync(artifactPath, "utf8");
+  if (`sha256:${sha256Hex(markdown)}` !== artifact.artifact_id) {
+    throw new Error("REVIEW_DELTA_PRIOR_ARTIFACT_IDENTITY_MISMATCH: prior review artifact hash is not exact.");
+  }
+  const resolutionSection = /## Resolution Status\s*\n([\s\S]*?)(?=\n## |\s*$)/iu.exec(markdown)?.[1] ?? "";
+  const resolutionStatuses = [...resolutionSection.matchAll(/^\s*\d+\.\s*`(resolved|partially_resolved|unresolved)`/gimu)]
+    .map((match) => match[1]);
+  if (resolutionStatuses.length > 0) {
+    return resolutionStatuses.map((status, index) => ({
+      finding_id: `${artifact.artifact_id}#finding-${index + 1}`,
+      disposition: status === "resolved" ? "closed" : status === "partially_resolved" ? "claimed_fixed" : "open"
+    }));
+  }
+  if (review.status === "PASS") return [];
+  const findingsSection = /## Findings\s*\n([\s\S]*?)(?=\n## |\s*$)/iu.exec(markdown)?.[1] ?? "";
+  const findingCount = [...findingsSection.matchAll(/^\s*\d+\.\s+/gmu)].length;
+  if (findingCount === 0) {
+    throw new Error("REVIEW_DELTA_PRIOR_FINDINGS_UNAVAILABLE: failed prior review has no parseable finding inventory.");
+  }
+  return Array.from({ length: findingCount }, (_, index) => ({
+    finding_id: `${artifact.artifact_id}#finding-${index + 1}`,
+    disposition: "open"
+  }));
+}
+
 function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "plan-review" | "implementation-review", operatorRequest: string, requestPath: string): {
   core: ContextCore;
   manifest: ContextManifest;
@@ -3504,14 +3561,9 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
   const reviewTier = fs.readFileSync(path.join(targetRoot, taskContractRef), "utf8").includes("`extra-high`") ? "extra-high" : "high";
   const inventory = reviewChangeInventory(targetRoot);
   const latestVerification = run.verification_results[run.verification_results.length - 1];
-  const verificationComplete = latestVerification?.status === "pass"
-    && latestVerification.command_results.length > 0
-    && latestVerification.command_results.every((entry) => entry.status === "pass" && entry.exit_code === 0);
+  const verificationComplete = verificationSatisfiesRequiredCommandInventory(targetRoot, run, latestVerification);
   const priorReview = [...run.review_results].reverse().find((entry) => reviewSourceMatchesProcedure(entry.source, procedureId));
-  const priorFindings = run.findings.map((entry) => ({
-    finding_id: entry.finding_id,
-    disposition: entry.status === "open" ? "open" as const : "closed" as const
-  }));
+  const priorFindings = priorReviewArtifactFindings(targetRoot, run, priorReview);
   const core = buildContextCore({
     task_id: run.phase_id ?? taskContractRef,
     task_pointer_ref: "TASK.md",
@@ -4128,6 +4180,12 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
   if (pendingSourceDecision && options.procedureId !== "implementation-review") {
     throw new Error(`ROUTING_POLICY_SOURCE_APPLICATION_REQUIRED: decision ${pendingSourceDecision.record_id} blocks model launch until exact reviewed source application.`);
   }
+  if (pendingSourceDecision && options.sourceApplicationDecisionId !== pendingSourceDecision.record_id) {
+    throw new Error(`ROUTING_POLICY_SOURCE_APPLICATION_DECISION_REQUIRED: --source-application-decision must equal ${pendingSourceDecision.record_id}.`);
+  }
+  if (!pendingSourceDecision && options.sourceApplicationDecisionId) {
+    throw new Error("ROUTING_POLICY_SOURCE_APPLICATION_DECISION_INVALID: no pending source-application decision matches the supplied ID.");
+  }
   const registry = readSelfHostingProcedureRegistry(targetRoot);
 
   if (!registry) {
@@ -4144,6 +4202,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
       [options.evaluationCaseId, "--evaluation-case"],
       [options.candidatePolicyVersion, "--candidate-policy-version"],
       [options.candidateBindingVersion, "--candidate-binding-version"],
+      [options.candidateProfileId, "--candidate-profile-id"],
       [options.candidateOutputPath, "--candidate-output"]
     ] as const) if (!value) throw new Error(`${flag} is required for ${evaluationMode} evaluation.`);
   }
@@ -4156,6 +4215,20 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     evaluationOnly ? options.candidateOutputPath! : options.outputPath
   );
   const operatorRequestBody = fs.readFileSync(requestPath, "utf8");
+  const canonicalPolicyFile = "skills/self-hosting/review-route-policy.json";
+  const canonicalBindingFile = "skills/self-hosting/codex-reference-binding.json";
+  const currentPolicyBlobHash = `sha256:${sha256Hex(fs.readFileSync(path.join(targetRoot, canonicalPolicyFile)))}`;
+  const currentBindingBlobHash = `sha256:${sha256Hex(fs.readFileSync(path.join(targetRoot, canonicalBindingFile)))}`;
+  const sourceApplicationCandidateId = pendingSourceDecision
+    ? `sha256:${sha256Hex(canonicalJson({
+        decision_id: pendingSourceDecision.record_id,
+        evaluation_id: pendingSourceDecision.payload.evaluation_id,
+        policy_file: canonicalPolicyFile,
+        policy_blob_hash: currentPolicyBlobHash,
+        binding_file: canonicalBindingFile,
+        binding_blob_hash: currentBindingBlobHash
+      }))}`
+    : undefined;
   const sourceApplicationReviewContext = pendingSourceDecision && options.procedureId === "implementation-review"
     ? [
         "## Harness-enforced routing source-application review context",
@@ -4167,7 +4240,12 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
         `previous_accepted_binding_version: ${String(pendingSourceDecision.payload.previous_accepted_binding_version)}`,
         `previous_policy_blob_hash: ${String(pendingSourceDecision.payload.previous_policy_blob_hash)}`,
         `previous_binding_blob_hash: ${String(pendingSourceDecision.payload.previous_binding_blob_hash)}`,
-        "Review the exact owner decision and current policy/binding source diff directly."
+        `candidate_policy_file: ${canonicalPolicyFile}`,
+        `candidate_policy_blob_hash: ${currentPolicyBlobHash}`,
+        `candidate_binding_file: ${canonicalBindingFile}`,
+        `candidate_binding_blob_hash: ${currentBindingBlobHash}`,
+        `candidate_source_identity: ${sourceApplicationCandidateId}`,
+        "Review the exact owner decision, evaluation, canonical blob identities, and current policy/binding source diff directly."
       ].join("\n")
     : undefined;
   const operatorRequestMarkdown = sourceApplicationReviewContext
@@ -4183,8 +4261,9 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
   if (evaluationOnly) {
     const candidateSource = readCodexReferenceBinding(targetRoot);
     if (options.candidatePolicyVersion !== readReviewRoutePolicy(targetRoot).policy_version
-      || !candidateSource.profiles.some((entry) => entry.status === "candidate" && entry.profile_id === options.candidateBindingVersion)) {
-      throw new Error("REVIEW_CANDIDATE_VERSION_UNAVAILABLE: candidate policy/profile must be checked in and version-exact.");
+      || candidateSource.binding_version !== options.candidateBindingVersion
+      || !candidateSource.profiles.some((entry) => entry.status === "candidate" && entry.profile_id === options.candidateProfileId)) {
+      throw new Error("REVIEW_CANDIDATE_VERSION_UNAVAILABLE: candidate policy, binding version, and profile must be checked in and exact.");
     }
     if (evaluationMode === "replay") {
       if (!options.replaySourceRunInstanceId || !options.replayPacketArtifactId) {
@@ -4244,7 +4323,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
   const requestHash = sha256Hex(requestMarkdown);
   const candidateBinding = evaluationOnly
     ? readCodexReferenceBinding(targetRoot).profiles.find((entry) => entry.status === "candidate"
-      && entry.profile_id === options.candidateBindingVersion && entry.route_class === packet.route.route_class)
+      && entry.profile_id === options.candidateProfileId && entry.route_class === packet.route.route_class)
     : undefined;
   if (evaluationOnly && !candidateBinding) throw new Error("REVIEW_CANDIDATE_BINDING_UNAVAILABLE: checked-in candidate does not satisfy the route.");
   const pinnedSourceReviewProfile = pendingSourceDecision && options.procedureId === "implementation-review"
@@ -4307,10 +4386,18 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     ,...(options.evaluationCaseId ? { evaluation_case_id: options.evaluationCaseId } : {})
     ,...(options.candidatePolicyVersion ? { candidate_policy_version: options.candidatePolicyVersion } : {})
     ,...(options.candidateBindingVersion ? {
-      candidate_binding_version: readCodexReferenceBinding(targetRoot).binding_version,
-      candidate_profile_id: options.candidateBindingVersion
+      candidate_binding_version: options.candidateBindingVersion,
+      candidate_profile_id: options.candidateProfileId
     } : {})
-    ,...(pendingSourceDecision ? { source_application_decision_id: pendingSourceDecision.record_id } : {})
+    ,...(pendingSourceDecision ? {
+      source_application_decision_id: pendingSourceDecision.record_id,
+      source_application_evaluation_id: String(pendingSourceDecision.payload.evaluation_id),
+      source_policy_file: canonicalPolicyFile,
+      source_policy_blob_hash: currentPolicyBlobHash,
+      source_binding_file: canonicalBindingFile,
+      source_binding_blob_hash: currentBindingBlobHash,
+      source_candidate_id: sourceApplicationCandidateId
+    } : {})
     ,...(options.canaryAuthorizationId ? { canary_authorization_id: options.canaryAuthorizationId } : {})
     ,...(options.replaySourceRunInstanceId ? { replay_source_run_instance_id: options.replaySourceRunInstanceId } : {})
     ,...(options.replayPacketArtifactId ? { replay_packet_artifact_id: options.replayPacketArtifactId } : {})
@@ -4867,6 +4954,7 @@ export function recordRuntimeRoutingPolicySourceApplication(
   const reviewInvocation = current.run.review_routing_records?.find((entry) => entry.record_kind === "review_invocation"
     && entry.status === "success" && entry.payload.artifact_id === options.implementationReviewArtifactId
     && entry.payload.source_application_decision_id === decision.record_id
+    && entry.payload.source_application_evaluation_id === decision.payload.evaluation_id
     && entry.payload.routing_policy_version === decision.payload.policy_version
     && entry.payload.binding_version === decision.payload.previous_accepted_binding_version
     && entry.payload.context_mode === "fresh_independent_delta");
@@ -4877,6 +4965,23 @@ export function recordRuntimeRoutingPolicySourceApplication(
     || `sha256:${sha256Hex(committedPolicy.stdout)}` !== `sha256:${sha256Hex(fs.readFileSync(policyPath))}`
     || `sha256:${sha256Hex(committedBinding.stdout)}` !== `sha256:${sha256Hex(fs.readFileSync(bindingPath))}`) {
     throw new Error("Policy source application files do not match the exact committed blobs.");
+  }
+  const committedPolicyHash = `sha256:${sha256Hex(committedPolicy.stdout)}`;
+  const committedBindingHash = `sha256:${sha256Hex(committedBinding.stdout)}`;
+  const reviewedCandidateId = `sha256:${sha256Hex(canonicalJson({
+    decision_id: decision.record_id,
+    evaluation_id: decision.payload.evaluation_id,
+    policy_file: options.policyFile,
+    policy_blob_hash: committedPolicyHash,
+    binding_file: options.bindingFile,
+    binding_blob_hash: committedBindingHash
+  }))}`;
+  if (reviewInvocation.payload.source_policy_file !== options.policyFile
+    || reviewInvocation.payload.source_policy_blob_hash !== committedPolicyHash
+    || reviewInvocation.payload.source_binding_file !== options.bindingFile
+    || reviewInvocation.payload.source_binding_blob_hash !== committedBindingHash
+    || reviewInvocation.payload.source_candidate_id !== reviewedCandidateId) {
+    throw new Error("ROUTING_POLICY_SOURCE_REVIEW_IDENTITY_MISMATCH: the accepted review did not inspect the exact canonical blobs committed by the owner decision.");
   }
   const createdAt = nowIso();
   const payload = {
@@ -5005,36 +5110,87 @@ export function cleanupRuntimePreparedSuccessor(cwd: string, options: CleanupPre
   return operationalResult(roots, current, run, complete, true, false);
 }
 
-function runtimeReferenceExists(targetRoot: string, run: Run, reference: string): boolean {
+type RuntimeReferenceKind =
+  "run" | "source" | "branch" | "file" | "artifact" | "evidence" | "verification"
+  | "command" | "review" | "approval" | "decision" | "delivery" | "routing";
+
+function resolveRuntimeReference(targetRoot: string, run: Run, reference: string): RuntimeReferenceKind | undefined {
   if (reference === `run:${run.run_instance_id}` || reference === `source:${run.source_snapshot}`
-    || reference === `branch:${run.repository.branch}`) return true;
+    || reference === `branch:${run.repository.branch}`) {
+    return reference.startsWith("run:") ? "run" : reference.startsWith("source:") ? "source" : "branch";
+  }
   if (reference.startsWith("file:")) {
     const match = /^file:([^#]+)#(sha256:[a-f0-9]{64})$/u.exec(reference);
-    if (!match) return false;
+    if (!match) return undefined;
     const absolute = path.resolve(targetRoot, match[1]);
     ensureInsideTargetRoot(targetRoot, absolute);
     return fs.existsSync(absolute) && fs.statSync(absolute).isFile()
-      && `sha256:${sha256Hex(fs.readFileSync(absolute))}` === match[2];
+      && `sha256:${sha256Hex(fs.readFileSync(absolute))}` === match[2]
+      ? "file"
+      : undefined;
   }
-  return run.artifacts.some((entry) => entry.artifact_id === reference)
-    || run.evidence.some((entry) => entry.evidence_id === reference || entry.artifact_id === reference)
-    || run.verification_results.some((entry) => entry.verification_result_id === reference
-      || entry.artifact_refs.some((artifact) => artifact.artifact_id === reference)
-      || entry.command_results.some((command) => command.command_result_id === reference))
-    || run.review_results.some((entry) => entry.review_result_id === reference
-      || entry.artifact_refs.some((artifact) => artifact.artifact_id === reference))
-    || run.approvals.some((entry) => entry.approval_id === reference
-      || entry.reviewed_plan_artifact_id === reference || entry.reviewed_evidence_artifact_id === reference)
-    || run.decisions.some((entry) => entry.decision_id === reference)
-    || run.delivery_facts.some((entry) => entry.delivery_fact_id === reference)
-    || (run.review_routing_records ?? []).some((entry) => entry.record_id === reference);
+  const separator = reference.indexOf(":");
+  if (separator <= 0) return undefined;
+  const kind = reference.slice(0, separator) as RuntimeReferenceKind;
+  const id = reference.slice(separator + 1);
+  switch (kind) {
+    case "artifact": return run.artifacts.some((entry) => entry.artifact_id === id) ? kind : undefined;
+    case "evidence": return run.evidence.some((entry) => entry.evidence_id === id) ? kind : undefined;
+    case "verification": return run.verification_results.some((entry) => entry.verification_result_id === id) ? kind : undefined;
+    case "command": return run.verification_results.some((entry) => entry.command_results.some((command) => command.command_result_id === id)) ? kind : undefined;
+    case "review": return run.review_results.some((entry) => entry.review_result_id === id) ? kind : undefined;
+    case "approval": return run.approvals.some((entry) => entry.approval_id === id) ? kind : undefined;
+    case "decision": return run.decisions.some((entry) => entry.decision_id === id) ? kind : undefined;
+    case "delivery": return run.delivery_facts.some((entry) => entry.delivery_fact_id === id) ? kind : undefined;
+    case "routing": return (run.review_routing_records ?? []).some((entry) => entry.record_id === id) ? kind : undefined;
+    default: return undefined;
+  }
+}
+
+function runtimeReferenceExists(targetRoot: string, run: Run, reference: string): boolean {
+  return resolveRuntimeReference(targetRoot, run, reference) !== undefined;
+}
+
+function evidenceRoleAcceptsReference(role: string, kind: RuntimeReferenceKind): boolean {
+  if (/approval/iu.test(role)) return kind === "approval";
+  if (/exact_run_identity|run_state|operator_status/iu.test(role)) return kind === "run";
+  if (/command_result|test_ref/iu.test(role)) return kind === "command" || kind === "verification" || kind === "artifact";
+  if (/verification|snapshot/iu.test(role)) return kind === "verification" || kind === "command" || kind === "artifact";
+  if (/review|finding/iu.test(role)) return kind === "review" || kind === "artifact";
+  if (/decision/iu.test(role)) return kind === "decision" || kind === "routing";
+  if (/delivery|remote_fact|commit_ref/iu.test(role)) return kind === "delivery" || kind === "source" || kind === "branch";
+  if (/task|plan|source|acceptance|procedure_contract|canonical_source|docs_diff|architecture|schema/iu.test(role)) {
+    return kind === "file" || kind === "artifact" || kind === "evidence";
+  }
+  return kind === "artifact" || kind === "evidence" || kind === "file" || kind === "routing";
+}
+
+function independenceReferenceQualifies(targetRoot: string, run: Run, procedureId: string, reference: string): boolean {
+  const kind = resolveRuntimeReference(targetRoot, run, reference);
+  const id = reference.slice(reference.indexOf(":") + 1);
+  if (kind === "verification") {
+    const verification = run.verification_results.find((entry) => entry.verification_result_id === id);
+    return procedureId === "verification-review"
+      && verificationSatisfiesRequiredCommandInventory(targetRoot, run, verification);
+  }
+  if (kind === "review") {
+    const review = run.review_results.find((entry) => entry.review_result_id === id);
+    return Boolean(review?.status === "PASS" && review.source.startsWith("procedure:"));
+  }
+  if (kind === "delivery") return procedureId === "delivery-facts-review";
+  if (kind === "decision") return procedureId === "phase-closeout-review";
+  return false;
+}
+
+function approvalReferenceQualifies(run: Run, reference: string): boolean {
+  if (!reference.startsWith("approval:")) return false;
+  const approvalId = reference.slice("approval:".length);
+  return run.approvals.some((entry) => entry.approval_id === approvalId && entry.status === "approved");
 }
 
 function deterministicPrecheckSatisfied(targetRoot: string, run: Run, procedureId: string, precheck: string): boolean {
   const latestVerification = run.verification_results[run.verification_results.length - 1];
-  const verificationPassed = latestVerification?.status === "pass"
-    && latestVerification.command_results.length > 0
-    && latestVerification.command_results.every((entry) => entry.status === "pass" && entry.exit_code === 0);
+  const verificationPassed = verificationSatisfiesRequiredCommandInventory(targetRoot, run, latestVerification);
   switch (precheck) {
     case "task_contract_identity":
       return fs.existsSync(path.join(targetRoot, run.active_task_path ?? run.task_path));
@@ -5043,7 +5199,7 @@ function deterministicPrecheckSatisfied(targetRoot: string, run: Run, procedureI
     case "required_reading":
       return run.evidence.length > 0;
     case "required_command_inventory":
-      return (latestVerification?.command_results.length ?? 0) > 0;
+      return verificationPassed;
     case "command_results":
     case "verification_pass":
     case "link_and_path_checks":
@@ -5136,19 +5292,21 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
     });
     const missingEvidence = executionContract.required_evidence_contract.filter((entry) => {
       const reference = evidenceRefs.get(entry);
-      return !reference || !runtimeReferenceExists(targetRoot, current.run, reference);
+      const kind = reference ? resolveRuntimeReference(targetRoot, current.run, reference) : undefined;
+      return !kind || !evidenceRoleAcceptsReference(entry, kind);
     });
     const missingOutputs = executionContract.required_output_contract.filter((entry) => {
       const value = markdown.match(new RegExp(`^output\\.${escapeRegExpPattern(entry)}:\\s*(.+)$`, "imu"))?.[1]?.trim();
-      return !value;
+      return !value || resolveRuntimeReference(targetRoot, current.run, value) !== "artifact";
     });
     const residualDisposition = markdown.match(/^semantic_residual_disposition:\s*(.+)$/imu)?.[1]?.trim();
     const independenceRef = markdown.match(/^independence_ref:\s*(.+)$/imu)?.[1]?.trim();
     const approvalRef = markdown.match(/^approval_ref:\s*(.+)$/imu)?.[1]?.trim();
     if (missingPrechecks.length || missingEvidence.length || missingOutputs.length
       || (executionContract.semantic_residual.length > 0 && residualDisposition !== "not_applicable")
-      || (executionContract.independence === "independent" && (!independenceRef || !runtimeReferenceExists(targetRoot, current.run, independenceRef)))
-      || (approvalRef ? !runtimeReferenceExists(targetRoot, current.run, approvalRef)
+      || (executionContract.independence === "independent" && (!independenceRef
+        || !independenceReferenceQualifies(targetRoot, current.run, options.procedureId, independenceRef)))
+      || (approvalRef ? !approvalReferenceQualifies(current.run, approvalRef)
         : executionContract.required_evidence_contract.some((entry) => entry.includes("approval")))) {
       throw new Error(`DETERMINISTIC_COMPLETION_INCOMPLETE: prechecks=${missingPrechecks.join(",")} evidence=${missingEvidence.join(",")} outputs=${missingOutputs.join(",")}`);
     }
@@ -6692,12 +6850,7 @@ function escapeRegExpPattern(value: string): string {
 }
 
 function reviewSourceMatchesProcedure(source: string | undefined, procedureId: string): boolean {
-  if (!source) {
-    return false;
-  }
-
-  const pattern = new RegExp(`(^|[^a-z0-9])${escapeRegExpPattern(procedureId)}([^a-z0-9]|$)`, "i");
-  return pattern.test(source);
+  return source === `procedure:${procedureId}`;
 }
 
 function findLatestProcedureReviewResult(run: Run, procedureId: string): ReviewResult | undefined {

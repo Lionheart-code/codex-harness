@@ -364,6 +364,49 @@ test("phase 23.8.6B1 launch-review dry-run validates without spawning or writing
   assert.equal(readRun(tempRepo).evidence.some((entry) => entry.kind.startsWith("review-launch-attempt:")), false);
 });
 
+test("phase 23.8.6F evaluation launch requires separate exact binding-version and profile identities", () => {
+  const tempRepo = createB1Repo("codex-harness-f-review-candidate-identity-");
+  const requestPath = writeManualFile(tempRepo, "run-0001", "implementation-review-request.md", "review this candidate");
+  const policy = JSON.parse(fs.readFileSync(path.join(tempRepo, "skills/self-hosting/review-route-policy.json"), "utf8"));
+  const binding = JSON.parse(fs.readFileSync(path.join(tempRepo, "skills/self-hosting/codex-reference-binding.json"), "utf8"));
+  const candidate = binding.profiles.find((entry) => entry.status === "candidate");
+  assert.ok(candidate, "fixture must contain a candidate profile");
+  const common = [
+    "run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review",
+    "--request", requestPath,
+    "--output", ".harness/runs/run-0001/manual/ignored-approved-output.md",
+    "--evaluation-mode", "shadow",
+    "--approved-attempt", "approved-attempt",
+    "--evaluation-case", "candidate-identity",
+    "--candidate-policy-version", policy.policy_version,
+    "--candidate-output", ".harness/runs/run-0001/manual/candidate-output.md",
+    "--dry-run"
+  ];
+
+  const conflated = runCli([
+    ...common,
+    "--candidate-binding-version", candidate.profile_id,
+    "--candidate-profile-id", candidate.profile_id
+  ], { cwd: tempRepo });
+  assertFailure(conflated, "profile ID must not stand in for binding version");
+  assert.match(conflated.stderr, /REVIEW_CANDIDATE_VERSION_UNAVAILABLE/);
+
+  const missingProfile = runCli([
+    ...common,
+    "--candidate-binding-version", binding.binding_version
+  ], { cwd: tempRepo });
+  assertFailure(missingProfile, "candidate profile ID is independently required");
+  assert.match(missingProfile.stderr, /--candidate-profile-id is required/);
+
+  const exact = runCli([
+    ...common,
+    "--candidate-binding-version", binding.binding_version,
+    "--candidate-profile-id", candidate.profile_id
+  ], { cwd: tempRepo });
+  assertFailure(exact, "exact candidate identities advance to baseline validation");
+  assert.match(exact.stderr, /REVIEW_EVALUATION_APPROVED_ATTEMPT_MISSING/);
+});
+
 test("phase 23.8.6B1 launch-review records valid implementation-review artifact and launch attempt", () => {
   const tempRepo = createB1Repo("codex-harness-b1-review-success-");
   writeManualFile(tempRepo, "run-0001", "implementation-review-request.md", "review this diff");

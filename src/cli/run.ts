@@ -53,7 +53,7 @@ function printRunHelp(): void {
     "  node bin/ch run verify [--run <run-id>] [--dry-run]",
     "  node bin/ch run closeout [--run <run-id>] [--dry-run]",
     "  node bin/ch run record-procedure --run <run-id> --procedure <id> --file <path> [--dry-run]",
-    "  node bin/ch run launch-review --run <run-id> --procedure <plan-review|implementation-review> --request <path> --output <path> [--timeout-seconds <n>] [--stale-after-seconds <n>] [--evaluation-mode approved|shadow|replay|canary] [--dry-run]",
+    "  node bin/ch run launch-review --run <run-id> --procedure <plan-review|implementation-review> --request <path> --output <path> [--timeout-seconds <n>] [--stale-after-seconds <n>] [--evaluation-mode approved|shadow|replay|canary] [--candidate-policy-version <id> --candidate-binding-version <id> --candidate-profile-id <id>] [--source-application-decision <id>] [--dry-run]",
     "  node bin/ch run record-routing-evaluation --run <run-id> --file <bundle.json> [--dry-run]",
     "  node bin/ch run decide-routing-policy --run <run-id> --evaluation <id> --decision authorize-canary|promote|reject|rollback --policy-version <id> --binding-version <id> --approver <name> --reason <text> [--selector <file>] [--max-invocations <1-3>] [--dry-run]",
     "  node bin/ch run record-routing-policy-source-application --run <run-id> --decision <id> --commit <sha> --policy-file <path> --binding-file <path> --implementation-review <artifact-id> [--dry-run]",
@@ -452,7 +452,8 @@ async function runLaunchReview(args: string[]): Promise<number> {
   const options = parseOptions(args, new Set([
     "run", "procedure", "request", "output", "timeout-seconds", "stale-after-seconds",
     "evaluation-mode", "approved-attempt", "evaluation-case", "candidate-policy-version",
-    "candidate-binding-version", "candidate-output", "canary-authorization",
+    "candidate-binding-version", "candidate-profile-id", "candidate-output", "canary-authorization",
+    "source-application-decision",
     "replay-source-run-instance", "replay-packet-artifact"
   ]));
   const procedureId = stringOption(options, "procedure");
@@ -486,7 +487,9 @@ async function runLaunchReview(args: string[]): Promise<number> {
     evaluationCaseId: stringOption(options, "evaluation-case"),
     candidatePolicyVersion: stringOption(options, "candidate-policy-version"),
     candidateBindingVersion: stringOption(options, "candidate-binding-version"),
+    candidateProfileId: stringOption(options, "candidate-profile-id"),
     candidateOutputPath: stringOption(options, "candidate-output"),
+    sourceApplicationDecisionId: stringOption(options, "source-application-decision"),
     canaryAuthorizationId: stringOption(options, "canary-authorization"),
     replaySourceRunInstanceId: stringOption(options, "replay-source-run-instance"),
     replayPacketArtifactId: stringOption(options, "replay-packet-artifact")
