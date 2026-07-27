@@ -97,17 +97,13 @@ architecture/authority and persisted-storage/no-storage-change review; a failed
 labeled verdict routes to a fix pass and then a fresh combined review. Phase
 23.8.6D completed durable-procedure payload storage, successor recovery, and
 worktree retention. Phase 23.8.6E is complete, independently reviewed,
-accepted, merged, closed out, and harvested. Phase 23.8.6F is the active
-implementation phase: it adds deterministic-first contracts for all registered
-procedures plus the narrow reusable review-context, per-invocation route,
-Codex reference-binding, routing-eval/promotion, usage-telemetry, and native
-successor-handoff correction substrate for the existing self-hosting review
-path. Automatic Codex launch remains limited to the existing `plan-review` and
-`implementation-review` surfaces. Phase 23.8.7 carries F route/context/usage
-refs into general stage packets/results, 23.9 adds proof provenance, 24A adds
-deterministic report/export views, and Phase 30 generalizes experimentation.
-Phase 31 remains the first general external-runner provider-binding and
-execution boundary.
+accepted, merged, closed out, and harvested. Phase 23.8.6F is complete,
+independently reviewed, accepted, merged, closed out, and harvested. Phase
+23.8.7 is the active implementation phase: it carries F route/context/usage
+refs into general stage packets/results without selecting providers or launching
+runners. Phase 23.9 adds proof provenance, 24A adds deterministic report/export
+views, and Phase 30 generalizes experimentation. Phase 31 remains the first
+general external-runner provider-binding and execution boundary.
 
 For a newly inserted phase, materialization is not complete when only
 `TASK.md` changes. Record the immutable next-task decision, create the
