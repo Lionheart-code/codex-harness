@@ -39,6 +39,14 @@ import {
   recordRuntimeRoutingPolicySourceApplication,
   cleanupRuntimePreparedSuccessor
 } from "../core/runtime";
+import {
+  prepareRuntimeStagePacket,
+  recordRuntimeStageResult,
+  type PrepareStagePacketOptions,
+  type RecordStageResultOptions,
+  type StagePacketServiceResult,
+  type StageResultServiceResult
+} from "../core/stage-operator";
 
 type ParsedOptions = Record<string, string | boolean>;
 
@@ -53,6 +61,8 @@ function printRunHelp(): void {
     "  node bin/ch run verify [--run <run-id>] [--dry-run]",
     "  node bin/ch run closeout [--run <run-id>] [--dry-run]",
     "  node bin/ch run record-procedure --run <run-id> --procedure <id> --file <path> [--dry-run]",
+    "  node bin/ch run prepare-packet [--run <run-id>] --kind auto|plan|implementation|review|fix-pass|closeout [--dry-run]",
+    "  node bin/ch run record-stage-result [--run <run-id>] --packet <id> --file <path> [--dry-run]",
     "  node bin/ch run launch-review --run <run-id> --procedure <plan-review|implementation-review> --request <path> --output <path> [--timeout-seconds <n>] [--stale-after-seconds <n>] [--evaluation-mode approved|shadow|replay|canary] [--candidate-policy-version <id> --candidate-binding-version <id> --candidate-profile-id <id>] [--source-application-decision <id>] [--dry-run]",
     "  node bin/ch run record-routing-evaluation --run <run-id> --file <bundle.json> [--dry-run]",
     "  node bin/ch run decide-routing-policy --run <run-id> --evaluation <id> --decision authorize-canary|promote|reject|rollback --policy-version <id> --binding-version <id> --approver <name> --reason <text> [--selector <file>] [--max-invocations <1-3>] [--dry-run]",
@@ -70,6 +80,8 @@ function printRunHelp(): void {
     "  verify        Run current verification commands or record installed verifier output.",
     "  closeout      Create a structured closeout receipt for the current runtime run.",
     "  record-procedure Record a self-hosting procedure artifact as durable run evidence.",
+    "  prepare-packet Prepare one deterministic hookless stage packet without launching a runner.",
+    "  record-stage-result Validate and ingest one supplied stage-result fixture.",
     "  launch-review Supervise a read-only review launch and record structured launch evidence.",
     "  record-routing-evaluation Record an immutable routing evaluation bundle.",
     "  decide-routing-policy Record an explicit owner canary, promotion, rejection, or rollback decision.",
@@ -224,6 +236,7 @@ function renderOperatorLines(result: RuntimeOperatorStatusResult): string[] {
     `required_evidence: ${JSON.stringify(result.operator.required_evidence)}`,
     `missing_evidence: ${JSON.stringify(result.operator.missing_evidence)}`,
     `stop_reason: ${result.operator.stop_reason}`,
+    `human_action_required: ${result.operator.human_action_required ? "true" : "false"}`,
     `next_allowed_action: ${result.operator.next_allowed_action}`,
     `forbidden_actions: ${JSON.stringify(result.operator.forbidden_actions)}`,
     `review_tier: ${result.operator.review_tier}`
@@ -247,6 +260,69 @@ function renderProcedureLines(result: RuntimeProcedureResult): string[] {
   output.push(`artifact path: ${result.artifact.path}`);
   output.push(`artifact id: ${result.artifact.artifact_id}`);
   output.push(`evidence id: ${result.evidence.evidence_id}`);
+  return output;
+}
+
+function renderStagePacketLines(result: StagePacketServiceResult): string[] {
+  const output = [
+    "codex-harness run prepare-packet",
+    `target root: ${result.targetRoot}`,
+    `project root: ${result.projectRoot}`,
+    `run id: ${result.run.run_id}`,
+    `run instance id: ${result.run.run_instance_id ?? "(missing)"}`,
+    `run revision: ${result.run.run_revision ?? "(missing)"}`,
+    `packet kind: ${result.stageState.packet_kind}`,
+    `procedure: ${result.stageState.procedure_id}`,
+    `stage status: ${result.stageState.status}`,
+    `human_action_required: ${result.stageState.human_action_required ? "true" : "false"}`,
+    `next_allowed_action: ${result.stageState.next_allowed_action}`,
+    `recorded: ${result.recorded ? "true" : "false"}`
+  ];
+  if (result.packet) {
+    output.push(`stage packet id: ${result.packet.stage_packet_id}`);
+    output.push(`runner profile: ${result.packet.runner_profile_id}`);
+    output.push(`route decision: ${result.packet.route_decision_id}`);
+    output.push(`context core: ${result.packet.context_core_id}`);
+    output.push(`required reviews: ${JSON.stringify(result.packet.required_semantic_reviews)}`);
+  }
+  if (result.issue) {
+    output.push(`stop reason: ${result.issue.issue_type}`);
+    output.push(`run issue: ${result.issue.summary}`);
+  }
+  if (result.repairPacket) {
+    output.push(`repair packet id: ${result.repairPacket.packet_id}`);
+  }
+  if (result.dryRun) {
+    output.push("dry-run: no files were written");
+  }
+  return output;
+}
+
+function renderStageResultLines(result: StageResultServiceResult): string[] {
+  const output = [
+    "codex-harness run record-stage-result",
+    `target root: ${result.targetRoot}`,
+    `project root: ${result.projectRoot}`,
+    `run id: ${result.run.run_id}`,
+    `stage result id: ${result.stageResult.stage_result_id}`,
+    `stage packet id: ${result.stageResult.stage_packet_id}`,
+    `outcome: ${result.stageResult.outcome}`,
+    `schema valid: ${result.stageResult.schema_valid ? "true" : "false"}`,
+    `payload id: ${result.stageResult.payload_id}`,
+    `human_action_required: ${result.stageState.human_action_required ? "true" : "false"}`,
+    `next_allowed_action: ${result.stageState.next_allowed_action}`,
+    `recorded: ${result.recorded ? "true" : "false"}`
+  ];
+  if (result.issue) {
+    output.push(`stop reason: ${result.issue.issue_type}`);
+    output.push(`run issue: ${result.issue.summary}`);
+  }
+  if (result.repairPacket) {
+    output.push(`repair packet id: ${result.repairPacket.packet_id}`);
+  }
+  if (result.dryRun) {
+    output.push("dry-run: no files were written");
+  }
   return output;
 }
 
@@ -446,6 +522,41 @@ async function runRecordProcedure(args: string[]): Promise<number> {
   } satisfies RecordProcedureOptions);
   lines(renderProcedureLines(result));
   return 0;
+}
+
+async function runPreparePacket(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run", "kind"]));
+  const kind = stringOption(options, "kind");
+  if (!kind) {
+    throw new Error("--kind is required.");
+  }
+  const result = prepareRuntimeStagePacket(process.cwd(), {
+    runId: stringOption(options, "run"),
+    kind,
+    dryRun: dryRunOption(options)
+  } as PrepareStagePacketOptions);
+  lines(renderStagePacketLines(result));
+  return result.stageState.status === "blocked" ? 1 : 0;
+}
+
+async function runRecordStageResult(args: string[]): Promise<number> {
+  const options = parseOptions(args, new Set(["run", "packet", "file"]));
+  const packetId = stringOption(options, "packet");
+  const filePath = stringOption(options, "file");
+  if (!packetId) {
+    throw new Error("--packet is required.");
+  }
+  if (!filePath) {
+    throw new Error("--file is required.");
+  }
+  const result = recordRuntimeStageResult(process.cwd(), {
+    runId: stringOption(options, "run"),
+    packetId,
+    filePath,
+    dryRun: dryRunOption(options)
+  } satisfies RecordStageResultOptions);
+  lines(renderStageResultLines(result));
+  return result.issue ? 1 : 0;
 }
 
 async function runLaunchReview(args: string[]): Promise<number> {
@@ -738,6 +849,10 @@ export async function runRuntime(args: string[]): Promise<number> {
         return runCloseout(commandArgs);
       case "record-procedure":
         return runRecordProcedure(commandArgs);
+      case "prepare-packet":
+        return runPreparePacket(commandArgs);
+      case "record-stage-result":
+        return runRecordStageResult(commandArgs);
       case "launch-review":
         return await runLaunchReview(commandArgs);
       case "record-routing-evaluation":

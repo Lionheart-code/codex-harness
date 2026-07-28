@@ -37,7 +37,15 @@ import {
   type RepairPacket,
   type RunIssue,
   type PayloadRecord,
-  type RunMode
+  type RunMode,
+  type StageState,
+  type StagePacket,
+  type StageResult,
+  type RunnerProfile,
+  type ExecutionPolicy,
+  type WaiverRecord,
+  deriveStagePacketId,
+  resolveStageResultTransitionContract
 } from "./lifecycle-types";
 import { evaluateMergeFacts } from "./merge-facts";
 import { ProjectMemoryDatabase } from "./project-memory-db";
@@ -68,6 +76,7 @@ import {
 } from "./self-hosting-procedures";
 import {
   decideReviewRoute,
+  deriveRequiredSemanticReviews,
   readCodexReferenceBinding,
   readProcedureExecutionPolicy,
   readReviewRoutePolicy,
@@ -102,6 +111,12 @@ export const RUNTIME_CONTRACT_NAMES = [
   "Run",
   "RunIssue",
   "RepairPacket",
+  "StageState",
+  "StagePacket",
+  "StageResult",
+  "RunnerProfile",
+  "ExecutionPolicy",
+  "WaiverRecord",
   "PhaseRun",
   "Step",
   "ArtifactRef",
@@ -355,6 +370,12 @@ export interface Run {
   source_staging_db_path?: string;
   review_launch_claims?: ReviewLaunchClaim[];
   review_routing_records?: ReviewOperationalRecord[];
+  stage_states?: StageState[];
+  stage_packets?: StagePacket[];
+  stage_results?: StageResult[];
+  runner_profiles?: RunnerProfile[];
+  execution_policies?: ExecutionPolicy[];
+  waiver_records?: WaiverRecord[];
 }
 
 export interface BuildRuntimeRunInput {
@@ -546,6 +567,15 @@ export interface ReviewLaunchObservation {
   pass_kind?: string;
   immutable_base?: string;
   risk_classes?: string[];
+  changed_surface_classes?: string[];
+  required_semantic_reviews?: string[];
+  review_tier?: OperatorReviewTier;
+  usage_ref?: string;
+  deterministic_evidence_state?: "complete" | "incomplete";
+  parallel_policy?: "serial";
+  budget_class?: "balanced" | "critical";
+  escalation_triggers?: string[];
+  independence_mode?: string;
   canary_authorization_id?: string;
   replay_source_run_instance_id?: string;
   replay_packet_artifact_id?: string;
@@ -611,6 +641,7 @@ export interface RuntimeOperatorStatus {
   required_evidence: string[];
   missing_evidence: string[];
   stop_reason: string;
+  human_action_required: boolean;
   next_allowed_action: string;
   forbidden_actions: string[];
   review_tier: OperatorReviewTier;
@@ -842,8 +873,9 @@ interface OperatorEvaluationOptions extends RuntimeDryRunOptions {
   runOverride?: Run;
 }
 
-type OperatorStageDraft = Omit<RuntimeOperatorStatus, "review_tier" | "next_procedure_id"> & {
+type OperatorStageDraft = Omit<RuntimeOperatorStatus, "review_tier" | "next_procedure_id" | "human_action_required"> & {
   next_procedure_id: string;
+  human_action_required?: boolean;
 };
 
 interface PlanReviewDecisionRecord {
@@ -1340,16 +1372,27 @@ function validateWorkerHandoff(value: unknown): WorkerHandoff {
 
 function validateBootstrapIssues(value: unknown[]): RunIssue[] {
   assertUniqueNonEmptyIds(value, "issue_id", "run issue");
-  const issueTypes = new Set(["uncommitted_task_activation", "missing_commit_backed_activation", "dirty_git_after_task_activation", "task_worktree_authority_mismatch", "task_branch_authority_mismatch", "bootstrap_authority_ambiguous", "bootstrap_authority_unmatched", "missing_base_authority", "worktree_bootstrap_not_ready"]);
+  const issueTypes = new Set(["uncommitted_task_activation", "missing_commit_backed_activation", "dirty_git_after_task_activation", "task_worktree_authority_mismatch", "task_branch_authority_mismatch", "bootstrap_authority_ambiguous", "bootstrap_authority_unmatched", "missing_base_authority", "worktree_bootstrap_not_ready", "missing_route_context_evidence", "illegal_stage_transition", "invalid_stage_result", "missing_deterministic_checks", "missing_required_review", "review_independence_violation", "source_change_before_approval", "scope_creep", "failed_verification", "review_stale_no_output", "fake_closeout_evidence"]);
   const routes = new Set(["fix_pass", "plan_amend", "supporting_fix", "new_task"]);
   return value.map((entry) => {
     const record = assertObject(entry, "run issue");
     for (const field of ["issue_id", "phase_id", "issue_type", "status", "created_at", "source", "summary", "recommended_route"]) {
       assertRequiredString(record, field, "run issue");
     }
-    if (!BOOTSTRAP_ISSUE_PHASE_IDS.has(record.phase_id as BootstrapIssuePhaseId) || record.source !== "bootstrap" || record.blocking !== true
+    const stageIssue = record.phase_id === "23.8.7" && (record.source === "stage_packet" || record.source === "stage_result");
+    const bootstrapIssue = BOOTSTRAP_ISSUE_PHASE_IDS.has(record.phase_id as BootstrapIssuePhaseId) && record.source === "bootstrap";
+    if ((!bootstrapIssue && !stageIssue) || record.blocking !== true
       || !issueTypes.has(String(record.issue_type)) || !["open", "resolved"].includes(String(record.status)) || !routes.has(String(record.recommended_route))) {
       throw new Error("run issue has unsupported current-bootstrap fields.");
+    }
+    if (stageIssue && (
+      typeof record.stage_id !== "string"
+      || !["low", "medium", "high"].includes(String(record.severity))
+      || typeof record.issue_kind !== "string"
+      || !Array.isArray(record.evidence_refs)
+      || record.repair_required !== true
+    )) {
+      throw new Error("stage-level run issue is missing normalized repair metadata.");
     }
     return record as unknown as RunIssue;
   });
@@ -1364,11 +1407,50 @@ function validateRepairPackets(value: unknown[], issues: RunIssue[]): RepairPack
     for (const field of ["packet_id", "phase_id", "created_at", "route", "summary", "next_action", "prompt"]) {
       assertRequiredString(record, field, "repair packet");
     }
-    if (!BOOTSTRAP_ISSUE_PHASE_IDS.has(record.phase_id as BootstrapIssuePhaseId) || !routes.has(String(record.route)) || !Array.isArray(record.issue_ids)
+    if ((!BOOTSTRAP_ISSUE_PHASE_IDS.has(record.phase_id as BootstrapIssuePhaseId) && record.phase_id !== "23.8.7") || !routes.has(String(record.route)) || !Array.isArray(record.issue_ids)
       || record.issue_ids.length === 0 || record.issue_ids.some((issueId) => typeof issueId !== "string" || !issueIds.has(issueId))) {
       throw new Error("repair packet has invalid current-bootstrap issue links.");
     }
+    if (record.phase_id === "23.8.7" && (
+      typeof record.target_stage !== "string"
+      || !Array.isArray(record.required_repairs)
+      || !Array.isArray(record.validation_refs)
+      || typeof record.stopping_condition !== "string"
+    )) {
+      throw new Error("stage-level repair packet is missing normalized transition metadata.");
+    }
     return record as unknown as RepairPacket;
+  });
+}
+
+function validateStageRecordArray<T>(
+  value: unknown,
+  field: string,
+  idField: string,
+  requiredStrings: string[],
+  requiredArrays: string[] = []
+): T[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`runtime run has invalid ${field}.`);
+  }
+  assertUniqueNonEmptyIds(value, idField, field);
+  return value.map((entry) => {
+    const record = assertObject(entry, field);
+    for (const required of requiredStrings) {
+      assertRequiredString(record, required, field);
+    }
+    for (const required of requiredArrays) {
+      if (!Array.isArray(record[required])) {
+        throw new Error(`${field} is missing required array field: ${required}.`);
+      }
+    }
+    if (record.phase_id !== "23.8.7" || typeof record.current !== "boolean") {
+      throw new Error(`${field} has unsupported phase or current-record state.`);
+    }
+    return record as T;
   });
 }
 
@@ -1491,16 +1573,27 @@ function extractAcceptanceCommands(markdown: string): string[] {
     .filter((command): command is string => Boolean(command));
 }
 
-function extractEffectiveValidationCommands(markdown: string): string[] {
+export function extractEffectiveValidationCommands(markdown: string): string[] {
   const section = extractMarkdownSection(markdown, "Effective Validation");
   if (!section) return [];
   const commands: string[] = [];
   for (const line of section.split(/\r?\n/u)) {
     const match = /^\s*\d+\.\s+`([^`]+)`\s*$/u.exec(line);
-    if (!match?.[1]) continue;
-    commands.push(match[1].trim());
+    if (match?.[1]) {
+      commands.push(match[1].trim());
+      continue;
+    }
+    if (!line.trim().startsWith("|")) {
+      continue;
+    }
+    for (const inline of line.matchAll(/`([^`]+)`/gu)) {
+      const candidate = inline[1]?.trim();
+      if (candidate && /^(?:node|npm|npx|pnpm|yarn|git)\s+/u.test(candidate)) {
+        commands.push(candidate);
+      }
+    }
   }
-  return commands;
+  return [...new Set(commands)];
 }
 
 function resolveRunActiveTaskMarkdown(targetRoot: string, run: Run): string | undefined {
@@ -2055,7 +2148,13 @@ export function buildRuntimeRun(input: BuildRuntimeRunInput): Run {
     delivery_facts: [],
     closeout_receipts: [],
     run_issues: [],
-    repair_packets: []
+    repair_packets: [],
+    stage_states: [],
+    stage_packets: [],
+    stage_results: [],
+    runner_profiles: [],
+    execution_policies: [],
+    waiver_records: []
   };
 }
 
@@ -2162,6 +2261,441 @@ export function validateRuntimeRun(value: unknown): Run {
   const reviewOperationalRecords = record.review_routing_records === undefined
     ? undefined
     : validateReviewOperationalRecords(record.review_routing_records);
+  const stageStates = validateStageRecordArray<StageState>(
+    record.stage_states,
+    "stage_states",
+    "stage_state_id",
+    ["task_id", "run_id", "run_instance_id", "project_run_id", "phase_id", "packet_kind", "procedure_id", "current_stage", "status", "blocked_disposition", "stop_reason", "stopping_condition", "next_allowed_action", "created_at"],
+    ["allowed_next_stages", "missing_inputs", "missing_evidence", "blockers", "validation_refs", "bounded_progress_log"]
+  );
+  const stagePackets = validateStageRecordArray<StagePacket>(
+    record.stage_packets,
+    "stage_packets",
+    "stage_packet_id",
+    ["packet_id", "task_id", "run_id", "run_instance_id", "project_run_id", "phase_id", "packet_kind", "stage_id", "procedure_id", "return_procedure_id", "effective_plan_ref", "output_contract", "required_result_schema", "stopping_condition", "progress_log_contract", "execution_policy_ref", "route_decision_ref", "route_policy_ref", "provider_binding_ref", "context_core_ref", "delta_overlay_ref", "context_manifest_ref", "context_transport_ref", "usage_facts_ref", "runner_profile_id", "created_at"],
+    ["payload_refs", "evidence_refs", "input_refs", "validation_refs", "bounded_progress_log", "required_semantic_reviews", "changed_surfaces", "changed_surface_classes", "risk_classes", "escalation_triggers"]
+  );
+  const stageResults = validateStageRecordArray<StageResult>(
+    record.stage_results,
+    "stage_results",
+    "stage_result_id",
+    ["result_id", "stage_packet_id", "packet_id", "run_id", "run_instance_id", "project_run_id", "phase_id", "procedure_id", "runner_id", "outcome", "summary", "blocked_disposition", "progress_log_ref", "route_decision_ref", "usage_facts_ref", "payload_id", "recorded_at"],
+    [
+      "files_changed", "commands", "commands_run", "outputs", "blockers", "declared_blockers",
+      "payload_refs", "evidence_refs", "completed_reviews", "validation_results",
+      "bounded_progress_log", "anomaly_codes", "waiver_refs"
+    ]
+  );
+  const runnerProfiles = validateStageRecordArray<RunnerProfile>(
+    record.runner_profiles,
+    "runner_profiles",
+    "runner_profile_id",
+    ["runner_id", "phase_id", "runner_kind", "write_capability", "session_support", "status", "created_at"],
+    ["supported_roles", "supported_packet_kinds"]
+  );
+  const executionPolicies = validateStageRecordArray<ExecutionPolicy>(
+    record.execution_policies,
+    "execution_policies",
+    "execution_policy_id",
+    ["phase_id", "policy_version", "role", "write_scope", "sandbox_mode", "approval_policy", "network_policy", "command_policy", "timeout_policy", "created_at"],
+    ["allowed_paths", "forbidden_paths", "allowed_runner_profile_ids", "allowed_packet_kinds"]
+  );
+  const waiverRecords = validateStageRecordArray<WaiverRecord>(
+    record.waiver_records,
+    "waiver_records",
+    "waiver_id",
+    ["phase_id", "run_id", "stage_packet_id", "control_id", "failed_check", "granted_by", "approver", "reason", "scope", "created_at"],
+    ["evidence_refs"]
+  );
+  const expectedPacketKinds = ["plan", "implementation", "review", "fix-pass", "closeout"];
+  if (runnerProfiles?.some((profile) =>
+    profile.runner_profile_id !== "runner-profile-supplied-fixture-v1"
+    || profile.runner_id !== profile.runner_profile_id
+    || profile.adapter_kind !== "supplied_fixture"
+    || profile.runner_kind !== "supplied_fixture"
+    || canonicalJson(profile.supported_roles) !== canonicalJson(expectedPacketKinds)
+    || canonicalJson(profile.supported_packet_kinds) !== canonicalJson(expectedPacketKinds)
+    || profile.structured_output_support !== true
+    || profile.can_launch !== false
+    || profile.write_capability !== "none"
+    || profile.accepts_result_fixture !== true
+    || profile.description !== "Hookless adapter contract: ingest a supplied result fixture; never launch a runner."
+    || profile.session_support !== "none"
+    || profile.status !== "active"
+    || profile.current !== true)) {
+    throw new Error("runner_profiles must preserve the exact hookless supplied-fixture contract.");
+  }
+  const expectedAllowedPaths = [".harness/runs/<run-id>/run.json", ".harness/runs/<run-id>/run-staging.sqlite"];
+  const expectedForbiddenPaths = ["src/**", "tasks/**", "docs/**", ".git/**"];
+  if (executionPolicies?.some((policy) =>
+    policy.phase_id !== "23.8.7"
+    || policy.policy_version !== "phase23.8.7-hookless-v1"
+    || policy.role !== "fixture_ingestion"
+    || policy.write_scope !== "run_staging_only"
+    || policy.sandbox_mode !== "no_runner"
+    || policy.approval_policy !== "human_only"
+    || policy.network_policy !== "forbidden"
+    || policy.command_policy !== "record_only"
+    || policy.timeout_policy !== "not_applicable"
+    || canonicalJson(policy.allowed_paths) !== canonicalJson(expectedAllowedPaths)
+    || canonicalJson(policy.forbidden_paths) !== canonicalJson(expectedForbiddenPaths)
+    || canonicalJson(policy.allowed_runner_profile_ids) !== canonicalJson(["runner-profile-supplied-fixture-v1"])
+    || canonicalJson(policy.allowed_packet_kinds) !== canonicalJson(expectedPacketKinds)
+    || policy.deterministic_checks_required !== true
+    || policy.runner_launch_allowed !== false
+    || policy.provider_selection_allowed !== false
+    || policy.max_result_bytes !== 512 * 1024
+    || policy.max_log_entries !== 40
+    || policy.current !== true)) {
+    throw new Error("execution_policies must preserve the exact hookless fixture-ingestion permission contract.");
+  }
+  const forbiddenInvocationFields = ["provider", "model", "selected_provider", "selected_model", "launch_command", "pid"];
+  if (stageResults?.some((result) => result.schema_valid !== true || result.result_schema_valid !== true
+    || !["PASS", "FIX_REQUIRED", "AMEND_REQUIRED", "BLOCKED"].includes(result.outcome)
+    || result.validation_results.length === 0
+    || result.validation_results.some((check) =>
+      typeof check !== "object"
+      || check === null
+      || typeof check.check_id !== "string"
+      || check.check_id.trim().length === 0
+      || !["pass", "fail"].includes(check.status)
+      || typeof check.summary !== "string"
+      || check.summary.trim().length === 0
+      || !Array.isArray(check.evidence_refs)
+      || check.evidence_refs.some((reference) => typeof reference !== "string")
+    )
+    || result.actual_invocation_facts?.supplied_fixture !== true
+    || canonicalJson(result.runner_metadata) !== canonicalJson(result.actual_invocation_facts)
+    || forbiddenInvocationFields.some((field) => field in result.actual_invocation_facts))) {
+    throw new Error("stage_results must be valid supplied-fixture records.");
+  }
+  const exactRunInstanceId = typeof record.run_instance_id === "string" ? record.run_instance_id : undefined;
+  const exactRunRevision = typeof record.run_revision === "number" ? record.run_revision : undefined;
+  const exactRunId = String(record.run_id);
+  const stageIdentityRecords = [
+    ...(stageStates ?? []),
+    ...(stagePackets ?? []),
+    ...(stageResults ?? [])
+  ];
+  if (stageIdentityRecords.some((entry) =>
+    entry.run_id !== exactRunId
+    || entry.run_instance_id !== exactRunInstanceId
+    || entry.project_run_id !== exactRunInstanceId
+  )) {
+    throw new Error("stage records do not exactly match the containing run identity.");
+  }
+  if (stageStates?.length) {
+    const currentStageStateCount = stageStates.filter((entry) => entry.current).length;
+    if (currentStageStateCount > 1
+      || (currentStageStateCount === 0 && !stageStates.some((entry) => entry.status === "superseded"))) {
+      throw new Error("stage_states must have at most one current operator state, or be fully consumed.");
+    }
+  }
+  if (stageStates?.some((state) => !["ready", "blocked", "result_recorded", "superseded"].includes(state.status))) {
+    throw new Error("stage_states has an invalid status.");
+  }
+  if (stageStates?.some((state) =>
+    typeof state.human_action_required !== "boolean"
+    || (state.current && state.status === "superseded")
+    || (state.status === "blocked" && state.human_action_required !== true)
+  )) {
+    throw new Error("stage_states has invalid human-action or current-status semantics.");
+  }
+  if (stageStates?.some((state) => [
+    state.allowed_next_stages,
+    state.missing_inputs,
+    state.missing_evidence,
+    state.blockers,
+    state.validation_refs,
+    state.bounded_progress_log
+  ].some((entries) => entries.some((entry) => typeof entry !== "string")))) {
+    throw new Error("stage_states has non-string typed-array entries.");
+  }
+  if (stagePackets?.some((packet) => [
+    packet.payload_refs,
+    packet.evidence_refs,
+    packet.input_refs,
+    packet.validation_refs,
+    packet.bounded_progress_log,
+    packet.required_semantic_reviews,
+    packet.changed_surfaces,
+    packet.changed_surface_classes,
+    packet.risk_classes,
+    packet.escalation_triggers
+  ].some((entries) => entries.some((entry) => typeof entry !== "string")))) {
+    throw new Error("stage_packets has non-string typed-array entries.");
+  }
+  if (stageResults?.some((result) => [
+    result.files_changed,
+    result.commands,
+    result.commands_run,
+    result.outputs,
+    result.blockers,
+    result.declared_blockers,
+    result.payload_refs,
+    result.evidence_refs,
+    result.completed_reviews,
+    result.bounded_progress_log,
+    result.anomaly_codes,
+    result.waiver_refs
+  ].some((entries) => entries.some((entry) => typeof entry !== "string")))) {
+    throw new Error("stage_results has non-string typed-array entries.");
+  }
+  if (waiverRecords?.some((waiver) =>
+    waiver.evidence_refs.some((entry) => typeof entry !== "string")
+    || (waiver.expires_at !== undefined && (
+      typeof waiver.expires_at !== "string"
+      || !Number.isFinite(Date.parse(waiver.expires_at))
+    ))
+  )) {
+    throw new Error("waiver_records has invalid typed-array or expiry semantics.");
+  }
+  if (stageStates?.some((state) =>
+    !Number.isInteger(state.run_revision)
+    || state.run_revision < 1
+    || (exactRunRevision !== undefined && (
+      state.run_revision > exactRunRevision
+      || (state.current && state.run_revision + 1 !== exactRunRevision)
+    ))
+  )) {
+    throw new Error("stage_states has invalid or stale revision semantics.");
+  }
+  if (stagePackets && stagePackets.filter((entry) => entry.current).length > 1) {
+    throw new Error("stage_packets has more than one current packet.");
+  }
+  if (stagePackets?.some((packet) =>
+    packet.packet_id !== packet.stage_packet_id
+    || packet.stage_packet_id !== deriveStagePacketId(packet)
+    || (packet.procedure_id === "fix-pass-review"
+      ? ![
+          "architecture-review",
+          "db-storage-review",
+          "implementation-review",
+          "verification-review",
+          "delivery-facts-review",
+          "phase-closeout-review"
+        ].includes(packet.return_procedure_id)
+      : packet.return_procedure_id !== packet.procedure_id)
+    || packet.route_decision_ref !== packet.route_decision_id
+    || packet.route_policy_ref !== packet.routing_policy_version
+    || packet.provider_binding_ref !== `${packet.binding_version}:${packet.binding_profile_id}`
+    || packet.context_core_ref !== packet.context_core_id
+    || packet.delta_overlay_ref !== packet.delta_overlay_id
+    || packet.context_manifest_ref !== packet.context_manifest_id
+    || packet.context_transport_ref !== packet.context_mode
+    || packet.context_transport_mode !== packet.context_mode
+    || packet.usage_facts_ref !== packet.usage_ref
+    || packet.execution_policy_ref !== packet.execution_policy_id
+    || packet.profile_floor !== packet.binding_profile_id
+    || packet.default_reasoning_effort !== packet.reasoning_default
+    || packet.reasoning_effort_ceiling !== packet.reasoning_ceiling
+    || canonicalJson(packet.changed_surfaces) !== canonicalJson(packet.changed_surface_classes)
+    || packet.parallel_policy !== "serial"
+    || !Number.isInteger(packet.run_revision)
+    || packet.run_revision < 1
+    || (exactRunRevision !== undefined && packet.run_revision > exactRunRevision)
+    || (exactRunRevision !== undefined && packet.current && packet.run_revision + 1 !== exactRunRevision)
+    || packet.bounded_progress_log.length > packet.budget.max_log_entries
+  )) {
+    throw new Error("stage_packets has invalid identity, revision, or bounded-log semantics.");
+  }
+  if (stagePackets?.some((packet) => {
+    const invocationMatches = (reviewOperationalRecords ?? []).filter((entry) =>
+      entry.record_kind === "review_invocation"
+      && entry.status === "success"
+      && entry.payload.run_instance_id === exactRunInstanceId
+      && entry.payload.route_decision_id === packet.route_decision_id
+    );
+    const replayMatches = (reviewOperationalRecords ?? []).filter((entry) =>
+      entry.record_kind === "review_replay_packet"
+      && ["accepted", "retained_not_yet_eligible"].includes(entry.status)
+      && entry.payload.run_instance_id === exactRunInstanceId
+      && entry.payload.source_run_id === exactRunId
+      && entry.payload.route_decision_id === packet.route_decision_id
+    );
+    if (invocationMatches.length !== 1 || replayMatches.length !== 1) {
+      return true;
+    }
+    const invocation = invocationMatches[0]!.payload;
+    const replay = replayMatches[0]!.payload;
+    const exactInvocationFields: Array<[unknown, unknown]> = [
+      [packet.route_class, invocation.route_class],
+      [packet.routing_policy_version, invocation.routing_policy_version],
+      [packet.binding_version, invocation.binding_version],
+      [packet.binding_profile_id, invocation.binding_profile_id],
+      [packet.context_core_id, invocation.context_core_id],
+      [packet.context_manifest_id, invocation.context_manifest_id],
+      [packet.delta_overlay_id, invocation.delta_overlay_id],
+      [packet.context_mode, invocation.context_mode],
+      [packet.usage_ref, invocation.usage_ref],
+      [packet.deterministic_evidence_state, invocation.deterministic_evidence_state],
+      [packet.parallel_policy, invocation.parallel_policy],
+      [packet.budget_class, invocation.budget_class],
+      [packet.reasoning_default, invocation.reasoning_effort],
+      [packet.independence_mode, invocation.independence_mode]
+    ];
+    const exactReplayFields: Array<[unknown, unknown]> = [
+      [packet.route_class, replay.route_class],
+      [packet.routing_policy_version, replay.policy_version],
+      [packet.binding_version, replay.binding_version],
+      [packet.binding_profile_id, replay.binding_profile_id],
+      [packet.context_core_id, replay.context_core_id],
+      [packet.context_manifest_id, replay.context_manifest_id],
+      [packet.delta_overlay_id, replay.delta_overlay_id],
+      [packet.context_mode, replay.context_mode],
+      [packet.usage_ref, replay.usage_ref],
+      [packet.deterministic_evidence_state, replay.deterministic_evidence_state],
+      [packet.parallel_policy, replay.parallel_policy],
+      [packet.budget_class, replay.budget_class],
+      [packet.independence_mode, replay.independence_mode]
+    ];
+    return exactInvocationFields.some(([actual, expected]) => actual !== expected)
+      || exactReplayFields.some(([actual, expected]) => actual !== expected)
+      || packet.reasoning_ceiling !== "high"
+      || packet.independence_requirement !== (packet.independence_mode === "independent"
+        ? "independent_reviewer_required"
+        : "separate_review_required")
+      || canonicalJson(packet.risk_classes) !== canonicalJson(invocation.risk_classes)
+      || canonicalJson(packet.risk_classes) !== canonicalJson(replay.risk_classes)
+      || canonicalJson(packet.changed_surface_classes) !== canonicalJson(invocation.changed_surface_classes)
+      || canonicalJson(packet.changed_surface_classes) !== canonicalJson(replay.changed_surface_classes)
+      || canonicalJson(packet.required_semantic_reviews) !== canonicalJson(invocation.required_semantic_reviews)
+      || canonicalJson(packet.required_semantic_reviews) !== canonicalJson(replay.required_semantic_reviews)
+      || canonicalJson(packet.escalation_triggers) !== canonicalJson(invocation.escalation_triggers)
+      || canonicalJson(packet.escalation_triggers) !== canonicalJson(replay.escalation_triggers);
+  })) {
+    throw new Error("stage_packets does not exactly match its authoritative Phase F invocation and replay records.");
+  }
+  const stagePacketById = new Map((stagePackets ?? []).map((packet) => [packet.stage_packet_id, packet]));
+  const runnerProfileById = new Map((runnerProfiles ?? []).map((profile) => [profile.runner_profile_id, profile]));
+  const executionPolicyById = new Map((executionPolicies ?? []).map((policy) => [policy.execution_policy_id, policy]));
+  const waiverById = new Map((waiverRecords ?? []).map((waiver) => [waiver.waiver_id, waiver]));
+  if (stagePackets?.some((packet) => {
+    const profile = runnerProfileById.get(packet.runner_profile_id);
+    const policy = executionPolicyById.get(packet.execution_policy_id);
+    return !profile
+      || !policy
+      || !profile.current
+      || !policy.current
+      || canonicalJson(packet.budget) !== canonicalJson({
+        max_result_bytes: policy.max_result_bytes,
+        max_log_entries: policy.max_log_entries
+      })
+      || !profile.supported_packet_kinds.includes(packet.packet_kind)
+      || !policy.allowed_runner_profile_ids.includes(packet.runner_profile_id)
+      || !policy.allowed_packet_kinds.includes(packet.packet_kind);
+  })) {
+    throw new Error("stage_packets has invalid runner-profile or execution-policy capability binding.");
+  }
+  const currentStageResultCounts = new Map<string, number>();
+  for (const result of stageResults ?? []) {
+    if (result.current) {
+      currentStageResultCounts.set(
+        result.procedure_id,
+        (currentStageResultCounts.get(result.procedure_id) ?? 0) + 1
+      );
+    }
+  }
+  if ([...new Set((stageResults ?? []).map((result) => result.procedure_id))]
+    .some((procedureId) => currentStageResultCounts.get(procedureId) !== 1)) {
+    throw new Error("stage_results must have exactly one current result per procedure.");
+  }
+  if (stageResults?.some((result) => {
+    const packet = stagePacketById.get(result.stage_packet_id);
+    const policy = packet ? executionPolicyById.get(packet.execution_policy_id) : undefined;
+    return result.result_id !== result.stage_result_id
+      || result.packet_id !== result.stage_packet_id
+      || !packet
+      || !resolveStageResultTransitionContract(result.procedure_id, result.outcome, packet.return_procedure_id)
+      || packet.run_revision !== result.packet_run_revision
+      || packet.route_decision_ref !== result.route_decision_ref
+      || result.route_decision_id !== packet.route_decision_id
+      || result.usage_ref !== packet.usage_ref
+      || result.usage_facts_ref !== result.usage_ref
+      || canonicalJson(result.commands_run) !== canonicalJson(result.commands)
+      || canonicalJson(result.declared_blockers) !== canonicalJson(result.blockers)
+      || result.payload_refs.length !== 1
+      || result.payload_refs[0] !== result.payload_id
+      || result.progress_log_ref !== `${result.stage_result_id}#bounded_progress_log`
+      || result.runner_profile_id !== packet.runner_profile_id
+      || result.runner_id !== runnerProfileById.get(result.runner_profile_id)?.runner_id
+      || !policy
+      || result.waiver_refs.some((waiverRef) => {
+        const waiver = waiverById.get(waiverRef);
+        return !waiver
+          || !waiver.current
+          || waiver.stage_packet_id !== result.stage_packet_id
+          || (waiver.expires_at !== undefined && Date.parse(waiver.expires_at) <= Date.now())
+          || !result.validation_results.some((check) => check.check_id === waiver.failed_check && check.status === "fail");
+      })
+      || result.bounded_progress_log.length > policy.max_log_entries;
+  })) {
+    throw new Error("stage_results has invalid packet, route, profile, policy, revision, or bounded-log semantics.");
+  }
+  if (waiverRecords?.some((waiver) =>
+    waiver.run_id !== exactRunId
+    || !stagePacketById.has(waiver.stage_packet_id)
+    || waiver.failed_check !== waiver.control_id
+  )) {
+    throw new Error("waiver_records has invalid run, packet, or failed-check binding.");
+  }
+  const currentStageState = stageStates?.find((state) => state.current);
+  if (currentStageState?.status === "ready") {
+    const packet = (stagePackets ?? []).find((candidate) => candidate.current);
+    if (!packet
+      || currentStageState.procedure_id !== packet.procedure_id
+      || currentStageState.packet_kind !== packet.packet_kind
+      || canonicalJson(currentStageState.allowed_next_stages) !== canonicalJson([packet.procedure_id])
+      || currentStageState.next_allowed_action !== `supply a result fixture to record-stage-result --packet ${packet.stage_packet_id}`) {
+      throw new Error("current StageState does not match its ready packet transition.");
+    }
+  }
+  if (currentStageState?.status === "result_recorded") {
+    const result = (stageResults ?? []).find((candidate) =>
+      candidate.procedure_id === currentStageState.procedure_id && candidate.current
+    );
+    const packet = result ? stagePacketById.get(result.stage_packet_id) : undefined;
+    const expectedTransition = result && packet
+      ? resolveStageResultTransitionContract(result.procedure_id, result.outcome, packet.return_procedure_id)
+      : undefined;
+    if (!result
+      || !expectedTransition
+      || currentStageState.human_action_required !== expectedTransition.human_action_required
+      || currentStageState.current_stage !== expectedTransition.next
+      || currentStageState.next_allowed_action !== expectedTransition.next
+      || canonicalJson(currentStageState.allowed_next_stages) !== canonicalJson([expectedTransition.next])) {
+      throw new Error("current StageState does not match its recorded result transition.");
+    }
+  }
+  if (currentStageState?.status === "blocked") {
+    const matchingIssues = runIssues.filter((issue) =>
+      issue.status === "open"
+      && issue.blocking
+      && issue.issue_type === currentStageState.stop_reason
+      && currentStageState.blockers.includes(issue.summary)
+    );
+    const matchingRepairs = repairPackets.filter((repair) =>
+      matchingIssues.some((issue) =>
+        repair.issue_ids.includes(issue.issue_id)
+        && (
+          (currentStageState.current_stage === repair.next_action
+            && canonicalJson(currentStageState.allowed_next_stages) === canonicalJson([repair.next_action]))
+          || (currentStageState.current_stage === issue.stage_id
+            && currentStageState.allowed_next_stages.length === 0)
+        )
+      )
+      && repair.route === currentStageState.blocked_disposition
+      && repair.next_action === currentStageState.next_allowed_action
+      && repair.stopping_condition === currentStageState.stopping_condition
+      && canonicalJson(repair.validation_refs ?? []) === canonicalJson(currentStageState.validation_refs)
+    );
+    if (matchingIssues.length !== 1
+      || matchingRepairs.length !== 1
+      || canonicalJson(currentStageState.blockers) !== canonicalJson([matchingIssues[0]?.summary])
+      || currentStageState.next_allowed_action === "CLOSEOUT_PACKET") {
+      throw new Error("blocked StageState does not exactly match its RunIssue and RepairPacket transition.");
+    }
+  }
 
   return {
     schema_version: CURRENT_SCHEMA_VERSION,
@@ -2208,7 +2742,13 @@ export function validateRuntimeRun(value: unknown): Run {
     ...(typeof record.source_snapshot === "string" ? { source_snapshot: record.source_snapshot } : {}),
     ...(typeof record.source_staging_db_path === "string" ? { source_staging_db_path: record.source_staging_db_path } : {}),
     ...(reviewLaunchClaims ? { review_launch_claims: reviewLaunchClaims } : {}),
-    ...(reviewOperationalRecords ? { review_routing_records: reviewOperationalRecords } : {})
+    ...(reviewOperationalRecords ? { review_routing_records: reviewOperationalRecords } : {}),
+    ...(stageStates ? { stage_states: stageStates } : {}),
+    ...(stagePackets ? { stage_packets: stagePackets } : {}),
+    ...(stageResults ? { stage_results: stageResults } : {}),
+    ...(runnerProfiles ? { runner_profiles: runnerProfiles } : {}),
+    ...(executionPolicies ? { execution_policies: executionPolicies } : {}),
+    ...(waiverRecords ? { waiver_records: waiverRecords } : {})
   };
 }
 
@@ -4153,9 +4693,34 @@ function recordLaunchAttempt(
     })));
   }
 
-  const observationWithPayloadRefs: ReviewLaunchObservation = payloadRefs.length > 0
-    ? { ...observation, payload_refs: payloadRefs }
-    : observation;
+  const usageFacts = {
+    input_tokens: observation.input_tokens ?? null,
+    cached_input_tokens: observation.cached_input_tokens ?? null,
+    cache_write_tokens: observation.cache_write_tokens ?? null,
+    output_tokens: observation.output_tokens ?? null,
+    tool_call_count: observation.tool_call_count ?? null,
+    latency_ms: observation.latency_ms ?? null
+  };
+  const usageFactsJson = canonicalJson(usageFacts);
+  const usagePayload = toReviewLaunchPayloadRef(staging.storePayload({
+    parentRecordId,
+    sourceRunId: currentRun.run_id,
+    sourcePhaseId: currentRun.phase_id,
+    kind: "review-usage-facts",
+    mediaType: "application/json",
+    summary: `${observation.procedure_id} recorded usage facts`,
+    content: `${usageFactsJson}\n`,
+    searchableText: usageFactsJson,
+    boundedExcerpt: usageFactsJson,
+    retentionClass: accepted ? "accepted" : "audit"
+  }));
+  payloadRefs.push(usagePayload);
+
+  const observationWithPayloadRefs: ReviewLaunchObservation = {
+    ...observation,
+    usage_ref: usagePayload.payload_id,
+    payload_refs: payloadRefs
+  };
   const attempt = buildReviewLaunchAttemptArtifact(targetRoot, currentRun, observationWithPayloadRefs);
   fs.mkdirSync(path.dirname(attempt.absolutePath), { recursive: true });
   fs.writeFileSync(attempt.absolutePath, attempt.content, "utf8");
@@ -4172,13 +4737,19 @@ function recordLaunchAttempt(
     }
     let next = appendArtifactAndEvidence(latestRun, attempt.artifact, attempt.evidence, timestamp);
     next = withUpdatedAt({ ...next, review_launch_claims: [] }, timestamp);
+    const invocationRecordId = `review-invocation-${observation.attempt_id ?? claim.attempt_id}`;
+    const usageRef = observationWithPayloadRefs.usage_ref;
+    const invocationPayload = {
+      ...observationWithPayloadRefs,
+      usage_ref: usageRef
+    };
     const invocationRecord: ReviewOperationalRecord = {
       record_kind: "review_invocation",
-      record_id: `review-invocation-${observation.attempt_id ?? claim.attempt_id}`,
+      record_id: invocationRecordId,
       created_at: timestamp,
       status: observation.status,
       summary: observation.summary,
-      payload: observationWithPayloadRefs as unknown as Record<string, unknown>
+      payload: invocationPayload as unknown as Record<string, unknown>
     };
     next = { ...next, review_routing_records: [...(next.review_routing_records ?? []), invocationRecord] };
 
@@ -4206,15 +4777,27 @@ function recordLaunchAttempt(
             context_manifest_hash: packet.manifest.content_hash,
             delta_overlay_id: packet.overlay.delta_overlay_id,
             delta_overlay_hash: packet.overlay.content_hash,
+            context_mode: observation.context_mode ?? "unavailable",
             approved_attempt_id: claim.attempt_id,
             route_decision_id: observation.route_decision_id ?? "unavailable",
+            route_class: observation.route_class ?? "unavailable",
             policy_version: observation.routing_policy_version ?? packet.policyVersion,
             binding_version: observation.binding_version ?? packet.bindingVersion,
+            binding_profile_id: observation.binding_profile_id ?? "unavailable",
             accepted_artifact_id: accepted.artifact.artifact_id,
             accepted_result_id: review?.review_result_id ?? "unavailable",
             source_snapshot: currentRun.source_snapshot ?? "unavailable",
             immutable_base: packet.core.immutable_base,
             risk_classes: packet.core.risk_classes,
+            changed_surface_classes: observation.changed_surface_classes ?? packet.core.changed_surface_classes,
+            required_semantic_reviews: observation.required_semantic_reviews ?? [],
+            review_tier: observation.review_tier ?? "standard",
+            usage_ref: usageRef,
+            deterministic_evidence_state: observation.deterministic_evidence_state ?? "incomplete",
+            parallel_policy: observation.parallel_policy ?? "serial",
+            budget_class: observation.budget_class ?? "balanced",
+            escalation_triggers: observation.escalation_triggers ?? [],
+            independence_mode: observation.independence_mode ?? "unavailable",
             retention_class: "accepted",
             redaction_status: packet.core.redactions?.length ? "redacted" : "not_redacted",
             payload_ids: payloadRefs.map((entry) => entry.payload_id).sort(),
@@ -4413,6 +4996,22 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     model: candidateBinding?.model ?? pinnedSourceReviewProfile?.model ?? packet.binding.model,
     reasoning_effort: candidateBinding?.reasoning_effort ?? pinnedSourceReviewProfile?.reasoning_effort ?? packet.binding.reasoning_effort
   };
+  const reviewTier = getRuntimeOperatorStatus(targetRoot, {
+    runId: current.run.run_id,
+    dryRun: true
+  }).operator.review_tier;
+  const requiredSemanticReviews = deriveRequiredSemanticReviews(
+    options.procedureId,
+    reviewTier,
+    packet.core.changed_surface_classes,
+    packet.core.risk_classes
+  );
+  const procedureContract = readProcedureExecutionPolicy(targetRoot).procedures.find(
+    (candidate) => candidate.procedure_id === options.procedureId
+  );
+  if (!procedureContract) {
+    throw new Error(`Procedure execution policy is missing ${options.procedureId}.`);
+  }
 
   if (path.resolve(requestPath) === path.resolve(outputPath)) {
     throw new Error("Review request and output paths must be different.");
@@ -4443,6 +5042,14 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
           ? "fix_pass_review" : "implementation_review"),
     immutable_base: packet.core.immutable_base,
     risk_classes: packet.core.risk_classes,
+    changed_surface_classes: packet.core.changed_surface_classes,
+    required_semantic_reviews: requiredSemanticReviews,
+    review_tier: reviewTier,
+    deterministic_evidence_state: packet.overlay.missing_evidence.length === 0 ? "complete" : "incomplete",
+    parallel_policy: "serial",
+    budget_class: packet.route.route_class === "critical_independent" ? "critical" : "balanced",
+    escalation_triggers: [...procedureContract.escalation_triggers],
+    independence_mode: procedureContract.independence,
     routing_policy_version: packet.policyVersion,
     binding_version: pinnedSourceReviewProfile
       ? String(pendingSourceDecision?.payload.previous_accepted_binding_version)
@@ -5656,6 +6263,32 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
   };
 }
 
+export function consumePlanApprovalStage(run: Run, approvalId: string): Run {
+  const currentStageState = run.stage_states?.find((state) => state.current);
+  if (!currentStageState) {
+    return run;
+  }
+  if (currentStageState.procedure_id !== "plan-review"
+    || currentStageState.status !== "result_recorded"
+    || currentStageState.next_allowed_action !== "PLAN_APPROVAL_REQUIRED"
+    || currentStageState.human_action_required !== true) {
+    throw new Error("PLAN_APPROVAL_STAGE_MISMATCH: current StageState is not awaiting human approval of a passing plan review.");
+  }
+  return {
+    ...run,
+    stage_states: run.stage_states?.map((state) => state.stage_state_id === currentStageState.stage_state_id
+      ? {
+          ...state,
+          current: false,
+          status: "superseded",
+          superseded_by: approvalId,
+          human_action_required: false,
+          bounded_progress_log: [...state.bounded_progress_log, "human plan approval recorded"].slice(-40)
+        }
+      : state)
+  };
+}
+
 export async function approveRuntimePlan(cwd: string, options: ApprovePlanOptions): Promise<RuntimePlanApprovalResult> {
   const roots = resolveHarnessRoots(cwd);
   const targetRoot = roots.targetRoot;
@@ -5767,6 +6400,7 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
         createdAt: approval.created_at
       });
     }
+    run = consumePlanApprovalStage(run, approval.approval_id);
   } else {
     if (!staging) {
       throw new Error("Plan approval requires a staging database outside dry-run mode.");
@@ -5830,7 +6464,7 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
           createdAt: latestApproval.created_at
         });
       }
-      return next;
+      return consumePlanApprovalStage(next, latestApproval.approval_id);
     }, {
       expectedRunInstanceId: current.run.run_instance_id,
       expectedRunRevision: current.run.run_revision
@@ -8201,6 +8835,7 @@ function buildOperatorStatus(
 ): RuntimeOperatorStatus {
   return {
     ...status,
+    human_action_required: status.human_action_required ?? true,
     next_procedure_id: normalizeNextProcedureId(status.next_procedure_id, procedureIds),
     review_tier: reviewTier,
     ...(status.notes && status.notes.length > 0 ? { notes: status.notes } : {})
@@ -8367,7 +9002,7 @@ function resolveBootstrapRepairStage(context: OperatorEvaluationContext): Operat
     return undefined;
   }
 
-  const openIssues = run.run_issues.filter((issue) => issue.status === "open");
+  const openIssues = run.run_issues.filter((issue) => issue.status === "open" && issue.source === "bootstrap");
   if (openIssues.length === 0) {
     return undefined;
   }
@@ -9131,6 +9766,52 @@ function resolveRuntimeOperatorStatus(cwd: string, options: OperatorEvaluationOp
     };
   }
 
+  const currentStageState = evaluation.context.runContext.run.stage_states?.find((candidate) => candidate.current);
+  if (currentStageState) {
+    const nextProcedureByStage: Record<string, string> = {
+      TASK_PROMPT_PACKET: "task-prompt-writer",
+      PLAN_DRAFT_PACKET: "draft-plan",
+      PLAN_REVIEW_PACKET: "plan-review",
+      PLAN_AMEND_PACKET: "plan-amend",
+      IMPLEMENTATION_REVIEW_PACKET: "implementation-review",
+      FIX_PASS_PACKET: "fix-pass-review",
+      NEXT_SEMANTIC_REVIEW_PACKET: "architecture-review",
+      ARCHITECTURE_REVIEW_PACKET: "architecture-review",
+      DB_STORAGE_REVIEW_PACKET: "db-storage-review",
+      VERIFICATION_REVIEW_PACKET: "verification-review",
+      DELIVERY_FACTS_REVIEW_PACKET: "delivery-facts-review",
+      PHASE_CLOSEOUT_REVIEW_PACKET: "phase-closeout-review",
+      CLOSEOUT_PACKET: "none",
+      PLAN_APPROVAL_REQUIRED: "none",
+      BLOCKED_DISPOSITION: "none"
+    };
+    const nextProcedureId = currentStageState.status === "ready"
+      ? currentStageState.procedure_id
+      : nextProcedureByStage[currentStageState.next_allowed_action] ?? "none";
+    const stageProjection = buildOperatorStageDraft({
+      current_stage: currentStageState.current_stage,
+      next_procedure_id: nextProcedureId,
+      required_inputs: currentStageState.missing_inputs,
+      missing_inputs: currentStageState.missing_inputs,
+      required_evidence: currentStageState.validation_refs,
+      missing_evidence: currentStageState.missing_evidence,
+      stop_reason: currentStageState.stop_reason,
+      human_action_required: currentStageState.human_action_required,
+      next_allowed_action: currentStageState.next_allowed_action,
+      forbidden_actions: currentStageState.status === "blocked" ? ["stage progression", "closeout"] : ["runner launch", "provider selection"],
+      notes: [`stage_state_id: ${currentStageState.stage_state_id}`, ...currentStageState.bounded_progress_log]
+    });
+    return {
+      targetRoot: evaluation.targetRoot,
+      projectRoot: evaluation.projectRoot,
+      dryRun: evaluation.dryRun,
+      run: evaluation.context.runContext.run,
+      runPath: evaluation.context.runContext.runPath,
+      closeoutPath: evaluation.context.runContext.closeoutPath,
+      operator: buildOperatorStatus(evaluation.procedureIds, evaluation.reviewTier, stageProjection)
+    };
+  }
+
   const preImplementationStage = resolvePreImplementationStage(evaluation.context);
   const stage = preImplementationStage ?? resolvePostImplementationStage(evaluation.context);
 
@@ -9146,7 +9827,42 @@ function resolveRuntimeOperatorStatus(cwd: string, options: OperatorEvaluationOp
 }
 
 export function getRuntimeOperatorStatus(cwd: string, options: RuntimeDryRunOptions = {}): RuntimeOperatorStatusResult {
-  return resolveRuntimeOperatorStatus(cwd, options);
+  const result = resolveRuntimeOperatorStatus(cwd, options);
+  if (result.run?.stage_results?.length) {
+    const staging = new RunStagingDatabase(result.targetRoot, result.projectRoot, result.run.run_id);
+    for (const stageResult of result.run.stage_results) {
+      const rawPayload = staging.readStageResultPayload({
+        resultId: stageResult.stage_result_id,
+        payloadId: stageResult.payload_id,
+        sourceRunId: result.run.run_id,
+        procedureId: stageResult.procedure_id
+      });
+      const fixture = JSON.parse(rawPayload) as Record<string, unknown>;
+      const exactFixtureFields: Array<[unknown, unknown]> = [
+        [fixture.stage_result_id ?? stageResult.stage_result_id, stageResult.stage_result_id],
+        [fixture.stage_packet_id, stageResult.stage_packet_id],
+        [fixture.runner_profile_id, stageResult.runner_profile_id],
+        [fixture.outcome, stageResult.outcome],
+        [fixture.summary, stageResult.summary],
+        [fixture.files_changed, stageResult.files_changed],
+        [fixture.commands, stageResult.commands],
+        [fixture.outputs, stageResult.outputs],
+        [fixture.blockers, stageResult.blockers],
+        [fixture.evidence_refs, stageResult.evidence_refs],
+        [fixture.completed_reviews, stageResult.completed_reviews],
+        [fixture.anomaly_codes ?? [], stageResult.anomaly_codes],
+        [fixture.waiver_refs ?? [], stageResult.waiver_refs],
+        [fixture.validation_results, stageResult.validation_results],
+        [fixture.bounded_progress_log, stageResult.bounded_progress_log],
+        [fixture.actual_invocation_facts, stageResult.actual_invocation_facts],
+        [fixture.usage_ref, stageResult.usage_ref]
+      ];
+      if (exactFixtureFields.some(([actual, expected]) => canonicalJson(actual) !== canonicalJson(expected))) {
+        throw new Error("Stage result payload semantics do not exactly match its result record.");
+      }
+    }
+  }
+  return result;
 }
 
 function buildVerifierArtifact(targetRoot: string, taskId: string): ArtifactRef {

@@ -68,6 +68,7 @@ test("phase 23.8.6C1 preserves the near-term authority order", () => {
   const dSection = roadmapPhaseSection(roadmap, "23.8.6D");
   const eSection = roadmapPhaseSection(roadmap, "23.8.6E");
   const fSection = roadmapPhaseSection(roadmap, "23.8.6F");
+  const stageSection = roadmapPhaseSection(roadmap, "23.8.7");
   assert.match(cSection, /Complete, reviewed, accepted, and merged/);
   assert.match(c1Section, /Complete, reviewed, accepted, and merged/);
   assert.match(c1aSection, /Complete, reviewed, accepted, and merged/);
@@ -80,7 +81,8 @@ test("phase 23.8.6C1 preserves the near-term authority order", () => {
   assert.match(c2aSection, /Codex Desktop-managed existing worktree/);
   assert.match(dSection, /Complete, reviewed, accepted, and merged/);
   assert.match(eSection, /Complete\. Independently reviewed, accepted, merged, closed out, and harvested/);
-  assert.match(fSection, /Active implementation phase/);
+  assert.match(fSection, /Complete\./);
+  assert.match(stageSection, /Active implementation phase/);
 });
 
 test("phase 23.8.6C1 derives immediate future dependencies from published authority", () => {
@@ -88,8 +90,8 @@ test("phase 23.8.6C1 derives immediate future dependencies from published author
     readText("docs/OPERATIONS_PLAN.md"),
     readText("docs/IMPLEMENTATION_ROADMAP.md")
   );
-  const activeIndex = progression.indexOf("23.8.6F");
-  assert.notEqual(activeIndex, -1, "active Phase 23.8.6F must appear in near-term progression");
+  const activeIndex = progression.indexOf("23.8.7");
+  assert.notEqual(activeIndex, -1, "active Phase 23.8.7 must appear in near-term progression");
 
   for (let index = activeIndex + 1; index < progression.length; index += 1) {
     const phase = progression[index];
