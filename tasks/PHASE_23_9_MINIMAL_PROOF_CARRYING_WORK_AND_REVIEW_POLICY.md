@@ -11,7 +11,10 @@ unknown, what assumptions were made, and what review outcome applies.
 
 ## Status
 
-Planned. Blocked until Phase 23.8.6 Transactional Procedure Result Ingestion,
+Active. Phase 23.9 starts with the narrow successor-handoff correction below;
+its product implementation remains subject to the normal independent plan
+review and human approval gate. The proof-record work remains blocked until
+Phase 23.8.6 Transactional Procedure Result Ingestion,
 Phase 23.8.6A Self-Hosting Replay and Re-ingestion Continuity, Phase 23.8.6B
 Self-Hosting Model Routing Policy Packaging, Phase 23.8.6B1 Supervised Review
 Launch and Blocked Disposition, Phase 23.8.6B2 Verification Command
@@ -33,6 +36,33 @@ Implement the minimum useful proof record and review policy integration.
 Proof is audit/provenance material. It is not lifecycle authority and must not
 replace operator state, validation gates, review verdicts, or required human
 approval.
+
+### Successor-handoff correction
+
+Repeated native Codex Desktop successor activations exposed a product gap:
+normal `run materialize-next-task --enter-existing` requires exactly one
+matching installed `TaskState` before it can prepare a clean Desktop-created
+worktree, but it provides no normal pre-activation path to establish that owner.
+The existing `--recover-existing-activation` path can repair this only after a
+committed activation chain already exists, which is too late for the normal
+commit-backed activation sequence.
+
+Phase 23.9 must close that gap before proof-record implementation. For a
+verified Desktop-created existing worktree with zero matching owners, normal
+`--enter-existing` materialization must transactionally create exactly one
+canonical installed `TaskState` owner and then prepare `TASK.md`. Creation must
+require the registered worktree, named branch, clean status, exact recorded
+base, unmoved recorded base ref where present, and the recorded task contract.
+It must remain fail-closed for a nonzero conflicting or ambiguous owner set,
+wrong branch/worktree/base, dirty checkout, moved base ref, or missing task
+contract. If preparation fails after creating the owner, it must remove only
+that newly created owner and restore the prior `TASK.md` content.
+
+This correction does not create Desktop worktrees, attach branches, start a
+run, bypass an approval gate, or make proof records lifecycle authority.
+`--recover-existing-activation` remains an idempotent recovery path for an
+already committed activation chain, but must no longer be required merely
+because a valid new native successor has zero matching owners.
 
 ## Required concepts
 
@@ -127,6 +157,19 @@ These may be added later once the minimal proof record is useful.
   same display `run_id`.
 - Proof can distinguish active-task evidence from supporting-slice or
   combined-delivery history without promoting run-local markdown to authority.
+- Normal `materialize-next-task --enter-existing` accepts a verified
+  zero-owner native Desktop successor and leaves exactly one installed owner
+  bound to its exact branch, worktree, and recorded immutable base before
+  writing the Phase 23.9 `TASK.md` pointer.
+- The normal zero-owner path rejects duplicate, partial, or conflicting owners;
+  wrong branch/worktree/base; dirty worktrees; moved recorded base refs; and a
+  missing recorded task contract without leaving a new owner or changed
+  `TASK.md` behind.
+- The existing recovery path remains idempotent for a clean committed
+  activation chain and is not used as the normal zero-owner handoff path.
+- The self-hosting transition records a known successor decision before harvest
+  when a successor is selected. Runs with no selected successor remain allowed
+  to harvest; the enforcement level must be explicit and mechanically covered.
 
 ## Future-phase impact check
 

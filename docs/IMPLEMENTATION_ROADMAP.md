@@ -543,6 +543,8 @@ Required scope:
   `TASK.md` pointer there, commit the activation/materialization change as the
   first commit in that task branch/worktree, verify clean git, and only then
   start the new run in that task worktree;
+- require a recorded next-task decision before harvest when a successor is
+  selected, while allowing harvest without one when no successor is selected;
 - keep a recorded next-task decision as recorded decision state only until an
   explicit status or equivalent typed distinction marks the committed source
   activation as complete;
@@ -1094,8 +1096,7 @@ run-state after Phase 23.8.6C proves the minimum loop and C2/C2A harden its
 bootstrap and materialization authority.
 
 Status:
-Active implementation phase. Its predecessor phases through Phase 23.8.6F are
-complete, reviewed, accepted, merged, closed out, and harvested.
+Complete, independently reviewed, accepted, merged, closed out, and harvested.
 
 Required scope:
 - define `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,
@@ -1166,7 +1167,9 @@ Add a minimal proof/evidence/assumption/review mapping over stable
 procedure/stage records.
 
 Status:
-Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
+Active. First correct the normal zero-TaskState native-successor materialization
+gap under the Phase 23.9 task contract. The proof-record work remains blocked
+until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
 23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C1A, Phase 23.8.6C2,
 Phase 23.8.6C2A, Phase 23.8.6D, Phase 23.8.6E, Phase 23.8.6F, and Phase
 23.8.7 are complete and reviewed, unless a later

@@ -19,11 +19,12 @@ operator stage
 -> deterministic validation/review gate
 ```
 
-Task-cycle boundaries are explicit. End-of-old-cycle closeout/harvest may
-determine and record the next task, but it must not create or claim the next
-task branch/worktree. Start-of-new-cycle materialization belongs to the new
-task context. Phase 23.8.6 now provides the current narrow command path for
-that:
+Task-cycle boundaries are explicit. When a successor is selected, end-of-old-
+cycle closeout records its next-task decision before harvest, but it must not
+create or claim the next task branch/worktree. A run with no selected successor
+may still harvest without a next-task decision. Start-of-new-cycle
+materialization belongs to the new task context. Phase 23.8.6 now provides the
+current narrow command path for that:
 record the next-task decision, materialize the new task branch/worktree, write
 `TASK.md` there, commit the activation/materialization change as the first
 commit in that task branch/worktree, verify clean git, and only then start the
@@ -99,11 +100,13 @@ labeled verdict routes to a fix pass and then a fresh combined review. Phase
 worktree retention. Phase 23.8.6E is complete, independently reviewed,
 accepted, merged, closed out, and harvested. Phase 23.8.6F is complete,
 independently reviewed, accepted, merged, closed out, and harvested. Phase
-23.8.7 is the active implementation phase: it carries F route/context/usage
-refs into general stage packets/results without selecting providers or launching
-runners. Phase 23.9 adds proof provenance, 24A adds deterministic report/export
-views, and Phase 30 generalizes experimentation. Phase 31 remains the first
-general external-runner provider-binding and execution boundary.
+23.8.7 is complete, independently reviewed, accepted, merged, closed out, and
+harvested. Phase 23.9 is the active implementation phase. It first corrects
+the normal zero-TaskState native-successor materialization gap, then adds proof
+provenance without selecting providers or launching runners. Phase 24A adds
+deterministic report/export views, and Phase 30 generalizes experimentation.
+Phase 31 remains the first general external-runner provider-binding and
+execution boundary.
 
 For a newly inserted phase, materialization is not complete when only
 `TASK.md` changes. Record the immutable next-task decision, create the
@@ -134,18 +137,15 @@ not be symbolic links. It rechecks installed dependencies
 against the lockfile. Stale or nonmatching dependency/build directories cannot
 claim readiness.
 
-The same handoff boundary must detect a harvested predecessor that lacks a
-recorded next-task decision and an already-activated successor that lacks its
-uniquely owning `TaskState` because materialization was skipped. The completed D
-implementation provides the smallest product-owned, fail-closed recovery: it
-re-establishes a valid successor context from the recorded immutable decision
-base before materialization and activation proof. It preserves the decision
-base and activation authority; manual `TaskState` or database edits, using
-current `HEAD` as a substitute base, silently claiming an advanced worktree, or
-starting the successor before owner-match proof are forbidden. Active E
-revalidates this general recovery together with the native Desktop task
-creation/readback and predecessor-stop authority against the actual supported
-surface; it does not add successor execution.
+The same handoff boundary must detect a selected successor that lacks a
+recorded next-task decision before harvest and an existing native successor
+that lacks its uniquely owning `TaskState`. Phase 23.9 owns the normal,
+transactional zero-owner materialization correction; it must preserve the
+decision base and activation authority and remain fail-closed on ambiguity or
+conflict. Manual `TaskState` or database edits, using current `HEAD` as a
+substitute base, silently claiming an advanced worktree, or starting the
+successor before owner-match proof are forbidden. The existing recovery path
+remains for already committed activation chains only.
 
 Hard boundaries:
 
