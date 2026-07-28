@@ -100,6 +100,23 @@ node bin/ch run remote-status
 
 This path uses the current source CLI/runtime. It must not install a persistent second harness inside the `codex-harness` product repository.
 
+### Product self-install conflict
+
+`install` and `upgrade` must share a canonical-path product-repository check.
+When it identifies product source, including a nested cwd, symlink spelling, or
+worktree invocation, both commands fail before planning or mutation, including
+in dry-run mode. They must not change product source or `AGENTS.md`, create
+`.codex-harness.bak` files, seed installed-target state, or add/update the
+product root in `~/.codex-harness/registry.json`. `doctor` must expose this as
+an explicit product self-install conflict with a safe remediation message.
+
+Pre-existing contamination requires a dedicated reconcile/migration path, not
+manual `.harness` deletion. It must first inventory and validate product versus
+runtime state, preserve self-hosting run evidence, Project Memory, and canonical
+`TaskState`, and write a typed recoverable result before it changes any
+installer-owned state. It must never silently register the product root or
+discard runtime evidence.
+
 Current product self-hosting entrypoint:
 
 ```text

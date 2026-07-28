@@ -64,6 +64,29 @@ run, bypass an approval gate, or make proof records lifecycle authority.
 already committed activation chain, but must no longer be required merely
 because a valid new native successor has zero matching owners.
 
+### Product self-install guard and reconciliation
+
+The `codex-harness` product repository is not an installed target. Phase 23.9
+must add one shared, canonical-path product-repository detector for `install`,
+`upgrade`, and `doctor`. It must recognize the real product source root rather
+than trusting the caller's nested cwd, symlink spelling, or worktree path.
+
+`install` and `upgrade`, including `--dry-run`, must fail closed before they
+plan or mutate when that detector identifies the product repository. They must
+not patch `AGENTS.md`, create any `.codex-harness.bak` path, seed or update an
+installed-target `.harness` layer, or add/update the product root in the global
+registry. `doctor` must report the existing product self-install conflict with
+an explicit status/remediation, not misclassify the source repository as an
+ordinary uninstalled target.
+
+The correction must provide a separate, explicit reconcile/migration path for
+pre-existing self-install contamination. That path must inventory and validate
+the product/runtime boundary before any mutation; preserve self-hosting run
+evidence, Project Memory, and canonical `TaskState`; and use a typed,
+recoverable reconciliation record rather than deleting `.harness` manually.
+It must not silently register the product root, overwrite product source, or
+erase runtime evidence.
+
 ## Required concepts
 
 - proof record;
@@ -170,6 +193,16 @@ These may be added later once the minimal proof record is useful.
 - The self-hosting transition records a known successor decision before harvest
   when a successor is selected. Runs with no selected successor remain allowed
   to harvest; the enforcement level must be explicit and mechanically covered.
+- Product-repository `install` and `upgrade` calls, dry-run and non-dry alike,
+  fail before planning or mutation and leave product source, `AGENTS.md`,
+  `.codex-harness.bak` paths, installed-target state, the global registry, and
+  the self-hosting runtime boundary unchanged.
+- Product-repository detection is canonical-path based and covers direct,
+  nested-cwd, symlink, and worktree invocation forms; `doctor` reports the
+  explicit product self-install conflict and safe remediation.
+- A deliberate reconcile/migration path preserves self-hosting evidence,
+  Project Memory, and canonical `TaskState`, records its recovery outcome, and
+  never relies on manual `.harness` deletion.
 
 ## Future-phase impact check
 

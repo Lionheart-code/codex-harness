@@ -271,3 +271,9 @@ Do not create application projects inside this repository.
 Target projects should be separate git repositories where `codex-harness` is installed later through `ch install`.
 
 For testing installation, use a separate `codex-harness-playground` repository.
+
+`ch install` and `ch upgrade` must reject the product repository before either
+plans or mutates an installed layer, including dry-run mode. If prior
+self-install state is detected, use the future typed reconciliation path; do
+not delete `.harness` manually because self-hosting evidence and canonical
+TaskState may be present.

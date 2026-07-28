@@ -1178,6 +1178,13 @@ This phase must not become a separate lifecycle authority. Operator/proof
 schemas remain provisional sketches unless tightened during implementation.
 
 Must preserve:
+- product-versus-installed-target separation: canonical-path product
+  self-install detection must fail closed for `install` and `upgrade` before
+  planning or mutation, preserve source/AGENTS/backup/registry/runtime state,
+  and make `doctor` report the explicit conflict;
+- a typed reconcile/migration path for pre-existing product self-install state
+  that preserves self-hosting evidence and canonical `TaskState` rather than
+  deleting `.harness` manually;
 - proof record;
 - task verifiability map;
 - assumption ledger;
@@ -1202,6 +1209,7 @@ Must preserve:
   overrides deterministic failure.
 
 Must not:
+- install or upgrade the product repository as an installed target;
 - implement run-state ingestion;
 - use display `run_id` alone as proof identity;
 - depend on scraping ambiguous run-local markdown histories as authoritative
