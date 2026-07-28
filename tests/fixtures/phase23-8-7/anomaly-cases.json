@@ -1,0 +1,23 @@
+{
+  "cases": [
+    { "code": "self_approval", "issue_type": "review_independence_violation" },
+    { "code": "skipped_architecture_review", "issue_type": "missing_required_review" },
+    { "code": "skipped_db_storage_review", "issue_type": "missing_required_review" },
+    { "code": "amend_without_fresh_review", "issue_type": "missing_required_review" },
+    { "code": "missing_implementation_review", "issue_type": "missing_required_review" },
+    { "code": "evidence_masquerades_as_review", "issue_type": "review_independence_violation" },
+    { "code": "blocker_note_treated_as_accept", "issue_type": "invalid_stage_result" },
+    { "code": "verification_evidence_as_accepted_review", "issue_type": "missing_required_review" },
+    { "code": "delivery_import_as_accepted_review", "issue_type": "missing_required_review" },
+    { "code": "draft_pr_as_closeout_ready", "issue_type": "fake_closeout_evidence" },
+    { "code": "missing_merge_facts_as_closeout_ready", "issue_type": "fake_closeout_evidence" },
+    { "code": "superseded_delivery_facts_as_current", "issue_type": "fake_closeout_evidence" },
+    { "code": "source_change_before_approval", "issue_type": "source_change_before_approval" },
+    { "code": "review_hang", "issue_type": "review_stale_no_output" },
+    { "code": "failed_verification", "issue_type": "failed_verification" },
+    { "code": "scope_creep", "issue_type": "scope_creep" },
+    { "code": "fake_closeout_evidence", "issue_type": "fake_closeout_evidence" },
+    { "code": "hooks_absent", "blocking": false },
+    { "code": "hooks_disabled", "blocking": false }
+  ]
+}

@@ -1063,8 +1063,9 @@ automation. Automatic Codex launch remains limited to the existing
 `plan-review` and `implementation-review` surfaces.
 
 Status:
-Active implementation phase. Phase 23.8.6E is independently reviewed,
-accepted, merged, closed out, and harvested.
+Complete. Phase 23.8.6E is independently reviewed, accepted, merged, closed
+out, and harvested. Phase 23.8.6F is independently reviewed, accepted, merged,
+closed out, and harvested.
 
 Implemented source surfaces include the 15-procedure deterministic/semantic
 policy, deterministic context core/manifest/delta identities, per-invocation
@@ -1093,10 +1094,8 @@ run-state after Phase 23.8.6C proves the minimum loop and C2/C2A harden its
 bootstrap and materialization authority.
 
 Status:
-Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
-23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C1A, Phase 23.8.6C2,
-Phase 23.8.6C2A, Phase 23.8.6D, Phase 23.8.6E, and Phase 23.8.6F are complete
-and reviewed.
+Active implementation phase. Its predecessor phases through Phase 23.8.6F are
+complete, reviewed, accepted, merged, closed out, and harvested.
 
 Required scope:
 - define `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,

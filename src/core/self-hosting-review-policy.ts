@@ -128,6 +128,45 @@ export interface ReviewRouteDecision {
   authoritative_inputs_hash: string;
 }
 
+export function deriveRequiredSemanticReviews(
+  procedureId: string,
+  reviewTier: "standard" | "high" | "extra-high",
+  changedSurfaceClasses: string[],
+  riskClasses: string[]
+): string[] {
+  const reviews = new Set<string>();
+  if (procedureId === "implementation") {
+    reviews.add("implementation-review");
+  } else if ([
+    "plan-review",
+    "architecture-review",
+    "db-storage-review",
+    "implementation-review",
+    "fix-pass-review",
+    "verification-review",
+    "delivery-facts-review",
+    "phase-closeout-review"
+  ].includes(procedureId)) {
+    reviews.add(procedureId);
+  }
+  const risks = new Set(riskClasses);
+  if (reviewTier === "extra-high"
+    || ["architecture", "authority", "lifecycle", "security", "provider", "adapter"].some((value) => risks.has(value))) {
+    reviews.add("architecture-review");
+  }
+  if (["database", "db", "storage", "retention", "schema"].some((value) => risks.has(value))) {
+    reviews.add("db-storage-review");
+  }
+  const surfaces = new Set(changedSurfaceClasses);
+  if (["docs", "docs_task_only", "task", "authority_docs"].some((value) => surfaces.has(value))) {
+    reviews.add("docs-consistency-review");
+  }
+  if (surfaces.has("harness") || risks.has("harness")) {
+    reviews.add("harness-audit");
+  }
+  return [...reviews].sort();
+}
+
 function assertObject(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object.`);

@@ -31,10 +31,10 @@ const files = {
   phase31: read("tasks/PHASE_31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP.md")
 };
 
-test("phase 23.8.6F is active after the completed E authority correction", () => {
+test("phase 23.8.7 is active after the completed Phase F authority substrate", () => {
   assert.equal(
     files.taskPointer.trim(),
-    "# Current Task\n\nImplement only: tasks/PHASE_23_8_6F_COST_AWARE_CONTEXT_REUSE_AND_CODEX_REFERENCE_ROUTING.md\n\nDo not implement Phase 23.8.7 or later."
+    "# Current Task\n\nImplement only: tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md\n\nDo not implement Phase 23.9 or later."
   );
   assert.match(files.c1a, /^# Phase 23\.8\.6C1A - Routing, Context, and Model-Policy Authority Rebase/m);
   assert.match(files.c1a, /Treat this phase as `extra-high`/);
@@ -42,8 +42,9 @@ test("phase 23.8.6F is active after the completed E authority correction", () =>
   assert.match(files.c1a, /node bin\/ch run status --operator --run run-0003/);
   assert.doesNotMatch(files.c1a, /<live-run-id>/);
   const progression = assertNearTermProgressionMatchesRoadmap(files.operations, files.roadmap);
-  assert.ok(progression.includes("23.8.6F"), "published near-term progression must contain active Phase 23.8.6F");
-  assert.match(roadmapPhaseSection(files.roadmap, "23.8.6F"), /Active implementation phase/);
+  assert.ok(progression.includes("23.8.7"), "published near-term progression must contain active Phase 23.8.7");
+  assert.match(roadmapPhaseSection(files.roadmap, "23.8.6F"), /Complete\./);
+  assert.match(roadmapPhaseSection(files.roadmap, "23.8.7"), /Active implementation phase/);
 });
 
 test("routing and context policy are deterministic, provider-neutral, and fail closed", () => {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { after, test } from "node:test";
 import {
   assertFailure,
@@ -15,6 +16,8 @@ import {
   writeText
 } from "../helpers/cli-test-utils.mjs";
 
+const require = createRequire(import.meta.url);
+const sqliteModule = require(path.join(productRoot, "dist/core/sqlite.js"));
 const ACTIVE_TASK_PATH = "tasks/PHASE_23_8_6B1_SUPERVISED_REVIEW_LAUNCH_AND_BLOCKED_DISPOSITION.md";
 const tempDirectories = [];
 
@@ -448,6 +451,28 @@ test("phase 23.8.6B1 launch-review records valid implementation-review artifact 
   assert.equal(attempt.sandbox_mode, "read-only");
   assert.equal(attempt.output_mode, "file");
   assert.match(attempt.request_artifact_hash, /^sha256:/);
+  const invocation = run.review_routing_records.find((entry) => entry.record_kind === "review_invocation" && entry.status === "success");
+  const replay = run.review_routing_records.find((entry) => entry.record_kind === "review_replay_packet");
+  assert.ok(invocation);
+  assert.ok(replay);
+  for (const field of [
+    "route_class", "binding_profile_id", "context_mode", "usage_ref", "deterministic_evidence_state",
+    "parallel_policy", "budget_class", "required_semantic_reviews", "escalation_triggers", "independence_mode"
+  ]) {
+    assert.deepEqual(replay.payload[field], invocation.payload[field], `replay ${field} must match the actual producer invocation`);
+  }
+  const database = sqliteModule.openSqliteDatabase(path.join(tempRepo, ".harness", "runs", "run-0001", "staging.sqlite"));
+  try {
+    const usagePayload = database.prepare(
+      "SELECT source_run_id, source_phase_id, kind, media_type FROM payload_index WHERE payload_id = ?"
+    ).get(invocation.payload.usage_ref);
+    assert.equal(usagePayload.source_run_id, "run-0001");
+    assert.equal(usagePayload.source_phase_id, "23.8.6B1");
+    assert.equal(usagePayload.kind, "review-usage-facts");
+    assert.equal(usagePayload.media_type, "application/json");
+  } finally {
+    database.close();
+  }
 });
 
 test("phase 23.8.6B1 failed plan-review launch is projected into operator status", () => {

@@ -4740,7 +4740,7 @@ test("phase 23.8.6F harvested replay proves distinct-host eligibility and reject
   assert.equal(packet.payload.accepted_artifact_id, launchedRun.review_results.at(-1).artifact_refs[0].artifact_id);
   assert.deepEqual(
     Object.keys(packet.payload.payload_kinds).sort(),
-    ["context-core", "context-manifest", "review-delta-overlay", "review-request-packet"]
+    ["context-core", "context-manifest", "review-delta-overlay", "review-request-packet", "review-usage-facts"]
   );
   launchedRun.lifecycle_status = "closed";
   launchedRun.updated_at = TIMESTAMP;
@@ -4756,13 +4756,13 @@ test("phase 23.8.6F harvested replay proves distinct-host eligibility and reject
   const project = new ProjectMemoryDatabase(tempRepo, roots.projectRoot);
   const eligible = project.reviewReplayEligibility(run.run_instance_id, packet.record_id);
   assert.equal(eligible.eligible, true, eligible.reasons.join(","));
-  assert.equal(eligible.reconstructed_payload_count, 4);
+  assert.equal(eligible.reconstructed_payload_count, 5);
   const eligibilityCli = runCli([
     "memory", "replay-eligibility", "--run-instance", run.run_instance_id, "--packet-record", packet.record_id
   ], { cwd: tempRepo });
   assertSuccess(eligibilityCli, "CLI replay eligibility");
   assert.match(eligibilityCli.stdout, /eligible: true/);
-  assert.match(eligibilityCli.stdout, /reconstructed payload count: 4/);
+  assert.match(eligibilityCli.stdout, /reconstructed payload count: 5/);
 
   const hostStart = runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo });
   assertSuccess(hostStart, "start distinct replay host");

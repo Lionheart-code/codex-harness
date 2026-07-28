@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
-import { type DeliveryFactRecord, type LifecycleStatus, type RunMode } from "./lifecycle-types";
+import { type DeliveryFactRecord, type LifecycleStatus, type PayloadRecord, type RunMode } from "./lifecycle-types";
 import { PAYLOAD_WARNING_THRESHOLD_BYTES, PayloadStore, type StorePayloadInput } from "./payload-store";
 import {
   HARNESS_DIR,
@@ -642,6 +642,51 @@ function normalizeRecordRows(run: Run): NormalizedRecordRow[] {
     });
   }
 
+  const stageCollections: Array<{ kind: string; records: Array<Record<string, unknown>> }> = [
+    { kind: "stage_state", records: safeArray(run.stage_states) as unknown as Array<Record<string, unknown>> },
+    { kind: "stage_packet", records: safeArray(run.stage_packets) as unknown as Array<Record<string, unknown>> },
+    { kind: "stage_result", records: safeArray(run.stage_results) as unknown as Array<Record<string, unknown>> },
+    { kind: "runner_profile", records: safeArray(run.runner_profiles) as unknown as Array<Record<string, unknown>> },
+    { kind: "execution_policy", records: safeArray(run.execution_policies) as unknown as Array<Record<string, unknown>> },
+    { kind: "waiver_record", records: safeArray(run.waiver_records) as unknown as Array<Record<string, unknown>> }
+  ];
+  for (const collection of stageCollections) {
+    for (const record of collection.records) {
+      const recordId = String(
+        record.stage_state_id
+        ?? record.stage_packet_id
+        ?? record.stage_result_id
+        ?? record.runner_profile_id
+        ?? record.execution_policy_id
+        ?? record.waiver_id
+      );
+      rows.push({
+        recordKind: collection.kind,
+        recordId,
+        runId: run.run_id,
+        phaseId: run.phase_id,
+        taskPath,
+        createdAt: String(record.created_at ?? record.recorded_at),
+        status: typeof record.status === "string"
+          ? record.status
+          : typeof record.outcome === "string"
+            ? record.outcome
+            : record.current === true
+              ? "current"
+              : "superseded",
+        summary: typeof record.summary === "string"
+          ? record.summary
+          : `${collection.kind} ${recordId}`,
+        payloadJson: stringify(record),
+        sourceCommand: collection.kind === "stage_result"
+          ? "node bin/ch run record-stage-result"
+          : "node bin/ch run prepare-packet",
+        sensitivity: "local",
+        retentionClass: collection.kind === "stage_packet" || collection.kind === "stage_result" ? "accepted" : "audit"
+      });
+    }
+  }
+
   return rows;
 }
 
@@ -729,6 +774,43 @@ export class RunStagingDatabase {
     try {
       const store = new PayloadStore(database);
       return store.store(input);
+    } finally {
+      database.close();
+    }
+  }
+
+  readPayloadRecord(payloadId: string): PayloadRecord | undefined {
+    const database = this.open();
+    try {
+      const row = database.prepare([
+        "SELECT payload_id, parent_record_id, source_run_id, source_phase_id, source_step_id, kind, media_type, summary,",
+        "searchable_text, bounded_excerpt, redaction_status, retention_class, compression_status, chunk_count,",
+        "raw_size_bytes, stored_size_bytes, content_hash, created_at",
+        "FROM payload_index WHERE payload_id = ?"
+      ].join(" ")).get(payloadId) as Record<string, unknown> | undefined;
+      if (!row) {
+        return undefined;
+      }
+      return {
+        payload_id: String(row.payload_id),
+        parent_record_id: String(row.parent_record_id),
+        source_run_id: String(row.source_run_id),
+        ...(typeof row.source_phase_id === "string" ? { source_phase_id: row.source_phase_id } : {}),
+        ...(typeof row.source_step_id === "string" ? { source_step_id: row.source_step_id } : {}),
+        kind: String(row.kind),
+        media_type: String(row.media_type),
+        summary: String(row.summary),
+        ...(typeof row.searchable_text === "string" ? { searchable_text: row.searchable_text } : {}),
+        ...(typeof row.bounded_excerpt === "string" ? { bounded_excerpt: row.bounded_excerpt } : {}),
+        redaction_status: String(row.redaction_status) as PayloadRecord["redaction_status"],
+        retention_class: String(row.retention_class) as PayloadRecord["retention_class"],
+        compression_status: String(row.compression_status) as PayloadRecord["compression_status"],
+        chunk_count: Number(row.chunk_count),
+        raw_size_bytes: Number(row.raw_size_bytes),
+        stored_size_bytes: Number(row.stored_size_bytes),
+        content_hash: String(row.content_hash),
+        created_at: String(row.created_at)
+      };
     } finally {
       database.close();
     }
@@ -847,6 +929,56 @@ export class RunStagingDatabase {
         content_hash: row.content_hash,
         body: raw.toString("utf8")
       };
+    } finally {
+      database.close();
+    }
+  }
+
+  readStageResultPayload(input: {
+    resultId: string;
+    payloadId: string;
+    sourceRunId: string;
+    procedureId: string;
+  }): string {
+    const database = this.open();
+    try {
+      const index = database.prepare([
+        "SELECT parent_record_id, source_run_id, source_phase_id, source_step_id, kind, media_type,",
+        "retention_class, compression_status, chunk_count, raw_size_bytes, stored_size_bytes, content_hash",
+        "FROM payload_index WHERE payload_id = ?"
+      ].join(" ")).get(input.payloadId) as Record<string, unknown> | undefined;
+      const linked = database.prepare(
+        "SELECT 1 AS linked FROM payload_links WHERE payload_id = ? AND parent_record_id = ? AND link_role = ?"
+      ).get(input.payloadId, input.resultId, "stage_result_fixture") as { linked?: number } | undefined;
+      if (!index
+        || index.parent_record_id !== input.resultId
+        || index.source_run_id !== input.sourceRunId
+        || index.source_phase_id !== "23.8.7"
+        || index.source_step_id !== input.procedureId
+        || index.kind !== "stage_result_fixture"
+        || index.media_type !== "application/json"
+        || index.retention_class !== "accepted"
+        || linked?.linked !== 1
+        || !["identity", "gzip"].includes(String(index.compression_status))) {
+        throw new Error("Stage result payload identity does not exactly match its result record.");
+      }
+      const chunks = database.prepare(
+        "SELECT chunk_order, chunk_bytes FROM payload_chunks WHERE payload_id = ? ORDER BY chunk_order ASC"
+      ).all(input.payloadId) as Array<{ chunk_order: number; chunk_bytes: Uint8Array }>;
+      if (chunks.length !== index.chunk_count || chunks.some((chunk, order) => chunk.chunk_order !== order)) {
+        throw new Error("Stage result payload chunks are missing, duplicated, or out of order.");
+      }
+      const stored = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk.chunk_bytes)));
+      const raw = index.compression_status === "gzip" ? gunzipSync(stored) : stored;
+      const contentHash = sha256Hex(raw);
+      const expectedPayloadId = `payload-${sha256Hex(Buffer.from(`${input.resultId}:stage_result_fixture:${contentHash}`)).slice(0, 24)}`;
+      if (stored.byteLength !== index.stored_size_bytes
+        || raw.byteLength !== index.raw_size_bytes
+        || contentHash !== index.content_hash
+        || input.payloadId !== expectedPayloadId) {
+        throw new Error("Stage result payload content does not match its immutable index.");
+      }
+      return raw.toString("utf8");
     } finally {
       database.close();
     }

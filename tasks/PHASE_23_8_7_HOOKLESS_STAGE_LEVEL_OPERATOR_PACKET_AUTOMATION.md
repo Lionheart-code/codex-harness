@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Starts only after Phase 23.8.6 Transactional Procedure Result
+Active implementation phase. Starts only after Phase 23.8.6 Transactional Procedure Result
 Ingestion and Slice-Isolated Run Mutations, Phase 23.8.6A Self-Hosting Replay
 and Re-ingestion Continuity, Phase 23.8.6B Self-Hosting Model Routing Policy
 Packaging, Phase 23.8.6B1 Supervised Review Launch and Blocked Disposition,

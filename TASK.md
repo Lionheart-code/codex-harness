@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_23_8_6F_COST_AWARE_CONTEXT_REUSE_AND_CODEX_REFERENCE_ROUTING.md
+Implement only: tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md
 
-Do not implement Phase 23.8.7 or later.
+Do not implement Phase 23.9 or later.
