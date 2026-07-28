@@ -165,9 +165,31 @@ create a disconnected audit database or parallel report system.
 
 These may be added later once the minimal proof record is useful.
 
-## Acceptance criteria
+## Acceptance commands
+
+Run the focused commands after the Phase 23.9 implementation and its required
+review/fix passes, then run the canonical full pack:
+
+```bash
+npm run build
+node --test tests/acceptance/phase18-install-upgrade-registry.test.mjs
+node --test tests/acceptance/phase23-8-6-procedure-ingestion.test.mjs
+node --test tests/acceptance/phase23-8-7-hookless-stage-operator.test.mjs
+node --test tests/acceptance/phase23-8-6c1a-routing-context-authority-rebase.test.mjs
+node --test tests/acceptance/phase23-8-6f-cost-aware-context-routing.test.mjs
+node --test tests/acceptance/phase23-9-minimal-proof-carrying-work-and-review-policy.test.mjs
+npm test
+git diff --check
+```
+
+## Acceptance behavior
 
 - Proof record can be produced from a completed or reviewed run.
+- Phase 23.9 provides a proof producer and typed deterministic derivation only;
+  it writes the active exact-run record to staging authority keyed by
+  `run_instance_id`. It neither provides a public proof query/read API nor a
+  report/packet surface, and it never writes directly to accepted Project
+  Memory. Harvest remains the only promotion path to accepted Project Memory.
 - It states what was verified automatically, what was reviewed, and what remains
   assumption.
 - Missing evidence is explicit.
@@ -190,9 +212,15 @@ These may be added later once the minimal proof record is useful.
   `TASK.md` behind.
 - The existing recovery path remains idempotent for a clean committed
   activation chain and is not used as the normal zero-owner handoff path.
-- The self-hosting transition records a known successor decision before harvest
-  when a successor is selected. Runs with no selected successor remain allowed
-  to harvest; the enforcement level must be explicit and mechanically covered.
+- For a normal, non-discarded self-hosting `codex-harness` run entering harvest,
+  require exactly one typed successor disposition bound to the exact
+  `run_instance_id`: either the existing selected next-task decision or an
+  explicit no-successor disposition. The alternatives are mutually exclusive
+  and idempotent. This enforcement must run before any harvest or accepted
+  Project Memory mutation; it must preserve the discarded-run path and must not
+  change unrelated non-self-hosting run behavior. Selecting a successor and,
+  when selected, its task/base remain human/operator choices; enforcement and
+  record selection are deterministic.
 - Product-repository `install` and `upgrade` calls, dry-run and non-dry alike,
   fail before planning or mutation and leave product source, `AGENTS.md`,
   `.codex-harness.bak` paths, installed-target state, the global registry, and
@@ -203,6 +231,19 @@ These may be added later once the minimal proof record is useful.
 - A deliberate reconcile/migration path preserves self-hosting evidence,
   Project Memory, and canonical `TaskState`, records its recovery outcome, and
   never relies on manual `.harness` deletion.
+- Reconciliation has a zero-write preview that inventories the canonical
+  product root, source files, runtime evidence, Project Memory, canonical
+  `TaskState`, installed-target paths, backup paths, and matching global
+  registry entries. Before apply it creates a typed recoverable journal bound
+  to that inventory. Apply preserves and reads back self-hosting evidence,
+  Project Memory, canonical TaskState, product source, and unrelated
+  `AGENTS.md` content; it has explicit ordering, partial-failure
+  rollback/resume, and terminal receipt states. A matching product-root
+  registry entry is either recoverably removed as the explicit journaled
+  remediation or retained with an explicit unsafe/ambiguous disposition; it is
+  never silently updated or replaced. The proof includes rollback of a normal
+  zero-owner handoff when `TASK.md` was previously absent as well as when it
+  existed.
 
 ## Future-phase impact check
 
