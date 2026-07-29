@@ -87,6 +87,27 @@ recoverable reconciliation record rather than deleting `.harness` manually.
 It must not silently register the product root, overwrite product source, or
 erase runtime evidence.
 
+### Bounded planning-review cohort
+
+Phase 23.9 must add one tightly bounded self-hosting review-cohort capability
+for the existing `plan-review`, `architecture-review`, and `db-storage-review`
+lenses, plus an eligible repeated `plan-review` after `plan-amend`. It is a
+Phase-23.9-specific exception to the prior two-procedure automatic-launch
+boundary, not a general provider/host runner, new lifecycle stage, new review
+category, parallel review system, or implementation-review inheritance path.
+
+The first cohort attempt must be a fresh independent, non-interactive Codex
+launch with an exact approved read-only profile. A later lens may resume only
+the captured exact Codex thread after the product validates every reported
+startup fact against durable cohort authority; mismatch, unavailable/resumed
+thread, invalid artifact, timeout, or recursive attempt must fail closed,
+record a typed outcome, and permit at most one fresh independent retry after
+the prior attempt is terminal. Logical ContextCore reuse, actual thread
+continuation, and provider cache telemetry are separate facts. The cohort must
+retain separate canonical artifacts and verdicts per lens, and no owner
+approval or implementation may proceed until all required current artifacts
+bind to one exact plan SHA and source HEAD.
+
 ## Required concepts
 
 - proof record;

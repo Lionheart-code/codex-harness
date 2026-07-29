@@ -119,6 +119,15 @@ context/route policy and the isolated Codex binding only for the existing
 that exception creates another automatic procedure binding, generic runner,
 daemon, self-approval, or provider-specific lifecycle authority.
 
+Phase 23.9 is the sole further narrow exception: it may add a sequential,
+profile-validated planning-review cohort for the existing `plan-review`,
+`architecture-review`, and `db-storage-review` procedures and an eligible
+amended `plan-review`. Each remains a separate procedure artifact and verdict;
+implementation review is excluded. The exception fails if it creates a general
+runner, lifecycle stage, review category, parallel reviewer, implicit-default
+resume, unvalidated profile continuation, source mutation during review, or
+provider-specific lifecycle authority.
+
 Phase F acceptance also fails if a launched reviewer can recursively create a
 second reviewer claim/process/wait, if `REVIEW_RECURSION_FORBIDDEN` is not
 state-validated before mutation, or if prompt-only instructions are treated as
