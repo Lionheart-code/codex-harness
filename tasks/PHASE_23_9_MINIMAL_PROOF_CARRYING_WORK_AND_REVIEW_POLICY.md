@@ -108,6 +108,24 @@ retain separate canonical artifacts and verdicts per lens, and no owner
 approval or implementation may proceed until all required current artifacts
 bind to one exact plan SHA and source HEAD.
 
+### Narrow automatic fix-pass review
+
+Phase 23.9 also owns the narrow automatic launch of the existing independent
+`fix-pass-review` procedure after a bounded fix-pass diff already exists. The
+only command surface is standalone
+`run launch-review --procedure fix-pass-review`. Each launch must be one fresh,
+independent, read-only invocation with session resume disabled, bound to the
+exact reviewed source HEAD and exact fix-pass diff, and linked to exactly one
+current predecessor `implementation-review` attempt and artifact.
+
+This capability reviews the completed fix only. It must not execute a fix,
+write to the task worktree, prepare or execute a repair packet, launch a
+builder, create a lifecycle stage, or start an automatic review/fix or
+amendment/repair loop. It is a separate single-review capability, not an
+expansion of the planning cohort into implementation work or a general runner.
+Phase 31 remains the first general reviewed runner-execution and PR/CI repair
+boundary.
+
 ## Required concepts
 
 - proof record;

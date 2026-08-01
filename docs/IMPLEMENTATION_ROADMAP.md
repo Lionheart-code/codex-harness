@@ -1207,6 +1207,14 @@ Must preserve:
   approval remain distinct, and proof never becomes routing authority;
 - missing invocation/usage facts remain explicit, and model judgment never
   overrides deterministic failure.
+- the existing standalone
+  `run launch-review --procedure fix-pass-review` automatic capability after a
+  bounded fix-pass diff exists: one fresh independent read-only invocation,
+  no session resume, exact reviewed source HEAD and diff, and exactly one
+  current predecessor `implementation-review` attempt and artifact;
+- `fix-pass-review` reviews the completed fix only and cannot execute fixes,
+  write to the task worktree, prepare or run repair packets, launch a builder,
+  create a lifecycle stage, or start an automatic review/fix loop.
 
 Must not:
 - install or upgrade the product repository as an installed target;
@@ -1555,7 +1563,8 @@ Task:
 Goal:
 Execute approved stage packets through reviewed runner surfaces under explicit
 `RunnerProfile` and `ExecutionPolicy` boundaries, ingest runner/CI/review
-results, and prepare bounded fix-pass packets for failing CI/review outcomes.
+results, and prepare and execute approved bounded fix-pass packets for failing
+CI/review outcomes.
 
 Status:
 Planned. Blocked until Phase 30 is complete and reviewed. No self-approval,
@@ -1570,6 +1579,11 @@ and rollback contracts. It remains the first general external-runner runtime
 typed escalation, and packet-bound execution boundary. It must block rather
 than silently downgrade and must not use an LLM as the default router or allow
 unbounded/parallel write agents.
+Phase 31 consumes the exact Phase 23.9 `implementation-review` and
+`fix-pass-review` launch evidence. It must not recreate, replace, or generalize
+Phase 23.9's narrow automatic standalone read-only `fix-pass-review` launcher.
+Phase 31 owns approved write-capable packet execution, CI/review-result
+ingestion, and bounded fix-pass packet preparation and execution.
 
 ## Pilot — Research Ops pack
 

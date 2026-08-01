@@ -9,7 +9,8 @@ complete, reviewed, and accepted.
 
 Execute approved stage packets through reviewed runner surfaces under explicit
 `RunnerProfile` and `ExecutionPolicy` boundaries, ingest runner/CI/review
-results, and prepare bounded fix-pass packets for failing CI/review outcomes.
+results, and prepare and execute approved bounded fix-pass packets for failing
+CI/review outcomes.
 
 ## Why this phase exists
 
@@ -51,7 +52,13 @@ Required behavior:
   this phase may rationalize reviewed PR/CI execution to one canonical
   required invocation plus compatibility classification. Equivalent aliases
   must not remain separate required proof in reviewed runner/CI execution.
-- Prepare bounded fix-pass packets when CI or review fails.
+- Prepare and execute approved bounded fix-pass packets when CI or review
+  fails.
+- Consume the exact Phase 23.9 `implementation-review` and
+  `fix-pass-review` launch evidence. Do not recreate, replace, or generalize
+  Phase 23.9's narrow automatic standalone read-only `fix-pass-review`
+  launcher; Phase 31 owns the write-capable repair packet boundary, not that
+  review-only capability.
 - Keep provider/host adapters behind shared runner/access boundaries instead
   of embedding provider-specific logic into core lifecycle behavior.
 - Reuse the supervised child-process pattern from Phase 23.8.6B1 only through
@@ -71,7 +78,10 @@ Phase 31 is the first general external-runner runtime owner of `RouteDecision`,
 `ProviderBindingRegistry`, `RunnerProfile`, `ExecutionPolicy`, context-transport
 enforcement, budget enforcement, usage telemetry, and typed escalation. Phase
 F remains the narrow owner for routing the already existing self-hosting Codex
-review-launch path.
+review-launch path, and Phase 23.9 remains the narrow owner for automatically
+launching the existing independent read-only `implementation-review` and
+`fix-pass-review` procedures. Phase 31 consumes their evidence and does not
+recreate their launcher.
 
 Runtime order is deterministic checks, provider-neutral route intent/profile
 floor, cheapest approved safe binding, independence/context enforcement,
@@ -120,6 +130,9 @@ git diff --check
 - Approved packets can be executed only through reviewed runner surfaces with
   explicit `RunnerProfile` and `ExecutionPolicy` boundaries.
 - Failing CI/review outcomes can produce bounded fix-pass packets.
+- Approved bounded fix-pass packets can execute only through the Phase 31
+  write-capable runner boundary, while completed fixes are reviewed through
+  the retained Phase 23.9 read-only review-launch evidence path.
 - Runner execution writes typed evidence/results that preserve lifecycle and
   approval boundaries and exact-instance-safe identity plus artifact/payload
   references.
