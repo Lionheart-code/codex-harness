@@ -13,6 +13,7 @@
     "registry_hash",
     "registry_snapshot",
     "ownership_manifest_id",
+    "ownership_catalog_id",
     "product_source_hash",
     "unrelated_agents_hash",
     "preserved_hashes",
@@ -47,6 +48,7 @@
     },
     "registry_snapshot": { "type": ["string", "null"] },
     "ownership_manifest_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "ownership_catalog_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
     "product_source_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
     "unrelated_agents_hash": {
       "anyOf": [

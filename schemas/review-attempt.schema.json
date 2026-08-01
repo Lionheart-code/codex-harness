@@ -50,7 +50,7 @@
       ]
     },
     "startup_gap": { "enum": ["producer_unavailable"] },
-    "failure_class": { "enum": ["timeout", "process_failed"] },
+    "failure_class": { "enum": ["timeout", "process_failed", "startup_invalid", "artifact_invalid"] },
     "terminal_status": { "enum": ["success", "failed"] },
     "artifact_ids": {
       "type": "array", "maxItems": 3, "uniqueItems": true,

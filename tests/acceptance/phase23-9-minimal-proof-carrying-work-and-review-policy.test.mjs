@@ -14,12 +14,17 @@ import { buildSuccessorDisposition, assertCompatibleSuccessorDisposition } from 
 import { buildReviewAttempt, assertPlanningBundleIdentity } from "../../dist/core/review-cohort.js";
 import { aggregatePlanBlockers, reconcilePlanningLenses, validatePlanningLensResult } from "../../dist/core/plan-contract.js";
 import { buildProofRecord, extractTaskRequirements, parseProofDerivationRequest } from "../../dist/core/proof-record.js";
-import { readInstallerOwnershipCatalog } from "../../dist/core/legacy-installer-ownership-catalog.js";
+import {
+  buildInstallerOwnershipCatalog,
+  buildInstallerOwnershipCatalogEntry,
+  readInstallerOwnershipCatalog
+} from "../../dist/core/legacy-installer-ownership-catalog.js";
 import { buildInstallerOwnershipManifest } from "../../dist/core/installer-ownership.js";
 import { getManagedBaselineContents } from "../../dist/core/install.js";
 import {
   applySelfInstallReconciliation,
-  prepareSelfInstallReconciliation
+  prepareSelfInstallReconciliation,
+  rollbackSelfInstallReconciliation
 } from "../../dist/core/product-self-install-reconciliation.js";
 import { RunStagingDatabase } from "../../dist/core/run-staging-db.js";
 import { buildRuntimeRun, extractEffectiveValidationCommands } from "../../dist/core/runtime.js";
@@ -265,6 +270,43 @@ test("phase 23.9 reconciliation stops on drift and preserves runtime and source"
     execFileSync("git", ["add", "."], { cwd: root });
     execFileSync("git", ["commit", "-qm", "fixture"], { cwd: root });
     const managed = getManagedBaselineContents("0.1.0");
+    const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root, encoding: "utf8"
+    }).trim();
+    const sourceTree = execFileSync("git", ["rev-parse", `${sourceCommit}^{tree}`], {
+      cwd: root, encoding: "utf8"
+    }).trim();
+    const sourceInstall = execFileSync("git", ["show", `${sourceCommit}:src/core/install.ts`], {
+      cwd: root
+    });
+    const catalog = buildInstallerOwnershipCatalog([
+      buildInstallerOwnershipCatalogEntry({
+        provenance: {
+          kind: "committed_historical_source",
+          source_id: sourceCommit,
+          source_content_hash: sha(sourceTree),
+          manifest_path: "src/core/install.ts",
+          manifest_content_hash: sha(sourceInstall),
+          review_authority_ref: sha("fixture-review")
+        },
+        inventory: [
+          {
+            path: ".harness/config.toml", content_hash: sha(managed.configToml),
+            disposition: "quarantine", owner: "installer"
+          },
+          {
+            path: ".harness/templates/managed/agents-block.md",
+            content_hash: sha(managed.agentsBlock),
+            disposition: "quarantine", owner: "installer"
+          }
+        ]
+      })
+    ]);
+    fs.mkdirSync(path.join(root, "assets"), { recursive: true });
+    fs.writeFileSync(path.join(root, "assets/installer-ownership-catalog.v1.json"),
+      `${JSON.stringify(catalog, null, 2)}\n`);
+    execFileSync("git", ["add", "assets/installer-ownership-catalog.v1.json"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "catalog"], { cwd: root });
     for (const [relativePath, contents] of [
       [".harness/config.toml", managed.configToml],
       [".harness/templates/managed/agents-block.md", managed.agentsBlock],
@@ -298,11 +340,30 @@ test("phase 23.9 reconciliation stops on drift and preserves runtime and source"
     assert.equal(fs.readFileSync(path.join(root, ".harness/runs/retained.txt"), "utf8"), "runtime\n");
     assert.equal(fs.existsSync(path.join(root, ".harness/install.json")), true);
     fs.writeFileSync(path.join(root, ".harness/config.toml"), managed.configToml);
-    const completed = applySelfInstallReconciliation(journal);
+    const quarantine = path.join(
+      root, ".harness/self-install-reconciliation/quarantine", journal.journal_id.slice(7),
+      ".harness/config.toml"
+    );
+    fs.mkdirSync(path.dirname(quarantine), { recursive: true });
+    fs.copyFileSync(path.join(root, ".harness/config.toml"), quarantine);
+    fs.rmSync(path.join(root, ".harness/config.toml"));
+    const completed = applySelfInstallReconciliation({
+      ...journal,
+      state: "partial_failure",
+      completed_steps: ["removed:.harness/config.toml"],
+      error: "injected interruption"
+    });
     assert.equal(completed.state, "completed_receipt");
     assert.equal(fs.existsSync(path.join(root, ".harness/install.json")), false);
     assert.equal(fs.readFileSync(path.join(root, ".harness/runs/retained.txt"), "utf8"), "runtime\n");
     assert.equal(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8"), "unrelated\n\ntail\n");
+    const rolledBack = rollbackSelfInstallReconciliation(completed);
+    assert.equal(rolledBack.state, "rolled_back");
+    assert.equal(fs.existsSync(path.join(root, ".harness/install.json")), true);
+    assert.equal(fs.readFileSync(path.join(root, ".harness/config.toml"), "utf8"), managed.configToml);
+    assert.equal(fs.readFileSync(path.join(root, ".harness/runs/retained.txt"), "utf8"), "runtime\n");
+    assert.equal(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8"),
+      `unrelated\n${managed.agentsBlock}tail\n`);
   } finally {
     if (priorHome === undefined) delete process.env.HOME;
     else process.env.HOME = priorHome;

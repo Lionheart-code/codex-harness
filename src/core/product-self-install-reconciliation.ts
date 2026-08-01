@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { canonicalJson, sha256Hex } from "./evidence-types";
 import { detectInstalledLayer, getManagedBaselineContents, getSchemaSnapshotFilePlans } from "./install";
 import { parseInstallerOwnershipManifest } from "./installer-ownership";
+import { readInstallerOwnershipCatalog } from "./legacy-installer-ownership-catalog";
 import { AGENTS_BLOCK_END, AGENTS_BLOCK_START } from "./paths";
 import { detectProductRepositoryIdentity } from "./product-repository-identity";
 import { getProjectRegistryPath, loadProjectRegistry, removeRegistryProject } from "./registry";
@@ -34,6 +35,7 @@ export interface SelfInstallReconciliationV1 {
   registry_hash: `sha256:${string}` | null;
   registry_snapshot: string | null;
   ownership_manifest_id: `sha256:${string}`;
+  ownership_catalog_id: `sha256:${string}`;
   product_source_hash: `sha256:${string}`;
   unrelated_agents_hash: `sha256:${string}` | null;
   preserved_hashes: Record<string, `sha256:${string}` | null>;
@@ -99,6 +101,7 @@ function hashProductSource(root: string): `sha256:${string}` {
 
 function installedControlAuthority(root: string): {
   manifestId: `sha256:${string}`;
+  catalogId: `sha256:${string}`;
   removablePaths: string[];
 } {
   const installPath = path.join(root, ".harness", "install.json");
@@ -138,17 +141,38 @@ function installedControlAuthority(root: string): {
       throw new Error(`reconciliation_installer_manifest_entry_unproven:${entry.path}`);
     }
   }
-  const removablePaths = [...new Set([
-    ...INSTALLER_CONTROL_PATHS,
+  const catalog = readInstallerOwnershipCatalog(path.join(root, "assets", "installer-ownership-catalog.v1.json"));
+  const catalogMatches = catalog.manifest_entries.filter((candidate) =>
+    manifest.entries.every((manifestEntry) => candidate.inventory.some((catalogEntry) =>
+      canonicalJson(catalogEntry) === canonicalJson(manifestEntry))));
+  if (catalogMatches.length !== 1) {
+    throw new Error(`reconciliation_catalog_authority_cardinality_invalid:${catalogMatches.length}`);
+  }
+  const catalogEntry = catalogMatches[0];
+  const sourceTree = runGitCommand(root, ["rev-parse", `${catalogEntry.provenance.source_id}^{tree}`]);
+  const sourceFile = runGitCommand(root, [
+    "show", `${catalogEntry.provenance.source_id}:${catalogEntry.provenance.manifest_path}`
+  ]);
+  if (sourceTree.status !== 0 || sourceFile.status !== 0
+    || `sha256:${sha256Hex(sourceTree.stdout.trim())}` !== catalogEntry.provenance.source_content_hash
+    || `sha256:${sha256Hex(sourceFile.stdout)}` !== catalogEntry.provenance.manifest_content_hash
+    || !/^sha256:[a-f0-9]{64}$/u.test(catalogEntry.provenance.review_authority_ref)) {
+    throw new Error("reconciliation_catalog_provenance_invalid");
+  }
+  const removableCandidates = [...new Set([
+    ...INSTALLER_CONTROL_PATHS.filter((relativePath) => fs.existsSync(path.join(root, relativePath))),
     ...manifest.entries.map((entry) => entry.path.replace(/\\/gu, "/"))
   ])].sort();
+  const removablePaths = removableCandidates.filter((candidate) =>
+    !removableCandidates.some((ancestor) =>
+      ancestor !== candidate && candidate.startsWith(`${ancestor}/`)));
   for (const [relativePath, expectedHash] of expectedHashes) {
     const absolutePath = path.join(root, relativePath);
     if (fs.existsSync(absolutePath) && hashPath(absolutePath) !== expectedHash) {
       throw new Error(`reconciliation_managed_content_drift:${relativePath}`);
     }
   }
-  return { manifestId: manifest.manifest_id, removablePaths };
+  return { manifestId: manifest.manifest_id, catalogId: catalog.catalog_id, removablePaths };
 }
 
 function unrelatedAgentsHash(root: string): `sha256:${string}` | null {
@@ -236,6 +260,7 @@ export function prepareSelfInstallReconciliation(rootPath: string, dryRun = fals
       ? fs.readFileSync(getProjectRegistryPath(), "utf8")
       : null,
     ownership_manifest_id: authority.manifestId,
+    ownership_catalog_id: authority.catalogId,
     product_source_hash: hashProductSource(root),
     unrelated_agents_hash: unrelatedAgentsHash(root),
     preserved_hashes: Object.fromEntries([...PRESERVED, ...backupPaths].map((relativePath) => [
@@ -263,6 +288,16 @@ function stripManagedAgentsBlock(contents: string): string {
   return `${contents.slice(0, start)}${contents.slice(end + AGENTS_BLOCK_END.length)}`.replace(/\n{3,}/gu, "\n\n");
 }
 
+function quarantineRootFor(journal: SelfInstallReconciliationV1): string {
+  return path.join(
+    journal.product_root,
+    ".harness",
+    "self-install-reconciliation",
+    "quarantine",
+    journal.journal_id.slice(7)
+  );
+}
+
 function assertReconciliationPreflight(journal: SelfInstallReconciliationV1): void {
   const root = journal.product_root;
   const identity = detectProductRepositoryIdentity(root);
@@ -272,9 +307,12 @@ function assertReconciliationPreflight(journal: SelfInstallReconciliationV1): vo
   if (journal.inventory_hash !== `sha256:${sha256Hex(canonicalJson(journal.items))}`) {
     throw new Error("reconciliation_inventory_identity_mismatch");
   }
-  const authority = installedControlAuthority(root);
-  if (authority.manifestId !== journal.ownership_manifest_id) {
-    throw new Error("reconciliation_ownership_authority_drift");
+  if (journal.state === "prepared") {
+    const authority = installedControlAuthority(root);
+    if (authority.manifestId !== journal.ownership_manifest_id
+      || authority.catalogId !== journal.ownership_catalog_id) {
+      throw new Error("reconciliation_ownership_authority_drift");
+    }
   }
   if (hashProductSource(root) !== journal.product_source_hash) {
     throw new Error("reconciliation_product_source_drift");
@@ -282,7 +320,11 @@ function assertReconciliationPreflight(journal: SelfInstallReconciliationV1): vo
   if (`sha256:${sha256Hex(canonicalJson(openVerifiedTaskStateStore(root).enumerate()))}` !== journal.task_state_hash) {
     throw new Error("reconciliation_task_state_drift");
   }
-  if (hashPath(getProjectRegistryPath()) !== journal.registry_hash
+  if (journal.completed_steps.includes("removed:registry")) {
+    const matches = loadProjectRegistry()?.projects
+      .filter((entry) => path.resolve(entry.root_path) === root) ?? [];
+    if (matches.length !== 0) throw new Error("reconciliation_registry_drift");
+  } else if (hashPath(getProjectRegistryPath()) !== journal.registry_hash
     || (fs.existsSync(getProjectRegistryPath())
       ? fs.readFileSync(getProjectRegistryPath(), "utf8")
       : null) !== journal.registry_snapshot) {
@@ -294,7 +336,13 @@ function assertReconciliationPreflight(journal: SelfInstallReconciliationV1): vo
     }
     if (item.path === "AGENTS.md#managed-block" || item.path === getProjectRegistryPath()) continue;
     if (item.path === ".harness/self-install-reconciliation") continue;
-    if (hashPath(path.join(root, item.path)) !== item.content_hash) {
+    const currentHash = hashPath(path.join(root, item.path));
+    const completed = journal.completed_steps.includes(`removed:${item.path}`);
+    if (completed && currentHash === null
+      && hashPath(path.join(quarantineRootFor(journal), item.path)) === item.content_hash) {
+      continue;
+    }
+    if (currentHash !== item.content_hash) {
       throw new Error(`reconciliation_inventory_drift:${item.path}`);
     }
   }
@@ -321,15 +369,21 @@ export function applySelfInstallReconciliation(
   };
   writeJournal(root, next);
   try {
-    const quarantineRoot = path.join(root, ".harness", "self-install-reconciliation", "quarantine", journal.journal_id.slice(7));
+    const quarantineRoot = quarantineRootFor(journal);
     const removablePaths = journal.items
       .filter((item) => item.disposition === "quarantine_then_remove"
         && !item.path.includes("#"))
       .map((item) => item.path);
     for (const relativePath of removablePaths) {
       const source = path.join(root, relativePath);
-      if (!fs.existsSync(source)) continue;
       const destination = path.join(quarantineRoot, relativePath);
+      if (!fs.existsSync(source)) {
+        if (next.completed_steps.includes(`removed:${relativePath}`)
+          && hashPath(destination) === journal.items.find((item) => item.path === relativePath)?.content_hash) {
+          continue;
+        }
+        throw new Error(`reconciliation_removal_source_missing:${relativePath}`);
+      }
       fs.mkdirSync(path.dirname(destination), { recursive: true });
       fs.cpSync(source, destination, { recursive: true, errorOnExist: true });
       if (hashPath(source) !== hashPath(destination)) throw new Error(`quarantine_readback_failed:${relativePath}`);

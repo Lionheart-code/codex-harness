@@ -1033,8 +1033,9 @@ export class RunStagingDatabase {
       maximumSequence = Math.max(maximumSequence, Number(sequence));
     }
     const suppliedProvenance = JSON.parse(descriptor.provenance_json) as Record<string, unknown>;
+    const phase239Sequence = suppliedProvenance.phase_id === "23.9";
     let normalizedDescriptor = descriptor;
-    if (!existing) {
+    if (!existing && phase239Sequence) {
       const expectedSequence = maximumSequence + 1;
       if (suppliedProvenance.recording_sequence !== undefined
         && suppliedProvenance.recording_sequence !== expectedSequence) {
@@ -1092,6 +1093,22 @@ export class RunStagingDatabase {
       normalizedDescriptor.reviewed_plan_content_hash ?? null,
       normalizedDescriptor.reviewed_evidence_artifact_id ?? null
     );
+    if (!phase239Sequence) return;
+    const readbackRows = database.prepare(
+      "SELECT artifact_id, provenance_json FROM procedure_artifacts WHERE run_instance_id = ?"
+    ).all(descriptor.run_instance_id) as Array<{ artifact_id: string; provenance_json: string }>;
+    const readbackSequences = readbackRows.flatMap((row) => {
+      const provenance = JSON.parse(row.provenance_json) as Record<string, unknown>;
+      return provenance.procedure_contract_version === "phase-23.9"
+        ? [{ artifactId: row.artifact_id, sequence: provenance.recording_sequence }]
+        : [];
+    });
+    const inserted = readbackSequences.find((entry) => entry.artifactId === descriptor.artifact_id);
+    if (!inserted || inserted.sequence !== maximumSequence + 1
+      || readbackSequences.some((entry) => !Number.isInteger(entry.sequence) || Number(entry.sequence) < 1)
+      || new Set(readbackSequences.map((entry) => entry.sequence)).size !== readbackSequences.length) {
+      throw new Error(`procedure_recording_sequence_readback_invalid:${descriptor.artifact_id}`);
+    }
   }
 
   storeIndependentRecord(database: DatabaseLike, input: IndependentRecordInput): void {
