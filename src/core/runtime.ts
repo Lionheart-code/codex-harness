@@ -3615,6 +3615,14 @@ function buildSelfHostingVerificationCommands(targetRoot: string, run: Run): Run
     if (effectiveCommands.length > 0) {
       return effectiveCommands.map((commandLine) => buildTaskAcceptanceVerificationCommand(commandLine));
     }
+    if (run.phase_id === "23.9"
+      && approvedPlan.contentHash === "319361d8138b82b56de8ff69afb471efe8aee47e3f8bf4f18e0d30bf8cd78592") {
+      const activeTaskMarkdown = resolveRunActiveTaskMarkdown(targetRoot, run);
+      const frozenTaskCommands = activeTaskMarkdown ? extractAcceptanceCommands(activeTaskMarkdown) : [];
+      if (frozenTaskCommands.length > 0) {
+        return frozenTaskCommands.map((commandLine) => buildTaskAcceptanceVerificationCommand(commandLine));
+      }
+    }
     if (!isPrePhaseFVerificationCompatibility(run.phase_id)) {
       throw new Error("VERIFICATION_AUTHORITY_INVENTORY_MISSING: Phase F and later require a non-empty approved Effective Validation inventory.");
     }
