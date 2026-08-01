@@ -20,7 +20,9 @@
     "file_output": true,
     "jsonl_observation": true,
     "safe_session_resume": false,
-    "automatic_procedures": ["implementation-review", "plan-review"]
+    "planning_bundle": true,
+    "single_review": true,
+    "automatic_procedures": ["architecture-review", "db-storage-review", "fix-pass-review", "implementation-review", "plan-review"]
   },
   "profiles": [
     {
@@ -31,7 +33,7 @@
       "reasoning_effort": "high",
       "verbosity": "low",
       "status": "accepted",
-      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true}
+      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true, "safe_session_resume": false}
     },
     {
       "profile_id": "accepted-complex-judgment",
@@ -41,7 +43,7 @@
       "reasoning_effort": "high",
       "verbosity": "low",
       "status": "accepted",
-      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true}
+      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true, "safe_session_resume": false}
     },
     {
       "profile_id": "accepted-critical-independent",
@@ -51,7 +53,7 @@
       "reasoning_effort": "high",
       "verbosity": "low",
       "status": "accepted",
-      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true}
+      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true, "safe_session_resume": false}
     },
     {
       "profile_id": "candidate-balanced-medium",
@@ -61,7 +63,7 @@
       "reasoning_effort": "medium",
       "verbosity": "low",
       "status": "candidate",
-      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true}
+      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true, "safe_session_resume": false}
     },
     {
       "profile_id": "candidate-economy-medium",
@@ -71,7 +73,7 @@
       "reasoning_effort": "medium",
       "verbosity": "low",
       "status": "candidate",
-      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true}
+      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true, "safe_session_resume": false}
     },
     {
       "profile_id": "candidate-balanced-high",
@@ -81,7 +83,7 @@
       "reasoning_effort": "high",
       "verbosity": "low",
       "status": "candidate",
-      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true}
+      "capabilities": {"fresh_packet": true, "resume_same_role": false, "packet_plus_retrieval": true, "fresh_independent_delta": true, "jsonl_usage": true, "safe_session_resume": false}
     }
   ]
 }

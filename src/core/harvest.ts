@@ -71,6 +71,12 @@ export function harvestRun(
     }
     throw new Error(`Run not found in staging DB: ${runId}`);
   }
+  if (run.phase_id === "23.9") {
+    const dispositions = staging.listIndependentRecords("successor_disposition", runId);
+    if (dispositions.length !== 1) {
+      throw new Error(`successor_disposition_cardinality_invalid:${dispositions.length}`);
+    }
+  }
   if (!hasExactRunIdentity(run)) {
     throw new Error(
       `Run ${runId} lacks exact immutable identity and cannot be harvested. Open a fresh replacement run or migrate this legacy run first.`

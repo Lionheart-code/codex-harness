@@ -1,5 +1,14 @@
 # Self-Hosting Operator Stage Map
 
+## Phase 23.9 planning bundle projection
+
+`PLANNING_REVIEW_BUNDLE_REQUIRED` lists every missing assigned lens and permits
+the fresh bundle to produce them without a prior general-lens PASS.
+`PLAN_AMEND_REQUIRED` is unreachable until every assigned candidate lens is
+terminal. `PLAN_APPROVAL_REQUIRED` is reachable only after current lens PASS
+artifacts and `REVIEW_COVERAGE_COMPLETE` reconciliation. A semantic closure
+blocker stops for an owner decision; it never starts an automatic amendment.
+
 ## Purpose
 
 Provide a declarative stage-to-procedure map for the Phase 23.7 operator

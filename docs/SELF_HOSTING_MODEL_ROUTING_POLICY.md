@@ -1,5 +1,14 @@
 # Self-Hosting Model Routing Policy
 
+## Phase 23.9 production review binding
+
+Planning bundles and standalone implementation/fix reviews use profile
+`accepted-critical-independent`: `codex_cli`, OpenAI, `gpt-5.6-sol`, high
+reasoning, read-only sandbox, approval `never`, file output, and
+`fresh_independent_delta`. `safe_session_resume=false`; requested values are
+comparison inputs and only retained raw startup observations establish the
+observed profile.
+
 ## Purpose
 
 Define the checked-in policy for self-hosting model/risk routing, bounded

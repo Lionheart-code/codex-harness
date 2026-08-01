@@ -1,5 +1,13 @@
 # Self-hosting Procedure Source Map
 
+## Phase 23.9 contract resolution
+
+The registry plus each procedure `SKILL.md`,
+`references/output-format.md`, and output schema owns the exact output
+contract/version. Prompt wrappers are derived and may not duplicate an ad hoc
+format. Bundle ingestion rejects any lens output before mutation when that
+resolved contract does not validate.
+
 Status: maintained self-hosting authority surface, introduced in Phase 23.6
 Target repo path: `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`  
 Related phase: `tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md`  

@@ -5,6 +5,7 @@ import { detectInstalledLayer, readInstallMetadataFromTarget } from "../core/ins
 import { detectGitRepository } from "../core/git";
 import { error, lines } from "../core/logger";
 import { getProjectRegistryPath, loadProjectRegistry } from "../core/registry";
+import { detectProductRepositoryIdentity } from "../core/product-repository-identity";
 
 function normalizePathForComparison(targetPath: string): string {
   let resolved: string;
@@ -55,6 +56,10 @@ function runLocalDoctor(): number {
         `installed layer: ${detectInstalledLayer(result.rootPath) ? "present" : "absent"}`
       );
       output.push(`harness path: ${path.join(result.rootPath, ".harness")}`);
+      if (detectProductRepositoryIdentity(result.rootPath).is_product_repository
+        && detectInstalledLayer(result.rootPath)) {
+        output.push("product self-install conflict: present; run `node bin/ch reconcile-self-install journal`.");
+      }
     }
   } else {
     output.push("repository: not inside a git work tree");

@@ -34,3 +34,8 @@ Source map authority: `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`
 
 - Silent plan rewrites
 - Scope growth during amendment
+
+## phase_23_9_adaptation
+
+- One amendment consumes the complete terminal aggregate and only
+  `PLAN_BLOCKER` findings.

@@ -1,5 +1,16 @@
 # Self-hosting Plan-Review Workflow
 
+## Phase 23.9 bounded three-lens lifecycle
+
+For `high` and `extra-high` plans, one fresh independent read-only invocation
+evaluates one exact candidate through `plan-review`, `architecture-review`, and
+`db-storage-review`. All assigned lens results become terminal before one
+aggregate and one amendment. Closure reruns only lenses intersecting changed
+decisions, traces, contract surfaces, and compatibility claims. Each lens
+remains a separate schema-validated canonical procedure artifact. Deterministic
+cross-lens reconciliation precedes owner approval. No plan-review PASS
+prerequisite blocks the two specialized lenses.
+
 ## Purpose
 
 This workflow defines how `codex-harness` should plan, review, implement,

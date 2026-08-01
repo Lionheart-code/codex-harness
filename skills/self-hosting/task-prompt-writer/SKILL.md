@@ -48,6 +48,8 @@ repo-owned procedures and task contracts.
 ## expected_output_format
 Return the exact section order documented in
 `references/output-format.md`.
+The checked-in registry-selected output contract is authoritative; prompt prose
+must not duplicate or redefine its version or schema.
 
 ## blocker_conditions
 - The task contract or procedure contract is missing.

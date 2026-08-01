@@ -14,3 +14,7 @@ Each review finding must be marked `accepted`, `rejected`, or `unresolved`.
 The output is the effective amended plan for execution. If multiple amendments
 exist for the same run, the latest amended plan supersedes earlier draft/amend
 plan artifacts while preserving them as audit trail.
+
+The finding disposition must cite the exact aggregate ID and include only
+`PLAN_BLOCKER` findings. Include changed decision, changed trace,
+lens-intersection, and contract-surface manifests for bounded closure.

@@ -1,0 +1,6 @@
+{
+  "schema_version": "phase-23.9.installer-ownership-catalog.v1",
+  "record_kind": "installer_ownership_catalog",
+  "catalog_id": "sha256:bd1d94dc88f718a244e168f1861529d919b5f10d004f6718a799d3b15dc79dfc",
+  "manifest_entries": []
+}

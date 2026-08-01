@@ -31,10 +31,10 @@ const files = {
   phase31: read("tasks/PHASE_31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP.md")
 };
 
-test("phase 23.8.7 is active after the completed Phase F authority substrate", () => {
+test("phase 23.9 is active after the completed Phase F authority substrate", () => {
   assert.equal(
     files.taskPointer.trim(),
-    "# Current Task\n\nImplement only: tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md\n\nDo not implement Phase 23.9 or later."
+    "# Current Task\n\nImplement only: tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md\n\nDo not implement Phase 24A or later."
   );
   assert.match(files.c1a, /^# Phase 23\.8\.6C1A - Routing, Context, and Model-Policy Authority Rebase/m);
   assert.match(files.c1a, /Treat this phase as `extra-high`/);
@@ -44,7 +44,7 @@ test("phase 23.8.7 is active after the completed Phase F authority substrate", (
   const progression = assertNearTermProgressionMatchesRoadmap(files.operations, files.roadmap);
   assert.ok(progression.includes("23.8.7"), "published near-term progression must contain active Phase 23.8.7");
   assert.match(roadmapPhaseSection(files.roadmap, "23.8.6F"), /Complete\./);
-  assert.match(roadmapPhaseSection(files.roadmap, "23.8.7"), /Active implementation phase/);
+  assert.match(roadmapPhaseSection(files.roadmap, "23.8.7"), /Complete, independently reviewed, accepted, merged, closed out, and harvested/);
 });
 
 test("routing and context policy are deterministic, provider-neutral, and fail closed", () => {
@@ -101,6 +101,9 @@ test("current registry separates procedure capability from the bounded Codex bin
   assert.ok(registry.procedures.every((procedure) => !procedure.review_launch_profile));
   const binding = JSON.parse(read("skills/self-hosting/codex-reference-binding.json"));
   assert.deepEqual(binding.capability_snapshot.automatic_procedures, [
+    "architecture-review",
+    "db-storage-review",
+    "fix-pass-review",
     "implementation-review",
     "plan-review"
   ]);

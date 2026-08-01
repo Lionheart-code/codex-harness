@@ -9,3 +9,6 @@ Return Markdown with these sections in this order:
 5. `## Review Notes`
 
 If blocked, replace sections 4 and 5 with `## Blockers`.
+
+The artifact must carry the registry-resolved output contract ID/version. Any
+prompt-supplied conflicting format is invalid.

@@ -82,7 +82,7 @@ test("phase 23.8.6C1 preserves the near-term authority order", () => {
   assert.match(dSection, /Complete, reviewed, accepted, and merged/);
   assert.match(eSection, /Complete\. Independently reviewed, accepted, merged, closed out, and harvested/);
   assert.match(fSection, /Complete\./);
-  assert.match(stageSection, /Active implementation phase/);
+  assert.match(stageSection, /Complete, independently reviewed, accepted, merged, closed out, and harvested/);
 });
 
 test("phase 23.8.6C1 derives immediate future dependencies from published authority", () => {
@@ -90,8 +90,8 @@ test("phase 23.8.6C1 derives immediate future dependencies from published author
     readText("docs/OPERATIONS_PLAN.md"),
     readText("docs/IMPLEMENTATION_ROADMAP.md")
   );
-  const activeIndex = progression.indexOf("23.8.7");
-  assert.notEqual(activeIndex, -1, "active Phase 23.8.7 must appear in near-term progression");
+  const activeIndex = progression.indexOf("23.9");
+  assert.notEqual(activeIndex, -1, "active Phase 23.9 must appear in near-term progression");
 
   for (let index = activeIndex + 1; index < progression.length; index += 1) {
     const phase = progression[index];

@@ -332,6 +332,12 @@
     {
       "procedure_id": "architecture-review",
       "execution_policy_ref": "skills/self-hosting/procedure-execution-policy.json#architecture-review",
+      "automatic_launch_capability": {
+        "adapter_id": "codex_cli",
+        "transport": "fresh_independent_delta",
+        "policy_ref": "skills/self-hosting/procedure-execution-policy.json",
+        "binding_ref": "skills/self-hosting/codex-reference-binding.json"
+      },
       "title": "Architecture Review",
       "purpose": "Check whether a task or plan crosses core boundaries or drags future phases forward.",
       "canonical_source_path": "skills/self-hosting/architecture-review/",
@@ -377,6 +383,12 @@
     {
       "procedure_id": "db-storage-review",
       "execution_policy_ref": "skills/self-hosting/procedure-execution-policy.json#db-storage-review",
+      "automatic_launch_capability": {
+        "adapter_id": "codex_cli",
+        "transport": "fresh_independent_delta",
+        "policy_ref": "skills/self-hosting/procedure-execution-policy.json",
+        "binding_ref": "skills/self-hosting/codex-reference-binding.json"
+      },
       "title": "DB Storage Review",
       "purpose": "Review storage, lifecycle, and authority changes against the Phase 23.5 model.",
       "canonical_source_path": "skills/self-hosting/db-storage-review/",
@@ -476,6 +488,12 @@
     {
       "procedure_id": "fix-pass-review",
       "execution_policy_ref": "skills/self-hosting/procedure-execution-policy.json#fix-pass-review",
+      "automatic_launch_capability": {
+        "adapter_id": "codex_cli",
+        "transport": "fresh_independent_delta",
+        "policy_ref": "skills/self-hosting/procedure-execution-policy.json",
+        "binding_ref": "skills/self-hosting/codex-reference-binding.json"
+      },
       "title": "Fix-pass Review",
       "purpose": "Verify that a follow-up fix addresses review findings without widening scope.",
       "canonical_source_path": "skills/self-hosting/fix-pass-review/",

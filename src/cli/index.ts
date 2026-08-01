@@ -21,6 +21,7 @@ import { runSecurity } from "./security";
 import { runSchema } from "./schema";
 import { runStatus } from "./status";
 import { runUpgrade } from "./upgrade";
+import { runReconcileSelfInstall } from "./reconcile-self-install";
 import { runWorktree } from "./worktree";
 
 type CommandHandler = (args: string[]) => Promise<number>;
@@ -85,6 +86,7 @@ function printHelp(): void {
     "  node bin/ch upgrade --help",
     "  node bin/ch upgrade --dry-run",
     "  node bin/ch upgrade",
+    "  node bin/ch reconcile-self-install journal --dry-run",
     "  node bin/ch status",
     "  node bin/ch init \"task title\"",
     "  node bin/ch init \"task title\" --dry-run",
@@ -114,6 +116,7 @@ function printHelp(): void {
     "  parallel Manage the Phase 16 opt-in parallel worktree scaffold.",
     "  install  Install or preview the Phase 2 harness layer.",
     "  upgrade  Upgrade or preview the installed Phase 18 harness layer.",
+    "  reconcile-self-install Safely inventory and reconcile a product self-install conflict.",
     "  status   List tasks from the installed Phase 3 task-state layer.",
     "  init     Create or preview a Phase 3 task folder.",
     "  worktree Create or reuse the Phase 4 task worktree.",
@@ -161,6 +164,8 @@ function getCommandHandler(command: string): CommandHandler | undefined {
       return runInstall;
     case "upgrade":
       return runUpgrade;
+    case "reconcile-self-install":
+      return runReconcileSelfInstall;
     case "status":
       return runStatus;
     case "init":

@@ -1,5 +1,14 @@
 # Self-hosting Procedures
 
+## Phase 23.9 automatic review surfaces
+
+The exact automatic procedure set is `architecture-review`,
+`db-storage-review`, `fix-pass-review`, `implementation-review`, and
+`plan-review`. Architecture/DB are planning-bundle-only; plan review may be
+bundled or standalone as allowed by lifecycle authority; implementation and
+fix-pass are standalone fresh read-only launches. Fix-pass reviews an already
+completed bounded fix and cannot execute repairs or start a loop.
+
 This directory is the canonical product-source location for Phase 23.6
 self-hosting procedures.
 

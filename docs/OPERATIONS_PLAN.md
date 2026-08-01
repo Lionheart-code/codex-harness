@@ -1,5 +1,13 @@
 # Operations Plan
 
+## Phase 23.9 lifecycle additions
+
+Run/Staging DB remains the active writer. Phase 23.9 adds versioned independent
+records without DDL, preserves them across Run projection rewrites, transfers
+only an accepted `proof_record` plus its atomic Project
+`proof_transfer_receipt`, and requires a selected-successor or explicit
+no-successor disposition before eligible harvest.
+
 ## Current operator-first contract
 
 The current self-hosting direction is a lightweight operator-first control

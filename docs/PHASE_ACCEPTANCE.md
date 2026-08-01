@@ -1,5 +1,14 @@
 # Phase Acceptance Rules
 
+## Phase 23.9
+
+Acceptance requires exact baseline binding, proof-record derivation and
+survival, three-lens identity/coverage reconciliation, zero-owner normal
+materialization, product-root install/upgrade zero-write rejection, safe
+self-install reconciliation, standalone fresh read-only implementation/fix
+review launches, focused suites, full verification, delivery facts, closeout,
+and harvest evidence.
+
 ## Global acceptance rules
 
 Every phase promoted to the current `TASK.md` must have:

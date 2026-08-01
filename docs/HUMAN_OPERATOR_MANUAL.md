@@ -1,5 +1,15 @@
 # Human Operator Manual
 
+## Phase 23.9 planning and review launch
+
+Use one fresh read-only `run launch-review --bundle planning` invocation for a
+high/extra-high candidate or bounded impact closure. Harness resolves output
+contracts from the checked-in registry, validates the envelope and every lens
+schema first, then ingests the three existing procedure artifacts atomically.
+Session resume is disabled. Standalone `implementation-review` and the narrow
+post-fix `fix-pass-review` use fresh read-only `--procedure` launches; neither
+writes or executes repairs.
+
 ## Purpose
 
 This document explains how a human operator should use `codex-harness` safely.

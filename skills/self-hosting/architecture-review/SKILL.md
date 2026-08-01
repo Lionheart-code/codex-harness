@@ -15,6 +15,10 @@ Architecture Review
 Check whether a task or plan crosses core boundaries or drags future phases
 forward.
 
+This lens owns module and execution-path ownership, dependency direction,
+authority/lifecycle boundaries, source/runtime separation, orchestration versus
+algorithm placement, runtime containment, and future-phase leakage.
+
 ## when_to_use
 - The work affects architecture, boundaries, lifecycle, or core workflow shape.
 - The task is tagged `high` or `extra-high`.
@@ -37,6 +41,10 @@ forward.
 - Do not recommend provider-specific core logic in Phase 23.6.
 
 ## checklist
+- Classify every finding using the closed Phase 23.9 finding classes and name
+  one primary lens.
+- Bind the exact shared candidate/closure identity and checked-in output
+  contract selected by the procedure registry.
 - Check for future-phase creep.
 - Verify product-source versus runtime-state boundaries.
 - Check source trace when authoritative docs, prompts, or procedure contracts

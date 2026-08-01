@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isIgnoredPlatformMetadata } from "../dist/core/platform-metadata.js";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptsDir = path.dirname(scriptPath);
@@ -20,6 +21,7 @@ function listFilesRecursively(rootPath) {
   const results = [];
 
   for (const entry of fs.readdirSync(rootPath, { withFileTypes: true })) {
+    if (isIgnoredPlatformMetadata(entry.name)) continue;
     const absolutePath = path.join(rootPath, entry.name);
 
     if (entry.isDirectory()) {

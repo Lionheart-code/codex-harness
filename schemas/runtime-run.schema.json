@@ -41,6 +41,62 @@
     "harvested_at": { "type": "string" },
     "source_snapshot": { "type": "string" },
     "source_staging_db_path": { "type": "string" },
+    "implementation_baseline_head": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "final_reviewed_source_head": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "delivered_source_head": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "implementation_baseline_binding": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "approval_id",
+        "plan_artifact_hash",
+        "planning_review_source_head",
+        "owner_authority_diff_hash",
+        "implementation_baseline_head",
+        "implementation_baseline_tree_hash",
+        "expected_tree_hash",
+        "bound_at"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "approval_id": { "type": "string", "minLength": 1 },
+        "plan_artifact_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "planning_review_source_head": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "owner_authority_diff_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "implementation_baseline_head": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "implementation_baseline_tree_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "expected_tree_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "bound_at": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
     "review_launch_claims": {
       "type": "array",
       "items": {
@@ -50,7 +106,7 @@
           "claim_id": { "type": "string", "minLength": 1 },
           "attempt_id": { "type": "string", "minLength": 1 },
           "attempt_marker": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-          "procedure_id": { "enum": ["plan-review", "implementation-review"] },
+          "procedure_id": { "enum": ["plan-review", "architecture-review", "db-storage-review", "implementation-review", "fix-pass-review"] },
           "owner_token_hash": { "type": "string", "minLength": 1 },
           "created_at": { "type": "string", "minLength": 1 },
           "request_artifact_hash": { "type": "string", "minLength": 1 },

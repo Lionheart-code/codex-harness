@@ -36,7 +36,11 @@ change history visible and yielding one effective amended plan for execution.
 - Do not suppress unresolved review findings.
 
 ## checklist
-- Map every review finding to accepted, rejected, or unresolved disposition.
+- Consume the complete terminal three-lens aggregate.
+- Amend only findings classified `PLAN_BLOCKER`; preserve the routing of
+  `IMPLEMENTATION_DISCRETION`, `IMPLEMENTATION_REVIEW_CHECK`, and
+  `DEFERRED_DEBT`.
+- Map every blocking review finding to accepted, rejected, or unresolved disposition.
 - Update only the plan sections affected by those findings.
 - Make the latest amendment supersede earlier plan versions for execution while
   preserving older artifacts as audit trail.
@@ -46,6 +50,8 @@ change history visible and yielding one effective amended plan for execution.
 ## expected_output_format
 Return the exact section order documented in
 `references/output-format.md`.
+One consolidated amendment resolves the aggregate; closure reruns only lenses
+intersecting the changed decision/trace and contract-surface manifests.
 
 ## blocker_conditions
 - Review findings are too vague to amend safely.

@@ -76,6 +76,7 @@ export interface CodexBindingProfile {
     packet_plus_retrieval: boolean;
     fresh_independent_delta: boolean;
     jsonl_usage: boolean;
+    safe_session_resume: false;
   };
 }
 
@@ -226,6 +227,16 @@ export function readCodexReferenceBinding(targetRoot: string): CodexReferenceBin
   if (binding.schema_version !== 1 || binding.accepted_binding_version !== binding.binding_version || !Array.isArray(binding.source_trace) || binding.source_trace.length === 0) {
     throw new Error("Codex reference binding has an unsupported or inactive binding version.");
   }
+  const snapshot = binding.capability_snapshot;
+  const automatic = snapshot.automatic_procedures;
+  if (snapshot.planning_bundle !== undefined
+    && (snapshot.safe_session_resume !== false || snapshot.read_only_sandbox !== true
+      || snapshot.planning_bundle !== true || snapshot.single_review !== true
+      || JSON.stringify(automatic) !== JSON.stringify([
+        "architecture-review", "db-storage-review", "fix-pass-review", "implementation-review", "plan-review"
+      ]))) {
+    throw new Error("Codex reference binding capability snapshot is not the exact Phase 23.9 production binding.");
+  }
   return binding;
 }
 
@@ -239,8 +250,10 @@ export function reconcileProcedureExecutionPolicy(
     throw new Error(`Procedure execution policy coverage mismatch: registry=${registryIds.join(",")} policy=${policyIds.join(",")}.`);
   }
   const automatic = policy.procedures.filter((entry) => entry.automatic_launch).map((entry) => entry.procedure_id).sort();
-  if (JSON.stringify(automatic) !== JSON.stringify(["implementation-review", "plan-review"])) {
-    throw new Error("Automatic review launch must remain limited to plan-review and implementation-review.");
+  if (JSON.stringify(automatic) !== JSON.stringify([
+    "architecture-review", "db-storage-review", "fix-pass-review", "implementation-review", "plan-review"
+  ])) {
+    throw new Error("Automatic review launch does not match the Phase 23.9 planning-bundle and standalone-review allowlist.");
   }
   for (const contract of policy.procedures) {
     const descriptor = registry.procedures.find((entry) => entry.procedure_id === contract.procedure_id);

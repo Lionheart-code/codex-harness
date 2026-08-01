@@ -36,3 +36,7 @@ Source map authority: `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`
 
 - Editing during planning
 - Hidden scope decisions
+
+## phase_23_9_adaptation
+
+- One candidate identity feeds the complete three-lens planning bundle.

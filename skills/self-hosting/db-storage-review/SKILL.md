@@ -14,6 +14,11 @@ DB Storage Review
 ## purpose
 Review storage, lifecycle, and authority changes against the Phase 23.5 model.
 
+This lens owns schema/record identity, durable ownership and cardinality, exact
+joins, persistence across unrelated mutations, transactions/compensation,
+replay/idempotency/corruption, Project transfer/harvest, compatibility, and DDL
+authority.
+
 ## when_to_use
 - The task touches Project Memory DB, Run/Staging DB, delivery facts, harvest,
   or lifecycle authority.
@@ -36,6 +41,10 @@ Review storage, lifecycle, and authority changes against the Phase 23.5 model.
 - Do not reintroduce JSONL or loose artifacts as primary new operational memory.
 
 ## checklist
+- Classify every finding using the closed Phase 23.9 finding classes and name
+  one primary lens.
+- Bind the exact shared candidate/closure identity and checked-in output
+  contract selected by the procedure registry.
 - Check accepted authority versus audit or compatibility layers.
 - Check delivery-facts import and closeout implications.
 - Check harvest, idempotency, and deletion-boundary implications.

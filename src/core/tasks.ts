@@ -84,7 +84,7 @@ export function requireInstalledTargetRoot(cwd: string): string {
   return targetRoot;
 }
 
-function buildState(
+export function buildTaskState(
   taskId: string,
   title: string,
   timestamp: string,
@@ -232,7 +232,7 @@ export function createTask(
   }
 
   const timestamp = new Date().toISOString();
-  const state = buildState(taskId, title, timestamp, options.taskType);
+  const state = buildTaskState(taskId, title, timestamp, options.taskType);
   const specPath = path.join(taskDirectory, "spec.md");
   const acceptancePath = path.join(taskDirectory, "acceptance.md");
   const statePath = getTaskStatePath(targetRoot, taskId);
@@ -298,5 +298,64 @@ export function getSingleTask(cwd: string): { targetRoot: string; task: TaskStat
   return {
     targetRoot: result.targetRoot,
     task: result.tasks[0]
+  };
+}
+
+export interface VerifiedTaskStateStore {
+  targetRoot: string;
+  enumerate(): TaskState[];
+  read(taskId: string): TaskState;
+  createNew(state: TaskState): string;
+  removeCreated(taskId: string): void;
+}
+
+export function openVerifiedTaskStateStore(targetRoot: string): VerifiedTaskStateStore {
+  const canonicalRoot = fs.realpathSync.native(targetRoot);
+  const tasksRoot = path.join(canonicalRoot, TASKS_DIR);
+  return {
+    targetRoot: canonicalRoot,
+    enumerate(): TaskState[] {
+      if (!fs.existsSync(tasksRoot)) return [];
+      return fs.readdirSync(tasksRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => getTaskStatePath(canonicalRoot, entry.name))
+        .filter((statePath) => fs.existsSync(statePath))
+        .map((statePath) => parseTaskState(statePath))
+        .sort((left, right) => left.task_id.localeCompare(right.task_id));
+    },
+    read(taskId: string): TaskState {
+      return readTaskStateById(canonicalRoot, taskId);
+    },
+    createNew(state: TaskState): string {
+      const statePath = getTaskStatePath(canonicalRoot, state.task_id);
+      if (fs.existsSync(statePath) || fs.existsSync(path.dirname(statePath))) {
+        throw new Error(`task_state_owner_already_exists:${state.task_id}`);
+      }
+      fs.mkdirSync(tasksRoot, { recursive: true });
+      fs.mkdirSync(path.dirname(statePath), { recursive: false });
+      const temporaryPath = `${statePath}.tmp-${process.pid}`;
+      try {
+        fs.writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+        fs.renameSync(temporaryPath, statePath);
+        const readback = parseTaskState(statePath);
+        if (JSON.stringify(readback) !== JSON.stringify(state)) {
+          throw new Error("task_state_readback_mismatch");
+        }
+      } catch (error) {
+        if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
+        if (fs.existsSync(statePath)) fs.unlinkSync(statePath);
+        if (fs.existsSync(path.dirname(statePath)) && fs.readdirSync(path.dirname(statePath)).length === 0) {
+          fs.rmdirSync(path.dirname(statePath));
+        }
+        throw error;
+      }
+      return statePath;
+    },
+    removeCreated(taskId: string): void {
+      const statePath = getTaskStatePath(canonicalRoot, taskId);
+      if (fs.existsSync(statePath)) fs.unlinkSync(statePath);
+      const taskDirectory = path.dirname(statePath);
+      if (fs.existsSync(taskDirectory) && fs.readdirSync(taskDirectory).length === 0) fs.rmdirSync(taskDirectory);
+    }
   };
 }

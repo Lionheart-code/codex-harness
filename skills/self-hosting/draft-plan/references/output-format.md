@@ -62,3 +62,7 @@ Inside `## Stop Conditions And Handoff`, include:
 - `review_tier_controls:`
 
 If blocked, replace sections 7 and 8 with `## Blockers`.
+
+For a high/extra-high candidate, include one exact identity vector:
+`plan_sha`, `source_head`, `task_artifact_id`, `immutable_base`, and
+`output_contract_id`. All planning lenses consume these same bytes.

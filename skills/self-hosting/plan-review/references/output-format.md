@@ -25,6 +25,15 @@ Return Markdown with these sections in this order:
 
 `## Recommendation` must end with either `PASS` or `AMEND_REQUIRED`.
 
+Every finding must include exactly one classification:
+`PLAN_BLOCKER`, `IMPLEMENTATION_DISCRETION`,
+`IMPLEMENTATION_REVIEW_CHECK`, or `DEFERRED_DEBT`, plus its primary lens,
+secondary affected lenses, decision IDs, and trace IDs.
+
+The artifact must carry the registry-resolved
+`phase-23.9.planning-lens-result.v1` identity fields. Schema validation occurs
+before bundle ingestion.
+
 `## Durable Decision Record` must be compact and operator-readable. It must
 include these labels in order:
 
