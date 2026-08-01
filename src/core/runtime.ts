@@ -5846,20 +5846,14 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
         && !exactBootstrapPredecessor)) {
       throw new Error("FIX_PASS_PREDECESSOR_ATTEMPT_ARTIFACT_JOIN_INVALID");
     }
-    const predecessorRequestPath = typeof predecessorInvocation.request_path === "string"
-      ? path.join(targetRoot, predecessorInvocation.request_path)
-      : "";
-    if (!predecessorRequestPath || !fs.existsSync(predecessorRequestPath)) {
-      throw new Error("FIX_PASS_PREDECESSOR_REQUEST_UNAVAILABLE");
-    }
-    const predecessorRequestBytes = fs.readFileSync(predecessorRequestPath);
-    if (`sha256:${sha256Hex(predecessorRequestBytes)}`
-      !== predecessorInvocation.request_artifact_hash) {
+    const requestPayloads = Array.isArray(predecessorInvocation.payload_refs)
+      ? (predecessorInvocation.payload_refs as Array<Record<string, unknown>>).filter((entry) =>
+          entry.kind === "review-request-packet"
+          && entry.content_hash === predecessorInvocation.request_artifact_hash)
+      : [];
+    if (requestPayloads.length !== 1) {
       throw new Error("FIX_PASS_PREDECESSOR_REQUEST_IDENTITY_MISMATCH");
     }
-    const predecessorRequest = predecessorRequestBytes.toString("utf8");
-    const requestedHead = /implementation HEAD:\s*`([a-f0-9]{40})`/iu.exec(predecessorRequest)?.[1];
-    if (!requestedHead) throw new Error("FIX_PASS_PREDECESSOR_REVIEWED_HEAD_UNAVAILABLE");
     const predecessorBody = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id)
       .readProcedureArtifactBody({
         runInstanceId: current.run.run_instance_id,
@@ -5867,6 +5861,11 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
         procedureArtifactId: descriptor.artifact_id,
         procedureId: "implementation-review"
       }).body;
+    const requestedHead = new RegExp(
+      `${current.run.implementation_baseline_head}\\.\\.([a-f0-9]{40})`,
+      "iu"
+    ).exec(predecessorBody)?.[1];
+    if (!requestedHead) throw new Error("FIX_PASS_PREDECESSOR_REVIEWED_HEAD_UNAVAILABLE");
     if (!predecessorBody.includes(requestedHead)
       || !predecessorBody.includes(`${current.run.implementation_baseline_head}..${requestedHead}`)) {
       throw new Error("FIX_PASS_PREDECESSOR_ARTIFACT_SOURCE_BINDING_MISMATCH");
