@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PlanningLensResultV1",
+  "type": "object",
+  "required": [
+    "schema_version", "procedure_id", "bundle_kind", "plan_sha", "source_head",
+    "task_artifact_id", "immutable_base", "verdict", "findings",
+    "covered_decision_ids", "covered_trace_ids", "output_contract_id"
+  ],
+  "properties": {
+    "schema_version": { "const": "phase-23.9.planning-lens-result.v1" },
+    "procedure_id": {
+      "enum": ["plan-review", "architecture-review", "db-storage-review"]
+    },
+    "bundle_kind": { "enum": ["candidate", "impact_closure"] },
+    "plan_sha": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "source_head": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "task_artifact_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "immutable_base": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "verdict": { "enum": ["PASS", "AMEND_REQUIRED", "BLOCKED"] },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "finding_id", "classification", "summary", "primary_lens",
+          "secondary_lenses", "decision_ids", "trace_ids"
+        ],
+        "properties": {
+          "finding_id": { "type": "string", "minLength": 1 },
+          "classification": {
+            "enum": [
+              "PLAN_BLOCKER", "IMPLEMENTATION_DISCRETION",
+              "IMPLEMENTATION_REVIEW_CHECK", "DEFERRED_DEBT"
+            ]
+          },
+          "summary": { "type": "string", "minLength": 1 },
+          "primary_lens": {
+            "enum": ["plan-review", "architecture-review", "db-storage-review"]
+          },
+          "secondary_lenses": {
+            "type": "array", "uniqueItems": true,
+            "items": {
+              "enum": ["plan-review", "architecture-review", "db-storage-review"]
+            }
+          },
+          "decision_ids": {
+            "type": "array", "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "trace_ids": {
+            "type": "array", "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "covered_decision_ids": {
+      "type": "array", "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "covered_trace_ids": {
+      "type": "array", "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "output_contract_id": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

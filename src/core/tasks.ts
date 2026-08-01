@@ -22,6 +22,7 @@ export interface TaskState {
   branch?: string;
   worktree?: string;
   base_commit_sha?: string;
+  task_path?: string;
 }
 
 export interface TaskCreationPreview {

@@ -79,9 +79,7 @@
       "direct_artifact_required": true,
       "nested_review_launch_forbidden": true,
       "required_output_contract": ["review_surface", "review_tier", "findings", "policy_controls", "durable_decision", "recommendation", "verdict"],
-      "required_evidence_contract": ["exact_plan_ref", "task_ref", "source_refs", "review_tier_lenses"],
-      "direct_artifact_required": true,
-      "nested_review_launch_forbidden": true
+      "required_evidence_contract": ["exact_plan_ref", "task_ref", "source_refs", "review_tier_lenses"]
     },
     {
       "procedure_id": "plan-amend",

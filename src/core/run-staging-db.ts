@@ -1017,20 +1017,43 @@ export class RunStagingDatabase {
       "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
       "FROM procedure_artifacts WHERE run_instance_id = ? AND procedure_id = ? AND artifact_id = ?"
     ].join(" ")).get(descriptor.run_instance_id, descriptor.procedure_id, descriptor.artifact_id) as Record<string, unknown> | undefined;
+    const provenanceRows = database.prepare(
+      "SELECT artifact_id, provenance_json FROM procedure_artifacts WHERE run_instance_id = ?"
+    ).all(descriptor.run_instance_id) as Array<{ artifact_id: string; provenance_json: string }>;
+    const usedSequences = new Set<number>();
+    let maximumSequence = 0;
+    for (const row of provenanceRows) {
+      const provenance = JSON.parse(row.provenance_json) as Record<string, unknown>;
+      if (provenance.procedure_contract_version !== "phase-23.9") continue;
+      const sequence = provenance.recording_sequence;
+      if (!Number.isInteger(sequence) || Number(sequence) < 1 || usedSequences.has(Number(sequence))) {
+        throw new Error(`procedure_recording_sequence_invalid:${row.artifact_id}`);
+      }
+      usedSequences.add(Number(sequence));
+      maximumSequence = Math.max(maximumSequence, Number(sequence));
+    }
+    const suppliedProvenance = JSON.parse(descriptor.provenance_json) as Record<string, unknown>;
     let normalizedDescriptor = descriptor;
     if (!existing) {
-      const provenance = JSON.parse(descriptor.provenance_json) as Record<string, unknown>;
-      if (provenance.recording_sequence === undefined) {
-        const row = database.prepare([
-          "SELECT COALESCE(MAX(CAST(json_extract(provenance_json, '$.recording_sequence') AS INTEGER)), 0) AS sequence",
-          "FROM procedure_artifacts WHERE run_instance_id = ?"
-        ].join(" ")).get(descriptor.run_instance_id) as { sequence?: number };
-        provenance.procedure_contract_version = "phase-23.9";
-        provenance.recording_sequence = Number(row.sequence ?? 0) + 1;
-        normalizedDescriptor = { ...descriptor, provenance_json: JSON.stringify(provenance) };
+      const expectedSequence = maximumSequence + 1;
+      if (suppliedProvenance.recording_sequence !== undefined
+        && suppliedProvenance.recording_sequence !== expectedSequence) {
+        throw new Error(`procedure_recording_sequence_not_next:${suppliedProvenance.recording_sequence}`);
       }
+      suppliedProvenance.procedure_contract_version = "phase-23.9";
+      suppliedProvenance.recording_sequence = expectedSequence;
+      normalizedDescriptor = { ...descriptor, provenance_json: JSON.stringify(suppliedProvenance) };
     }
     if (existing) {
+      const storedProvenance = JSON.parse(String(existing.provenance_json)) as Record<string, unknown>;
+      const suppliedSequence = suppliedProvenance.recording_sequence;
+      if (suppliedSequence !== undefined && suppliedSequence !== storedProvenance.recording_sequence) {
+        throw new Error(`procedure_recording_sequence_conflict:${descriptor.artifact_id}`);
+      }
+      delete suppliedProvenance.procedure_contract_version;
+      delete suppliedProvenance.recording_sequence;
+      delete storedProvenance.procedure_contract_version;
+      delete storedProvenance.recording_sequence;
       for (const [key, value] of Object.entries({
         source_run_id: normalizedDescriptor.source_run_id,
         procedure_id: normalizedDescriptor.procedure_id,
@@ -1038,12 +1061,15 @@ export class RunStagingDatabase {
         payload_id: normalizedDescriptor.payload_id,
         content_hash: normalizedDescriptor.content_hash,
         recorded_at: normalizedDescriptor.recorded_at,
-        provenance_json: normalizedDescriptor.provenance_json,
+        provenance_json: JSON.stringify(suppliedProvenance),
         reviewed_plan_artifact_id: normalizedDescriptor.reviewed_plan_artifact_id ?? null,
         reviewed_plan_content_hash: normalizedDescriptor.reviewed_plan_content_hash ?? null,
         reviewed_evidence_artifact_id: normalizedDescriptor.reviewed_evidence_artifact_id ?? null
       })) {
-        if (existing[key] !== value) {
+        const storedValue = key === "provenance_json"
+          ? JSON.stringify(storedProvenance)
+          : existing[key];
+        if (storedValue !== value) {
           throw new Error(`Procedure artifact identity conflict for ${descriptor.artifact_id}: ${key} does not match the stored descriptor.`);
         }
       }

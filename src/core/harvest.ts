@@ -71,7 +71,11 @@ export function harvestRun(
     }
     throw new Error(`Run not found in staging DB: ${runId}`);
   }
-  if (run.phase_id === "23.9") {
+  const phaseNumber = Number.parseFloat(run.phase_id ?? "");
+  if (run.run_mode === "bootstrap"
+    && run.lifecycle_status !== "discarded"
+    && Number.isFinite(phaseNumber)
+    && phaseNumber >= 23.9) {
     const dispositions = staging.listIndependentRecords("successor_disposition", runId);
     if (dispositions.length !== 1) {
       throw new Error(`successor_disposition_cardinality_invalid:${dispositions.length}`);

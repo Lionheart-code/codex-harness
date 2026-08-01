@@ -1,1 +1,85 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"ReviewAttemptV1","type":"object","required":["schema_version","attempt_id","launch_kind","procedure_ids","cohort_id","source_head","source_plan_sha","observed_profile","startup_observation_hash","terminal_status","artifact_ids"],"properties":{"schema_version":{"const":1},"attempt_id":{"type":"string"},"launch_kind":{"enum":["single_review","planning_review_bundle"]},"procedure_ids":{"type":"array","items":{"type":"string"}},"cohort_id":{"type":["string","null"]},"source_head":{"type":"string"},"source_plan_sha":{"type":"string"},"observed_profile":{"type":"object"},"startup_observation_hash":{"type":"string"},"terminal_status":{"enum":["success","failed"]},"artifact_ids":{"type":"array","items":{"type":"string"}}},"additionalProperties":false}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewAttemptV1",
+  "type": "object",
+  "required": [
+    "schema_version", "attempt_id", "launch_kind", "procedure_ids", "cohort_id",
+    "source_head", "source_plan_sha", "observed_profile",
+    "startup_observation_hash", "terminal_status", "artifact_ids"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "attempt_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "launch_kind": { "enum": ["single_review", "planning_review_bundle"] },
+    "procedure_ids": {
+      "type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true,
+      "items": {
+        "enum": ["plan-review", "architecture-review", "db-storage-review", "implementation-review", "fix-pass-review"]
+      }
+    },
+    "cohort_id": { "type": ["string", "null"] },
+    "source_head": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "source_plan_sha": {
+      "anyOf": [
+        { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "observed_profile": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["adapter", "provider", "model", "reasoning", "sandbox", "approval_policy"],
+          "properties": {
+            "adapter": { "type": "string", "minLength": 1 },
+            "provider": { "type": "string", "minLength": 1 },
+            "model": { "type": "string", "minLength": 1 },
+            "reasoning": { "type": "string", "minLength": 1 },
+            "sandbox": { "const": "read-only" },
+            "approval_policy": { "const": "never" }
+          },
+          "additionalProperties": false
+        },
+        { "type": "null" }
+      ]
+    },
+    "startup_observation_hash": {
+      "anyOf": [
+        { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "startup_gap": { "enum": ["producer_unavailable"] },
+    "failure_class": { "enum": ["timeout", "process_failed"] },
+    "terminal_status": { "enum": ["success", "failed"] },
+    "artifact_ids": {
+      "type": "array", "maxItems": 3, "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "terminal_status": { "const": "success" } },
+        "required": ["terminal_status"]
+      },
+      "then": {
+        "properties": {
+          "observed_profile": { "type": "object" },
+          "startup_observation_hash": { "type": "string" },
+          "artifact_ids": { "minItems": 1 }
+        },
+        "not": { "required": ["startup_gap"] }
+      },
+      "else": {
+        "required": ["startup_gap", "failure_class"],
+        "properties": {
+          "observed_profile": { "type": "null" },
+          "startup_observation_hash": { "type": "null" },
+          "artifact_ids": { "maxItems": 0 }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

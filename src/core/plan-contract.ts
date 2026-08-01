@@ -31,12 +31,64 @@ export interface PlanningLensResultV1 {
   output_contract_id: string;
 }
 
+const LENSES = ["plan-review", "architecture-review", "db-storage-review"] as const;
+const FINDING_CLASSES: ReviewFindingClass[] = [
+  "PLAN_BLOCKER",
+  "IMPLEMENTATION_DISCRETION",
+  "IMPLEMENTATION_REVIEW_CHECK",
+  "DEFERRED_DEBT"
+];
+
+function assertStringArray(value: unknown, label: string): asserts value is string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry.trim())
+    || new Set(value).size !== value.length) {
+    throw new Error(`planning_lens_${label}_invalid`);
+  }
+}
+
+export function validatePlanningLensResult(value: unknown): PlanningLensResultV1 {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("planning_lens_result_invalid");
+  }
+  const result = value as PlanningLensResultV1;
+  if (result.schema_version !== "phase-23.9.planning-lens-result.v1"
+    || !LENSES.includes(result.procedure_id)
+    || !["candidate", "impact_closure"].includes(result.bundle_kind)
+    || !/^sha256:[a-f0-9]{64}$/u.test(result.plan_sha)
+    || !/^[a-f0-9]{40}$/u.test(result.source_head)
+    || !/^sha256:[a-f0-9]{64}$/u.test(result.task_artifact_id)
+    || !/^[a-f0-9]{40}$/u.test(result.immutable_base)
+    || !["PASS", "AMEND_REQUIRED", "BLOCKED"].includes(result.verdict)
+    || typeof result.output_contract_id !== "string" || !result.output_contract_id.trim()
+    || !Array.isArray(result.findings)) {
+    throw new Error("planning_lens_result_contract_invalid");
+  }
+  assertStringArray(result.covered_decision_ids, "covered_decisions");
+  assertStringArray(result.covered_trace_ids, "covered_traces");
+  for (const finding of result.findings) {
+    if (!finding || typeof finding !== "object"
+      || typeof finding.finding_id !== "string" || !finding.finding_id.trim()
+      || !FINDING_CLASSES.includes(finding.classification)
+      || typeof finding.summary !== "string" || !finding.summary.trim()
+      || !LENSES.includes(finding.primary_lens)
+      || !Array.isArray(finding.secondary_lenses)
+      || finding.secondary_lenses.some((lens) => !LENSES.includes(lens))) {
+      throw new Error("planning_lens_finding_contract_invalid");
+    }
+    assertStringArray(finding.decision_ids, "finding_decisions");
+    assertStringArray(finding.trace_ids, "finding_traces");
+  }
+  assertStringArray(result.findings.map((finding) => finding.finding_id), "finding_ids");
+  return result;
+}
+
 export function aggregatePlanBlockers(results: PlanningLensResultV1[]): {
   aggregate_id: `sha256:${string}`;
   source_result_ids: string[];
   findings: PlanningLensFindingV1[];
 } {
   if (results.length === 0) throw new Error("planning_finding_aggregate_empty");
+  results.forEach(validatePlanningLensResult);
   const identity = {
     plan_sha: results[0].plan_sha,
     source_head: results[0].source_head,

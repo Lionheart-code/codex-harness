@@ -327,6 +327,23 @@ export interface ProofRecordV1 {
   created_at: string;
 }
 
+export interface ProofDerivationRequestV1 {
+  schema_version?: 1;
+  expected_record_id?: `sha256:${string}`;
+}
+
+export function parseProofDerivationRequest(bytes: Buffer): ProofDerivationRequestV1 {
+  const request = JSON.parse(bytes.toString("utf8")) as ProofDerivationRequestV1;
+  if (!request || typeof request !== "object" || Array.isArray(request)
+    || Object.keys(request).some((key) => !["schema_version", "expected_record_id"].includes(key))
+    || (request.schema_version !== undefined && request.schema_version !== 1)
+    || (request.expected_record_id !== undefined
+      && !/^sha256:[a-f0-9]{64}$/u.test(request.expected_record_id))) {
+    throw new Error("proof_derivation_request_invalid");
+  }
+  return request;
+}
+
 function withoutKeys<T extends Record<string, unknown>>(value: T, keys: string[]): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).filter(([key]) => !keys.includes(key)));
 }

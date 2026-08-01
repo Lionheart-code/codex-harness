@@ -1,1 +1,21 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"ReviewCohortV1","type":"object","required":["schema_version","cohort_id","plan_sha","source_head","task_artifact_id","immutable_base","procedure_ids"],"properties":{"schema_version":{"const":1},"cohort_id":{"type":"string"},"plan_sha":{"type":"string"},"source_head":{"type":"string"},"task_artifact_id":{"type":"string"},"immutable_base":{"type":"string"},"procedure_ids":{"type":"array","uniqueItems":true}},"additionalProperties":false}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewCohortV1",
+  "type": "object",
+  "required": [
+    "schema_version", "cohort_id", "plan_sha", "source_head",
+    "task_artifact_id", "immutable_base", "procedure_ids"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "cohort_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "plan_sha": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "source_head": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "task_artifact_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "immutable_base": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "procedure_ids": {
+      "const": ["plan-review", "architecture-review", "db-storage-review"]
+    }
+  },
+  "additionalProperties": false
+}

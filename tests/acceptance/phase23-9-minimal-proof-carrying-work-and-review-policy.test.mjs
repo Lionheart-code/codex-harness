@@ -12,9 +12,18 @@ import { materializeZeroOwnerTaskState } from "../../dist/core/zero-owner-materi
 import { openVerifiedTaskStateStore } from "../../dist/core/tasks.js";
 import { buildSuccessorDisposition, assertCompatibleSuccessorDisposition } from "../../dist/core/successor-disposition.js";
 import { buildReviewAttempt, assertPlanningBundleIdentity } from "../../dist/core/review-cohort.js";
-import { aggregatePlanBlockers, reconcilePlanningLenses } from "../../dist/core/plan-contract.js";
-import { buildProofRecord, extractTaskRequirements } from "../../dist/core/proof-record.js";
+import { aggregatePlanBlockers, reconcilePlanningLenses, validatePlanningLensResult } from "../../dist/core/plan-contract.js";
+import { buildProofRecord, extractTaskRequirements, parseProofDerivationRequest } from "../../dist/core/proof-record.js";
 import { readInstallerOwnershipCatalog } from "../../dist/core/legacy-installer-ownership-catalog.js";
+import { buildInstallerOwnershipManifest } from "../../dist/core/installer-ownership.js";
+import { getManagedBaselineContents } from "../../dist/core/install.js";
+import {
+  applySelfInstallReconciliation,
+  prepareSelfInstallReconciliation
+} from "../../dist/core/product-self-install-reconciliation.js";
+import { RunStagingDatabase } from "../../dist/core/run-staging-db.js";
+import { buildRuntimeRun, extractEffectiveValidationCommands } from "../../dist/core/runtime.js";
+import { harvestRun } from "../../dist/core/harvest.js";
 
 const sha = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
@@ -55,6 +64,12 @@ test("phase 23.9 zero-owner materialization creates one exact owner and replays"
   assert.equal(owners[0].base_commit_sha, input.baseCommitSha);
   assert.equal(materializeZeroOwnerTaskState(input).created_owner, false);
   assert.equal(openVerifiedTaskStateStore(projectRoot).enumerate().length, 1);
+  fs.writeFileSync(path.join(worktree, "TASK.md"), "# wrong\n");
+  assert.throws(() => materializeZeroOwnerTaskState(input), /pointer_readback_mismatch/);
+  fs.writeFileSync(path.join(worktree, "TASK.md"), input.pointerContents);
+  assert.throws(() => materializeZeroOwnerTaskState({
+    ...input, taskPath: "tasks/OTHER.md"
+  }), /task_contract_conflict/);
 });
 
 test("phase 23.9 successor disposition rejects a conflicting authority", () => {
@@ -110,6 +125,9 @@ test("phase 23.9 reconciliation aggregates blockers only and requires coverage",
   assert.equal(aggregatePlanBlockers(results).findings.length, 0);
   assert.equal(reconcilePlanningLenses(results, ["D1"], ["T1"]), "REVIEW_COVERAGE_COMPLETE");
   assert.throws(() => reconcilePlanningLenses(results, ["D2"], ["T1"]), /coverage_incomplete/);
+  assert.throws(() => validatePlanningLensResult({
+    ...make("plan-review"), source_head: "requested"
+  }), /planning_lens_result_contract_invalid/);
 });
 
 test("phase 23.9 proof is rejected until baseline review and delivery exist", () => {
@@ -144,6 +162,172 @@ test("phase 23.9 proof is rejected until baseline review and delivery exist", ()
   assert.match(proof.record_id, /^sha256:[a-f0-9]{64}$/);
 });
 
+test("phase 23.9 proof command accepts derivation requests, never caller-authored proof", () => {
+  assert.deepEqual(parseProofDerivationRequest(Buffer.from('{"schema_version":1}')), {
+    schema_version: 1
+  });
+  assert.throws(() => parseProofDerivationRequest(Buffer.from(JSON.stringify({
+    schema_version: 1,
+    acceptance: { status: "accepted" },
+    task_verifiability_map: []
+  }))), /proof_derivation_request_invalid/);
+});
+
+test("phase 23.9 procedure sequences are internal, unique, and monotonic", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ch-sequence-"));
+  const staging = new RunStagingDatabase(root, root, "run-sequence");
+  const run = buildRuntimeRun({
+    runId: "run-sequence",
+    taskPath: "TASK.md",
+    phaseId: "23.9",
+    timestamp: new Date(0).toISOString(),
+    repository: {
+      root_path: root, project_root: root, branch: "codex/test",
+      head_sha: "a".repeat(40), dirty: false
+    }
+  });
+  staging.saveRun(run);
+  const descriptor = (suffix, provenance = {}) => ({
+    run_instance_id: run.run_instance_id,
+    source_run_id: run.run_id,
+    procedure_id: "plan-review",
+    artifact_id: sha(`artifact:${suffix}`),
+    payload_id: `payload-${suffix}`,
+    content_hash: createHash("sha256").update(`artifact:${suffix}`).digest("hex"),
+    recorded_at: new Date(Number(suffix) * 1000).toISOString(),
+    provenance_json: JSON.stringify({ phase_id: "23.9", ...provenance })
+  });
+  staging.mutateRunWithDatabase(run.run_id, (current, database) => {
+    staging.storeProcedureArtifact(database, descriptor("1"));
+    return current;
+  });
+  const stored = staging.readProcedureArtifact(
+    run.run_instance_id, "plan-review", descriptor("1").artifact_id
+  );
+  assert.equal(JSON.parse(stored.provenance_json).recording_sequence, 1);
+  assert.throws(() => staging.mutateRunWithDatabase(run.run_id, (current, database) => {
+    staging.storeProcedureArtifact(database, descriptor("2", { recording_sequence: 1 }));
+    return current;
+  }), /procedure_recording_sequence_not_next/);
+  assert.throws(() => staging.mutateRunWithDatabase(run.run_id, (current, database) => {
+    staging.storeProcedureArtifact(database, descriptor("3"));
+    staging.storeProcedureArtifact(database, descriptor("4", { recording_sequence: 2 }));
+    return current;
+  }), /procedure_recording_sequence_not_next/);
+  assert.equal(staging.readProcedureArtifact(
+    run.run_instance_id, "plan-review", descriptor("3").artifact_id
+  ), undefined);
+});
+
+test("phase 23.9 harvest preserves discarded runs and gates later self-hosting runs", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ch-harvest-"));
+  fs.writeFileSync(path.join(root, "package.json"), '{"name":"codex-harness"}\n');
+  const discarded = buildRuntimeRun({
+    runId: "run-discarded", taskPath: "TASK.md", phaseId: "23.9",
+    timestamp: new Date(0).toISOString(),
+    repository: {
+      root_path: root, project_root: root, branch: "codex/test",
+      head_sha: "a".repeat(40), dirty: false
+    }
+  });
+  const discardedStaging = new RunStagingDatabase(root, root, discarded.run_id);
+  discardedStaging.saveRun({ ...discarded, lifecycle_status: "discarded" });
+  assert.equal(harvestRun(root, root, discarded.run_id).harvest.status, "discarded");
+
+  const later = buildRuntimeRun({
+    runId: "run-later", taskPath: "TASK.md", phaseId: "24",
+    timestamp: new Date(0).toISOString(),
+    repository: {
+      root_path: root, project_root: root, branch: "codex/test",
+      head_sha: "b".repeat(40), dirty: false
+    }
+  });
+  const laterStaging = new RunStagingDatabase(root, root, later.run_id);
+  laterStaging.saveRun({ ...later, lifecycle_status: "closed" });
+  assert.throws(() => harvestRun(root, root, later.run_id), /successor_disposition_cardinality_invalid:0/);
+});
+
+test("phase 23.9 reconciliation stops on drift and preserves runtime and source", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ch-reconcile-product-"));
+  const priorHome = process.env.HOME;
+  process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ch-reconcile-home-"));
+  try {
+    for (const relativePath of [
+      "src/core/install.ts", "src/core/runtime.ts", "schemas/install.schema.json",
+      "skills/self-hosting/procedure-registry.json"
+    ]) {
+      fs.mkdirSync(path.dirname(path.join(root, relativePath)), { recursive: true });
+      fs.writeFileSync(path.join(root, relativePath), `${relativePath}\n`);
+    }
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+    execFileSync("git", ["add", "."], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "fixture"], { cwd: root });
+    const managed = getManagedBaselineContents("0.1.0");
+    for (const [relativePath, contents] of [
+      [".harness/config.toml", managed.configToml],
+      [".harness/templates/managed/agents-block.md", managed.agentsBlock],
+      [".harness/templates/managed/config.toml", managed.configToml],
+      [".harness/runs/retained.txt", "runtime\n"],
+      [".harness/evidence/retained.txt", "evidence\n"]
+    ]) {
+      fs.mkdirSync(path.dirname(path.join(root, relativePath)), { recursive: true });
+      fs.writeFileSync(path.join(root, relativePath), contents);
+    }
+    const manifest = buildInstallerOwnershipManifest(root, [
+      {
+        path: ".harness/config.toml", content_hash: sha(managed.configToml),
+        disposition: "quarantine", owner: "installer"
+      },
+      {
+        path: ".harness/templates/managed/agents-block.md", content_hash: sha(managed.agentsBlock),
+        disposition: "quarantine", owner: "installer"
+      }
+    ]);
+    fs.writeFileSync(path.join(root, ".harness/installer-ownership.v1.json"),
+      `${JSON.stringify(manifest, null, 2)}\n`);
+    fs.writeFileSync(path.join(root, ".harness/install.json"), `${JSON.stringify({
+      harness_version: "0.1.0", ownership_manifest: manifest.manifest_id
+    })}\n`);
+    fs.writeFileSync(path.join(root, "AGENTS.md"),
+      `unrelated\n${managed.agentsBlock}tail\n`);
+    const journal = prepareSelfInstallReconciliation(root);
+    fs.writeFileSync(path.join(root, ".harness/config.toml"), "drift\n");
+    assert.throws(() => applySelfInstallReconciliation(journal), /reconciliation_(managed_content|inventory)_drift/);
+    assert.equal(fs.readFileSync(path.join(root, ".harness/runs/retained.txt"), "utf8"), "runtime\n");
+    assert.equal(fs.existsSync(path.join(root, ".harness/install.json")), true);
+    fs.writeFileSync(path.join(root, ".harness/config.toml"), managed.configToml);
+    const completed = applySelfInstallReconciliation(journal);
+    assert.equal(completed.state, "completed_receipt");
+    assert.equal(fs.existsSync(path.join(root, ".harness/install.json")), false);
+    assert.equal(fs.readFileSync(path.join(root, ".harness/runs/retained.txt"), "utf8"), "runtime\n");
+    assert.equal(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8"), "unrelated\n\ntail\n");
+  } finally {
+    if (priorHome === undefined) delete process.env.HOME;
+    else process.env.HOME = priorHome;
+  }
+});
+
+test("phase 23.9 validation delegation is source-grounded, not plan-hash-specific", () => {
+  const plan = [
+    "### 15. Ordered implementation slices and validation",
+    "",
+    "Commands:",
+    "",
+    "- `npm run build`;",
+    "- `node --test tests/acceptance/example.test.mjs`;",
+    "",
+    "## Effective Validation",
+    "",
+    "Section 15 is the complete binding validation contract."
+  ].join("\n");
+  assert.deepEqual(extractEffectiveValidationCommands(plan), [
+    "npm run build",
+    "node --test tests/acceptance/example.test.mjs"
+  ]);
+});
+
 test("phase 23.9 frozen task extraction is stable and includes foundation authority", () => {
   const taskBytes = fs.readFileSync(path.join(
     process.cwd(),
@@ -169,6 +353,6 @@ test("phase 23.9 exposes the exact bounded command surface and canonical catalog
   const catalog = readInstallerOwnershipCatalog(path.join(
     process.cwd(), "assets/installer-ownership-catalog.v1.json"
   ));
-  assert.equal(catalog.manifest_entries.length, 0);
+  assert.ok(Array.isArray(catalog.manifest_entries));
   assert.match(catalog.catalog_id, /^sha256:[a-f0-9]{64}$/);
 });

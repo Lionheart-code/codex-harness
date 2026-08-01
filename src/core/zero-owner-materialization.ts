@@ -51,6 +51,14 @@ export function materializeZeroOwnerTaskState(
     if (owner.base_commit_sha !== input.baseCommitSha) {
       throw new Error("zero_owner_materialization_base_conflict");
     }
+    if (owner.task_path !== input.taskPath) {
+      throw new Error("zero_owner_materialization_task_contract_conflict");
+    }
+    const pointerPath = path.join(input.worktreePath, "TASK.md");
+    if (!fs.existsSync(pointerPath)
+      || fs.readFileSync(pointerPath, "utf8") !== input.pointerContents) {
+      throw new Error("zero_owner_materialization_pointer_readback_mismatch");
+    }
     return { task_state_id: owner.task_id, created_owner: false, task_state: owner };
   }
 
@@ -60,7 +68,8 @@ export function materializeZeroOwnerTaskState(
     ...buildTaskState(taskId, `Successor ${input.branch}`, timestamp, "deployment"),
     branch: input.branch,
     worktree: fs.realpathSync.native(input.worktreePath),
-    base_commit_sha: input.baseCommitSha
+    base_commit_sha: input.baseCommitSha,
+    task_path: input.taskPath
   };
   if (input.dryRun) {
     return { task_state_id: taskId, created_owner: true, task_state: state };
@@ -78,7 +87,8 @@ export function materializeZeroOwnerTaskState(
     }
     const readback = store.read(taskId);
     if (readback.branch !== input.branch || !samePath(readback.worktree, input.worktreePath)
-      || readback.base_commit_sha !== input.baseCommitSha) {
+      || readback.base_commit_sha !== input.baseCommitSha
+      || readback.task_path !== input.taskPath) {
       throw new Error("zero_owner_materialization_owner_readback_mismatch");
     }
     return { task_state_id: taskId, created_owner: true, task_state: readback };
