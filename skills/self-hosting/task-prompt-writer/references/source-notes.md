@@ -39,3 +39,7 @@ Source map authority: `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`
 
 - Chat-only prompt construction
 - Prompt text with no underlying task contract
+
+## phase_23_9_adaptation
+
+- Output authority is registry-resolved; prompt prose cannot redefine it.

@@ -1,5 +1,14 @@
 # Self-Hosting Model Routing Policy
 
+## Phase 23.9 production review binding
+
+Planning bundles and standalone implementation/fix reviews use profile
+`accepted-critical-independent`: `codex_cli`, OpenAI, `gpt-5.6-sol`, high
+reasoning, read-only sandbox, approval `never`, file output, and
+`fresh_independent_delta`. `safe_session_resume=false`; requested values are
+comparison inputs and only retained raw startup observations establish the
+observed profile.
+
 ## Purpose
 
 Define the checked-in policy for self-hosting model/risk routing, bounded
@@ -10,6 +19,15 @@ Phase 23.8.6F implements the checked-in provider-neutral route policy and
 isolated Codex reference binding only for existing `plan-review` and
 `implementation-review` launches. It does not add general runner execution,
 provider-specific lifecycle logic, packet automation, or approval authority.
+
+Phase 23.9 authorizes one additional bounded planning-review cohort: a fresh,
+independent, non-interactive Codex review may be continued sequentially across
+the existing `plan-review`, `architecture-review`, and `db-storage-review`
+lenses only when the exact saved thread and every observed profile/authority
+fact validate. Each lens keeps a separate canonical artifact and verdict;
+implementation review is excluded. This does not authorize a generic runner,
+provider-host execution framework, defaulted resume, parallel review, or
+automatic approval.
 
 `codex-harness` is not a worker. It is a lightweight supervisor,
 orchestrator, and evaluator shell around external worker agents such as Codex,

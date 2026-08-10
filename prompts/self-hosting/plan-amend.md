@@ -16,6 +16,8 @@ procedure files.
 Run only the `plan-amend` procedure. Return the exact output format from
 `references/output-format.md`, or the procedure's blocker format if the required
 inputs are missing.
+Resolve the format/version from the checked-in registry and canonical reference;
+this wrapper supplies no independent format authority.
 
 Do not broaden scope, implement files, repair `.harness/runs/**/run.json`, start
 a run, launch a runner, create or claim a worktree, or treat this wrapper as

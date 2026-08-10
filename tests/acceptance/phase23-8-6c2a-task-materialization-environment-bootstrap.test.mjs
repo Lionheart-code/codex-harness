@@ -78,7 +78,7 @@ test("phase 23.8.6C2A remains the completed bounded task-materialization predece
 
   assert.equal(
     read("TASK.md").trim(),
-    "# Current Task\n\nImplement only: tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md\n\nDo not implement Phase 23.9 or later."
+    "# Current Task\n\nImplement only: tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md\n\nDo not implement Phase 24A or later."
   );
   assert.match(task, /^# Phase 23\.8\.6C2A - Commit-Backed Task Materialization and Environment Bootstrap/m);
   assert.match(task, /materialize-next-task[\s\S]*must not start a runtime run/);

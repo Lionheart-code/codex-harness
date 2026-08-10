@@ -38,3 +38,8 @@ Source map authority: `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`
 
 - Architecture advice with no repo grounding
 - Future runtime architecture in Phase 23.6
+
+## phase_23_9_adaptation
+
+- Architecture review is a separately recorded lens inside the shared fresh
+  planning bundle and owns dependency/authority/runtime boundaries.

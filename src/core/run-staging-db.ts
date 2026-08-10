@@ -15,6 +15,7 @@ import {
 } from "./paths";
 import { type DatabaseLike, openSqliteDatabase } from "./sqlite";
 import { detectGitRepository } from "./git";
+import { canonicalJson } from "./evidence-types";
 import { type Run } from "./runtime";
 import { indexSelfHostingProceduresById, readSelfHostingProcedureRegistry } from "./self-hosting-procedures";
 
@@ -82,6 +83,32 @@ export interface ProcedureArtifactTransferStats {
   procedure_artifact_payload_transfer_count: number;
   procedure_artifact_payload_chunk_transfer_count: number;
   procedure_artifact_payload_byte_count: number;
+}
+
+export const PHASE_23_9_INDEPENDENT_RECORD_KINDS = [
+  "proof_eligibility_snapshot",
+  "proof_record",
+  "successor_disposition",
+  "review_cohort",
+  "review_attempt",
+  "review_attempt_event",
+  "review_capability_evidence",
+  "planning_review_bundle",
+  "review_finding_aggregate"
+] as const;
+export type Phase239IndependentRecordKind = (typeof PHASE_23_9_INDEPENDENT_RECORD_KINDS)[number];
+
+export interface IndependentRecordInput {
+  recordKind: Phase239IndependentRecordKind;
+  recordId: string;
+  runId: string;
+  phaseId?: string;
+  taskPath: string;
+  createdAt: string;
+  status?: string;
+  summary: string;
+  payload: unknown;
+  retentionClass?: "audit" | "accepted";
 }
 
 interface NormalizedRecordRow {
@@ -990,20 +1017,60 @@ export class RunStagingDatabase {
       "reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id",
       "FROM procedure_artifacts WHERE run_instance_id = ? AND procedure_id = ? AND artifact_id = ?"
     ].join(" ")).get(descriptor.run_instance_id, descriptor.procedure_id, descriptor.artifact_id) as Record<string, unknown> | undefined;
+    const provenanceRows = database.prepare(
+      "SELECT artifact_id, provenance_json FROM procedure_artifacts WHERE run_instance_id = ?"
+    ).all(descriptor.run_instance_id) as Array<{ artifact_id: string; provenance_json: string }>;
+    const usedSequences = new Set<number>();
+    let maximumSequence = 0;
+    for (const row of provenanceRows) {
+      const provenance = JSON.parse(row.provenance_json) as Record<string, unknown>;
+      if (provenance.procedure_contract_version !== "phase-23.9") continue;
+      const sequence = provenance.recording_sequence;
+      if (!Number.isInteger(sequence) || Number(sequence) < 1 || usedSequences.has(Number(sequence))) {
+        throw new Error(`procedure_recording_sequence_invalid:${row.artifact_id}`);
+      }
+      usedSequences.add(Number(sequence));
+      maximumSequence = Math.max(maximumSequence, Number(sequence));
+    }
+    const suppliedProvenance = JSON.parse(descriptor.provenance_json) as Record<string, unknown>;
+    const phase239Sequence = suppliedProvenance.phase_id === "23.9";
+    let normalizedDescriptor = descriptor;
+    if (!existing && phase239Sequence) {
+      const expectedSequence = maximumSequence + 1;
+      if (suppliedProvenance.recording_sequence !== undefined
+        && suppliedProvenance.recording_sequence !== expectedSequence) {
+        throw new Error(`procedure_recording_sequence_not_next:${suppliedProvenance.recording_sequence}`);
+      }
+      suppliedProvenance.procedure_contract_version = "phase-23.9";
+      suppliedProvenance.recording_sequence = expectedSequence;
+      normalizedDescriptor = { ...descriptor, provenance_json: JSON.stringify(suppliedProvenance) };
+    }
     if (existing) {
+      const storedProvenance = JSON.parse(String(existing.provenance_json)) as Record<string, unknown>;
+      const suppliedSequence = suppliedProvenance.recording_sequence;
+      if (suppliedSequence !== undefined && suppliedSequence !== storedProvenance.recording_sequence) {
+        throw new Error(`procedure_recording_sequence_conflict:${descriptor.artifact_id}`);
+      }
+      delete suppliedProvenance.procedure_contract_version;
+      delete suppliedProvenance.recording_sequence;
+      delete storedProvenance.procedure_contract_version;
+      delete storedProvenance.recording_sequence;
       for (const [key, value] of Object.entries({
-        source_run_id: descriptor.source_run_id,
-        procedure_id: descriptor.procedure_id,
-        artifact_id: descriptor.artifact_id,
-        payload_id: descriptor.payload_id,
-        content_hash: descriptor.content_hash,
-        recorded_at: descriptor.recorded_at,
-        provenance_json: descriptor.provenance_json,
-        reviewed_plan_artifact_id: descriptor.reviewed_plan_artifact_id ?? null,
-        reviewed_plan_content_hash: descriptor.reviewed_plan_content_hash ?? null,
-        reviewed_evidence_artifact_id: descriptor.reviewed_evidence_artifact_id ?? null
+        source_run_id: normalizedDescriptor.source_run_id,
+        procedure_id: normalizedDescriptor.procedure_id,
+        artifact_id: normalizedDescriptor.artifact_id,
+        payload_id: normalizedDescriptor.payload_id,
+        content_hash: normalizedDescriptor.content_hash,
+        recorded_at: normalizedDescriptor.recorded_at,
+        provenance_json: JSON.stringify(suppliedProvenance),
+        reviewed_plan_artifact_id: normalizedDescriptor.reviewed_plan_artifact_id ?? null,
+        reviewed_plan_content_hash: normalizedDescriptor.reviewed_plan_content_hash ?? null,
+        reviewed_evidence_artifact_id: normalizedDescriptor.reviewed_evidence_artifact_id ?? null
       })) {
-        if (existing[key] !== value) {
+        const storedValue = key === "provenance_json"
+          ? JSON.stringify(storedProvenance)
+          : existing[key];
+        if (storedValue !== value) {
           throw new Error(`Procedure artifact identity conflict for ${descriptor.artifact_id}: ${key} does not match the stored descriptor.`);
         }
       }
@@ -1014,18 +1081,102 @@ export class RunStagingDatabase {
       "(run_instance_id, source_run_id, procedure_id, artifact_id, payload_id, content_hash, recorded_at, provenance_json, reviewed_plan_artifact_id, reviewed_plan_content_hash, reviewed_evidence_artifact_id)",
       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ].join(" ")).run(
-      descriptor.run_instance_id,
-      descriptor.source_run_id,
-      descriptor.procedure_id,
-      descriptor.artifact_id,
-      descriptor.payload_id,
-      descriptor.content_hash,
-      descriptor.recorded_at,
-      descriptor.provenance_json,
-      descriptor.reviewed_plan_artifact_id ?? null,
-      descriptor.reviewed_plan_content_hash ?? null,
-      descriptor.reviewed_evidence_artifact_id ?? null
+      normalizedDescriptor.run_instance_id,
+      normalizedDescriptor.source_run_id,
+      normalizedDescriptor.procedure_id,
+      normalizedDescriptor.artifact_id,
+      normalizedDescriptor.payload_id,
+      normalizedDescriptor.content_hash,
+      normalizedDescriptor.recorded_at,
+      normalizedDescriptor.provenance_json,
+      normalizedDescriptor.reviewed_plan_artifact_id ?? null,
+      normalizedDescriptor.reviewed_plan_content_hash ?? null,
+      normalizedDescriptor.reviewed_evidence_artifact_id ?? null
     );
+    if (!phase239Sequence) return;
+    const readbackRows = database.prepare(
+      "SELECT artifact_id, provenance_json FROM procedure_artifacts WHERE run_instance_id = ?"
+    ).all(descriptor.run_instance_id) as Array<{ artifact_id: string; provenance_json: string }>;
+    const readbackSequences = readbackRows.flatMap((row) => {
+      const provenance = JSON.parse(row.provenance_json) as Record<string, unknown>;
+      return provenance.procedure_contract_version === "phase-23.9"
+        ? [{ artifactId: row.artifact_id, sequence: provenance.recording_sequence }]
+        : [];
+    });
+    const inserted = readbackSequences.find((entry) => entry.artifactId === descriptor.artifact_id);
+    if (!inserted || inserted.sequence !== maximumSequence + 1
+      || readbackSequences.some((entry) => !Number.isInteger(entry.sequence) || Number(entry.sequence) < 1)
+      || new Set(readbackSequences.map((entry) => entry.sequence)).size !== readbackSequences.length) {
+      throw new Error(`procedure_recording_sequence_readback_invalid:${descriptor.artifact_id}`);
+    }
+  }
+
+  storeIndependentRecord(database: DatabaseLike, input: IndependentRecordInput): void {
+    if (!PHASE_23_9_INDEPENDENT_RECORD_KINDS.includes(input.recordKind)) {
+      throw new Error(`independent_record_kind_forbidden:${input.recordKind}`);
+    }
+    const payloadJson = canonicalJson(input.payload);
+    const existing = database.prepare([
+      "SELECT phase_id, task_path, created_at, status, summary, payload_json, retention_class",
+      "FROM records WHERE record_kind = ? AND record_id = ? AND run_id = ?"
+    ].join(" ")).get(input.recordKind, input.recordId, input.runId) as Record<string, unknown> | undefined;
+    if (existing) {
+      const expected = {
+        phase_id: input.phaseId ?? null,
+        task_path: input.taskPath,
+        created_at: input.createdAt,
+        status: input.status ?? null,
+        summary: input.summary,
+        payload_json: payloadJson,
+        retention_class: input.retentionClass ?? "audit"
+      };
+      for (const [key, value] of Object.entries(expected)) {
+        if (existing[key] !== value) throw new Error(`independent_record_conflict:${input.recordKind}:${input.recordId}:${key}`);
+      }
+      return;
+    }
+    database.prepare([
+      "INSERT INTO records",
+      "(record_kind, record_id, run_id, phase_id, task_path, created_at, status, summary, payload_json, source_step_id, source_command, sensitivity, retention_class)",
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)"
+    ].join(" ")).run(
+      input.recordKind,
+      input.recordId,
+      input.runId,
+      input.phaseId ?? null,
+      input.taskPath,
+      input.createdAt,
+      input.status ?? null,
+      input.summary,
+      payloadJson,
+      "node bin/ch run",
+      "local",
+      input.retentionClass ?? "audit"
+    );
+  }
+
+  readIndependentRecord(
+    database: DatabaseLike,
+    recordKind: Phase239IndependentRecordKind,
+    recordId: string,
+    runId: string
+  ): unknown | undefined {
+    const row = database.prepare(
+      "SELECT payload_json FROM records WHERE record_kind = ? AND record_id = ? AND run_id = ?"
+    ).get(recordKind, recordId, runId) as { payload_json?: string } | undefined;
+    return row?.payload_json ? JSON.parse(row.payload_json) : undefined;
+  }
+
+  listIndependentRecords(recordKind: Phase239IndependentRecordKind, runId: string): unknown[] {
+    const database = this.open();
+    try {
+      const rows = database.prepare(
+        "SELECT payload_json FROM records WHERE record_kind = ? AND run_id = ? ORDER BY created_at ASC, record_id ASC"
+      ).all(recordKind, runId) as Array<{ payload_json: string }>;
+      return rows.map((row) => JSON.parse(row.payload_json));
+    } finally {
+      database.close();
+    }
   }
 
   private persistRun(database: DatabaseLike, run: Run): void {
@@ -1057,7 +1208,10 @@ export class RunStagingDatabase {
       persistedRun.harvested_at ?? null,
       persistedRun.source_snapshot ?? null
     );
-    database.prepare("DELETE FROM records WHERE run_id = ?").run(persistedRun.run_id);
+    const independentPlaceholders = PHASE_23_9_INDEPENDENT_RECORD_KINDS.map(() => "?").join(", ");
+    database.prepare(
+      `DELETE FROM records WHERE run_id = ? AND record_kind NOT IN (${independentPlaceholders})`
+    ).run(persistedRun.run_id, ...PHASE_23_9_INDEPENDENT_RECORD_KINDS);
     for (const row of normalizeRecordRows(persistedRun)) {
       database.prepare([
         "INSERT INTO records",

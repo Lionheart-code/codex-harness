@@ -543,6 +543,8 @@ Required scope:
   `TASK.md` pointer there, commit the activation/materialization change as the
   first commit in that task branch/worktree, verify clean git, and only then
   start the new run in that task worktree;
+- require a recorded next-task decision before harvest when a successor is
+  selected, while allowing harvest without one when no successor is selected;
 - keep a recorded next-task decision as recorded decision state only until an
   explicit status or equivalent typed distinction marks the committed source
   activation as complete;
@@ -1094,8 +1096,7 @@ run-state after Phase 23.8.6C proves the minimum loop and C2/C2A harden its
 bootstrap and materialization authority.
 
 Status:
-Active implementation phase. Its predecessor phases through Phase 23.8.6F are
-complete, reviewed, accepted, merged, closed out, and harvested.
+Complete, independently reviewed, accepted, merged, closed out, and harvested.
 
 Required scope:
 - define `StageState`, `StagePacket`, `StageResult`, `RunnerProfile`,
@@ -1166,7 +1167,9 @@ Add a minimal proof/evidence/assumption/review mapping over stable
 procedure/stage records.
 
 Status:
-Planned. Blocked until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
+Active. First correct the normal zero-TaskState native-successor materialization
+gap under the Phase 23.9 task contract. The proof-record work remains blocked
+until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
 23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C1A, Phase 23.8.6C2,
 Phase 23.8.6C2A, Phase 23.8.6D, Phase 23.8.6E, Phase 23.8.6F, and Phase
 23.8.7 are complete and reviewed, unless a later
@@ -1175,6 +1178,13 @@ This phase must not become a separate lifecycle authority. Operator/proof
 schemas remain provisional sketches unless tightened during implementation.
 
 Must preserve:
+- product-versus-installed-target separation: canonical-path product
+  self-install detection must fail closed for `install` and `upgrade` before
+  planning or mutation, preserve source/AGENTS/backup/registry/runtime state,
+  and make `doctor` report the explicit conflict;
+- a typed reconcile/migration path for pre-existing product self-install state
+  that preserves self-hosting evidence and canonical `TaskState` rather than
+  deleting `.harness` manually;
 - proof record;
 - task verifiability map;
 - assumption ledger;
@@ -1197,8 +1207,17 @@ Must preserve:
   approval remain distinct, and proof never becomes routing authority;
 - missing invocation/usage facts remain explicit, and model judgment never
   overrides deterministic failure.
+- the existing standalone
+  `run launch-review --procedure fix-pass-review` automatic capability after a
+  bounded fix-pass diff exists: one fresh independent read-only invocation,
+  no session resume, exact reviewed source HEAD and diff, and exactly one
+  current predecessor `implementation-review` attempt and artifact;
+- `fix-pass-review` reviews the completed fix only and cannot execute fixes,
+  write to the task worktree, prepare or run repair packets, launch a builder,
+  create a lifecycle stage, or start an automatic review/fix loop.
 
 Must not:
+- install or upgrade the product repository as an installed target;
 - implement run-state ingestion;
 - use display `run_id` alone as proof identity;
 - depend on scraping ambiguous run-local markdown histories as authoritative
@@ -1544,7 +1563,8 @@ Task:
 Goal:
 Execute approved stage packets through reviewed runner surfaces under explicit
 `RunnerProfile` and `ExecutionPolicy` boundaries, ingest runner/CI/review
-results, and prepare bounded fix-pass packets for failing CI/review outcomes.
+results, and prepare and execute approved bounded fix-pass packets for failing
+CI/review outcomes.
 
 Status:
 Planned. Blocked until Phase 30 is complete and reviewed. No self-approval,
@@ -1559,6 +1579,11 @@ and rollback contracts. It remains the first general external-runner runtime
 typed escalation, and packet-bound execution boundary. It must block rather
 than silently downgrade and must not use an LLM as the default router or allow
 unbounded/parallel write agents.
+Phase 31 consumes the exact Phase 23.9 `implementation-review` and
+`fix-pass-review` launch evidence. It must not recreate, replace, or generalize
+Phase 23.9's narrow automatic standalone read-only `fix-pass-review` launcher.
+Phase 31 owns approved write-capable packet execution, CI/review-result
+ingestion, and bounded fix-pass packet preparation and execution.
 
 ## Pilot — Research Ops pack
 

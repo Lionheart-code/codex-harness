@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
+import * as os from "node:os";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { type VerifierRecord, validateVerifierRecord } from "./checks";
@@ -106,6 +107,38 @@ import {
 } from "./prepared-successor-cleanup";
 import { createTask, getTaskDirectory, listTasks, readTaskStateById, writeTaskState, type TaskState } from "./tasks";
 import { bootstrapWorktree } from "./worktree";
+import { materializeZeroOwnerTaskState } from "./zero-owner-materialization";
+import { buildSuccessorDisposition } from "./successor-disposition";
+import {
+  buildProofRecord,
+  extractTaskRequirements,
+  parseProofDerivationRequest,
+  type DeliverySliceV1,
+  type EvidenceGapV1,
+  type EvidenceRefV1,
+  type ProofRecordV1,
+  type ReviewOperatingContextV1
+} from "./proof-record";
+import {
+  assertPlanningBundleIdentity,
+  buildReviewAttempt,
+  buildReviewAttemptRecord,
+  buildReviewAttemptEvent,
+  buildReviewCohort,
+  buildPlanningReviewBundleRecord,
+  parseRawReviewStartupObservation,
+  type RawReviewStartupObservationV1
+} from "./review-cohort";
+import {
+  aggregatePlanBlockers,
+  validatePlanningLensResult,
+  type PlanningLensResultV1
+} from "./plan-contract";
+import {
+  buildProofEligibilitySnapshot,
+  type ProcedureRequirementV1,
+  type StageRequirementV1
+} from "./proof-eligibility";
 
 export const RUNTIME_CONTRACT_NAMES = [
   "Run",
@@ -259,6 +292,18 @@ export interface Approval {
   reviewed_evidence_artifact_id?: string;
 }
 
+export interface ImplementationBaselineBinding {
+  schema_version: 1;
+  approval_id: string;
+  plan_artifact_hash: string;
+  planning_review_source_head: string;
+  owner_authority_diff_hash: string;
+  implementation_baseline_head: string;
+  implementation_baseline_tree_hash: string;
+  expected_tree_hash: string;
+  bound_at: string;
+}
+
 export interface VerificationResult {
   verification_result_id: string;
   status: VerificationResultStatus;
@@ -368,6 +413,10 @@ export interface Run {
   harvested_at?: string;
   source_snapshot?: string;
   source_staging_db_path?: string;
+  implementation_baseline_head?: string;
+  implementation_baseline_binding?: ImplementationBaselineBinding;
+  final_reviewed_source_head?: string;
+  delivered_source_head?: string;
   review_launch_claims?: ReviewLaunchClaim[];
   review_routing_records?: ReviewOperationalRecord[];
   stage_states?: StageState[];
@@ -432,10 +481,38 @@ export interface RuntimePlanApprovalResult extends RuntimeServiceResult {
   recorded: boolean;
 }
 
+export interface RuntimeImplementationBaselineResult extends RuntimeServiceResult {
+  binding: ImplementationBaselineBinding;
+  recorded: boolean;
+}
+
+export interface RuntimeIndependentRecordResult extends RuntimeServiceResult {
+  recordKind: "proof_record" | "review_capability_evidence";
+  recordId: string;
+  recorded: boolean;
+}
+
+export interface RecordIndependentFileOptions {
+  runId?: string;
+  filePath: string;
+  expectedSha?: string;
+  dryRun?: boolean;
+}
+
+export interface LaunchPlanningReviewBundleOptions {
+  runId?: string;
+  requestPath: string;
+  outputPath: string;
+  lensManifestPath: string;
+  timeoutSeconds?: number;
+  staleAfterSeconds?: number;
+  dryRun?: boolean;
+}
+
 export interface RuntimeNextTaskDecisionResult extends RuntimeServiceResult {
   decision: Decision;
-  evidence: EvidenceRef;
-  artifact: ArtifactRef;
+  evidence?: EvidenceRef;
+  artifact?: ArtifactRef;
   recorded: boolean;
 }
 
@@ -468,7 +545,7 @@ export interface ReviewLaunchClaim {
   claim_id: string;
   attempt_id: string;
   attempt_marker: string;
-  procedure_id: "plan-review" | "implementation-review";
+  procedure_id: "plan-review" | "implementation-review" | "fix-pass-review";
   owner_token_hash: string;
   created_at: string;
   request_artifact_hash: string;
@@ -579,6 +656,11 @@ export interface ReviewLaunchObservation {
   canary_authorization_id?: string;
   replay_source_run_instance_id?: string;
   replay_packet_artifact_id?: string;
+  predecessor_review_attempt_id?: string;
+  predecessor_review_artifact_id?: string;
+  predecessor_reviewed_source_head?: string;
+  reviewed_source_head?: string;
+  reviewed_diff_hash?: string;
 }
 
 export interface ReviewRecursionFacts {
@@ -737,11 +819,21 @@ export interface ApprovePlanOptions extends RuntimeDryRunOptions {
   reason?: string;
 }
 
+export interface BindImplementationBaselineOptions extends RuntimeDryRunOptions {
+  planPath: string;
+  approvalId: string;
+  expectedHead: string;
+}
+
 export interface RecordNextTaskOptions extends RuntimeDryRunOptions {
-  taskPath: string;
-  baseCommit: string;
+  taskPath?: string;
+  baseCommit?: string;
   baseRef?: string;
-  filePath: string;
+  filePath?: string;
+  noSuccessor?: boolean;
+  reason?: string;
+  decisionOwner?: string;
+  approvalId?: string;
 }
 
 export interface MaterializeNextTaskOptions extends RuntimeDryRunOptions {
@@ -1494,9 +1586,14 @@ function extractActiveTaskPath(taskMarkdown: string): string | undefined {
 function extractMarkdownSection(markdown: string, heading: string): string | undefined {
   const lines = markdown.split(/\r?\n/u);
   const normalizedHeading = heading.trim().toLowerCase();
+  let headingDepth = 0;
   const startIndex = lines.findIndex((line) => {
-    const match = /^##\s+(.+?)\s*$/u.exec(line.trim());
-    return match?.[1]?.trim().toLowerCase() === normalizedHeading;
+    const match = /^(#{2,6})\s+(.+?)\s*$/u.exec(line.trim());
+    if (match?.[2]?.trim().toLowerCase() === normalizedHeading) {
+      headingDepth = match[1].length;
+      return true;
+    }
+    return false;
   });
 
   if (startIndex === -1) {
@@ -1505,7 +1602,8 @@ function extractMarkdownSection(markdown: string, heading: string): string | und
 
   let endIndex = lines.length;
   for (let index = startIndex + 1; index < lines.length; index += 1) {
-    if (/^##\s+/u.test(lines[index].trim())) {
+    const candidate = /^(#{2,6})\s+/u.exec(lines[index].trim());
+    if (candidate && candidate[1].length <= headingDepth) {
       endIndex = index;
       break;
     }
@@ -1576,14 +1674,19 @@ function extractAcceptanceCommands(markdown: string): string[] {
 export function extractEffectiveValidationCommands(markdown: string): string[] {
   const section = extractMarkdownSection(markdown, "Effective Validation");
   if (!section) return [];
+  const sections = [section];
+  const delegated = /\bSection\s+(\d+)\s+is the complete binding validation contract\b/iu.exec(section);
+  if (delegated?.[1]) {
+    const heading = new RegExp(`^#{1,6}\\s+(${delegated[1]}\\.[^\\r\\n]+)\\s*$`, "imu").exec(markdown)?.[1];
+    const delegatedSection = heading ? extractMarkdownSection(markdown, heading) : undefined;
+    if (!delegatedSection) throw new Error("VERIFICATION_AUTHORITY_DELEGATED_SECTION_MISSING");
+    sections.push(delegatedSection);
+  }
   const commands: string[] = [];
-  for (const line of section.split(/\r?\n/u)) {
+  for (const line of sections.join("\n").split(/\r?\n/u)) {
     const match = /^\s*\d+\.\s+`([^`]+)`\s*$/u.exec(line);
     if (match?.[1]) {
       commands.push(match[1].trim());
-      continue;
-    }
-    if (!line.trim().startsWith("|")) {
       continue;
     }
     for (const inline of line.matchAll(/`([^`]+)`/gu)) {
@@ -2224,6 +2327,70 @@ export function validateRuntimeRun(value: unknown): Run {
     assertRequiredArray(record, field, "runtime run");
   }
 
+  let implementationBaselineBinding: ImplementationBaselineBinding | undefined;
+  if (record.implementation_baseline_binding !== undefined) {
+    const binding = assertObject(
+      record.implementation_baseline_binding,
+      "runtime run implementation_baseline_binding",
+    );
+    const requiredBindingStrings = [
+      "approval_id",
+      "plan_artifact_hash",
+      "planning_review_source_head",
+      "owner_authority_diff_hash",
+      "implementation_baseline_head",
+      "implementation_baseline_tree_hash",
+      "expected_tree_hash",
+      "bound_at",
+    ] as const;
+    if (binding.schema_version !== 1) {
+      throw new Error(
+        "runtime run implementation_baseline_binding has invalid schema_version.",
+      );
+    }
+    for (const field of requiredBindingStrings) {
+      assertRequiredString(
+        binding,
+        field,
+        "runtime run implementation_baseline_binding",
+      );
+    }
+    implementationBaselineBinding = {
+      schema_version: 1,
+      approval_id: String(binding.approval_id),
+      plan_artifact_hash: String(binding.plan_artifact_hash),
+      planning_review_source_head: String(binding.planning_review_source_head),
+      owner_authority_diff_hash: String(binding.owner_authority_diff_hash),
+      implementation_baseline_head: String(
+        binding.implementation_baseline_head,
+      ),
+      implementation_baseline_tree_hash: String(
+        binding.implementation_baseline_tree_hash,
+      ),
+      expected_tree_hash: String(binding.expected_tree_hash),
+      bound_at: String(binding.bound_at),
+    };
+    if (
+      typeof record.implementation_baseline_head !== "string" ||
+      record.implementation_baseline_head !==
+        implementationBaselineBinding.implementation_baseline_head
+    ) {
+      throw new Error(
+        "runtime run implementation baseline head and binding disagree.",
+      );
+    }
+  } else if (record.implementation_baseline_head !== undefined) {
+    throw new Error(
+      "runtime run implementation_baseline_head requires an exact binding.",
+    );
+  }
+  for (const field of ["final_reviewed_source_head", "delivered_source_head"] as const) {
+    if (record[field] !== undefined
+      && (typeof record[field] !== "string" || !/^[a-f0-9]{40}$/u.test(record[field] as string))) {
+      throw new Error(`runtime run has invalid ${field}.`);
+    }
+  }
+
   const deliveryFacts = record.delivery_facts === undefined
     ? []
     : Array.isArray(record.delivery_facts)
@@ -2741,6 +2908,19 @@ export function validateRuntimeRun(value: unknown): Run {
     ...(typeof record.harvested_at === "string" ? { harvested_at: record.harvested_at } : {}),
     ...(typeof record.source_snapshot === "string" ? { source_snapshot: record.source_snapshot } : {}),
     ...(typeof record.source_staging_db_path === "string" ? { source_staging_db_path: record.source_staging_db_path } : {}),
+    ...(implementationBaselineBinding
+      ? {
+          implementation_baseline_head:
+            implementationBaselineBinding.implementation_baseline_head,
+          implementation_baseline_binding: implementationBaselineBinding,
+        }
+      : {}),
+    ...(typeof record.final_reviewed_source_head === "string"
+      ? { final_reviewed_source_head: record.final_reviewed_source_head }
+      : {}),
+    ...(typeof record.delivered_source_head === "string"
+      ? { delivered_source_head: record.delivered_source_head }
+      : {}),
     ...(reviewLaunchClaims ? { review_launch_claims: reviewLaunchClaims } : {}),
     ...(reviewOperationalRecords ? { review_routing_records: reviewOperationalRecords } : {}),
     ...(stageStates ? { stage_states: stageStates } : {}),
@@ -2781,7 +2961,7 @@ function validateReviewLaunchClaims(value: unknown): ReviewLaunchClaim[] {
     const record = assertObject(entry, `runtime run review_launch_claims[${index}]`);
     assertRequiredString(record, "procedure_id", `runtime run review_launch_claims[${index}]`);
     const procedureId = String(record.procedure_id);
-    if (procedureId !== "plan-review" && procedureId !== "implementation-review") {
+    if (!["plan-review", "implementation-review", "fix-pass-review"].includes(procedureId)) {
       throw new Error(`runtime run review_launch_claims[${index}] has invalid procedure_id.`);
     }
     assertRequiredString(record, "termination_policy", `runtime run review_launch_claims[${index}]`);
@@ -2805,7 +2985,7 @@ function validateReviewLaunchClaims(value: unknown): ReviewLaunchClaim[] {
       claim_id: (assertRequiredString(record, "claim_id", `runtime run review_launch_claims[${index}]`), String(record.claim_id)),
       attempt_id: (assertRequiredString(record, "attempt_id", `runtime run review_launch_claims[${index}]`), String(record.attempt_id)),
       attempt_marker: (assertRequiredString(record, "attempt_marker", `runtime run review_launch_claims[${index}]`), String(record.attempt_marker)),
-      procedure_id: procedureId,
+      procedure_id: procedureId as ReviewLaunchClaim["procedure_id"],
       owner_token_hash: (assertRequiredString(record, "owner_token_hash", `runtime run review_launch_claims[${index}]`), String(record.owner_token_hash)),
       created_at: (assertRequiredString(record, "created_at", `runtime run review_launch_claims[${index}]`), String(record.created_at)),
       request_artifact_hash: (assertRequiredString(record, "request_artifact_hash", `runtime run review_launch_claims[${index}]`), String(record.request_artifact_hash)),
@@ -3652,6 +3832,56 @@ function loadRunForMutation(
   throw new Error("No current runtime run found. Run `node bin/ch run start --task TASK.md` first.");
 }
 
+function buildPhase239ProcedureRequirements(): ProcedureRequirementV1[] {
+  const always = (procedure_id: string, procedure_occurrence: ProcedureRequirementV1["procedure_occurrence"] = "single"): ProcedureRequirementV1 => ({
+    procedure_id, procedure_occurrence, requirement_class: "always",
+    predicate_id: "always", predicate_result: "true", basis_ref_ids: []
+  });
+  const conditional = (procedure_id: string, procedure_occurrence: ProcedureRequirementV1["procedure_occurrence"],
+    predicate_id: string, predicate_result: ProcedureRequirementV1["predicate_result"]): ProcedureRequirementV1 => ({
+    procedure_id, procedure_occurrence, requirement_class: "required_if", predicate_id,
+    predicate_result, basis_ref_ids: [`predicate-contract:${predicate_id}`]
+  });
+  return [
+    ...["task-intake", "task-prompt-writer", "draft-plan"].map((id) => always(id)),
+    always("plan-review", "planning_candidate"), always("architecture-review", "planning_candidate"),
+    always("db-storage-review", "planning_candidate"), always("implementation-review"),
+    always("verification-review"), always("delivery-facts-review"), always("phase-closeout-review"),
+    conditional("feature-decomposition", "single", "task_intake_requires_decomposition", "false"),
+    conditional("plan-amend", "single", "candidate_has_plan_blocker_or_owner_external_audit", "true"),
+    conditional("plan-review", "planning_closure", "amendment_manifest_intersects_lens", "true"),
+    conditional("architecture-review", "planning_closure", "amendment_manifest_intersects_lens", "true"),
+    conditional("db-storage-review", "planning_closure", "amendment_manifest_intersects_lens", "true"),
+    conditional("fix-pass-review", "single", "implementation_chain_requires_fix", "deferred"),
+    conditional("docs-consistency-review", "single", "authoritative_docs_prompts_skills_or_policy_changed", "true"),
+    conditional("harness-audit", "single", "lifecycle_runtime_or_authority_contract_changed", "true")
+  ];
+}
+
+function buildPhase239StageRequirements(): StageRequirementV1[] {
+  const always = (stage_id: string): StageRequirementV1 => ({
+    stage_id, requirement_class: "always", predicate_id: "always", predicate_result: "true", basis_ref_ids: []
+  });
+  const conditional = (stage_id: string, predicate_id: string,
+    predicate_result: StageRequirementV1["predicate_result"]): StageRequirementV1 => ({
+    stage_id, requirement_class: "required_if", predicate_id, predicate_result,
+    basis_ref_ids: [`predicate-contract:${predicate_id}`]
+  });
+  return [
+    ...["TASK_INTAKE_REQUIRED", "TASK_PROMPT_REQUIRED", "DRAFT_PLAN_REQUIRED", "PLAN_REVIEW_REQUIRED",
+      "PLAN_APPROVAL_REQUIRED", "IMPLEMENTATION_READY", "IMPLEMENTATION_REVIEW_REQUIRED",
+      "VERIFICATION_REVIEW_REQUIRED", "DELIVERY_FACTS_REVIEW_REQUIRED", "CLOSEOUT_REVIEW_REQUIRED",
+      "CLOSEOUT_READY", "HARVEST_READY", "RUN_HARVESTED"].map(always),
+    conditional("FEATURE_DECOMPOSITION_REQUIRED", "task_intake_requires_decomposition", "false"),
+    conditional("PLAN_AMEND_REQUIRED", "candidate_has_plan_blocker_or_owner_external_audit", "true"),
+    conditional("POST_AMEND_PLAN_REVIEW_REQUIRED", "amendment_requires_closure", "true"),
+    conditional("FIX_PASS_REQUIRED", "implementation_chain_requires_fix", "deferred"),
+    conditional("RUN_BLOCKED", "terminal_blocked", "deferred"),
+    conditional("RUN_QUARANTINED", "terminal_quarantined", "deferred"),
+    conditional("RUN_DISCARDED", "terminal_discarded", "deferred")
+  ];
+}
+
 export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptions): Promise<RuntimeServiceResult> {
   const roots = resolveHarnessRoots(cwd);
   const targetRoot = roots.targetRoot;
@@ -3745,19 +3975,80 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
 
   const projectDb = new ProjectMemoryDatabase(targetRoot, roots.projectRoot);
   projectDb.ensureInitialized();
-  const runPath = writeRuntimeRun(targetRoot, finalRun);
+  let persistedRun = finalRun;
+  let runPath: string;
+  if (finalRun.phase_id === "23.9" && finalRun.run_mode === "normal") {
+    if (!finalRun.run_instance_id || !finalRun.repository.head_sha || !selectedTask?.base_commit_sha) {
+      throw new Error("proof_eligibility_start_identity_missing");
+    }
+    const componentPaths = [
+      ["procedure_registry", "skills/self-hosting/procedure-registry.json"],
+      ["execution_policy", "skills/self-hosting/procedure-execution-policy.json"],
+      ["stage_map", "docs/SELF_HOSTING_OPERATOR_STAGE_MAP.md"],
+      ["predicate_contract", "src/core/proof-eligibility.ts"]
+    ] as const;
+    const activeTaskPath = path.join(targetRoot, finalRun.active_task_path ?? finalRun.task_path);
+    const snapshot = buildProofEligibilitySnapshot({
+      run_instance_id: finalRun.run_instance_id,
+      task_artifact_id: `sha256:${sha256Hex(fs.readFileSync(activeTaskPath))}`,
+      immutable_base: selectedTask.base_commit_sha,
+      activation_source_head: finalRun.repository.head_sha,
+      component_refs: componentPaths.map(([componentKind, relativePath]) => ({
+        component_kind: componentKind,
+        path: relativePath,
+        content_hash: `sha256:${sha256Hex(fs.readFileSync(path.join(targetRoot, relativePath)))}`
+      })),
+      procedure_requirements: buildPhase239ProcedureRequirements(),
+      stage_requirements: buildPhase239StageRequirements(),
+      bootstrap_eligibility: "eligible",
+      created_at: finalRun.created_at
+    });
+    const staging = new RunStagingDatabase(targetRoot, roots.projectRoot, finalRun.run_id);
+    staging.ensureInitialized();
+    persistedRun = staging.mutateRunWithDatabase(finalRun.run_id, (seed, database) => {
+      staging.storeIndependentRecord(database, {
+        recordKind: "proof_eligibility_snapshot",
+        recordId: snapshot.snapshot_id,
+        runId: seed.run_id,
+        phaseId: seed.phase_id,
+        taskPath: seed.task_path,
+        createdAt: snapshot.created_at,
+        status: snapshot.bootstrap_eligibility,
+        summary: "Immutable Phase 23.9 proof eligibility snapshot.",
+        payload: snapshot
+      });
+      const readback = staging.readIndependentRecord(
+        database,
+        "proof_eligibility_snapshot",
+        snapshot.snapshot_id,
+        seed.run_id
+      );
+      if (canonicalJson(readback) !== canonicalJson(snapshot)) {
+        throw new Error("proof_eligibility_snapshot_readback_failed");
+      }
+      return seed;
+    }, {
+      expectedRunInstanceId: finalRun.run_instance_id,
+      expectedRunPresence: "absent",
+      seedRunIfMissing: finalRun
+    });
+    writeCompatibilityRunArtifacts(targetRoot, persistedRun);
+    runPath = runFilePath(targetRoot, persistedRun.run_id);
+  } else {
+    runPath = writeRuntimeRun(targetRoot, finalRun);
+  }
   await appendRuntimeEvidence(
     targetRoot,
-    finalRun,
+    persistedRun,
     "run",
     {
-      summary: `Started runtime run ${finalRun.run_id}.`,
-      run_id: finalRun.run_id,
-      task_path: finalRun.task_path,
-      active_task_path: finalRun.active_task_path,
-      phase_id: finalRun.phase_id,
-      run_mode: finalRun.run_mode,
-      lifecycle_status: finalRun.lifecycle_status,
+      summary: `Started runtime run ${persistedRun.run_id}.`,
+      run_id: persistedRun.run_id,
+      task_path: persistedRun.task_path,
+      active_task_path: persistedRun.active_task_path,
+      phase_id: persistedRun.phase_id,
+      run_mode: persistedRun.run_mode,
+      lifecycle_status: persistedRun.lifecycle_status,
       bootstrap_status: bootstrapResult.status,
       bootstrap_issue_count: bootstrapResult.issues.length,
       bootstrap_handoff_procedure: bootstrapResult.handoff?.procedure_id
@@ -3769,7 +4060,7 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
     targetRoot,
     projectRoot: roots.projectRoot,
     dryRun,
-    run: finalRun,
+    run: persistedRun,
     bootstrap: bootstrapResult,
     runPath,
     projectDbPath: seededPaths.projectDbPath,
@@ -3782,8 +4073,8 @@ function requireReviewLaunchCapability(
   proceduresById: Map<string, SelfHostingProcedureDescriptor>,
   procedureId: string
 ): SelfHostingReviewLaunchProfile {
-  if (procedureId !== "plan-review" && procedureId !== "implementation-review") {
-    throw new Error("--procedure must be one of: plan-review, implementation-review.");
+  if (!["plan-review", "implementation-review", "fix-pass-review"].includes(procedureId)) {
+    throw new Error("--procedure must be one of: plan-review, implementation-review, fix-pass-review.");
   }
 
   const descriptor = proceduresById.get(procedureId);
@@ -4056,14 +4347,24 @@ function fileContextSource(targetRoot: string, relativePath: string, required: b
   };
 }
 
-function reviewChangeInventory(targetRoot: string): {
+function reviewChangeInventory(
+  targetRoot: string,
+  exactBase?: string,
+  exactHead?: string
+): {
   changedFiles: string[];
   changedSurfaceClasses: string[];
   riskClasses: string[];
   materialChangeClasses: string[];
   candidateId: string;
 } {
-  const changedFiles = [...new Set(getGitStatusPaths(getGitStatusLines(targetRoot)))]
+  const exactDiff = exactBase && exactHead
+    ? runGitCommand(targetRoot, ["diff", "--name-only", exactBase, exactHead, "--"])
+    : undefined;
+  if (exactDiff && exactDiff.status !== 0) throw new Error("REVIEW_EXACT_DIFF_UNAVAILABLE");
+  const changedFiles = [...new Set(exactDiff
+    ? exactDiff.stdout.split(/\r?\n/u).filter(Boolean)
+    : getGitStatusPaths(getGitStatusLines(targetRoot)))]
     .map((entry) => entry.replace(/\\/gu, "/"))
     .filter((entry) => entry !== ".DS_Store" && !entry.startsWith(".harness/") && !entry.startsWith(".codex/") && !entry.startsWith(".agents/"))
     .sort();
@@ -4096,7 +4397,14 @@ function reviewChangeInventory(targetRoot: string): {
     changedSurfaceClasses,
     riskClasses,
     materialChangeClasses,
-    candidateId: `sha256:${sha256Hex(canonicalJson({ files: contentIdentities, tracked_patch_hash: `sha256:${sha256Hex(getGitDiffPatch(targetRoot))}` }))}`
+    candidateId: `sha256:${sha256Hex(canonicalJson({
+      base: exactBase ?? null,
+      head: exactHead ?? null,
+      files: contentIdentities,
+      tracked_patch_hash: `sha256:${sha256Hex(exactBase && exactHead
+        ? runGitCommand(targetRoot, ["diff", "--binary", exactBase, exactHead, "--"]).stdout
+        : getGitDiffPatch(targetRoot))}`
+    }))}`
   };
 }
 
@@ -4137,7 +4445,7 @@ function priorReviewArtifactFindings(
   }));
 }
 
-function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "plan-review" | "implementation-review", operatorRequest: string, requestPath: string): {
+function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "plan-review" | "implementation-review" | "fix-pass-review", operatorRequest: string, requestPath: string, exactFixPassBase?: string): {
   core: ContextCore;
   manifest: ContextManifest;
   overlay: ReviewDeltaOverlay;
@@ -4175,10 +4483,29 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
   if (!planArtifact) throw new Error("CONTEXT_MANDATORY_BLOCK_MISSING: effective approved plan artifact is unavailable.");
   const immutableBase = run.bootstrap_facts?.find((fact) => fact.label === "base_commit")?.value ?? run.source_snapshot;
   const reviewTier = fs.readFileSync(path.join(targetRoot, taskContractRef), "utf8").includes("`extra-high`") ? "extra-high" : "high";
-  const inventory = reviewChangeInventory(targetRoot);
+  const reviewedSourceHead = resolveExactCommit(targetRoot, "HEAD");
+  const sourceDirty = getGitStatusPaths(getGitStatusLines(targetRoot)).filter((entry) =>
+    !entry.startsWith(".harness/") && !entry.startsWith(".codex/") && entry !== ".DS_Store");
+  if (run.phase_id === "23.9"
+    && ["implementation-review", "fix-pass-review"].includes(procedureId)
+    && sourceDirty.length > 0) {
+    throw new Error(`REVIEW_SOURCE_DIRTY:${sourceDirty.join(",")}`);
+  }
+  const fixPredecessorHead = procedureId === "fix-pass-review" ? exactFixPassBase : undefined;
+  const exactDiffBase = procedureId === "implementation-review"
+    ? run.implementation_baseline_head
+    : procedureId === "fix-pass-review"
+      ? fixPredecessorHead
+      : undefined;
+  if (procedureId === "fix-pass-review" && !fixPredecessorHead) {
+    throw new Error("FIX_PASS_DIFF_BASE_MISSING");
+  }
+  const inventory = reviewChangeInventory(targetRoot, exactDiffBase, reviewedSourceHead);
   const latestVerification = run.verification_results[run.verification_results.length - 1];
   const verificationComplete = verificationSatisfiesRequiredCommandInventory(targetRoot, run, latestVerification);
-  const priorReview = [...run.review_results].reverse().find((entry) => reviewSourceMatchesProcedure(entry.source, procedureId));
+  const priorReviewProcedure = procedureId === "fix-pass-review" ? "implementation-review" : procedureId;
+  const priorReview = [...run.review_results].reverse().find((entry) =>
+    reviewSourceMatchesProcedure(entry.source, priorReviewProcedure));
   const priorFindings = priorReviewArtifactFindings(targetRoot, run, priorReview);
   const core = buildContextCore({
     task_id: run.phase_id ?? taskContractRef,
@@ -4197,9 +4524,9 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
     run_instance_id: run.run_instance_id,
     branch: run.repository.branch,
     worktree_ref: ".",
-    source_snapshot: run.source_snapshot,
+    source_snapshot: reviewedSourceHead,
     immutable_base: immutableBase,
-    architectural_invariants: ["provider-neutral lifecycle authority", "only two automatic review launch surfaces", "independent review remains fresh"],
+    architectural_invariants: ["provider-neutral lifecycle authority", "bounded automatic review launch surfaces", "independent review remains fresh"],
     non_goals: ["no generic runner", "no second adapter", "no daemon", "no automatic owner approval"],
     acceptance_refs: [taskContractRef, "docs/PHASE_ACCEPTANCE.md"],
     verification_refs: ["package.json#scripts", "tests/acceptance/phase23-8-6b1-review-launch.test.mjs"],
@@ -4216,7 +4543,9 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
     context_core_id: core.context_core_id,
     reviewed_candidate_id: inventory.candidateId,
     changed_files: inventory.changedFiles,
-    diff_refs: [requestPath, "git-diff:HEAD"],
+    diff_refs: [requestPath, exactDiffBase
+      ? `git-diff:${exactDiffBase}..${reviewedSourceHead}`
+      : "git-diff:HEAD"],
     payload_refs: [],
     ...(priorReview ? { prior_review_result_ref: priorReview.review_result_id } : {}),
     findings: priorFindings,
@@ -4344,6 +4673,7 @@ function runCodexCliReview(profile: SelfHostingReviewLaunchProfile, input: {
   launchCommand: string;
 }> {
   return new Promise((resolve) => {
+    fs.mkdirSync(path.dirname(input.outputPath), { recursive: true });
     const args = [
       "exec",
       "-C",
@@ -4597,6 +4927,7 @@ function recordLaunchAttempt(
     overlay: ReviewDeltaOverlay;
     policyVersion: string;
     bindingVersion: string;
+    rawStartup?: RawReviewStartupObservationV1;
   }
 ): Run {
   const timestamp = nowIso();
@@ -4729,8 +5060,77 @@ function recordLaunchAttempt(
     fs.mkdirSync(path.dirname(accepted.absoluteArtifactPath), { recursive: true });
     fs.writeFileSync(accepted.absoluteArtifactPath, accepted.markdown, "utf8");
   }
+  let acceptedCanonicalAttempt: ReturnType<typeof buildReviewAttempt> | undefined;
+  let acceptedCanonicalEvents: ReturnType<typeof buildReviewAttemptEvent>[] = [];
+  if (accepted && currentRun.phase_id === "23.9") {
+    if (!packet?.rawStartup) throw new Error("REVIEW_ACCEPTED_RAW_STARTUP_OBSERVATION_MISSING");
+    const sourcePlanSha = packet.core.approved_plan_ref.split("#").pop();
+    if (!sourcePlanSha || !/^sha256:[a-f0-9]{64}$/u.test(sourcePlanSha)) {
+      throw new Error("REVIEW_ACCEPTED_PLAN_IDENTITY_MISSING");
+    }
+    const observedProfile = parseRawReviewStartupObservation(packet.rawStartup);
+    const eventCommon = {
+      run_instance_id: currentRun.run_instance_id ?? "",
+      run_id: currentRun.run_id,
+      attempt_kind: "single_review" as const,
+      cohort_id: null,
+      attempt_id: claim.attempt_id,
+      claim_id: claim.claim_id,
+      procedure_ids: [observation.procedure_id],
+      request_artifact_hash: observation.request_artifact_hash as `sha256:${string}`,
+      expected_bundle_output_path: observation.expected_output_path ?? observation.output_path,
+      owner_token_hash: claim.owner_token_hash as `sha256:${string}`
+    };
+    acceptedCanonicalEvents = [
+      buildReviewAttemptEvent({ ...eventCommon, sequence: 1, event_type: "claimed", occurred_at: claim.created_at,
+        raw_startup_observation: null, observed_profile: null, terminal_status: null, error_code: null, output_artifact_hash: null }),
+      buildReviewAttemptEvent({ ...eventCommon, sequence: 2, event_type: "started", occurred_at: observation.start_time ?? claim.created_at,
+        raw_startup_observation: packet.rawStartup, observed_profile: observedProfile, terminal_status: null, error_code: null, output_artifact_hash: null }),
+      buildReviewAttemptEvent({ ...eventCommon, sequence: 3, event_type: "terminal", occurred_at: timestamp,
+        raw_startup_observation: null, observed_profile: null, terminal_status: "success", error_code: null,
+        output_artifact_hash: accepted.artifact.artifact_id as `sha256:${string}` })
+    ];
+    acceptedCanonicalAttempt = buildReviewAttempt({
+      run_instance_id: currentRun.run_instance_id ?? "",
+      run_id: currentRun.run_id,
+      attempt_kind: "single_review",
+      procedure_ids: [observation.procedure_id],
+      cohort_id: null,
+      attempt_id: claim.attempt_id,
+      claim_id: claim.claim_id,
+      profile_id: observation.binding_profile_id ?? observation.adapter_id,
+      request_artifact_hash: observation.request_artifact_hash as `sha256:${string}`,
+      expected_bundle_output_path: observation.expected_output_path ?? observation.output_path,
+      claimed_event_id: acceptedCanonicalEvents[0].record_id,
+      started_event_id: acceptedCanonicalEvents[1].record_id,
+      terminal_event_id: acceptedCanonicalEvents[2].record_id,
+      terminal_status: "success",
+      verdict: null,
+      reviewed_source_head: observation.reviewed_source_head ?? packet.core.source_snapshot,
+      implementation_diff_id: (observation.reviewed_diff_hash ?? packet.overlay.content_hash) as `sha256:${string}`,
+      predecessor_review_attempt_id: observation.predecessor_review_attempt_id ?? null,
+      predecessor_review_artifact_id: observation.predecessor_review_artifact_id ?? null,
+      bundle_envelope_id: null,
+      bundle_envelope_hash: null,
+      lens_results: [{
+        procedure_id: observation.procedure_id,
+        status: "recorded",
+        artifact_id: accepted.artifact.artifact_id as `sha256:${string}`,
+        artifact_hash: accepted.artifact.artifact_id as `sha256:${string}`,
+        verdict: validateReviewLaunchArtifact(observation.procedure_id, accepted.markdown).status as "PASS" | "FIX_REQUIRED" | "AMEND_REQUIRED" | "BLOCKED"
+      }],
+      created_at: timestamp
+    }, packet.rawStartup, {
+      provider: "openai",
+      model: observation.model,
+      reasoning: observation.reasoning_effort,
+      sandbox: "read-only",
+      approval_policy: "never",
+      workdir: targetRoot
+    });
+  }
 
-  const run = staging.mutateRun(currentRun.run_id, (latestRun) => {
+  const run = staging.mutateRunWithDatabase(currentRun.run_id, (latestRun, database) => {
     const active = activeReviewLaunchClaim(latestRun);
     if (!active || active.claim_id !== claim.claim_id || active.owner_token_hash !== claim.owner_token_hash) {
       throw new Error("REVIEW_LAUNCH_OWNERSHIP_LOST: only the original launcher may record terminal review completion.");
@@ -4741,6 +5141,7 @@ function recordLaunchAttempt(
     const usageRef = observationWithPayloadRefs.usage_ref;
     const invocationPayload = {
       ...observationWithPayloadRefs,
+      ...(acceptedCanonicalAttempt ? { canonical_attempt_id: acceptedCanonicalAttempt.attempt_id } : {}),
       usage_ref: usageRef
     };
     const invocationRecord: ReviewOperationalRecord = {
@@ -4762,6 +5163,85 @@ function recordLaunchAttempt(
       )) {
         next = recordReviewResult(next, review);
       }
+      if (latestRun.phase_id === "23.9"
+        && ["implementation-review", "fix-pass-review"].includes(observation.procedure_id)
+        && review?.status === "PASS") {
+        const exactReviewedHead = observation.reviewed_source_head ?? packet?.core.source_snapshot;
+        const currentHead = resolveExactCommit(targetRoot, "HEAD");
+        const dirty = getGitStatusPaths(getGitStatusLines(targetRoot)).filter((entry) =>
+          !entry.startsWith(".harness/") && !entry.startsWith(".codex/") && entry !== ".DS_Store");
+        if (!exactReviewedHead || currentHead !== exactReviewedHead || dirty.length > 0) {
+          throw new Error("FINAL_REVIEWED_SOURCE_HEAD_REQUIRES_EXACT_CLEAN_REVIEWED_TREE");
+        }
+        next = { ...next, final_reviewed_source_head: exactReviewedHead };
+      }
+      if (!latestRun.run_instance_id) throw new Error("REVIEW_ACCEPTED_RUN_INSTANCE_MISSING");
+      const acceptedPayload = new PayloadStore(database).store({
+        parentRecordId: accepted.artifact.artifact_id,
+        sourceRunId: latestRun.run_id,
+        sourcePhaseId: latestRun.phase_id,
+        kind: `procedure-artifact-body:${observation.procedure_id}`,
+        mediaType: "text/markdown",
+        summary: `${observation.procedure_id} authoritative procedure body`,
+        content: accepted.markdown,
+        searchableText: accepted.markdown.slice(0, 4000),
+        boundedExcerpt: accepted.markdown.slice(0, 500),
+        retentionClass: "accepted"
+      });
+      staging.storeProcedureArtifact(database, {
+        run_instance_id: latestRun.run_instance_id,
+        source_run_id: latestRun.run_id,
+        procedure_id: observation.procedure_id,
+        artifact_id: accepted.artifact.artifact_id,
+        payload_id: acceptedPayload.payload_id,
+        content_hash: accepted.artifact.artifact_id.slice("sha256:".length),
+        recorded_at: timestamp,
+        provenance_json: JSON.stringify({
+          phase_id: latestRun.phase_id,
+          task_path: latestRun.active_task_path ?? latestRun.task_path,
+          worktree: latestRun.repository.root_path,
+          branch: latestRun.repository.branch,
+          reviewed_source_head: observation.reviewed_source_head ?? packet?.core.source_snapshot,
+          reviewed_diff_hash: observation.reviewed_diff_hash ?? packet?.overlay.content_hash,
+          review_attempt_id: acceptedCanonicalAttempt?.attempt_id ?? claim.attempt_id,
+          predecessor_review_attempt_id: observation.predecessor_review_attempt_id,
+          predecessor_review_artifact_id: observation.predecessor_review_artifact_id,
+          predecessor_reviewed_source_head: observation.predecessor_reviewed_source_head,
+          compatibility_path: accepted.artifact.path
+        })
+      });
+      const canonicalAttempt = acceptedCanonicalAttempt;
+      if (latestRun.phase_id === "23.9" && (!canonicalAttempt || !packet?.rawStartup)) {
+        throw new Error("REVIEW_ACCEPTED_CANONICAL_ATTEMPT_MISSING");
+      }
+      if (canonicalAttempt && packet?.rawStartup) {
+      for (const event of acceptedCanonicalEvents) {
+        staging.storeIndependentRecord(database, {
+          recordKind: "review_attempt_event",
+          recordId: event.record_id,
+          runId: latestRun.run_id,
+          phaseId: latestRun.phase_id,
+          taskPath: latestRun.task_path,
+          createdAt: event.occurred_at,
+          status: event.event_type === "terminal" ? `terminal_${event.terminal_status}` : event.event_type,
+          summary: `${observation.procedure_id} attempt ${event.event_type}.`,
+          payload: event,
+          retentionClass: "accepted"
+        });
+      }
+      staging.storeIndependentRecord(database, {
+        recordKind: "review_attempt",
+        recordId: canonicalAttempt.record_id,
+        runId: latestRun.run_id,
+        phaseId: latestRun.phase_id,
+        taskPath: latestRun.task_path,
+        createdAt: timestamp,
+        status: canonicalAttempt.terminal_status,
+        summary: `${observation.procedure_id} terminal accepted attempt.`,
+        payload: canonicalAttempt,
+        retentionClass: "accepted"
+      });
+      }
       if (packet && currentRun.run_instance_id) {
         const requestPayload = payloadRefs.find((entry) => entry.kind === "review-request-packet");
         const replayPayload: Record<string, unknown> = {
@@ -4778,7 +5258,7 @@ function recordLaunchAttempt(
             delta_overlay_id: packet.overlay.delta_overlay_id,
             delta_overlay_hash: packet.overlay.content_hash,
             context_mode: observation.context_mode ?? "unavailable",
-            approved_attempt_id: claim.attempt_id,
+            approved_attempt_id: canonicalAttempt?.attempt_id ?? claim.attempt_id,
             route_decision_id: observation.route_decision_id ?? "unavailable",
             route_class: observation.route_class ?? "unavailable",
             policy_version: observation.routing_policy_version ?? packet.policyVersion,
@@ -4813,6 +5293,81 @@ function recordLaunchAttempt(
         };
         next = { ...next, review_routing_records: [...(next.review_routing_records ?? []), replayRecord] };
       }
+    } else if (packet && latestRun.phase_id === "23.9") {
+      const sourcePlanSha = packet.core.approved_plan_ref.split("#").pop();
+      if (!sourcePlanSha || !/^sha256:[a-f0-9]{64}$/u.test(sourcePlanSha)) {
+        throw new Error("REVIEW_FAILED_PLAN_IDENTITY_MISSING");
+      }
+      const failureClass = observation.status === "timeout"
+        ? "timeout"
+        : observation.status === "invalid_artifact"
+          ? "artifact_invalid"
+          : "process_failed";
+      const eventCommon = {
+        run_instance_id: latestRun.run_instance_id ?? "", run_id: latestRun.run_id,
+        attempt_kind: "single_review" as const, cohort_id: null,
+        attempt_id: claim.attempt_id, claim_id: claim.claim_id,
+        procedure_ids: [observation.procedure_id],
+        request_artifact_hash: observation.request_artifact_hash as `sha256:${string}`,
+        expected_bundle_output_path: observation.expected_output_path ?? observation.output_path,
+        owner_token_hash: claim.owner_token_hash as `sha256:${string}`
+      };
+      const failureEvents = [buildReviewAttemptEvent({ ...eventCommon, sequence: 1, event_type: "claimed",
+        occurred_at: claim.created_at, raw_startup_observation: null, observed_profile: null,
+        terminal_status: null, error_code: null, output_artifact_hash: null })];
+      if (packet.rawStartup) failureEvents.push(buildReviewAttemptEvent({ ...eventCommon, sequence: 2, event_type: "started",
+        occurred_at: observation.start_time ?? claim.created_at, raw_startup_observation: packet.rawStartup,
+        observed_profile: parseRawReviewStartupObservation(packet.rawStartup), terminal_status: null,
+        error_code: null, output_artifact_hash: null }));
+      const candidateOutput = path.resolve(targetRoot, observation.output_path);
+      failureEvents.push(buildReviewAttemptEvent({ ...eventCommon, sequence: packet.rawStartup ? 3 : 2,
+        event_type: "terminal", occurred_at: timestamp, raw_startup_observation: null, observed_profile: null,
+        terminal_status: failureClass === "timeout" ? "timeout"
+          : failureClass === "artifact_invalid" ? "invalid_artifact" : "failed",
+        error_code: failureClass,
+        output_artifact_hash: fs.existsSync(candidateOutput)
+          ? `sha256:${sha256Hex(fs.readFileSync(candidateOutput))}` : null }));
+      const canonicalAttempt = buildReviewAttemptRecord({
+        run_instance_id: eventCommon.run_instance_id, run_id: eventCommon.run_id,
+        attempt_kind: "single_review", cohort_id: null, attempt_id: claim.attempt_id, claim_id: claim.claim_id,
+        procedure_ids: eventCommon.procedure_ids, profile_id: observation.binding_profile_id ?? observation.adapter_id,
+        request_artifact_hash: eventCommon.request_artifact_hash,
+        expected_bundle_output_path: eventCommon.expected_bundle_output_path,
+        claimed_event_id: failureEvents[0].record_id,
+        started_event_id: packet.rawStartup ? failureEvents[1].record_id : null,
+        terminal_event_id: failureEvents[failureEvents.length - 1].record_id,
+        terminal_status: failureClass === "timeout" ? "timeout"
+          : failureClass === "artifact_invalid" ? "invalid_artifact" : "failed", verdict: null,
+        reviewed_source_head: observation.reviewed_source_head ?? packet.core.source_snapshot,
+        implementation_diff_id: (observation.reviewed_diff_hash ?? packet.overlay.content_hash) as `sha256:${string}`,
+        predecessor_review_attempt_id: observation.predecessor_review_attempt_id ?? null,
+        predecessor_review_artifact_id: observation.predecessor_review_artifact_id ?? null,
+        bundle_envelope_id: null, bundle_envelope_hash: null, lens_results: [], created_at: timestamp
+      });
+      for (const event of failureEvents) {
+        staging.storeIndependentRecord(database, {
+          recordKind: "review_attempt_event",
+          recordId: event.record_id,
+          runId: latestRun.run_id,
+          phaseId: latestRun.phase_id,
+          taskPath: latestRun.task_path,
+          createdAt: event.occurred_at,
+          status: event.event_type === "terminal" ? "terminal_failed" : event.event_type,
+          summary: `${observation.procedure_id} attempt ${event.event_type}.`,
+          payload: event
+        });
+      }
+      staging.storeIndependentRecord(database, {
+        recordKind: "review_attempt",
+        recordId: canonicalAttempt.record_id,
+        runId: latestRun.run_id,
+        phaseId: latestRun.phase_id,
+        taskPath: latestRun.task_path,
+        createdAt: timestamp,
+        status: "failed",
+        summary: `${observation.procedure_id} terminal failed attempt.`,
+        payload: canonicalAttempt
+      });
     }
 
     return next;
@@ -4820,6 +5375,628 @@ function recordLaunchAttempt(
 
   writeCompatibilityRunArtifacts(targetRoot, run);
   return run;
+}
+
+function extractRawStartupObservation(stdout: string): RawReviewStartupObservationV1 {
+  const threadIds = stdout.split(/\r?\n/u).flatMap((line) => {
+    if (!line.trim()) return [];
+    try {
+      const parsed = JSON.parse(line) as { type?: unknown; thread_id?: unknown };
+      return parsed.type === "thread.started" && typeof parsed.thread_id === "string"
+        ? [parsed.thread_id] : [];
+    } catch { return []; }
+  });
+  const uniqueThreadIds = [...new Set(threadIds)];
+  if (uniqueThreadIds.length !== 1) {
+    throw new Error(`review_startup_thread_identity_cardinality_invalid:${uniqueThreadIds.length}`);
+  }
+  const sessionId = uniqueThreadIds[0];
+  const sessionsRoot = path.join(process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"), "sessions");
+  const matchingRollouts: string[] = [];
+  const visit = (directory: string): void => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(absolute);
+      else if (entry.isFile() && entry.name.includes(sessionId) && entry.name.endsWith(".jsonl")) matchingRollouts.push(absolute);
+    }
+  };
+  if (fs.existsSync(sessionsRoot)) visit(sessionsRoot);
+  if (matchingRollouts.length !== 1) {
+    throw new Error(`review_startup_rollout_cardinality_invalid:${matchingRollouts.length}`);
+  }
+  const rolloutPath = matchingRollouts[0];
+  const bytes = fs.readFileSync(rolloutPath);
+  const records: Array<{ ordinal: number; raw: Buffer; parsed: Record<string, unknown> }> = [];
+  let start = 0;
+  let ordinal = 0;
+  for (let cursor = 0; cursor < bytes.length; cursor += 1) {
+    if (bytes[cursor] !== 0x0a) continue;
+    const raw = bytes.subarray(start, cursor + 1);
+    start = cursor + 1;
+    if (raw.toString("utf8").trim()) {
+      try { records.push({ ordinal, raw, parsed: JSON.parse(raw.toString("utf8")) as Record<string, unknown> }); }
+      catch { throw new Error(`review_startup_rollout_record_invalid:${ordinal}`); }
+    }
+    ordinal += 1;
+  }
+  if (start !== bytes.length) throw new Error("review_startup_rollout_missing_terminal_lf");
+  const metas = records.filter((record) => {
+    const payload = record.parsed.payload as Record<string, unknown> | undefined;
+    return record.parsed.type === "session_meta"
+      && (payload?.id === sessionId || payload?.session_id === sessionId);
+  });
+  if (metas.length !== 1) throw new Error(`review_startup_session_meta_cardinality_invalid:${metas.length}`);
+  const turns = records.filter((record) => record.parsed.type === "turn_context" && record.ordinal > metas[0].ordinal);
+  if (turns.length < 1) throw new Error("review_startup_turn_context_cardinality_invalid:0");
+  const meta = metas[0];
+  const turn = turns[0];
+  const metaRaw = meta.raw.toString("utf8");
+  const turnRaw = turn.raw.toString("utf8");
+  return {
+    schema_version: 1,
+    source: "codex_turn_context_v1",
+    session_id: sessionId,
+    rollout_path_hash: `sha256:${sha256Hex(Buffer.from(rolloutPath, "utf8"))}`,
+    session_meta_record_ordinal: meta.ordinal,
+    session_meta_raw_bytes: metaRaw,
+    session_meta_raw_byte_length: meta.raw.length,
+    session_meta_raw_sha256: `sha256:${sha256Hex(meta.raw)}`,
+    turn_context_record_ordinal: turn.ordinal,
+    turn_context_raw_bytes: turnRaw,
+    turn_context_raw_byte_length: turn.raw.length,
+    turn_context_raw_sha256: `sha256:${sha256Hex(turn.raw)}`,
+    raw_pair_sha256: `sha256:${sha256Hex(canonicalJson({
+      session_meta_raw_sha256: `sha256:${sha256Hex(meta.raw)}`,
+      turn_context_raw_sha256: `sha256:${sha256Hex(turn.raw)}`
+    }))}`
+  };
+}
+
+function rawStartupObservationHash(observation: RawReviewStartupObservationV1): `sha256:${string}` {
+  return observation.source === "codex_turn_context_v1"
+    ? observation.raw_pair_sha256
+    : observation.raw_sha256;
+}
+
+export async function launchRuntimePlanningReviewBundle(
+  cwd: string,
+  options: LaunchPlanningReviewBundleOptions
+): Promise<RuntimeReviewLaunchResult> {
+  const roots = resolveHarnessRoots(cwd);
+  const targetRoot = roots.targetRoot;
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  if (current.run.lifecycle_status !== "active" || current.run.phase_id !== "23.9") {
+    throw new Error("planning_review_bundle_requires_active_phase_23_9_run");
+  }
+  const registry = readSelfHostingProcedureRegistry(targetRoot);
+  if (!registry) throw new Error("Self-hosting procedure registry not found.");
+  const launchCapability = requireReviewLaunchCapability(indexSelfHostingProceduresById(registry), "plan-review");
+  const bindingCandidates = readCodexReferenceBinding(targetRoot).profiles.filter((entry) =>
+    entry.status === "accepted" && entry.route_class === "critical_independent"
+    && entry.adapter_id === launchCapability.adapter_id
+    && entry.capabilities.fresh_independent_delta && !entry.capabilities.safe_session_resume);
+  if (bindingCandidates.length !== 1) {
+    throw new Error(`planning_review_bundle_profile_cardinality_invalid:${bindingCandidates.length}`);
+  }
+  const bindingProfile = bindingCandidates[0];
+  const profile: SelfHostingReviewLaunchProfile = {
+    ...launchCapability,
+    model: bindingProfile.model,
+    reasoning_effort: bindingProfile.reasoning_effort
+  };
+  const timeoutSeconds = validateLaunchSeconds(options.timeoutSeconds, profile.timeout_seconds, "--timeout-seconds");
+  const staleAfterSeconds = validateLaunchSeconds(options.staleAfterSeconds, profile.stale_after_seconds, "--stale-after-seconds");
+  const requestPath = resolveLaunchRequestPath(targetRoot, options.requestPath);
+  const outputPath = resolveLaunchOutputPath(targetRoot, current.run, options.outputPath);
+  const lensManifestPath = path.resolve(targetRoot, options.lensManifestPath);
+  ensureInsideTargetRoot(targetRoot, lensManifestPath);
+  const lensManifestBytes = fs.readFileSync(lensManifestPath);
+  const lensManifest = JSON.parse(lensManifestBytes.toString("utf8")) as {
+    schema_version?: unknown; bundle_kind?: unknown; required_lens_ids?: unknown;
+    predecessor_cohort_id?: unknown; carried_lens_refs?: unknown;
+  };
+  const manifestKeys = Object.keys(lensManifest).sort();
+  if (canonicalJson(manifestKeys) !== canonicalJson([
+    "bundle_kind", "carried_lens_refs", "predecessor_cohort_id", "required_lens_ids", "schema_version"
+  ]) || lensManifest.schema_version !== 1
+    || !["candidate", "closure"].includes(String(lensManifest.bundle_kind))
+    || !Array.isArray(lensManifest.required_lens_ids)
+    || !Array.isArray(lensManifest.carried_lens_refs)) {
+    throw new Error("planning_review_lens_manifest_invalid");
+  }
+  const expectedProcedures = lensManifest.required_lens_ids.map(String);
+  const allPlanningLenses = ["plan-review", "architecture-review", "db-storage-review"];
+  if (expectedProcedures.length < 1 || expectedProcedures.length > 3
+    || new Set(expectedProcedures).size !== expectedProcedures.length
+    || expectedProcedures.some((entry) => !allPlanningLenses.includes(entry))) {
+    throw new Error("planning_review_lens_manifest_required_set_invalid");
+  }
+  const effectivePlanSha = current.run.approvals[current.run.approvals.length - 1]?.reviewed_plan_artifact_id;
+  if (!effectivePlanSha || !/^sha256:[a-f0-9]{64}$/u.test(effectivePlanSha)) {
+    throw new Error("planning_review_bundle_effective_plan_identity_missing");
+  }
+  const expectedSourceHead = resolveExactCommit(targetRoot, "HEAD");
+  const activeTaskPath = path.join(targetRoot, current.run.active_task_path ?? current.run.task_path);
+  const expectedTaskArtifactId = `sha256:${sha256Hex(fs.readFileSync(activeTaskPath))}`;
+  const expectedImmutableBase = current.run.bootstrap_facts?.find((fact) =>
+    fact.label === "base_commit")?.value ?? current.run.source_snapshot;
+  if (!expectedImmutableBase || !/^[a-f0-9]{40}$/u.test(expectedImmutableBase)) {
+    throw new Error("planning_review_bundle_immutable_base_missing");
+  }
+  const expectedOutputContracts = Object.fromEntries(
+    expectedProcedures.map((procedureId) => [
+      procedureId,
+      `sha256:${sha256Hex(fs.readFileSync(path.join(
+        targetRoot, "skills", "self-hosting", procedureId, "references", "output-format.md"
+      )))}`
+    ])
+  );
+  const outputSchemaPath = "schemas/planning-review-lens-output.schema.json";
+  const outputContractRefs = expectedProcedures.map((procedureId) => {
+    const descriptor = registry.procedures.find((entry) => entry.procedure_id === procedureId);
+    if (!descriptor) throw new Error(`planning_review_bundle_procedure_missing:${procedureId}`);
+    const body = {
+      procedure_id: procedureId,
+      registry_contract_version: registry.contract_version,
+      skill_path: descriptor.skill_path,
+      skill_hash: `sha256:${sha256Hex(fs.readFileSync(path.join(targetRoot, descriptor.skill_path)))}` as `sha256:${string}`,
+      output_format_path: descriptor.output_format_path,
+      output_format_hash: `sha256:${sha256Hex(fs.readFileSync(path.join(targetRoot, descriptor.output_format_path)))}` as `sha256:${string}`,
+      output_schema_path: outputSchemaPath,
+      output_schema_hash: `sha256:${sha256Hex(fs.readFileSync(path.join(targetRoot, outputSchemaPath)))}` as `sha256:${string}`
+    };
+    return { ...body, output_contract_id: `sha256:${sha256Hex(canonicalJson(body))}` as `sha256:${string}` };
+  });
+  const contextCoreHash = `sha256:${sha256Hex(canonicalJson({
+    run_instance_id: current.run.run_instance_id, run_id: current.run.run_id,
+    task_artifact_id: expectedTaskArtifactId as `sha256:${string}`, immutable_base: expectedImmutableBase,
+    planning_review_source_head: expectedSourceHead, anchor_plan_sha: effectivePlanSha
+  }))}` as `sha256:${string}`;
+  const priorCohorts = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id)
+    .listIndependentRecords("review_cohort", current.run.run_id)
+    .filter((entry) => (entry as { record_kind?: unknown }).record_kind === "review_cohort") as Array<{ record_id: `sha256:${string}`; created_at: string }>;
+  priorCohorts.sort((left, right) => left.created_at.localeCompare(right.created_at));
+  const requestBody = fs.readFileSync(requestPath, "utf8").trim();
+  const bundleKind = lensManifest.bundle_kind as "candidate" | "closure";
+  const predecessorCohortId = lensManifest.predecessor_cohort_id === null
+    ? null : String(lensManifest.predecessor_cohort_id) as `sha256:${string}`;
+  const carriedLensRefs = lensManifest.carried_lens_refs as Parameters<typeof buildReviewCohort>[0]["carried_lens_refs"];
+  if (bundleKind === "closure" && !priorCohorts.some((entry) => entry.record_id === predecessorCohortId)) {
+    throw new Error("planning_review_lens_manifest_predecessor_missing");
+  }
+  const cohort = buildReviewCohort({
+    run_instance_id: current.run.run_instance_id ?? "", run_id: current.run.run_id,
+    task_artifact_id: expectedTaskArtifactId as `sha256:${string}`, immutable_base: expectedImmutableBase,
+    planning_review_source_head: expectedSourceHead, anchor_plan_sha: effectivePlanSha as `sha256:${string}`,
+    output_contract_refs: outputContractRefs, profile_id: bindingProfile.profile_id, bundle_kind: bundleKind,
+    predecessor_cohort_id: predecessorCohortId,
+    required_lens_ids: expectedProcedures,
+    carried_lens_refs: carriedLensRefs, context_core_hash: contextCoreHash, created_at: current.run.updated_at
+  });
+  const requestMarkdown = [
+    requestBody,
+    "",
+    "Return one JSON object with schema_version=1, common identity fields, exactly",
+    `the manifest-selected lens_results and lens_documents for: ${expectedProcedures.join(", ")}.`,
+    "Keep each lens document untouched. Read each",
+    "checked-in SKILL.md and references/output-format.md.",
+    "",
+    `plan_sha: ${effectivePlanSha}`,
+    `source_head: ${expectedSourceHead}`,
+    `task_artifact_id: ${expectedTaskArtifactId}`,
+    `immutable_base: ${expectedImmutableBase}`,
+    `output_contract_ids: ${canonicalJson(expectedOutputContracts)}`
+    ,`review_cohort_id: ${cohort.record_id}`
+    ,`lens_manifest_sha256: sha256:${sha256Hex(lensManifestBytes)}`
+  ].join("\n");
+  const observationBase = {
+    procedure_id: "planning-review-bundle",
+    run_id: current.run.run_id,
+    run_instance_id: current.run.run_instance_id,
+    adapter_id: profile.adapter_id,
+    model: profile.model,
+    reasoning_effort: profile.reasoning_effort,
+    sandbox_mode: profile.sandbox_mode,
+    output_mode: profile.output_mode,
+    timeout_seconds: timeoutSeconds,
+    stale_after_seconds: staleAfterSeconds,
+    termination_policy: profile.termination_policy,
+    request_path: toRepoRelative(targetRoot, requestPath),
+    request_artifact_hash: `sha256:${sha256Hex(requestMarkdown)}`,
+    expected_output_path: toRepoRelative(targetRoot, outputPath),
+    output_path: toRepoRelative(targetRoot, outputPath)
+  };
+  const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, current.run.run_id);
+  const latestPlanningApproval = current.run.approvals[current.run.approvals.length - 1];
+  const existingAttempts = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id)
+    .listIndependentRecords("review_attempt", current.run.run_id)
+    .filter((entry) => {
+      const attempt = entry as { attempt_kind?: unknown; cohort_id?: unknown };
+      return attempt.attempt_kind === "planning_bundle" && attempt.cohort_id === cohort.record_id;
+    }) as Array<{ terminal_status?: unknown }>;
+  const terminalAttemptStatuses = [
+    "success", "spawn_failed", "startup_observation_failed", "profile_mismatch",
+    "failed", "timeout", "blocked", "invalid_artifact"
+  ];
+  if (existingAttempts.some((entry) => entry.terminal_status === "success")
+    || existingAttempts.length >= 2
+    || existingAttempts.some((entry) => !terminalAttemptStatuses.includes(String(entry.terminal_status)))) {
+    throw new Error("PLANNING_REVIEW_BUNDLE_RETRY_NOT_ALLOWED");
+  }
+  if (dryRun) {
+    return {
+      targetRoot, projectRoot: roots.projectRoot, dryRun, run: current.run,
+      runPath: current.runPath, projectDbPath: paths.projectDbPath,
+      stagingDbPath: paths.stagingDbPath, state: current.state,
+      observation: {
+        ...observationBase, status: "dry_run",
+        summary: "Planning review bundle launch is valid; no process or artifact was created.",
+        next_valid_action: "rerun without --dry-run"
+      }
+    };
+  }
+  const persistPlanningBundleFailure = (
+    startedAt: string,
+    failedAt: string,
+    errorCode: string,
+    rawStartup?: RawReviewStartupObservationV1
+  ): Run => {
+    const attemptId = `planning-bundle:${sha256Hex(canonicalJson({
+      request_artifact_hash: observationBase.request_artifact_hash, started_at: startedAt
+    }))}`;
+    const common = {
+      run_instance_id: current.run.run_instance_id ?? "", run_id: current.run.run_id,
+      attempt_kind: "planning_bundle" as const, cohort_id: cohort.record_id,
+      attempt_id: attemptId, claim_id: attemptId,
+      procedure_ids: expectedProcedures,
+      request_artifact_hash: observationBase.request_artifact_hash as `sha256:${string}`,
+      expected_bundle_output_path: observationBase.expected_output_path,
+      owner_token_hash: `sha256:${sha256Hex(attemptId)}` as `sha256:${string}`
+    };
+    const events = [buildReviewAttemptEvent({ ...common, sequence: 1, event_type: "claimed", occurred_at: startedAt,
+      raw_startup_observation: null, observed_profile: null, terminal_status: null, error_code: null, output_artifact_hash: null })];
+    if (rawStartup) events.push(buildReviewAttemptEvent({ ...common, sequence: 2, event_type: "started", occurred_at: startedAt,
+      raw_startup_observation: rawStartup, observed_profile: parseRawReviewStartupObservation(rawStartup),
+      terminal_status: null, error_code: null, output_artifact_hash: null }));
+    events.push(buildReviewAttemptEvent({ ...common, sequence: rawStartup ? 3 : 2, event_type: "terminal", occurred_at: failedAt,
+      raw_startup_observation: null, observed_profile: null,
+      terminal_status: rawStartup
+        ? errorCode === "timeout" ? "timeout"
+          : errorCode === "artifact_invalid" ? "invalid_artifact"
+            : errorCode === "profile_mismatch" ? "profile_mismatch" : "failed"
+        : errorCode === "startup_observation_failed" ? "startup_observation_failed" : "spawn_failed",
+      error_code: errorCode,
+      output_artifact_hash: rawStartup && fs.existsSync(outputPath)
+        ? `sha256:${sha256Hex(fs.readFileSync(outputPath))}` : null }));
+    const attempt = buildReviewAttemptRecord({
+      run_instance_id: common.run_instance_id, run_id: common.run_id, attempt_kind: common.attempt_kind,
+      cohort_id: common.cohort_id, attempt_id: common.attempt_id, claim_id: common.claim_id,
+      procedure_ids: common.procedure_ids, profile_id: bindingProfile.profile_id,
+      request_artifact_hash: common.request_artifact_hash,
+      expected_bundle_output_path: common.expected_bundle_output_path,
+      claimed_event_id: events[0].record_id,
+      started_event_id: rawStartup ? events[1].record_id : null,
+      terminal_event_id: events[events.length - 1].record_id,
+      terminal_status: rawStartup
+        ? errorCode === "timeout" ? "timeout"
+          : errorCode === "artifact_invalid" ? "invalid_artifact"
+            : errorCode === "profile_mismatch" ? "profile_mismatch" : "failed"
+        : errorCode === "startup_observation_failed" ? "startup_observation_failed" : "spawn_failed",
+      verdict: null, reviewed_source_head: null,
+      implementation_diff_id: null, predecessor_review_attempt_id: null,
+      predecessor_review_artifact_id: null, bundle_envelope_id: null, bundle_envelope_hash: null,
+      lens_results: [], created_at: failedAt
+    });
+    const failureStaging = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
+    const latest = failureStaging.loadRun(current.run.run_id) ?? current.run;
+    const failedRun = failureStaging.mutateRunWithDatabase(latest.run_id, (latestRun, database) => {
+      for (const event of events) failureStaging.storeIndependentRecord(database, {
+        recordKind: "review_attempt_event", recordId: event.record_id,
+        runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
+        createdAt: event.occurred_at,
+        status: event.event_type === "terminal" ? "terminal_failed" : event.event_type,
+        summary: `Planning review attempt ${event.event_type}.`, payload: event
+      });
+      failureStaging.storeIndependentRecord(database, {
+        recordKind: "review_attempt", recordId: attempt.record_id,
+        runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
+        createdAt: failedAt, status: "failed", summary: "Terminal failed planning review bundle attempt.",
+        payload: attempt
+      });
+      return latestRun;
+    }, { expectedRunInstanceId: latest.run_instance_id, expectedRunRevision: latest.run_revision, expectedRunPresence: "present" });
+    writeCompatibilityRunArtifacts(targetRoot, failedRun);
+    return failedRun;
+  };
+  const child = await runCodexCliReview(profile, {
+    targetRoot, requestMarkdown, outputPath, timeoutSeconds, staleAfterSeconds,
+    childEnvironment: { ...process.env }
+  });
+  if (child.timedOut || child.exitCode !== 0) {
+    const failedAt = child.completedTime ?? nowIso();
+    let failedStartup: RawReviewStartupObservationV1 | undefined;
+    try { failedStartup = extractRawStartupObservation(child.stdout); } catch { /* typed below */ }
+    const failedObserved = failedStartup ? parseRawReviewStartupObservation(failedStartup) : undefined;
+    const failedProfileMismatch = failedObserved && (
+      failedObserved.provider !== "openai"
+      || failedObserved.model !== profile.model
+      || failedObserved.workdir !== targetRoot
+      || failedObserved.reasoning !== profile.reasoning_effort
+      || failedObserved.sandbox !== "read-only"
+      || failedObserved.approval_policy !== "never"
+    );
+    persistPlanningBundleFailure(
+      child.startTime,
+      failedAt,
+      failedStartup
+        ? failedProfileMismatch ? "profile_mismatch"
+          : child.timedOut ? "timeout" : "process_failed"
+        : child.pid ? "startup_observation_failed" : "spawn_failed",
+      failedStartup
+    );
+    throw new Error(child.timedOut
+      ? "PLANNING_REVIEW_BUNDLE_TIMEOUT"
+      : `PLANNING_REVIEW_BUNDLE_PROCESS_FAILED:${child.exitCode ?? "spawn"}`);
+  }
+  let observedStartup: RawReviewStartupObservationV1 | undefined;
+  try {
+  const rawStartup = extractRawStartupObservation(child.stdout);
+  observedStartup = rawStartup;
+  const envelope = JSON.parse(fs.readFileSync(outputPath, "utf8")) as {
+    schema_version: number; bundle_id: string; plan_sha: `sha256:${string}`;
+    source_head: string; task_artifact_id: `sha256:${string}`; immutable_base: string;
+    lens_results: PlanningLensResultV1[]; lens_documents: Record<string, string>;
+  };
+  const envelopeKeys = Object.keys(envelope).sort();
+  if (canonicalJson(envelopeKeys) !== canonicalJson([
+    "bundle_id", "immutable_base", "lens_documents", "lens_results", "plan_sha",
+    "schema_version", "source_head", "task_artifact_id"
+  ])) {
+    throw new Error("planning_review_bundle_schema_invalid:properties");
+  }
+  if (!Array.isArray(envelope.lens_results) || envelope.lens_results.length !== expectedProcedures.length
+    || !envelope.lens_documents || typeof envelope.lens_documents !== "object") {
+    throw new Error("planning_review_bundle_schema_invalid:cardinality");
+  }
+  if (envelope.schema_version !== 1
+    || envelope.bundle_id !== cohort.record_id
+    || envelope.plan_sha !== effectivePlanSha
+    || envelope.source_head !== expectedSourceHead
+    || envelope.task_artifact_id !== expectedTaskArtifactId
+    || envelope.immutable_base !== expectedImmutableBase
+    || canonicalJson(envelope.lens_results.map((result) => result.procedure_id)) !== canonicalJson(expectedProcedures)
+    || canonicalJson(Object.keys(envelope.lens_documents)) !== canonicalJson(expectedProcedures)) {
+    throw new Error("planning_review_bundle_output_contract_invalid");
+  }
+  envelope.lens_results = envelope.lens_results.map(validatePlanningLensResult);
+  for (const procedureId of expectedProcedures) {
+    const result = envelope.lens_results.find((entry) => entry.procedure_id === procedureId);
+    const document = envelope.lens_documents[procedureId];
+    if (!result || typeof document !== "string" || !document.trim()
+      || !document.includes(`sha256:${result.plan_sha.slice("sha256:".length)}`)
+      || !document.includes(result.source_head)
+      || !document.includes(result.task_artifact_id)
+      || !document.includes(result.immutable_base)
+      || result.output_contract_id !== expectedOutputContracts[procedureId]) {
+      throw new Error(`planning_review_bundle_document_identity_invalid:${procedureId}`);
+    }
+    if (procedureId === "plan-review") validatePlanReviewArtifact(document);
+    else if (!buildProcedureReviewResult(current.run, procedureId, {
+      artifact_id: `sha256:${sha256Hex(document)}`,
+      path: "schema-validation-only",
+      kind: `procedure-artifact:${procedureId}`,
+      description: "schema-validation-only"
+    }, document, child.completedTime ?? nowIso())) {
+      throw new Error(`planning_review_bundle_document_contract_invalid:${procedureId}`);
+    }
+  }
+  aggregatePlanBlockers(envelope.lens_results);
+  const bundleAttemptId = `planning-bundle:${sha256Hex(canonicalJson({
+    request_artifact_hash: observationBase.request_artifact_hash,
+    started_at: child.startTime
+  }))}`;
+  const bundleRecordedAt = child.completedTime ?? nowIso();
+  const rawEnvelopeUtf8 = fs.readFileSync(outputPath, "utf8");
+  const bundleRecord = buildPlanningReviewBundleRecord({
+    run_instance_id: current.run.run_instance_id ?? "", run_id: current.run.run_id,
+    cohort_id: cohort.record_id, attempt_id: bundleAttemptId,
+    raw_envelope_utf8: rawEnvelopeUtf8,
+    ordered_lens_refs: expectedProcedures.map((procedureId) => ({
+      procedure_id: procedureId,
+      artifact_id: `sha256:${sha256Hex(envelope.lens_documents[procedureId])}` as `sha256:${string}`,
+      artifact_hash: `sha256:${sha256Hex(envelope.lens_documents[procedureId])}` as `sha256:${string}`,
+      output_contract_id: outputContractRefs.find((entry) => entry.procedure_id === procedureId)!.output_contract_id
+    })),
+    created_at: bundleRecordedAt
+  });
+  const bundleEventCommon = {
+    run_instance_id: current.run.run_instance_id ?? "", run_id: current.run.run_id,
+    attempt_kind: "planning_bundle" as const, cohort_id: cohort.record_id,
+    attempt_id: bundleAttemptId, claim_id: bundleAttemptId, procedure_ids: expectedProcedures,
+    request_artifact_hash: observationBase.request_artifact_hash as `sha256:${string}`,
+    expected_bundle_output_path: observationBase.expected_output_path,
+    owner_token_hash: `sha256:${sha256Hex(bundleAttemptId)}` as `sha256:${string}`
+  };
+  const bundleEvents = [
+    buildReviewAttemptEvent({ ...bundleEventCommon, sequence: 1, event_type: "claimed", occurred_at: child.startTime,
+      raw_startup_observation: null, observed_profile: null, terminal_status: null, error_code: null, output_artifact_hash: null }),
+    buildReviewAttemptEvent({ ...bundleEventCommon, sequence: 2, event_type: "started", occurred_at: child.startTime,
+      raw_startup_observation: rawStartup, observed_profile: parseRawReviewStartupObservation(rawStartup),
+      terminal_status: null, error_code: null, output_artifact_hash: null }),
+    buildReviewAttemptEvent({ ...bundleEventCommon, sequence: 3, event_type: "terminal", occurred_at: bundleRecordedAt,
+      raw_startup_observation: null, observed_profile: null, terminal_status: "success", error_code: null,
+      output_artifact_hash: `sha256:${sha256Hex(fs.readFileSync(outputPath))}` })
+  ];
+  const attempt = buildReviewAttempt({
+    run_instance_id: current.run.run_instance_id ?? "",
+    run_id: current.run.run_id,
+    attempt_kind: "planning_bundle",
+    procedure_ids: expectedProcedures,
+    cohort_id: envelope.bundle_id,
+    attempt_id: bundleAttemptId,
+    claim_id: bundleAttemptId,
+    profile_id: bindingProfile.profile_id,
+    request_artifact_hash: observationBase.request_artifact_hash as `sha256:${string}`,
+    expected_bundle_output_path: observationBase.expected_output_path,
+    claimed_event_id: bundleEvents[0].record_id,
+    started_event_id: bundleEvents[1].record_id,
+    terminal_event_id: bundleEvents[2].record_id,
+    terminal_status: "success",
+    verdict: null,
+    reviewed_source_head: null,
+    implementation_diff_id: null,
+    predecessor_review_attempt_id: null,
+    predecessor_review_artifact_id: null,
+    bundle_envelope_id: bundleRecord.record_id,
+    bundle_envelope_hash: bundleRecord.content_hash,
+    lens_results: envelope.lens_results.map((result) => ({
+      procedure_id: result.procedure_id,
+      status: "recorded",
+      artifact_id: `sha256:${sha256Hex(envelope.lens_documents[result.procedure_id])}`,
+      artifact_hash: `sha256:${sha256Hex(envelope.lens_documents[result.procedure_id])}`,
+      verdict: result.verdict
+    })),
+    created_at: bundleRecordedAt
+  }, rawStartup, {
+    provider: "openai", model: profile.model, workdir: targetRoot,
+    reasoning: profile.reasoning_effort, sandbox: "read-only", approval_policy: "never"
+  });
+  assertPlanningBundleIdentity(attempt);
+  const splitRoot = path.join(path.dirname(outputPath), `${path.basename(outputPath)}.lenses`);
+  const staging = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
+  const latest = staging.loadRun(current.run.run_id);
+  if (!latest) throw new Error("planning_review_bundle_run_missing_after_ingestion");
+  const run = staging.mutateRunWithDatabase(latest.run_id, (latestRun, database) => {
+    if (!latestRun.run_instance_id) throw new Error("planning_review_bundle_run_instance_missing");
+    const runInstanceId = latestRun.run_instance_id;
+    let nextRun = latestRun;
+    const recordedAt = child.completedTime ?? nowIso();
+    for (const procedureId of expectedProcedures) {
+      const markdown = envelope.lens_documents[procedureId];
+      const contentHash = sha256Hex(markdown);
+      const hashPrefix = contentHash.slice(0, 12);
+      const artifact: ArtifactRef = {
+        artifact_id: `sha256:${contentHash}`,
+        path: toPortablePath(path.join("evidence", `${procedureId}-${hashPrefix}.md`)),
+        kind: `procedure-artifact:${procedureId}`,
+        description: toRepoRelative(targetRoot, path.join(splitRoot, `${procedureId}.md`))
+      };
+      const evidence: EvidenceRef = {
+        evidence_id: `procedure-${procedureId}-${hashPrefix}`,
+        kind: `procedure:${procedureId}`,
+        summary: procedureId,
+        artifact_id: artifact.artifact_id,
+        path: artifact.path
+      };
+      const review = buildProcedureReviewResult(nextRun, procedureId, artifact, markdown, recordedAt);
+      if (!review) throw new Error(`planning_review_bundle_review_result_missing:${procedureId}`);
+      const payload = new PayloadStore(database).store({
+        parentRecordId: artifact.artifact_id,
+        sourceRunId: nextRun.run_id,
+        sourcePhaseId: nextRun.phase_id,
+        kind: `procedure-artifact-body:${procedureId}`,
+        mediaType: "text/markdown",
+        summary: `${procedureId} authoritative procedure body`,
+        content: markdown,
+        searchableText: markdown.slice(0, 4000),
+        boundedExcerpt: markdown.slice(0, 500),
+        retentionClass: "audit"
+      });
+      staging.storeProcedureArtifact(database, {
+        run_instance_id: runInstanceId,
+        source_run_id: nextRun.run_id,
+        procedure_id: procedureId,
+        artifact_id: artifact.artifact_id,
+        payload_id: payload.payload_id,
+        content_hash: contentHash,
+        recorded_at: recordedAt,
+        provenance_json: JSON.stringify({
+          phase_id: nextRun.phase_id,
+          task_path: nextRun.active_task_path ?? nextRun.task_path,
+          worktree: nextRun.repository.root_path,
+          branch: nextRun.repository.branch,
+          head: envelope.source_head,
+          source_snapshot: nextRun.source_snapshot,
+          base_commit: nextRun.source_snapshot,
+          review_attempt_id: attempt.attempt_id,
+          review_cohort_id: envelope.bundle_id,
+          raw_startup_observation_hash: rawStartupObservationHash(rawStartup),
+          compatibility_path: artifact.path
+        })
+      });
+      nextRun = recordReviewResult(withUpdatedAt({
+        ...nextRun,
+        artifacts: [...nextRun.artifacts, artifact],
+        evidence: [...nextRun.evidence, evidence]
+      }, recordedAt), review);
+    }
+    staging.storeIndependentRecord(database, {
+      recordKind: "review_cohort", recordId: envelope.bundle_id,
+      runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
+      createdAt: recordedAt, status: "terminal",
+      summary: "Exact three-lens planning review cohort.",
+      payload: cohort
+    });
+    for (const event of bundleEvents) {
+      staging.storeIndependentRecord(database, {
+        recordKind: "review_attempt_event", recordId: event.record_id,
+        runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
+        createdAt: event.occurred_at,
+        status: event.event_type === "terminal" ? `terminal_${event.terminal_status}` : event.event_type,
+        summary: `Planning review attempt ${event.event_type}.`, payload: event
+      });
+    }
+    staging.storeIndependentRecord(database, {
+      recordKind: "review_attempt", recordId: attempt.record_id,
+      runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
+      createdAt: recordedAt, status: attempt.terminal_status,
+      summary: "Terminal planning review bundle attempt.", payload: attempt
+    });
+    staging.storeIndependentRecord(database, {
+      recordKind: "planning_review_bundle", recordId: bundleRecord.record_id,
+      runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
+      createdAt: recordedAt, status: "terminal",
+      summary: "Three-lens planning review bundle.",
+      payload: bundleRecord
+    });
+    return nextRun;
+  }, {
+    expectedRunInstanceId: latest.run_instance_id,
+    expectedRunRevision: latest.run_revision,
+    expectedRunPresence: "present"
+  });
+  writeCompatibilityRunArtifacts(targetRoot, run);
+  fs.mkdirSync(splitRoot, { recursive: true });
+  for (const procedureId of expectedProcedures) {
+    fs.writeFileSync(
+      path.join(splitRoot, `${procedureId}.md`),
+      envelope.lens_documents[procedureId],
+      { encoding: "utf8", flag: "wx" }
+    );
+  }
+  return {
+    targetRoot, projectRoot: roots.projectRoot, dryRun: false, run,
+    runPath: current.runPath, projectDbPath: paths.projectDbPath,
+    stagingDbPath: paths.stagingDbPath, state: "updated",
+    observation: {
+      ...observationBase, status: "success", attempt_id: attempt.attempt_id,
+      artifact_path: toRepoRelative(targetRoot, outputPath),
+      artifact_id: `sha256:${sha256Hex(fs.readFileSync(outputPath))}`,
+      artifact_present: true, artifact_valid: true,
+      summary: "Fresh planning review bundle produced and recorded three separate lens artifacts.",
+      next_valid_action: "re-check operator status"
+    }
+  };
+  } catch (error) {
+    const failedAt = child.completedTime ?? nowIso();
+    const errorCode = error instanceof Error && error.message.startsWith("review_startup_profile_mismatch:")
+      ? "profile_mismatch"
+      : !observedStartup && error instanceof Error && error.message.startsWith("review_startup_")
+        ? "startup_observation_failed" : "artifact_invalid";
+    persistPlanningBundleFailure(child.startTime, failedAt, errorCode, observedStartup);
+    throw error;
+  }
 }
 
 export async function launchRuntimeReview(cwd: string, options: LaunchReviewOptions): Promise<RuntimeReviewLaunchResult> {
@@ -4832,6 +6009,112 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     throw new Error(
       `Review launch requires an active run. Run ${current.run.run_id} is ${current.run.lifecycle_status}.`
     );
+  }
+  if (current.run.phase_id === "23.9"
+    && ["implementation-review", "fix-pass-review"].includes(options.procedureId)
+    && (!current.run.implementation_baseline_head
+      || !current.run.implementation_baseline_binding
+      || current.run.implementation_baseline_head
+        !== current.run.implementation_baseline_binding.implementation_baseline_head)) {
+    throw new Error(
+      "IMPLEMENTATION_BASELINE_REQUIRED: review launch requires the exact durable implementation baseline binding."
+    );
+  }
+  let fixPassLineage: {
+    predecessorAttemptId: string;
+    predecessorArtifactId: string;
+    predecessorReviewedSourceHead: string;
+    reviewedSourceHead: string;
+    reviewedDiffHash: string;
+  } | undefined;
+  if (options.procedureId === "fix-pass-review") {
+    const predecessors = current.run.review_results.filter((entry) =>
+      reviewSourceMatchesProcedure(entry.source, "implementation-review")
+      && entry.artifact_refs.length === 1);
+    if (predecessors.length !== 1) {
+      throw new Error(`FIX_PASS_PREDECESSOR_CARDINALITY_INVALID:${predecessors.length}`);
+    }
+    if (!current.run.run_instance_id) throw new Error("FIX_PASS_PREDECESSOR_RUN_INSTANCE_MISSING");
+    const predecessor = predecessors[0];
+    const descriptor = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id)
+      .readProcedureArtifact(
+        current.run.run_instance_id,
+        "implementation-review",
+        predecessor.artifact_refs[0].artifact_id
+      );
+    if (!descriptor || descriptor.content_hash !== predecessor.artifact_refs[0].artifact_id.slice("sha256:".length)) {
+      throw new Error("FIX_PASS_PREDECESSOR_ARTIFACT_UNAVAILABLE");
+    }
+    const attempts = (current.run.review_routing_records ?? []).filter((entry) =>
+      entry.record_kind === "review_invocation"
+      && entry.payload.procedure_id === "implementation-review"
+      && entry.payload.terminal_exit_code === 0
+      && typeof entry.payload.attempt_id === "string");
+    if (attempts.length !== 1) {
+      throw new Error(`FIX_PASS_PREDECESSOR_ATTEMPT_CARDINALITY_INVALID:${attempts.length}`);
+    }
+    const predecessorInvocation = attempts[0].payload;
+    const predecessorAttemptId = String(
+      predecessorInvocation.canonical_attempt_id ?? predecessorInvocation.attempt_id ?? ""
+    );
+    const predecessorProvenance = JSON.parse(descriptor.provenance_json) as Record<string, unknown>;
+    const exactBootstrapPredecessor = current.run.run_instance_id
+        === "4609d822-5065-4420-a20a-820ed1eec0a9"
+      && predecessorAttemptId === "af1ad890-469c-4b52-b3c5-3933235557e4"
+      && descriptor.artifact_id
+        === "sha256:1ba90f978edef75e2aa201843d63049db214e1d00882170b3a847930ebaf72c5";
+    if (!predecessorAttemptId
+      || (predecessorProvenance.review_attempt_id !== predecessorAttemptId
+        && !exactBootstrapPredecessor)) {
+      throw new Error("FIX_PASS_PREDECESSOR_ATTEMPT_ARTIFACT_JOIN_INVALID");
+    }
+    const requestPayloads = Array.isArray(predecessorInvocation.payload_refs)
+      ? (predecessorInvocation.payload_refs as Array<Record<string, unknown>>).filter((entry) =>
+          entry.kind === "review-request-packet"
+          && entry.content_hash === predecessorInvocation.request_artifact_hash)
+      : [];
+    if (requestPayloads.length !== 1) {
+      throw new Error("FIX_PASS_PREDECESSOR_REQUEST_IDENTITY_MISMATCH");
+    }
+    const predecessorBody = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id)
+      .readProcedureArtifactBody({
+        runInstanceId: current.run.run_instance_id,
+        sourceRunId: current.run.run_id,
+        procedureArtifactId: descriptor.artifact_id,
+        procedureId: "implementation-review"
+      }).body;
+    const requestedHead = new RegExp(
+      `${current.run.implementation_baseline_head}\\.\\.([a-f0-9]{40})`,
+      "iu"
+    ).exec(predecessorBody)?.[1];
+    if (!requestedHead) throw new Error("FIX_PASS_PREDECESSOR_REVIEWED_HEAD_UNAVAILABLE");
+    if (!predecessorBody.includes(requestedHead)
+      || !predecessorBody.includes(`${current.run.implementation_baseline_head}..${requestedHead}`)) {
+      throw new Error("FIX_PASS_PREDECESSOR_ARTIFACT_SOURCE_BINDING_MISMATCH");
+    }
+    const reviewedSourceHead = resolveExactCommit(targetRoot, "HEAD");
+    const predecessorReviewedSourceHead = resolveExactCommit(targetRoot, requestedHead);
+    if (runGitCommand(targetRoot, [
+      "merge-base", "--is-ancestor", predecessorReviewedSourceHead, reviewedSourceHead
+    ]).status !== 0) {
+      throw new Error("FIX_PASS_DIFF_LINEAGE_INVALID");
+    }
+    const exactDiff = runGitCommand(targetRoot, [
+      "diff", "--binary", predecessorReviewedSourceHead, reviewedSourceHead, "--"
+    ]);
+    if (exactDiff.status !== 0 || !exactDiff.stdout.trim()) {
+      throw new Error("FIX_PASS_EXACT_DIFF_UNAVAILABLE");
+    }
+    if (Date.parse(descriptor.recorded_at) < Date.parse(String(attempts[0].payload.start_time ?? attempts[0].created_at))) {
+      throw new Error("FIX_PASS_PREDECESSOR_ARTIFACT_ATTEMPT_ORDER_INVALID");
+    }
+    fixPassLineage = {
+      predecessorAttemptId,
+      predecessorArtifactId: descriptor.artifact_id,
+      predecessorReviewedSourceHead,
+      reviewedSourceHead,
+      reviewedDiffHash: `sha256:${sha256Hex(exactDiff.stdout)}`
+    };
   }
   const pendingSourceDecision = current.run.review_routing_records?.find((entry) => entry.record_kind === "routing_decision"
     && ["source_application_required", "rollback_source_update_required"].includes(entry.status)
@@ -4913,10 +6196,26 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
   const packet = buildReviewExecutionPacket(
     targetRoot,
     current.run,
-    options.procedureId as "plan-review" | "implementation-review",
+    options.procedureId as "plan-review" | "implementation-review" | "fix-pass-review",
     operatorRequestMarkdown,
-    toRepoRelative(targetRoot, requestPath)
+    toRepoRelative(targetRoot, requestPath),
+    fixPassLineage?.predecessorReviewedSourceHead
   );
+  const exactReviewDiffBase = options.procedureId === "implementation-review"
+    ? current.run.implementation_baseline_head
+    : options.procedureId === "fix-pass-review"
+      ? fixPassLineage?.predecessorReviewedSourceHead
+      : undefined;
+  const exactReviewDiff = exactReviewDiffBase
+    ? runGitCommand(targetRoot, ["diff", "--binary", exactReviewDiffBase, packet.core.source_snapshot, "--"])
+    : undefined;
+  if (exactReviewDiff && exactReviewDiff.status !== 0) throw new Error("REVIEW_EXACT_DIFF_UNAVAILABLE");
+  const exactReviewDiffHash = exactReviewDiff
+    ? `sha256:${sha256Hex(exactReviewDiff.stdout)}`
+    : undefined;
+  if (fixPassLineage && exactReviewDiffHash !== fixPassLineage.reviewedDiffHash) {
+    throw new Error("FIX_PASS_EXACT_DIFF_IDENTITY_MISMATCH");
+  }
   if (evaluationOnly) {
     const candidateSource = readCodexReferenceBinding(targetRoot);
     if (options.candidatePolicyVersion !== readReviewRoutePolicy(targetRoot).policy_version
@@ -5084,6 +6383,17 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     ,...(options.canaryAuthorizationId ? { canary_authorization_id: options.canaryAuthorizationId } : {})
     ,...(options.replaySourceRunInstanceId ? { replay_source_run_instance_id: options.replaySourceRunInstanceId } : {})
     ,...(options.replayPacketArtifactId ? { replay_packet_artifact_id: options.replayPacketArtifactId } : {})
+    ,...(fixPassLineage ? {
+      predecessor_review_attempt_id: fixPassLineage.predecessorAttemptId,
+      predecessor_review_artifact_id: fixPassLineage.predecessorArtifactId,
+      predecessor_reviewed_source_head: fixPassLineage.predecessorReviewedSourceHead,
+      reviewed_source_head: fixPassLineage.reviewedSourceHead,
+      reviewed_diff_hash: fixPassLineage.reviewedDiffHash
+    } : {})
+    ,...(!fixPassLineage && ["implementation-review", "fix-pass-review"].includes(options.procedureId) ? {
+      reviewed_source_head: packet.core.source_snapshot,
+      ...(exactReviewDiffHash ? { reviewed_diff_hash: exactReviewDiffHash } : {})
+    } : {})
   } satisfies Omit<ReviewLaunchObservation, "status" | "summary" | "next_valid_action">;
 
   if (dryRun) {
@@ -5179,6 +6489,26 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
   let accepted: Parameters<typeof recordLaunchAttempt>[5] | undefined;
   const usage = parseCodexJsonlUsage(child.stdout);
   const latencyMs = Date.now() - startedAtMs;
+  let rawStartup: RawReviewStartupObservationV1 | undefined;
+  let startupFailure: string | undefined;
+  if (current.run.phase_id === "23.9" && !child.timedOut && child.exitCode === 0) {
+    try {
+      rawStartup = extractRawStartupObservation(child.stdout);
+      const observed = parseRawReviewStartupObservation(rawStartup);
+      const expected = {
+        provider: "openai", model: effectiveProfile.model,
+        reasoning: effectiveProfile.reasoning_effort, sandbox: "read-only",
+        approval_policy: "never", workdir: targetRoot
+      };
+      for (const [field, value] of Object.entries(expected)) {
+        if (observed[field as keyof typeof observed] !== value) {
+          throw new Error(`review_startup_profile_mismatch:${field}`);
+        }
+      }
+    } catch (error) {
+      startupFailure = error instanceof Error ? error.message : String(error);
+    }
+  }
 
   if (child.timedOut) {
     observation = {
@@ -5241,7 +6571,9 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
       && outputAfter
       && outputAfter.hash === preExistingOutput.hash
       && outputAfter.mtimeMs < startedAtMs;
-    const artifact = staleOutput
+    const artifact = startupFailure
+      ? { invalidReason: startupFailure }
+      : staleOutput
       ? { invalidReason: "Review output file is stale." }
       : readValidLaunchArtifact(options.procedureId, outputPath, child.stdout);
 
@@ -5326,7 +6658,8 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     manifest: packet.manifest,
     overlay: packet.overlay,
     policyVersion: packet.policyVersion,
-    bindingVersion: packet.bindingVersion
+    bindingVersion: packet.bindingVersion,
+    rawStartup
   });
   const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, run.run_id);
 
@@ -6223,6 +7556,23 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
       if (review && !duplicateReviewFor(next, review)) {
         next = recordReviewResult(next, review);
       }
+      if (latestRun.phase_id === "23.9"
+        && ["implementation-review", "fix-pass-review"].includes(options.procedureId)
+        && review?.status === "PASS") {
+        const head = runGitCommand(targetRoot, ["rev-parse", "HEAD"]);
+        const dirty = getGitStatusPaths(getGitStatusLines(targetRoot)).filter((entry) =>
+          !entry.startsWith(".harness/")
+          && !entry.startsWith(".codex/")
+          && entry !== ".DS_Store"
+        );
+        if (head.status !== 0 || !/^[a-f0-9]{40}$/u.test(head.stdout.trim()) || dirty.length > 0) {
+          throw new Error("FINAL_REVIEWED_SOURCE_HEAD_REQUIRES_CLEAN_COMMITTED_TREE");
+        }
+        if (!latestRun.implementation_baseline_head) {
+          throw new Error("FINAL_REVIEWED_SOURCE_HEAD_REQUIRES_IMPLEMENTATION_BASELINE");
+        }
+        next = { ...next, final_reviewed_source_head: head.stdout.trim() };
+      }
 
       return next;
     }, {
@@ -6503,6 +7853,891 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
   };
 }
 
+const PHASE_23_9_BOOTSTRAP_BASELINE = {
+  runId: "run-0001",
+  runInstanceId: "4609d822-5065-4420-a20a-820ed1eec0a9",
+  head: "3010ae4190e4a1320ba19621c037e0b066869f52",
+  tree: "7649afe26164e4bf5469bf71e9611c469c80b03a",
+  parent: "ea7107eccd7f986ce44f5b8ab228d4d1dd827c29",
+  planHash: "319361d8138b82b56de8ff69afb471efe8aee47e3f8bf4f18e0d30bf8cd78592",
+  authorityDiffHash:
+    "80bf5536c036a9de40e1b7bbe2a0ada152846942f2fc424189a9da0fa35bb493",
+  authorityPaths: [
+    "docs/IMPLEMENTATION_ROADMAP.md",
+    "tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md",
+    "tasks/PHASE_31_REVIEWED_RUNNER_EXECUTION_AND_PR_CI_REPAIR_LOOP.md",
+  ],
+} as const;
+
+export async function bindRuntimeImplementationBaseline(
+  cwd: string,
+  options: BindImplementationBaselineOptions,
+): Promise<RuntimeImplementationBaselineResult> {
+  const roots = resolveHarnessRoots(cwd);
+  const targetRoot = roots.targetRoot;
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(targetRoot, dryRun, options.runId);
+  assertNoActiveReviewLaunchClaim(current.run, "implementation baseline binding");
+
+  const absolutePlanPath = path.resolve(targetRoot, options.planPath);
+  ensureInsideTargetRoot(targetRoot, absolutePlanPath);
+  if (!fs.existsSync(absolutePlanPath) || !fs.statSync(absolutePlanPath).isFile()) {
+    throw new Error(`Implementation baseline plan artifact not found: ${options.planPath}`);
+  }
+  const planHash = sha256Hex(fs.readFileSync(absolutePlanPath));
+  const planMarkdown = fs.readFileSync(absolutePlanPath, "utf8");
+  const approval = current.run.approvals.find(
+    (entry) =>
+      entry.approval_id === options.approvalId &&
+      entry.status === "approved" &&
+      entry.reviewed_plan_artifact_id === `sha256:${planHash}` &&
+      entry.reviewed_plan_content_hash === planHash,
+  );
+  if (!approval) {
+    throw new Error(
+      "IMPLEMENTATION_BASELINE_APPROVAL_MISMATCH: exact current reviewed-plan approval is required.",
+    );
+  }
+
+  const expectedHead = resolveExactCommit(targetRoot, options.expectedHead);
+  const currentHead = resolveExactCommit(targetRoot, "HEAD");
+  const branch = readGitValue(targetRoot, ["branch", "--show-current"]);
+  const expectedTree = readGitValue(targetRoot, [
+    "rev-parse",
+    "--verify",
+    `${expectedHead}^{tree}`,
+  ]);
+  const expectedParent = readGitValue(targetRoot, [
+    "rev-parse",
+    "--verify",
+    `${expectedHead}^`,
+  ]);
+  if (
+    !branch ||
+    branch !== current.run.repository.branch ||
+    !worktreePathExistsInGit(targetRoot, targetRoot) ||
+    !expectedTree ||
+    !expectedParent ||
+    !isCommitAncestor(targetRoot, expectedHead, currentHead)
+  ) {
+    throw new Error(
+      "IMPLEMENTATION_BASELINE_GIT_AUTHORITY_MISMATCH: registered named branch, exact Git objects, and ancestry are required.",
+    );
+  }
+
+  const isBootstrapImport =
+    current.run.run_mode === "bootstrap" &&
+    current.run.run_id === PHASE_23_9_BOOTSTRAP_BASELINE.runId &&
+    current.run.run_instance_id === PHASE_23_9_BOOTSTRAP_BASELINE.runInstanceId;
+  let planningHead = expectedParent;
+  let authorityDiffHash: string;
+  if (isBootstrapImport) {
+    const changedPaths = runGitCommand(targetRoot, [
+      "diff",
+      "--name-only",
+      expectedParent,
+      expectedHead,
+      "--",
+    ]);
+    const authorityDiff = runGitCommand(targetRoot, [
+      "diff",
+      "--binary",
+      expectedParent,
+      expectedHead,
+      "--",
+      ...PHASE_23_9_BOOTSTRAP_BASELINE.authorityPaths,
+    ]);
+    const exactPaths = changedPaths.stdout
+      .split(/\r?\n/u)
+      .filter(Boolean)
+      .sort();
+    if (
+      planHash !== PHASE_23_9_BOOTSTRAP_BASELINE.planHash ||
+      expectedHead !== PHASE_23_9_BOOTSTRAP_BASELINE.head ||
+      expectedTree !== PHASE_23_9_BOOTSTRAP_BASELINE.tree ||
+      expectedParent !== PHASE_23_9_BOOTSTRAP_BASELINE.parent ||
+      changedPaths.status !== 0 ||
+      authorityDiff.status !== 0 ||
+      canonicalJson(exactPaths) !==
+        canonicalJson([...PHASE_23_9_BOOTSTRAP_BASELINE.authorityPaths].sort())
+    ) {
+      throw new Error(
+        "IMPLEMENTATION_BASELINE_BOOTSTRAP_AUTHORITY_MISMATCH: run-0001 accepts only the approved authority commit, tree, parent, plan, and path set.",
+      );
+    }
+    authorityDiffHash = sha256Hex(authorityDiff.stdout);
+    if (authorityDiffHash !== PHASE_23_9_BOOTSTRAP_BASELINE.authorityDiffHash) {
+      throw new Error(
+        "IMPLEMENTATION_BASELINE_BOOTSTRAP_DIFF_MISMATCH: authority diff bytes changed.",
+      );
+    }
+    planningHead = PHASE_23_9_BOOTSTRAP_BASELINE.parent;
+  } else {
+    const dirty = getGitStatusPaths(getGitStatusLines(targetRoot)).filter(
+      (entry) =>
+        !entry.startsWith(".harness/") &&
+        !entry.startsWith(".codex/") &&
+        entry !== ".DS_Store",
+    );
+    if (currentHead !== expectedHead || dirty.length > 0) {
+      throw new Error(
+        "IMPLEMENTATION_BASELINE_DIRTY_CHECKOUT: permanent binding requires the clean current authority HEAD.",
+      );
+    }
+    if (!current.run.run_instance_id) {
+      throw new Error("IMPLEMENTATION_BASELINE_RUN_INSTANCE_MISSING");
+    }
+    const planReviews = current.run.review_results.filter((entry) =>
+      entry.status === "PASS"
+      && reviewSourceMatchesProcedure(entry.source, "plan-review")
+      && entry.artifact_refs.length === 1);
+    if (planReviews.length === 0) {
+      throw new Error("IMPLEMENTATION_BASELINE_PLANNING_REVIEW_MISSING");
+    }
+    const currentPlanReview = planReviews[planReviews.length - 1];
+    const descriptor = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id)
+      .readProcedureArtifact(
+        current.run.run_instance_id,
+        "plan-review",
+        currentPlanReview.artifact_refs[0].artifact_id
+      );
+    const provenance = descriptor
+      ? JSON.parse(descriptor.provenance_json) as Record<string, unknown>
+      : undefined;
+    const reviewedPlanningHead = String(
+      provenance?.reviewed_source_head ?? provenance?.head ?? ""
+    );
+    if (!descriptor || !/^[a-f0-9]{40}$/u.test(reviewedPlanningHead)
+      || reviewedPlanningHead !== expectedParent) {
+      throw new Error(
+        "IMPLEMENTATION_BASELINE_PARENT_MISMATCH: the sole clean authority commit must directly overlay the exact reviewed planning source."
+      );
+    }
+    planningHead = reviewedPlanningHead;
+    const reviewedOverlay = extractReviewedAuthorityOverlay(planMarkdown);
+    const changedPaths = runGitCommand(targetRoot, [
+      "diff", "--name-only", expectedParent, expectedHead, "--"
+    ]);
+    const authorityDiff = runGitCommand(targetRoot, [
+      "diff",
+      "--binary",
+      expectedParent,
+      expectedHead,
+      "--",
+      ...reviewedOverlay.paths,
+    ]);
+    const exactPaths = changedPaths.stdout.split(/\r?\n/u).filter(Boolean).sort();
+    if (changedPaths.status !== 0 || authorityDiff.status !== 0
+      || canonicalJson(exactPaths) !== canonicalJson([...reviewedOverlay.paths].sort())) {
+      throw new Error("IMPLEMENTATION_BASELINE_DIFF_UNAVAILABLE");
+    }
+    authorityDiffHash = sha256Hex(authorityDiff.stdout);
+    if (authorityDiffHash !== reviewedOverlay.diffHash) {
+      throw new Error("IMPLEMENTATION_BASELINE_AUTHORITY_OVERLAY_MISMATCH");
+    }
+  }
+
+  const timestamp = nowIso();
+  const binding: ImplementationBaselineBinding = {
+    schema_version: 1,
+    approval_id: approval.approval_id,
+    plan_artifact_hash: planHash,
+    planning_review_source_head: planningHead,
+    owner_authority_diff_hash: authorityDiffHash,
+    implementation_baseline_head: expectedHead,
+    implementation_baseline_tree_hash: expectedTree,
+    expected_tree_hash: expectedTree,
+    bound_at: timestamp,
+  };
+  const existing = current.run.implementation_baseline_binding;
+  if (
+    existing &&
+    canonicalJson({ ...existing, bound_at: timestamp }) !==
+      canonicalJson(binding)
+  ) {
+    throw new Error(
+      "IMPLEMENTATION_BASELINE_BINDING_CONFLICT: existing binding differs.",
+    );
+  }
+
+  let run: Run = {
+    ...current.run,
+    implementation_baseline_head: expectedHead,
+    implementation_baseline_binding: existing ?? binding,
+  };
+  const recorded = !existing;
+  if (!dryRun) {
+    const staging = new RunStagingDatabase(
+      targetRoot,
+      roots.projectRoot,
+      current.run.run_id,
+    );
+    run = staging.mutateRunWithDatabase(
+      current.run.run_id,
+      (latestRun) => {
+        const latestExisting = latestRun.implementation_baseline_binding;
+        if (
+          latestExisting &&
+          canonicalJson({ ...latestExisting, bound_at: timestamp }) !==
+            canonicalJson(binding)
+        ) {
+          throw new Error(
+            "IMPLEMENTATION_BASELINE_BINDING_CONFLICT: durable binding differs.",
+          );
+        }
+        return {
+          ...latestRun,
+          implementation_baseline_head: expectedHead,
+          implementation_baseline_binding: latestExisting ?? binding,
+        };
+      },
+      {
+        expectedRunInstanceId: current.run.run_instance_id,
+        expectedRunRevision: current.run.run_revision,
+        expectedRunPresence: "present",
+      },
+    );
+    if (
+      run.implementation_baseline_head !== expectedHead ||
+      run.implementation_baseline_binding?.implementation_baseline_tree_hash !==
+        expectedTree
+    ) {
+      throw new Error("IMPLEMENTATION_BASELINE_READBACK_MISMATCH");
+    }
+    writeCompatibilityRunArtifacts(targetRoot, run);
+  }
+
+  const paths = resolveMemoryDbPaths(
+    targetRoot,
+    roots.projectRoot,
+    current.run.run_id,
+  );
+  return {
+    targetRoot,
+    projectRoot: roots.projectRoot,
+    dryRun,
+    run,
+    runPath: current.runPath,
+    projectDbPath: paths.projectDbPath,
+    stagingDbPath: paths.stagingDbPath,
+    state: "updated",
+    binding: run.implementation_baseline_binding ?? binding,
+    recorded,
+  };
+}
+
+export function extractReviewedAuthorityOverlay(planMarkdown: string): {
+  diffHash: string;
+  paths: string[];
+} {
+  const hashMatch = /owner-authorized(?: planning)? authority diff SHA-256[\s\S]{0,240}?`([a-f0-9]{64})`/iu.exec(planMarkdown);
+  const section = /Preapproval owner-authority overlay[^\n]*\n[\s\S]*?(?=\n\n(?:Inspect only|No other source))/iu.exec(planMarkdown)?.[0];
+  const paths = section
+    ? [...section.matchAll(/^- `([^`]+)`[;,.]?$/gmu)].map((match) => match[1])
+    : [];
+  if (!hashMatch || paths.length === 0 || new Set(paths).size !== paths.length
+    || paths.some((entry) => path.isAbsolute(entry) || entry.split("/").includes(".."))) {
+    throw new Error("IMPLEMENTATION_BASELINE_REVIEWED_AUTHORITY_OVERLAY_MISSING");
+  }
+  return { diffHash: hashMatch[1], paths };
+}
+
+export function recordRuntimeProof(
+  cwd: string,
+  options: RecordIndependentFileOptions
+): RuntimeIndependentRecordResult {
+  const roots = resolveHarnessRoots(cwd);
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(roots.targetRoot, dryRun, options.runId);
+  if (current.run.phase_id !== "23.9" || current.run.run_mode !== "normal") {
+    throw new Error("bootstrap_proof_ineligible");
+  }
+  if (!current.run.run_instance_id) throw new Error("proof_run_instance_missing");
+  const requestPath = path.resolve(cwd, options.filePath);
+  const requestBytes = fs.readFileSync(requestPath);
+  if (options.expectedSha && sha256Hex(requestBytes) !== options.expectedSha.replace(/^sha256:/u, "")) {
+    throw new Error("proof_derivation_request_hash_mismatch");
+  }
+  const request = parseProofDerivationRequest(requestBytes);
+  const staging = new RunStagingDatabase(roots.targetRoot, roots.projectRoot, current.run.run_id);
+  const snapshots = staging.listIndependentRecords("proof_eligibility_snapshot", current.run.run_id);
+  if (snapshots.length !== 1) {
+    throw new Error("proof_eligibility_snapshot_cardinality_invalid");
+  }
+  const snapshot = snapshots[0] as {
+    snapshot_id: `sha256:${string}`;
+    task_artifact_id: `sha256:${string}`;
+    immutable_base: string;
+    activation_source_head: string;
+    bootstrap_eligibility: string;
+    contract_marker: `sha256:${string}`;
+    procedure_requirements: ProcedureRequirementV1[];
+    stage_requirements: StageRequirementV1[];
+  };
+  if (snapshot.bootstrap_eligibility !== "eligible") throw new Error("proof_run_not_eligible");
+  const taskPath = path.join(roots.targetRoot, current.run.active_task_path ?? current.run.task_path);
+  const taskBytes = fs.readFileSync(taskPath);
+  const requirements = extractTaskRequirements(taskBytes);
+  if (`sha256:${sha256Hex(taskBytes)}` !== snapshot.task_artifact_id) {
+    throw new Error("proof_task_artifact_identity_mismatch");
+  }
+  const evidenceRefs: EvidenceRefV1[] = [];
+  const addEvidence = (
+    sourceKind: EvidenceRefV1["source_kind"],
+    sourceId: string,
+    value: unknown,
+    locator: string,
+    relationship: EvidenceRefV1["relationship"]
+  ): string => {
+    const contentHash = `sha256:${sha256Hex(canonicalJson(value))}` as const;
+    const body = {
+      source_kind: sourceKind,
+      source_id: sourceId,
+      content_hash: contentHash,
+      run_instance_id: current.run.run_instance_id!,
+      locator,
+      relationship
+    };
+    const refId = `sha256:${sha256Hex(canonicalJson(body))}` as const;
+    evidenceRefs.push({ ref_id: refId, ...body });
+    return refId;
+  };
+  const verification = [...current.run.verification_results].reverse()
+    .find((entry) => entry.status === "pass"
+      && entry.command_results.length > 0
+      && entry.command_results.every((command) => command.status === "pass" && command.exit_code === 0));
+  const review = [...current.run.review_results].reverse()
+    .find((entry) => entry.status === "PASS"
+      && (reviewSourceMatchesProcedure(entry.source, "fix-pass-review")
+        || reviewSourceMatchesProcedure(entry.source, "implementation-review"))
+      && entry.artifact_refs.length === 1);
+  const deliveredHead = current.run.delivered_source_head;
+  const deliveryFacts = current.run.delivery_facts.filter((fact) =>
+    fact.status !== "unknown" && fact.run_id === current.run.run_id);
+  const commandEvidence = new Map<string, string>();
+  for (const requirement of requirements.filter((entry) =>
+    entry.source.requirement_kind === "acceptance_command")) {
+    const exactCommand = verification?.command_results.find((command) =>
+      command.status === "pass"
+      && command.exit_code === 0
+      && command.command === requirement.normalized_block_text);
+    if (exactCommand && verification) {
+      commandEvidence.set(requirement.requirement_id, addEvidence(
+        "staging_record",
+        exactCommand.command_result_id,
+        { verification_result_id: verification.verification_result_id, command_result: exactCommand },
+        `run:${current.run.run_instance_id}:verification:${exactCommand.command_result_id}`,
+        "verifies_requirement"
+      ));
+    }
+  }
+  let reviewRef: string | undefined;
+  let reviewEvidenceValue: unknown;
+  let reviewEvidenceSourceId: string | undefined;
+  let reviewEvidenceLocator: string | undefined;
+  if (review && current.run.run_instance_id && current.run.final_reviewed_source_head) {
+    const procedureId = reviewSourceMatchesProcedure(review.source, "fix-pass-review")
+      ? "fix-pass-review"
+      : "implementation-review";
+    try {
+      const descriptor = staging.readProcedureArtifact(
+        current.run.run_instance_id,
+        procedureId,
+        review.artifact_refs[0].artifact_id
+      );
+      const body = staging.readProcedureArtifactBody({
+        runInstanceId: current.run.run_instance_id,
+        sourceRunId: current.run.run_id,
+        procedureArtifactId: review.artifact_refs[0].artifact_id,
+        procedureId
+      });
+      const provenance = descriptor
+        ? JSON.parse(descriptor.provenance_json) as Record<string, unknown>
+        : undefined;
+      const validated = validateReviewLaunchArtifact(procedureId, body.body);
+      if (descriptor
+        && body.artifact_id === review.artifact_refs[0].artifact_id
+        && body.content_hash === descriptor.content_hash
+        && provenance?.reviewed_source_head === current.run.final_reviewed_source_head
+        && validated.status === "PASS") {
+        reviewRef = addEvidence(
+          "procedure_artifact",
+          body.artifact_id,
+          { descriptor, body_hash: `sha256:${body.content_hash}`, verdict: validated.status },
+          review.artifact_refs[0].path,
+          "verifies_requirement"
+        );
+        reviewEvidenceValue = { descriptor, body_hash: `sha256:${body.content_hash}`, verdict: validated.status };
+        reviewEvidenceSourceId = body.artifact_id;
+        reviewEvidenceLocator = review.artifact_refs[0].path;
+      }
+    } catch {
+      reviewRef = undefined;
+    }
+  }
+  const mergeCommit = deliveryFacts.find((fact) =>
+    fact.fact_kind === "merge_commit"
+    && fact.commit_sha === deliveredHead
+    && ["merged", "pass", "approved"].includes(fact.status));
+  const sourceRolesValid = Boolean(
+    current.run.implementation_baseline_binding
+    && current.run.implementation_baseline_binding.implementation_baseline_head
+      === current.run.implementation_baseline_head
+    && current.run.final_reviewed_source_head
+    && deliveredHead
+    && mergeCommit
+    && runGitCommand(roots.targetRoot, [
+      "merge-base", "--is-ancestor", current.run.final_reviewed_source_head, deliveredHead
+    ]).status === 0
+  );
+  const deliveryRefs = deliveryFacts.map((fact) =>
+    addEvidence("delivery_fact", fact.delivery_fact_id, fact,
+      `run:${current.run.run_instance_id}:delivery:${fact.delivery_fact_id}`, "verifies_requirement"));
+  const sourceRoleRefs = sourceRolesValid ? [
+    ["implementation_baseline", current.run.implementation_baseline_head],
+    ["final_reviewed", current.run.final_reviewed_source_head],
+    ["delivered", deliveredHead]
+  ].flatMap(([role, head]) => head
+    ? [addEvidence("git_object", head, { role, head }, `git:${head}`, "verifies_requirement")]
+    : []) : [];
+  const gapAt = current.run.updated_at;
+  const gaps: EvidenceGapV1[] = [];
+  const addGap = (
+    family: string,
+    requirementIds: string[],
+    underlying: "mandatory" | "optional",
+    cause: EvidenceGapV1["cause"],
+    ownerRefs: EvidenceGapV1["owner_refs"],
+    detail: string
+  ): string => {
+    const identity = {
+      family,
+      requirement_ids: [...requirementIds].sort(),
+      underlying_requirement: underlying,
+      cause,
+      owner_refs: ownerRefs,
+      detail
+    };
+    const gapId = `sha256:${sha256Hex(canonicalJson(identity))}`;
+    gaps.push({
+      gap_id: gapId,
+      family,
+      requirement_ids: identity.requirement_ids,
+      underlying_requirement: underlying,
+      cause,
+      blocking: underlying === "mandatory",
+      evidence_ref_ids: [],
+      owner_refs: ownerRefs,
+      detail,
+      detected_by: "proof_record_deriver_v1",
+      created_at: gapAt
+    });
+    return gapId;
+  };
+  const taskMap = requirements.map((requirement) => {
+    const evidenceRef = requirement.source.requirement_kind === "acceptance_command"
+      ? commandEvidence.get(requirement.requirement_id)
+      : reviewEvidenceSourceId && reviewEvidenceLocator
+        ? addEvidence("procedure_artifact", `${reviewEvidenceSourceId}#${requirement.requirement_id}`,
+            { review: reviewEvidenceValue, requirement_id: requirement.requirement_id, requirement_source: requirement.source },
+            `${reviewEvidenceLocator}#requirement=${requirement.requirement_id}`, "verifies_requirement")
+        : undefined;
+    const gapId = evidenceRef ? undefined : addGap(
+      requirement.source.requirement_kind === "acceptance_command" ? "deterministic_verification" : "independent_review",
+      [requirement.requirement_id],
+      "mandatory",
+      requirement.source.requirement_kind === "acceptance_command" ? "verification_failed" : "review_non_pass",
+      [{ owner_kind: "task_requirement" as const, owner_id: requirement.requirement_id, slot: "verification" }],
+      `No current exact ${requirement.source.requirement_kind === "acceptance_command" ? "passing command" : "passing review"} evidence.`
+    );
+    return {
+      requirement_id: requirement.requirement_id,
+      source: requirement.source,
+      applicability: "mandatory" as const,
+      verification_status: evidenceRef ? "verified" as const : "blocked" as const,
+      applicability_authority_ref_id: null,
+      evidence_ref_ids: evidenceRef ? [evidenceRef] : [],
+      gap_ids: gapId ? [gapId] : [],
+      assumption_ids: []
+    };
+  });
+  const runtimeFieldNames = ["host_os", "host_arch", "node_version", "network_access"] as const;
+  const runtimeFields = runtimeFieldNames.map((fieldName) => {
+    const gapId = addGap(
+      "operating_envelope",
+      [],
+      "optional",
+      "not_recorded",
+      [{ owner_kind: "operating_envelope_field", owner_id: fieldName, slot: "run_start" }],
+      `${fieldName} was not durably observed at run start.`
+    );
+    return {
+      field_id: `sha256:${sha256Hex(canonicalJson({ field_name: fieldName, run_instance_id: current.run.run_instance_id }))}` as const,
+      field_name: fieldName,
+      status: "unavailable" as const,
+      value: null,
+      evidence_ref_id: null,
+      gap_id: gapId,
+      unavailable_cause: "not_recorded" as const
+    };
+  });
+  const approval = [...current.run.approvals].reverse().find((entry) => entry.status === "approved");
+  const reviewRoles = [
+    ["planning_candidate", "plan-review"],
+    ["planning_closure", "plan-review"],
+    ["implementation_review", "implementation-review"],
+    ["fix_pass_review", "fix-pass-review"]
+  ] as const;
+  const durableAttempts = staging.listIndependentRecords("review_attempt", current.run.run_id) as Array<{
+    record_id?: string; attempt_id?: string; attempt_kind?: string; procedure_ids?: string[];
+    cohort_id?: string | null; terminal_event_id?: string; terminal_status?: string;
+    reviewed_source_head?: string | null; lens_results?: Array<{ procedure_id?: string; artifact_id?: string }>;
+  }>;
+  const durableEvents = staging.listIndependentRecords("review_attempt_event", current.run.run_id) as Array<{
+    record_id?: string; attempt_id?: string; event_type?: string; observed_profile?: {
+      adapter?: string; provider?: string; model?: string; reasoning?: string; sandbox?: string; approval_policy?: string;
+    } | null;
+  }>;
+  const reviewContexts: ReviewOperatingContextV1[] = reviewRoles.map(([selectionRole, procedureId]) => {
+    const selectedAttempts = durableAttempts.filter((attempt) => attempt.terminal_status === "success"
+      && attempt.procedure_ids?.includes(procedureId)
+      && (selectionRole === "implementation_review" || selectionRole === "fix_pass_review"));
+    if (selectedAttempts.length === 1) {
+      const attempt = selectedAttempts[0];
+      const started = durableEvents.filter((event) => event.attempt_id === attempt.attempt_id
+        && event.event_type === "started" && event.observed_profile);
+      const artifactId = attempt.lens_results?.find((entry) => entry.procedure_id === procedureId)?.artifact_id;
+      if (started.length === 1 && artifactId && attempt.terminal_event_id) {
+        const profile = started[0].observed_profile!;
+        const profileEvidenceRef = addEvidence("staging_record", started[0].record_id ?? `${attempt.attempt_id}:started`,
+          started[0], `run:${current.run.run_instance_id}:review-attempt:${attempt.attempt_id}:started`, "describes_environment");
+        const fields = (["adapter", "provider", "model", "reasoning", "sandbox", "approval_policy"] as const)
+          .map((fieldName) => ({
+            field_id: `sha256:${sha256Hex(canonicalJson({ attempt_id: attempt.attempt_id, field_name: fieldName }))}` as const,
+            field_name: fieldName,
+            status: "observed" as const,
+            value: fieldName === "adapter" ? "codex_cli" : profile[fieldName] ?? null,
+            evidence_ref_id: profileEvidenceRef,
+            gap_id: null,
+            unavailable_cause: null
+          }));
+        if (fields.every((field) => field.value)) {
+          return {
+            context_id: `sha256:${sha256Hex(canonicalJson({ attempt_id: attempt.attempt_id, procedure_id: procedureId }))}` as `sha256:${string}`,
+            selection_role: selectionRole,
+            procedure_id: procedureId,
+            availability: "selected" as const,
+            cohort_id: attempt.cohort_id ?? null,
+            attempt_id: attempt.attempt_id ?? null,
+            terminal_event_id: attempt.terminal_event_id,
+            artifact_id: artifactId,
+            source_plan_sha: (approval?.reviewed_plan_artifact_id ?? null) as `sha256:${string}` | null,
+            carry_forward_ref_id: null,
+            fields,
+            selection_gap_ids: []
+          };
+        }
+      }
+    }
+    const gapId = addGap(
+      "operating_envelope",
+      [],
+      "optional",
+      "attempt_missing",
+      [{ owner_kind: "operating_envelope_attempt", owner_id: procedureId, slot: selectionRole }],
+      `No exact normalized startup attempt was selected for ${selectionRole}.`
+    );
+    return {
+      context_id: `sha256:${sha256Hex(canonicalJson({
+        run_instance_id: current.run.run_instance_id, selection_role: selectionRole, procedure_id: procedureId
+      }))}`,
+      selection_role: selectionRole,
+      procedure_id: procedureId,
+      availability: "unavailable",
+      cohort_id: null,
+      attempt_id: null,
+      terminal_event_id: null,
+      artifact_id: null,
+      source_plan_sha: null,
+      carry_forward_ref_id: null,
+      fields: [],
+      selection_gap_ids: [gapId]
+    };
+  });
+  const changed = current.run.implementation_baseline_head && deliveredHead
+    ? runGitCommand(roots.targetRoot, [
+        "diff", "--name-only", current.run.implementation_baseline_head, deliveredHead, "--"
+      ])
+    : { status: 1, stdout: "" };
+  const exactPaths = changed.status === 0
+    ? changed.stdout.split(/\r?\n/u).filter(Boolean).sort()
+    : [];
+  const approvalRef = approval
+    ? addEvidence("owner_directive", approval.approval_id, approval,
+      `run:${current.run.run_instance_id}:approval:${approval.approval_id}`, "authorizes_delivery_slice")
+    : undefined;
+  const deliverySlices: DeliverySliceV1[] = exactPaths.length && approvalRef
+    ? [{
+        slice_id: "sha256:" as `sha256:${string}`,
+        classification: "active_task",
+        authority_ref_id: approvalRef,
+        exact_paths: exactPaths,
+        requirement_ids: requirements.map((entry) => entry.requirement_id),
+        acceptance_ref_ids: [...commandEvidence.values(), reviewRef, ...deliveryRefs]
+          .filter((value): value is string => Boolean(value))
+      }]
+    : [];
+  if (deliverySlices.length) {
+    deliverySlices[0].slice_id = `sha256:${sha256Hex(canonicalJson(
+      Object.fromEntries(Object.entries(deliverySlices[0]).filter(([key]) => key !== "slice_id"))
+    ))}`;
+  } else {
+    addGap("delivery_slice", requirements.map((entry) => entry.requirement_id), "mandatory",
+      "delivery_fact_missing",
+      [{ owner_kind: "evidence_family", owner_id: "delivery_slice", slot: "active_task" }],
+      "Exact delivered diff and owner authority are required.");
+  }
+  if (!deliveryRefs.length) {
+    addGap("delivery", requirements.map((entry) => entry.requirement_id), "mandatory",
+      "delivery_fact_missing",
+      [{ owner_kind: "evidence_family", owner_id: "delivery", slot: "terminal_delivery" }],
+      "No terminal exact delivery facts are available.");
+  }
+  if (!sourceRolesValid) {
+    addGap("source_roles", requirements.map((entry) => entry.requirement_id), "mandatory",
+      "join_missing",
+      [{ owner_kind: "evidence_family", owner_id: "source_roles", slot: "baseline_review_delivery" }],
+      "Baseline binding, reviewed procedure artifact, and exact merge-commit delivery roles do not form one validated source chain.");
+  }
+  const rebuilt = buildProofRecord({
+    run_instance_id: current.run.run_instance_id,
+    run_id: current.run.run_id,
+    task_artifact_id: snapshot.task_artifact_id,
+    immutable_base: snapshot.immutable_base,
+    activation_hash: `sha256:${sha256Hex(canonicalJson(snapshot))}`,
+    activation_source_head: snapshot.activation_source_head,
+    implementation_baseline_head: current.run.implementation_baseline_head ?? null,
+    final_reviewed_source_head: current.run.final_reviewed_source_head ?? null,
+    delivered_source_head: deliveredHead ?? null,
+    eligibility_snapshot_id: snapshot.snapshot_id,
+    lifecycle_applicability: {
+      snapshot_id: snapshot.snapshot_id,
+      contract_marker: snapshot.contract_marker,
+      procedure_requirements: snapshot.procedure_requirements.map((entry) => entry.predicate_result !== "deferred"
+        ? entry
+        : { ...entry, predicate_result: current.run.review_results.some((reviewResult) =>
+            reviewSourceMatchesProcedure(reviewResult.source, entry.procedure_id)) ? "true" as const : "false" as const,
+          basis_ref_ids: [`run:${current.run.run_instance_id}:procedure:${entry.procedure_id}`] }),
+      stage_requirements: snapshot.stage_requirements.map((entry) => entry.predicate_result !== "deferred"
+        ? entry
+        : { ...entry, predicate_result: entry.stage_id === "FIX_PASS_REQUIRED"
+            ? current.run.review_results.some((reviewResult) => reviewSourceMatchesProcedure(reviewResult.source, "fix-pass-review")) ? "true" as const : "false" as const
+            : entry.stage_id === "RUN_DISCARDED" ? current.run.lifecycle_status === "discarded" ? "true" as const : "false" as const
+            : entry.stage_id === "RUN_QUARANTINED" ? "false" as const
+            : current.run.run_issues.length > 0 ? "true" as const : "false" as const,
+          basis_ref_ids: [`run:${current.run.run_instance_id}:stage:${entry.stage_id}`] })
+    },
+    task_verifiability_map: taskMap,
+    evidence_refs: evidenceRefs,
+    evidence_families: [
+      { family: "deterministic_verification", applicability: "mandatory", ref_ids: [...commandEvidence.values()], gap_ids: gaps.filter((gap) => gap.family === "deterministic_verification").map((gap) => gap.gap_id) },
+      { family: "independent_review", applicability: "mandatory", ref_ids: reviewRef ? [reviewRef] : [], gap_ids: gaps.filter((gap) => gap.family === "independent_review").map((gap) => gap.gap_id) },
+      { family: "delivery", applicability: "mandatory", ref_ids: deliveryRefs, gap_ids: gaps.filter((gap) => gap.family === "delivery").map((gap) => gap.gap_id) },
+      { family: "source_roles", applicability: "mandatory", ref_ids: sourceRoleRefs, gap_ids: gaps.filter((gap) => gap.family === "source_roles").map((gap) => gap.gap_id) }
+    ],
+    assumption_ledger: [],
+    operating_envelope: {
+      schema_version: "phase-23.9.operating-envelope.v1",
+      producer_id: "proof_record_deriver_v1",
+      run_start_ref_id: snapshot.snapshot_id,
+      runtime_fields: runtimeFields,
+      planning_lineage: {
+        lineage_id: `sha256:${sha256Hex(canonicalJson({
+          run_instance_id: current.run.run_instance_id, target: approval?.reviewed_plan_artifact_id ?? null
+        }))}`,
+        target_plan_sha: (approval?.reviewed_plan_artifact_id ?? `sha256:${"0".repeat(64)}`) as `sha256:${string}`,
+        direct_closure_cohort_id: null,
+        contributing_context_ids: [],
+        lens_map: []
+      },
+      review_contexts: reviewContexts,
+      gap_ids: gaps.filter((gap) => gap.family === "operating_envelope").map((gap) => gap.gap_id)
+    },
+    delivery_slices: deliverySlices,
+    evidence_gaps: gaps,
+    created_at: current.run.updated_at
+  });
+  if (request.expected_record_id && request.expected_record_id !== rebuilt.record_id) {
+    throw new Error("proof_expected_record_identity_mismatch");
+  }
+  if (rebuilt.acceptance.status !== "accepted") throw new Error(
+    `proof_record_not_accepted:${rebuilt.acceptance.blocking_gap_ids.join(",")}`
+  );
+  const existing = staging.listIndependentRecords("proof_record", current.run.run_id)
+    .find((record) => (record as { record_id?: unknown }).record_id === rebuilt.record_id);
+  const recorded = existing === undefined;
+  if (existing && canonicalJson(existing) !== canonicalJson(rebuilt)) {
+    throw new Error("proof_record_identity_conflict");
+  }
+  let run = current.run;
+  if (!dryRun && recorded) {
+    run = staging.mutateRunWithDatabase(current.run.run_id, (latestRun, database) => {
+      staging.storeIndependentRecord(database, {
+        recordKind: "proof_record",
+        recordId: rebuilt.record_id,
+        runId: latestRun.run_id,
+        phaseId: latestRun.phase_id,
+        taskPath: latestRun.task_path,
+        createdAt: rebuilt.created_at,
+        status: rebuilt.acceptance.status,
+        summary: "Accepted Phase 23.9 proof record.",
+        payload: rebuilt,
+        retentionClass: "accepted"
+      });
+      const readback = staging.readIndependentRecord(database, "proof_record", rebuilt.record_id, latestRun.run_id);
+      if (canonicalJson(readback) !== canonicalJson(rebuilt)) throw new Error("proof_record_readback_failed");
+      return latestRun;
+    }, {
+      expectedRunInstanceId: current.run.run_instance_id,
+      expectedRunRevision: current.run.run_revision,
+      expectedRunPresence: "present"
+    });
+    writeCompatibilityRunArtifacts(roots.targetRoot, run);
+  }
+  const paths = resolveMemoryDbPaths(roots.targetRoot, roots.projectRoot, current.run.run_id);
+  return {
+    targetRoot: roots.targetRoot,
+    projectRoot: roots.projectRoot,
+    dryRun,
+    run,
+    runPath: current.runPath,
+    projectDbPath: paths.projectDbPath,
+    stagingDbPath: paths.stagingDbPath,
+    state: recorded ? "updated" : "loaded",
+    recordKind: "proof_record",
+    recordId: rebuilt.record_id,
+    recorded
+  };
+}
+
+export function recordRuntimeReviewCapabilityEvidence(
+  cwd: string,
+  options: RecordIndependentFileOptions
+): RuntimeIndependentRecordResult {
+  const roots = resolveHarnessRoots(cwd);
+  const dryRun = options.dryRun ?? false;
+  const current = loadRunForMutation(roots.targetRoot, dryRun, options.runId);
+  const absoluteFilePath = path.resolve(cwd, options.filePath);
+  const fileBytes = fs.readFileSync(absoluteFilePath);
+  const fileHash = `sha256:${sha256Hex(fileBytes)}`;
+  if (!options.expectedSha || options.expectedSha !== fileHash) {
+    throw new Error("review_capability_evidence_file_hash_mismatch");
+  }
+  if (current.run.run_instance_id === "4609d822-5065-4420-a20a-820ed1eec0a9"
+    && (fileHash !== "sha256:c74dd9ed79e8813e4cfde9d70d45e637fc207e27fb656831ebabe5e5694d1f22"
+      || absoluteFilePath !== path.join(
+        roots.targetRoot,
+        ".codex",
+        "phase-23-9-cohort-resume-capability-evidence.md"
+      ))) {
+    throw new Error("review_capability_evidence_bootstrap_authority_mismatch");
+  }
+  const rawText = fileBytes.toString("utf8");
+  let parsed: Record<string, unknown>;
+  if (fileHash === "sha256:c74dd9ed79e8813e4cfde9d70d45e637fc207e27fb656831ebabe5e5694d1f22") {
+    const rows = rawText.split(/\r?\n/u).filter((line) =>
+      line.startsWith("| plan-review continuation |")
+      || line.startsWith("| architecture-review continuation |"));
+    if (rows.length !== 2 || rows.some((row) =>
+      !row.includes("`openai`, `gpt-5.6-sol`, `high`, `read-only`, `never`")
+      || !row.includes("`openai`, `gpt-5.6-sol`, `high`, `danger-full-access`, `never`")
+      || !row.includes("`sandbox_mismatch`"))) {
+      throw new Error("review_capability_evidence_labels_invalid");
+    }
+    const observations = rows.map((row) => {
+      const cells = row.split("|").map((cell) => cell.trim()).filter(Boolean);
+      return {
+        attempt: cells[0],
+        saved_thread: cells[1].replace(/`/gu, ""),
+        requested: {
+          provider: "openai", model: "gpt-5.6-sol", reasoning: "high",
+          sandbox: "read-only", approval_policy: "never"
+        },
+        observed: {
+          provider: "openai", model: "gpt-5.6-sol", reasoning: "high",
+          sandbox: "danger-full-access", approval_policy: "never"
+        },
+        outcome: "sandbox_mismatch"
+      };
+    });
+    const semantic = {
+      schema_version: 1,
+      record_kind: "review_capability_evidence",
+      safe_session_resume: false,
+      observations
+    };
+    parsed = {
+      ...semantic,
+      capability_id: `sha256:${sha256Hex(canonicalJson(semantic))}`
+    };
+  } else {
+    parsed = JSON.parse(rawText) as Record<string, unknown>;
+  }
+  if (parsed.schema_version !== 1 || parsed.record_kind !== "review_capability_evidence"
+    || parsed.safe_session_resume !== false || !Array.isArray(parsed.observations)
+    || parsed.observations.length !== 2 || typeof parsed.capability_id !== "string") {
+    throw new Error("review_capability_evidence_invalid");
+  }
+  const semantic = { ...parsed };
+  delete semantic.capability_id;
+  const expectedId = `sha256:${sha256Hex(canonicalJson(semantic))}`;
+  if (parsed.capability_id !== expectedId) throw new Error("review_capability_evidence_identity_mismatch");
+  const staging = new RunStagingDatabase(roots.targetRoot, roots.projectRoot, current.run.run_id);
+  const existing = staging.listIndependentRecords("review_capability_evidence", current.run.run_id)
+    .find((record) => (record as { capability_id?: unknown }).capability_id === expectedId);
+  const recorded = existing === undefined;
+  if (existing && canonicalJson(existing) !== canonicalJson(parsed)) {
+    throw new Error("review_capability_evidence_conflict");
+  }
+  let run = current.run;
+  if (!dryRun && recorded) {
+    run = staging.mutateRunWithDatabase(current.run.run_id, (latestRun, database) => {
+      staging.storeIndependentRecord(database, {
+        recordKind: "review_capability_evidence",
+        recordId: expectedId,
+        runId: latestRun.run_id,
+        phaseId: latestRun.phase_id,
+        taskPath: latestRun.task_path,
+        createdAt: typeof parsed.created_at === "string" ? parsed.created_at : nowIso(),
+        status: "safe_session_resume=false",
+        summary: "Observed review session resume capability evidence.",
+        payload: parsed,
+        retentionClass: "audit"
+      });
+      return latestRun;
+    }, {
+      expectedRunInstanceId: current.run.run_instance_id,
+      expectedRunRevision: current.run.run_revision,
+      expectedRunPresence: "present"
+    });
+    writeCompatibilityRunArtifacts(roots.targetRoot, run);
+  }
+  const paths = resolveMemoryDbPaths(roots.targetRoot, roots.projectRoot, current.run.run_id);
+  return {
+    targetRoot: roots.targetRoot,
+    projectRoot: roots.projectRoot,
+    dryRun,
+    run,
+    runPath: current.runPath,
+    projectDbPath: paths.projectDbPath,
+    stagingDbPath: paths.stagingDbPath,
+    state: recorded ? "updated" : "loaded",
+    recordKind: "review_capability_evidence",
+    recordId: expectedId,
+    recorded
+  };
+}
+
 export async function recordRuntimeNextTask(cwd: string, options: RecordNextTaskOptions): Promise<RuntimeNextTaskDecisionResult> {
   const roots = resolveHarnessRoots(cwd);
   const targetRoot = roots.targetRoot;
@@ -6517,6 +8752,95 @@ export async function recordRuntimeNextTask(cwd: string, options: RecordNextTask
     throw new Error(
       `Next-task decisions require closeout or harvest context. Run ${current.run.run_id} is still ${current.run.lifecycle_status}.`
     );
+  }
+  if (options.noSuccessor) {
+    if (!options.reason?.trim() || !options.decisionOwner?.trim() || !options.approvalId?.trim()) {
+      throw new Error("--no-successor requires --reason, --decision-owner, and --approval-id.");
+    }
+    if (options.taskPath || options.baseCommit || options.filePath || options.baseRef) {
+      throw new Error("--no-successor is mutually exclusive with --task, --base-commit, --base-ref, and --file.");
+    }
+    const noSuccessorDecisionId = `sha256:${sha256Hex(canonicalJson({
+      run_instance_id: current.run.run_instance_id,
+      reason: options.reason,
+      decision_owner_id: options.decisionOwner,
+      decision_approval_id: options.approvalId
+    }))}`;
+    const disposition = buildSuccessorDisposition({
+      source_run_instance_id: current.run.run_instance_id ?? "",
+      disposition: "no_successor",
+      next_task_decision_id: null,
+      next_task: null,
+      no_successor: {
+        reason: options.reason,
+        decision_owner_id: options.decisionOwner,
+        decision_approval_id: options.approvalId,
+        no_successor_decision_id: noSuccessorDecisionId as `sha256:${string}`
+      }
+    });
+    const timestamp = nowIso();
+    const decision: Decision = {
+      decision_id: disposition.record_id,
+      title: "No successor selected",
+      rationale: canonicalJson(disposition),
+      created_at: timestamp
+    };
+    let run = current.run;
+    let recorded = !run.decisions.some((entry) => entry.decision_id === decision.decision_id);
+    if (dryRun) {
+      if (recorded) {
+        run = recordDecision(run, {
+          decisionId: decision.decision_id,
+          title: decision.title,
+          rationale: decision.rationale,
+          createdAt: decision.created_at
+        });
+      }
+    } else {
+      const staging = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
+      run = staging.mutateRunWithDatabase(current.run.run_id, (latestRun, database) => {
+        const duplicate = latestRun.decisions.some((entry) => entry.decision_id === decision.decision_id);
+        recorded = !duplicate;
+        staging.storeIndependentRecord(database, {
+          recordKind: "successor_disposition",
+          recordId: disposition.record_id,
+          runId: latestRun.run_id,
+          phaseId: latestRun.phase_id,
+          taskPath: latestRun.active_task_path ?? latestRun.task_path,
+          createdAt: timestamp,
+          status: "no_successor",
+          summary: "Explicit no-successor disposition",
+          payload: disposition,
+          retentionClass: "accepted"
+        });
+        return duplicate ? latestRun : recordDecision(latestRun, {
+          decisionId: decision.decision_id,
+          title: decision.title,
+          rationale: decision.rationale,
+          createdAt: decision.created_at
+        });
+      }, {
+        expectedRunInstanceId: current.run.run_instance_id,
+        expectedRunRevision: current.run.run_revision
+      });
+      writeCompatibilityRunArtifacts(targetRoot, run);
+    }
+    const paths = resolveMemoryDbPaths(targetRoot, roots.projectRoot, current.run.run_id);
+    return {
+      targetRoot,
+      projectRoot: roots.projectRoot,
+      dryRun,
+      run,
+      runPath: current.runPath,
+      projectDbPath: paths.projectDbPath,
+      stagingDbPath: paths.stagingDbPath,
+      state: "updated",
+      decision,
+      recorded
+    };
+  }
+  if (!options.taskPath || !options.baseCommit || !options.filePath) {
+    throw new Error("--task, --base-commit, and --file are required unless --no-successor is used.");
   }
   const absoluteSourcePath = path.resolve(targetRoot, options.filePath);
   ensureInsideTargetRoot(targetRoot, absoluteSourcePath);
@@ -6577,6 +8901,17 @@ export async function recordRuntimeNextTask(cwd: string, options: RecordNextTask
     rationale: canonicalJson(decisionRecord),
     created_at: nowIso()
   };
+  const successorDisposition = buildSuccessorDisposition({
+    source_run_instance_id: current.run.run_instance_id ?? "",
+    disposition: "selected_successor",
+    next_task_decision_id: decisionRecord.next_task_decision_id as `sha256:${string}`,
+    next_task: {
+      task_path: nextTaskPath,
+      base_commit_sha: baseCommitSha,
+      source_artifact_identity: artifact.artifact_id as `sha256:${string}`
+    },
+    no_successor: null
+  });
 
   let run = current.run;
   let finalDecision = decision;
@@ -6611,7 +8946,7 @@ export async function recordRuntimeNextTask(cwd: string, options: RecordNextTask
     if (!staging.loadRun(current.run.run_id)) {
       staging.saveRun(current.run);
     }
-    run = staging.mutateRun(current.run.run_id, (latestRun) => {
+    run = staging.mutateRunWithDatabase(current.run.run_id, (latestRun, database) => {
       assertNoActiveReviewLaunchClaim(latestRun, "next-task decision recording");
       const duplicateDecision = latestRun.decisions.find((entry) => entry.decision_id === decision.decision_id);
       recorded = !duplicateDecision;
@@ -6631,6 +8966,18 @@ export async function recordRuntimeNextTask(cwd: string, options: RecordNextTask
           createdAt: finalDecision.created_at
         });
       }
+      staging.storeIndependentRecord(database, {
+        recordKind: "successor_disposition",
+        recordId: successorDisposition.record_id,
+        runId: latestRun.run_id,
+        phaseId: latestRun.phase_id,
+        taskPath: latestRun.active_task_path ?? latestRun.task_path,
+        createdAt: decision.created_at,
+        status: "selected_successor",
+        summary: "Selected successor disposition",
+        payload: successorDisposition,
+        retentionClass: "accepted"
+      });
       return next;
     }, {
       expectedRunInstanceId: current.run.run_instance_id,
@@ -6702,27 +9049,8 @@ export async function materializeRuntimeNextTask(
 
   const absoluteWorktreePath = path.resolve(targetRoot, options.worktreePath);
   const nextAction = buildMaterializationHandoffAction(absoluteWorktreePath);
-  if (dryRun && !recoverExistingActivation) {
-    return {
-      targetRoot,
-      projectRoot: roots.projectRoot,
-      dryRun,
-      decisionId: record.next_task_decision_id,
-      branch: options.branch,
-      worktreePath: absoluteWorktreePath,
-      taskPath: nextTaskPath,
-      created: createMode,
-      recoveredExistingActivation: recoverExistingActivation,
-      handoffRequired: true,
-      nextAction,
-      state: "preview"
-    };
-  }
-
-  let backupPath: string | undefined;
   let recoveredTaskStateId: string | undefined;
-  const taskPointerPath = path.join(absoluteWorktreePath, "TASK.md");
-
+  let normalTaskStateId: string | undefined;
   try {
     if (!fs.existsSync(absoluteWorktreePath)) {
       throw new Error(`Existing Desktop-created worktree path does not exist: ${absoluteWorktreePath}`);
@@ -6780,26 +9108,39 @@ export async function materializeRuntimeNextTask(
       );
     }
 
-    if (!recoverExistingActivation && fs.existsSync(taskPointerPath)) {
-      backupPath = `${taskPointerPath}.codex-harness.bak`;
-      fs.copyFileSync(taskPointerPath, backupPath);
-    }
     if (!recoverExistingActivation) {
-      fs.writeFileSync(taskPointerPath, buildNextTaskPointerMarkdown(nextTaskPath), "utf8");
-      if (fs.readFileSync(taskPointerPath, "utf8") !== buildNextTaskPointerMarkdown(nextTaskPath)) {
-        throw new Error(`Materialized task pointer does not resolve to the recorded next task: ${nextTaskPath}`);
+      if (current.run.run_mode === "bootstrap") {
+        const materialized = materializeZeroOwnerTaskState({
+          projectRoot: roots.projectRoot,
+          worktreePath: absoluteWorktreePath,
+          branch: options.branch,
+          baseCommitSha: record.base_commit_sha,
+          taskPath: nextTaskPath,
+          sourceArtifactIdentity: record.source_artifact_identity as `sha256:${string}`,
+          pointerContents: buildNextTaskPointerMarkdown(nextTaskPath),
+          dryRun
+        });
+        normalTaskStateId = materialized.task_state_id;
+      } else if (!dryRun) {
+        fs.writeFileSync(
+          path.join(absoluteWorktreePath, "TASK.md"),
+          buildNextTaskPointerMarkdown(nextTaskPath),
+          "utf8"
+        );
+        persistMaterializedTaskBaseAuthority(
+          roots.projectRoot,
+          absoluteWorktreePath,
+          options.branch,
+          record.base_commit_sha
+        );
       }
-    }
-
-    persistMaterializedTaskBaseAuthority(
-      roots.projectRoot,
-      absoluteWorktreePath,
-      options.branch,
-      record.base_commit_sha
-    );
-
-    if (backupPath && fs.existsSync(backupPath)) {
-      fs.rmSync(backupPath, { force: true });
+    } else if (!dryRun) {
+      persistMaterializedTaskBaseAuthority(
+        roots.projectRoot,
+        absoluteWorktreePath,
+        options.branch,
+        record.base_commit_sha
+      );
     }
 
     return {
@@ -6812,17 +9153,14 @@ export async function materializeRuntimeNextTask(
       taskPath: nextTaskPath,
       created: false,
       recoveredExistingActivation: recoverExistingActivation,
-      ...(recoveredTaskStateId ? { taskStateId: recoveredTaskStateId } : {}),
+      ...((recoveredTaskStateId ?? normalTaskStateId)
+        ? { taskStateId: recoveredTaskStateId ?? normalTaskStateId }
+        : {}),
       handoffRequired: true,
       nextAction,
-      state: "prepared"
+      state: dryRun ? "preview" : "prepared"
     };
   } catch (error) {
-    if (backupPath && fs.existsSync(backupPath)) {
-      fs.copyFileSync(backupPath, taskPointerPath);
-      fs.rmSync(backupPath, { force: true });
-    }
-
     if (recoveredTaskStateId) {
       fs.rmSync(getTaskDirectory(roots.projectRoot, recoveredTaskStateId), { recursive: true, force: true });
     }
@@ -7086,6 +9424,39 @@ function validateReviewLaunchArtifact(procedureId: string, markdown: string): {
 
   if (procedureId === "implementation-review") {
     return validateImplementationReviewArtifact(markdown);
+  }
+
+  if (procedureId === "fix-pass-review") {
+    for (const sectionName of [
+      "Original Findings",
+      "Resolution Status",
+      "Fix-pass Scope",
+      "Scope Check",
+      "Source Trace",
+      "Verification Follow-up",
+      "Recommendation"
+    ]) {
+      if (!markdownHasSection(markdown, sectionName)) {
+        throw new Error(`Fix-pass review artifact is missing required section: ${sectionName}.`);
+      }
+    }
+    const statuses = parseFixPassReviewStatuses(markdown);
+    if (statuses.length === 0) {
+      throw new Error("Fix-pass review artifact must report at least one numbered resolution status.");
+    }
+    const recommendation = parseReviewRecommendation(markdown);
+    if (recommendation !== "PASS" && recommendation !== "FIX_REQUIRED") {
+      throw new Error("Fix-pass review artifact Recommendation must end with PASS or FIX_REQUIRED.");
+    }
+    const unresolved = statuses.some((status) => status !== "resolved");
+    if ((recommendation === "PASS") === unresolved) {
+      throw new Error("Fix-pass review Recommendation conflicts with its resolution statuses.");
+    }
+    return {
+      status: recommendation,
+      summary: recommendation === "PASS" ? "Fix-pass Review passed" : "Fix-pass Review requires follow-up",
+      blockers: recommendation === "PASS" ? [] : ["Fix-pass Review requires follow-up"]
+    };
   }
 
   throw new Error(`Unsupported review launch procedure: ${procedureId}`);
@@ -7753,7 +10124,7 @@ function readLatestReviewLaunchAttempt(
 
 function buildBlockedReviewLaunchStage(
   context: OperatorEvaluationContext,
-  procedureId: "plan-review" | "implementation-review",
+  procedureId: "plan-review" | "implementation-review" | "fix-pass-review",
   attempt: ReviewLaunchObservation
 ): OperatorStageDraft | undefined {
   if (attempt.status === "success" || attempt.status === "dry_run") {
@@ -9038,6 +11409,11 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
   const taskMarkdown = context.taskContext.activeTaskMarkdown;
   const hasPlanReviewEvidence = context.taggedProcedures.has("plan-review");
   const hasPlanAmendEvidence = context.taggedProcedures.has("plan-amend");
+  const requiresPlanningLensBundle = context.runContext.run.phase_id === "23.9"
+    && (context.reviewTier === "high" || context.reviewTier === "extra-high")
+    && !context.planApproved;
+  const missingPlanningLenses = ["plan-review", "architecture-review", "db-storage-review"]
+    .filter((procedureId) => !context.taggedProcedures!.has(procedureId));
   const durablePlanReviewOutcomeRecorded = hasDurableReviewOutcome(context.latestPlanReviewResult)
     && !!context.latestPlanReviewDecisionRecord;
   const planReviewDecision = context.latestPlanReviewDecisionRecord
@@ -9046,6 +11422,21 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
   const freshPlanAmendForLatestPlanReview = planReviewDecision?.route === "amend"
     ? isProcedureEvidenceFreshAfter(context.runContext, "plan-amend", "plan-review")
     : false;
+
+  if (requiresPlanningLensBundle && missingPlanningLenses.length > 0) {
+    return buildOperatorStageDraft({
+      current_stage: "PLANNING_REVIEW_BUNDLE_REQUIRED",
+      next_procedure_id: missingPlanningLenses[0],
+      required_inputs: ["one candidate plan identity", "task artifact", "immutable base", "planning source HEAD"],
+      missing_inputs: [],
+      required_evidence: ["plan-review", "architecture-review", "db-storage-review"],
+      missing_evidence: missingPlanningLenses,
+      stop_reason: "planning_lens_bundle_incomplete",
+      next_allowed_action: "launch or continue one fresh read-only planning-review bundle; all three lens results must be terminal before amendment or approval",
+      forbidden_actions: ["plan-amend", "plan approval", "implementation", "closeout"],
+      notes: [...context.baseNotes, "plan_review_pass_is_not_a_prerequisite_for_specialized_lens_launch"]
+    });
+  }
 
   if (!context.taggedProcedures.has("task-intake") && needsTaskIntake(taskMarkdown)) {
     return buildOperatorStageDraft({

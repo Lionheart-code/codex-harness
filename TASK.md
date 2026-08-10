@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_23_8_7_HOOKLESS_STAGE_LEVEL_OPERATOR_PACKET_AUTOMATION.md
+Implement only: tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md
 
-Do not implement Phase 23.9 or later.
+Do not implement Phase 24A or later.

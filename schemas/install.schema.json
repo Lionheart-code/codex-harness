@@ -19,6 +19,10 @@
     "installed_at": { "type": "string", "minLength": 1 },
     "source": { "type": "string", "minLength": 1 },
     "updated_at": { "type": "string", "minLength": 1 },
+    "ownership_manifest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
     "last_upgrade": {
       "type": "object",
       "required": ["from_version", "to_version", "applied_at", "changed_paths", "backup_paths"],

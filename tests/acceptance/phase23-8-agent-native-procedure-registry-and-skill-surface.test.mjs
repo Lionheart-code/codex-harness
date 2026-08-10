@@ -403,8 +403,8 @@ test("phase 23.8 registry is canonical, schema-backed, and preserves procedure s
   assert.equal(implementationReview?.automatic_launch_capability?.transport, "fresh_independent_delta");
   assert.deepEqual(
     registry.procedures.filter((procedure) => procedure.automatic_launch_capability).map((procedure) => procedure.procedure_id).sort(),
-    ["implementation-review", "plan-review"],
-    "automatic launch capability must stay limited to the two existing review procedures"
+    ["architecture-review", "db-storage-review", "fix-pass-review", "implementation-review", "plan-review"],
+    "automatic launch capability must match the Phase 23.9 review allowlist"
   );
   assert.equal(registry.procedures.some((procedure) => procedure.review_launch_profile), false, "current registry must not duplicate concrete binding profiles");
   const binding = JSON.parse(fs.readFileSync(path.join(productRoot, "skills/self-hosting/codex-reference-binding.json"), "utf8"));

@@ -428,7 +428,9 @@ function readStagingTransferSnapshot(sourceDbPath: string, runId: string, runIns
     return {
       records: source.prepare([
         "SELECT record_kind, record_id, run_id, phase_id, task_path, created_at, status, summary, payload_json, source_step_id, source_command, sensitivity, retention_class",
-        "FROM records WHERE run_id = ? ORDER BY created_at ASC, record_kind ASC, record_id ASC"
+        "FROM records WHERE run_id = ? AND record_kind NOT IN",
+        "('proof_eligibility_snapshot','successor_disposition','review_cohort','review_attempt','review_attempt_event','review_capability_evidence','planning_review_bundle','review_finding_aggregate')",
+        "ORDER BY created_at ASC, record_kind ASC, record_id ASC"
       ].join(" ")).all(runId) as RecordRow[],
       deliveryFacts: source.prepare([
         "SELECT delivery_fact_id, run_id, fact_kind, source, status, recorded_at, summary, url, external_run_id, commit_sha, excerpt_payload_id, fact_json",
@@ -833,6 +835,69 @@ export class ProjectMemoryDatabase {
             row.sensitivity,
             row.retention_class
           );
+        }
+
+        const proofRows = transfer.records.filter((row) => row.record_kind === "proof_record");
+        if (run.phase_id === "23.9" && run.run_mode === "normal" && proofRows.length !== 1) {
+          throw new Error(`project_proof_transfer_requires_one_accepted_proof:${proofRows.length}`);
+        }
+        if (proofRows.length > 1) {
+          throw new Error("project_proof_transfer_corrupt");
+        }
+        if (proofRows.length === 1) {
+          const proof = proofRows[0];
+          const parsedProof = JSON.parse(proof.payload_json) as { acceptance?: { status?: string }; record_id?: string };
+          if (parsedProof.acceptance?.status !== "accepted" || parsedProof.record_id !== proof.record_id.replace(`${run.run_instance_id}:`, "")) {
+            throw new Error("project_proof_transfer_corrupt");
+          }
+          const destinationProofId = proof.record_id;
+          const sourceProofId = parsedProof.record_id;
+          const payloadHash = `sha256:${sha256Hex(Buffer.from(proof.payload_json))}`;
+          const mapping = {
+            source_run_instance_id: run.run_instance_id,
+            project_run_id: run.run_instance_id,
+            source_proof_record_id: sourceProofId,
+            destination_proof_record_id: destinationProofId,
+            harvest_id: harvestRecord.harvest_id
+          };
+          const mappingHash = `sha256:${createHash("sha256").update(canonicalJson(mapping)).digest("hex")}`;
+          const receiptBody = {
+            schema_version: 1,
+            record_kind: "proof_transfer_receipt",
+            ...mapping,
+            payload_hash: payloadHash,
+            mapping_hash: mappingHash,
+            created_at: harvestRecord.promoted_at
+          };
+          const receiptId = `sha256:${createHash("sha256").update(canonicalJson(receiptBody)).digest("hex")}`;
+          const receipt = { ...receiptBody, receipt_id: receiptId };
+          database.prepare([
+            "INSERT INTO records",
+            "(record_kind, record_id, run_id, phase_id, task_path, created_at, status, summary, payload_json, source_step_id, source_command, sensitivity, retention_class)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)"
+          ].join(" ")).run(
+            "proof_transfer_receipt",
+            receiptId,
+            run.run_instance_id,
+            run.phase_id ?? null,
+            run.active_task_path ?? run.task_path,
+            harvestRecord.promoted_at,
+            "accepted",
+            "Atomic proof transfer receipt",
+            canonicalJson(receipt),
+            "node bin/ch run harvest",
+            "local",
+            "accepted"
+          );
+          const proofReadback = database.prepare(
+            "SELECT payload_json FROM records WHERE record_kind = 'proof_record' AND record_id = ? AND run_id = ?"
+          ).get(destinationProofId, run.run_instance_id) as { payload_json?: string } | undefined;
+          const receiptReadback = database.prepare(
+            "SELECT payload_json FROM records WHERE record_kind = 'proof_transfer_receipt' AND record_id = ? AND run_id = ?"
+          ).get(receiptId, run.run_instance_id) as { payload_json?: string } | undefined;
+          if (proofReadback?.payload_json !== proof.payload_json || receiptReadback?.payload_json !== canonicalJson(receipt)) {
+            throw new Error("project_proof_transfer_corrupt");
+          }
         }
 
         for (const row of transfer.deliveryFacts) {

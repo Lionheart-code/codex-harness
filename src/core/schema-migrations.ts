@@ -29,6 +29,21 @@ export const PRODUCT_SCHEMA_FILE_NAMES = [
   "review-routing-evaluation.schema.json",
   "review-routing-decision.schema.json",
   "prepared-successor-cleanup.schema.json"
+  ,"proof-record.schema.json"
+  ,"proof-transfer-receipt.schema.json"
+  ,"proof-eligibility-snapshot.schema.json"
+  ,"successor-disposition.schema.json"
+  ,"self-install-reconciliation.schema.json"
+  ,"installer-ownership-manifest.schema.json"
+  ,"installer-ownership-catalog.schema.json"
+  ,"review-cohort.schema.json"
+  ,"review-attempt-event.schema.json"
+  ,"review-attempt.schema.json"
+  ,"review-capability-evidence.schema.json"
+  ,"planning-review-bundle.schema.json"
+  ,"planning-review-lens-output.schema.json"
+  ,"review-finding-aggregate.schema.json"
+  ,"review-resume-simulation.schema.json"
 ] as const;
 
 export type ProductSchemaFileName = (typeof PRODUCT_SCHEMA_FILE_NAMES)[number];

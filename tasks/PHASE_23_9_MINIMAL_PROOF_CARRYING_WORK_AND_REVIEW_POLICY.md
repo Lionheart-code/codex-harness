@@ -11,7 +11,10 @@ unknown, what assumptions were made, and what review outcome applies.
 
 ## Status
 
-Planned. Blocked until Phase 23.8.6 Transactional Procedure Result Ingestion,
+Active. Phase 23.9 starts with the narrow successor-handoff correction below;
+its product implementation remains subject to the normal independent plan
+review and human approval gate. The proof-record work remains blocked until
+Phase 23.8.6 Transactional Procedure Result Ingestion,
 Phase 23.8.6A Self-Hosting Replay and Re-ingestion Continuity, Phase 23.8.6B
 Self-Hosting Model Routing Policy Packaging, Phase 23.8.6B1 Supervised Review
 Launch and Blocked Disposition, Phase 23.8.6B2 Verification Command
@@ -33,6 +36,95 @@ Implement the minimum useful proof record and review policy integration.
 Proof is audit/provenance material. It is not lifecycle authority and must not
 replace operator state, validation gates, review verdicts, or required human
 approval.
+
+### Successor-handoff correction
+
+Repeated native Codex Desktop successor activations exposed a product gap:
+normal `run materialize-next-task --enter-existing` requires exactly one
+matching installed `TaskState` before it can prepare a clean Desktop-created
+worktree, but it provides no normal pre-activation path to establish that owner.
+The existing `--recover-existing-activation` path can repair this only after a
+committed activation chain already exists, which is too late for the normal
+commit-backed activation sequence.
+
+Phase 23.9 must close that gap before proof-record implementation. For a
+verified Desktop-created existing worktree with zero matching owners, normal
+`--enter-existing` materialization must transactionally create exactly one
+canonical installed `TaskState` owner and then prepare `TASK.md`. Creation must
+require the registered worktree, named branch, clean status, exact recorded
+base, unmoved recorded base ref where present, and the recorded task contract.
+It must remain fail-closed for a nonzero conflicting or ambiguous owner set,
+wrong branch/worktree/base, dirty checkout, moved base ref, or missing task
+contract. If preparation fails after creating the owner, it must remove only
+that newly created owner and restore the prior `TASK.md` content.
+
+This correction does not create Desktop worktrees, attach branches, start a
+run, bypass an approval gate, or make proof records lifecycle authority.
+`--recover-existing-activation` remains an idempotent recovery path for an
+already committed activation chain, but must no longer be required merely
+because a valid new native successor has zero matching owners.
+
+### Product self-install guard and reconciliation
+
+The `codex-harness` product repository is not an installed target. Phase 23.9
+must add one shared, canonical-path product-repository detector for `install`,
+`upgrade`, and `doctor`. It must recognize the real product source root rather
+than trusting the caller's nested cwd, symlink spelling, or worktree path.
+
+`install` and `upgrade`, including `--dry-run`, must fail closed before they
+plan or mutate when that detector identifies the product repository. They must
+not patch `AGENTS.md`, create any `.codex-harness.bak` path, seed or update an
+installed-target `.harness` layer, or add/update the product root in the global
+registry. `doctor` must report the existing product self-install conflict with
+an explicit status/remediation, not misclassify the source repository as an
+ordinary uninstalled target.
+
+The correction must provide a separate, explicit reconcile/migration path for
+pre-existing self-install contamination. That path must inventory and validate
+the product/runtime boundary before any mutation; preserve self-hosting run
+evidence, Project Memory, and canonical `TaskState`; and use a typed,
+recoverable reconciliation record rather than deleting `.harness` manually.
+It must not silently register the product root, overwrite product source, or
+erase runtime evidence.
+
+### Bounded planning-review cohort
+
+Phase 23.9 must add one tightly bounded self-hosting review-cohort capability
+for the existing `plan-review`, `architecture-review`, and `db-storage-review`
+lenses, plus an eligible repeated `plan-review` after `plan-amend`. It is a
+Phase-23.9-specific exception to the prior two-procedure automatic-launch
+boundary, not a general provider/host runner, new lifecycle stage, new review
+category, parallel review system, or implementation-review inheritance path.
+
+The first cohort attempt must be a fresh independent, non-interactive Codex
+launch with an exact approved read-only profile. A later lens may resume only
+the captured exact Codex thread after the product validates every reported
+startup fact against durable cohort authority; mismatch, unavailable/resumed
+thread, invalid artifact, timeout, or recursive attempt must fail closed,
+record a typed outcome, and permit at most one fresh independent retry after
+the prior attempt is terminal. Logical ContextCore reuse, actual thread
+continuation, and provider cache telemetry are separate facts. The cohort must
+retain separate canonical artifacts and verdicts per lens, and no owner
+approval or implementation may proceed until all required current artifacts
+bind to one exact plan SHA and source HEAD.
+
+### Narrow automatic fix-pass review
+
+Phase 23.9 also owns the narrow automatic launch of the existing independent
+`fix-pass-review` procedure after a bounded fix-pass diff already exists. The
+only command surface is standalone
+`run launch-review --procedure fix-pass-review`. Each launch must be one fresh,
+independent, read-only invocation with session resume disabled, bound to the
+exact reviewed source HEAD and exact fix-pass diff, and linked to exactly one
+current predecessor `implementation-review` attempt and artifact.
+
+This capability reviews the completed fix only. It must not execute a fix,
+write to the task worktree, prepare or execute a repair packet, launch a
+builder, create a lifecycle stage, or start an automatic review/fix or
+amendment/repair loop. It is a separate single-review capability, not an
+expansion of the planning cohort into implementation work or a general runner.
+Phase 31 remains the first general reviewed runner-execution and PR/CI repair
+boundary.
 
 ## Required concepts
 
@@ -112,9 +204,31 @@ create a disconnected audit database or parallel report system.
 
 These may be added later once the minimal proof record is useful.
 
-## Acceptance criteria
+## Acceptance commands
+
+Run the focused commands after the Phase 23.9 implementation and its required
+review/fix passes, then run the canonical full pack:
+
+```bash
+npm run build
+node --test tests/acceptance/phase18-install-upgrade-registry.test.mjs
+node --test tests/acceptance/phase23-8-6-procedure-ingestion.test.mjs
+node --test tests/acceptance/phase23-8-7-hookless-stage-operator.test.mjs
+node --test tests/acceptance/phase23-8-6c1a-routing-context-authority-rebase.test.mjs
+node --test tests/acceptance/phase23-8-6f-cost-aware-context-routing.test.mjs
+node --test tests/acceptance/phase23-9-minimal-proof-carrying-work-and-review-policy.test.mjs
+npm test
+git diff --check
+```
+
+## Acceptance behavior
 
 - Proof record can be produced from a completed or reviewed run.
+- Phase 23.9 provides a proof producer and typed deterministic derivation only;
+  it writes the active exact-run record to staging authority keyed by
+  `run_instance_id`. It neither provides a public proof query/read API nor a
+  report/packet surface, and it never writes directly to accepted Project
+  Memory. Harvest remains the only promotion path to accepted Project Memory.
 - It states what was verified automatically, what was reviewed, and what remains
   assumption.
 - Missing evidence is explicit.
@@ -127,6 +241,48 @@ These may be added later once the minimal proof record is useful.
   same display `run_id`.
 - Proof can distinguish active-task evidence from supporting-slice or
   combined-delivery history without promoting run-local markdown to authority.
+- Normal `materialize-next-task --enter-existing` accepts a verified
+  zero-owner native Desktop successor and leaves exactly one installed owner
+  bound to its exact branch, worktree, and recorded immutable base before
+  writing the Phase 23.9 `TASK.md` pointer.
+- The normal zero-owner path rejects duplicate, partial, or conflicting owners;
+  wrong branch/worktree/base; dirty worktrees; moved recorded base refs; and a
+  missing recorded task contract without leaving a new owner or changed
+  `TASK.md` behind.
+- The existing recovery path remains idempotent for a clean committed
+  activation chain and is not used as the normal zero-owner handoff path.
+- For a normal, non-discarded self-hosting `codex-harness` run entering harvest,
+  require exactly one typed successor disposition bound to the exact
+  `run_instance_id`: either the existing selected next-task decision or an
+  explicit no-successor disposition. The alternatives are mutually exclusive
+  and idempotent. This enforcement must run before any harvest or accepted
+  Project Memory mutation; it must preserve the discarded-run path and must not
+  change unrelated non-self-hosting run behavior. Selecting a successor and,
+  when selected, its task/base remain human/operator choices; enforcement and
+  record selection are deterministic.
+- Product-repository `install` and `upgrade` calls, dry-run and non-dry alike,
+  fail before planning or mutation and leave product source, `AGENTS.md`,
+  `.codex-harness.bak` paths, installed-target state, the global registry, and
+  the self-hosting runtime boundary unchanged.
+- Product-repository detection is canonical-path based and covers direct,
+  nested-cwd, symlink, and worktree invocation forms; `doctor` reports the
+  explicit product self-install conflict and safe remediation.
+- A deliberate reconcile/migration path preserves self-hosting evidence,
+  Project Memory, and canonical `TaskState`, records its recovery outcome, and
+  never relies on manual `.harness` deletion.
+- Reconciliation has a zero-write preview that inventories the canonical
+  product root, source files, runtime evidence, Project Memory, canonical
+  `TaskState`, installed-target paths, backup paths, and matching global
+  registry entries. Before apply it creates a typed recoverable journal bound
+  to that inventory. Apply preserves and reads back self-hosting evidence,
+  Project Memory, canonical TaskState, product source, and unrelated
+  `AGENTS.md` content; it has explicit ordering, partial-failure
+  rollback/resume, and terminal receipt states. A matching product-root
+  registry entry is either recoverably removed as the explicit journaled
+  remediation or retained with an explicit unsafe/ambiguous disposition; it is
+  never silently updated or replaced. The proof includes rollback of a normal
+  zero-owner handoff when `TASK.md` was previously absent as well as when it
+  existed.
 
 ## Future-phase impact check
 

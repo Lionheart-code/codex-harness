@@ -16,6 +16,8 @@ procedure files.
 Run only the `architecture-review` procedure. Return the exact output format
 from `references/output-format.md`, or the procedure's blocker format if the
 required inputs are missing.
+When invoked in a planning bundle, keep this lens a separate canonical artifact
+bound to the shared identity. Resolve its exact schema/version from the registry.
 
 Do not broaden scope, implement files, repair `.harness/runs/**/run.json`, start
 a run, launch a runner, create or claim a worktree, or treat this wrapper as

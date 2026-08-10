@@ -96,6 +96,20 @@ function isForbiddenPackedPath(relativePath) {
   return forbiddenPrefixes.some((prefix) => normalized.startsWith(prefix));
 }
 
+function comparePackedInventory(packedFiles, requiredPaths) {
+  const comparableFiles = packedFiles.filter((relativePath) =>
+    relativePath !== ".DS_Store" && !relativePath.endsWith("/.DS_Store"));
+  const packed = new Set(comparableFiles);
+  return {
+    missingPaths: requiredPaths.filter((relativePath) => !packed.has(relativePath)),
+    unexpectedPaths: comparableFiles.filter((relativePath) => !requiredPaths.includes(relativePath)),
+    forbiddenPaths: comparableFiles.filter((relativePath) =>
+      relativePath.endsWith("/Thumbs.db")
+      || relativePath === "Thumbs.db"
+      || isForbiddenPackedPath(relativePath))
+  };
+}
+
 function readPackDryRun() {
   const result = runNpm(["pack", "--dry-run", "--json"]);
   assertSuccess(result, "npm pack --dry-run --json");
@@ -133,7 +147,6 @@ test("phase 22 npm pack dry run includes required runtime files and excludes for
 
   const packInfo = readPackDryRun();
   const packedFiles = packInfo.files.map((entry) => entry.path.replace(/\\/g, "/"));
-  const packedFileSet = new Set(packedFiles);
   const requiredPaths = [
     "package.json",
     "README.md",
@@ -144,17 +157,36 @@ test("phase 22 npm pack dry run includes required runtime files and excludes for
     )
   ];
 
-  const missingPaths = requiredPaths.filter((relativePath) => !packedFileSet.has(relativePath));
-  const forbiddenPaths = packedFiles.filter((relativePath) => isForbiddenPackedPath(relativePath));
+  const { missingPaths, unexpectedPaths, forbiddenPaths } = comparePackedInventory(packedFiles, requiredPaths);
   const packedBinEntry = packInfo.files.find((entry) => entry.path.replace(/\\/g, "/") === "bin/ch");
 
   assert.deepEqual(missingPaths, [], `missing packed runtime paths:\n${missingPaths.join("\n")}`);
+  assert.deepEqual(unexpectedPaths, [], `unexpected packed runtime paths:\n${unexpectedPaths.join("\n")}`);
   assert.deepEqual(forbiddenPaths, [], `forbidden packed paths present:\n${forbiddenPaths.join("\n")}`);
   assert.ok(packedBinEntry, "bin/ch must be present in the packed tarball");
 
   if (process.platform !== "win32") {
     assert.notEqual(packedBinEntry.mode & 0o111, 0, `packed bin/ch is not executable: ${packedBinEntry.mode}`);
   }
+});
+
+test("phase 22 package inventory rejects missing paths and unexpected platform files", () => {
+  assert.deepEqual(comparePackedInventory(
+    ["package.json", "dist/index.js", ".DS_Store"],
+    ["package.json", "dist/index.js", "schemas/runtime-run.schema.json"]
+  ), {
+    missingPaths: ["schemas/runtime-run.schema.json"],
+    unexpectedPaths: [],
+    forbiddenPaths: []
+  });
+  assert.deepEqual(comparePackedInventory(
+    ["package.json", "dist/index.js", "nested/Thumbs.db"],
+    ["package.json", "dist/index.js"]
+  ).forbiddenPaths, ["nested/Thumbs.db"]);
+  assert.deepEqual(comparePackedInventory(
+    ["package.json", "dist/index.js", "dist/unexpected.js"],
+    ["package.json", "dist/index.js"]
+  ).unexpectedPaths, ["dist/unexpected.js"]);
 });
 
 test("phase 22 packed-install smoke succeeds from the generated tarball", () => {

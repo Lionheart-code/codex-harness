@@ -12,7 +12,22 @@
     "accepted_binding_version": {"type": "string", "minLength": 1},
     "previous_accepted_binding_version": {"type": "string", "minLength": 1},
     "source_trace": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["source", "source_type", "source_status", "retrieved", "primitive", "existing_harness_equivalent", "incompatibility", "decision", "target", "reason", "dependency_impact"]}},
-    "capability_snapshot": {"type": "object"},
+    "capability_snapshot": {
+      "type": "object",
+      "required": ["adapter_id","source_revision","read_only_sandbox","file_output","jsonl_observation","safe_session_resume","planning_bundle","single_review","automatic_procedures"],
+      "properties": {
+        "adapter_id":{"const":"codex_cli"},
+        "source_revision":{"type":"string","minLength":1},
+        "read_only_sandbox":{"const":true},
+        "file_output":{"const":true},
+        "jsonl_observation":{"const":true},
+        "safe_session_resume":{"const":false},
+        "planning_bundle":{"const":true},
+        "single_review":{"const":true},
+        "automatic_procedures":{"const":["architecture-review","db-storage-review","fix-pass-review","implementation-review","plan-review"]}
+      },
+      "additionalProperties":false
+    },
     "profiles": {
       "type": "array",
       "minItems": 1,
@@ -29,13 +44,14 @@
           "status": {"enum": ["accepted", "candidate", "rollback"]},
           "capabilities": {
             "type": "object",
-            "required": ["fresh_packet", "resume_same_role", "packet_plus_retrieval", "fresh_independent_delta", "jsonl_usage"],
+            "required": ["fresh_packet", "resume_same_role", "packet_plus_retrieval", "fresh_independent_delta", "jsonl_usage", "safe_session_resume"],
             "properties": {
               "fresh_packet": {"type": "boolean"},
               "resume_same_role": {"type": "boolean"},
               "packet_plus_retrieval": {"type": "boolean"},
               "fresh_independent_delta": {"type": "boolean"},
-              "jsonl_usage": {"type": "boolean"}
+              "jsonl_usage": {"type": "boolean"},
+              "safe_session_resume": {"const":false}
             },
             "additionalProperties": false
           }

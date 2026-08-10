@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PlanningReviewLensOutputV1",
+  "type": "object",
+  "required": [
+    "schema_version", "procedure_id", "bundle_kind", "plan_sha", "source_head",
+    "task_artifact_id", "immutable_base", "verdict", "findings",
+    "covered_decision_ids", "covered_trace_ids", "output_contract_id"
+  ],
+  "properties": {
+    "schema_version": { "const": "phase-23.9.planning-lens-result.v1" },
+    "procedure_id": { "enum": ["plan-review", "architecture-review", "db-storage-review"] },
+    "bundle_kind": { "enum": ["candidate", "impact_closure"] },
+    "plan_sha": { "$ref": "#/$defs/sha256" },
+    "source_head": { "$ref": "#/$defs/gitSha" },
+    "task_artifact_id": { "$ref": "#/$defs/sha256" },
+    "immutable_base": { "$ref": "#/$defs/gitSha" },
+    "verdict": { "enum": ["PASS", "AMEND_REQUIRED", "BLOCKED"] },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "covered_decision_ids": { "$ref": "#/$defs/idSet" },
+    "covered_trace_ids": { "$ref": "#/$defs/idSet" },
+    "output_contract_id": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "gitSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "idSet": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "finding": {
+      "type": "object",
+      "required": ["finding_id", "classification", "summary", "primary_lens", "secondary_lenses", "decision_ids", "trace_ids"],
+      "properties": {
+        "finding_id": { "type": "string", "minLength": 1 },
+        "classification": { "enum": ["PLAN_BLOCKER", "IMPLEMENTATION_DISCRETION", "IMPLEMENTATION_REVIEW_CHECK", "DEFERRED_DEBT"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "primary_lens": { "enum": ["plan-review", "architecture-review", "db-storage-review"] },
+        "secondary_lenses": { "type": "array", "uniqueItems": true, "items": { "enum": ["plan-review", "architecture-review", "db-storage-review"] } },
+        "decision_ids": { "$ref": "#/$defs/idSet" },
+        "trace_ids": { "$ref": "#/$defs/idSet" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

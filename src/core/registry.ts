@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { InstallMetadata } from "./install";
+import { assertNotProductRepository } from "./product-repository-identity";
 
 export interface RegistryProjectRecord {
   root_path: string;
@@ -20,6 +21,24 @@ export interface RegistryWriteResult {
   action: "created" | "updated" | "unchanged" | "skipped";
   registryPath: string;
   warning?: string;
+}
+
+export function removeRegistryProject(targetRoot: string): RegistryWriteResult {
+  const registryPath = buildRegistryPath();
+  const normalizedTargetRoot = normalizeRootPath(targetRoot);
+  const registry = loadProjectRegistry();
+  if (!registry) return { action: "unchanged", registryPath };
+  const matches = registry.projects.filter((entry) => normalizeRootPath(entry.root_path) === normalizedTargetRoot);
+  if (matches.length > 1) throw new Error("product_registry_ownership_ambiguous");
+  if (matches.length === 0) return { action: "unchanged", registryPath };
+  const next = {
+    version: 1 as const,
+    projects: registry.projects.filter((entry) => normalizeRootPath(entry.root_path) !== normalizedTargetRoot)
+  };
+  const temporaryPath = `${registryPath}.tmp-${process.pid}`;
+  fs.writeFileSync(temporaryPath, buildRegistryJson(next), { encoding: "utf8", flag: "wx" });
+  fs.renameSync(temporaryPath, registryPath);
+  return { action: "updated", registryPath };
 }
 
 const REGISTRY_DIR_NAME = ".codex-harness";
@@ -91,6 +110,7 @@ export function loadProjectRegistry(): ProjectRegistry | undefined {
 }
 
 export function upsertRegistryProject(targetRoot: string, metadata: InstallMetadata): RegistryWriteResult {
+  assertNotProductRepository(targetRoot);
   const registryPath = buildRegistryPath();
   const normalizedTargetRoot = normalizeRootPath(targetRoot);
   let registry: ProjectRegistry = {

@@ -2,6 +2,7 @@ import * as path from "node:path";
 import { error, lines } from "../core/logger";
 import {
   type ApprovePlanOptions,
+  type BindImplementationBaselineOptions,
   type MarkDiscardableOptions,
   type MaterializeNextTaskOptions,
   type RecordNextTaskOptions,
@@ -17,15 +18,21 @@ import {
   type RuntimeNextTaskDecisionResult,
   type RuntimeOperatorStatusResult,
   type RuntimePlanApprovalResult,
+  type RuntimeImplementationBaselineResult,
+  type RuntimeIndependentRecordResult,
   type RuntimeProcedureResult,
   type RuntimeServiceResult,
   type RuntimeBootstrapResult,
   type RuntimeTaskMaterializationResult,
   approveRuntimePlan,
+  bindRuntimeImplementationBaseline,
+  recordRuntimeProof,
+  recordRuntimeReviewCapabilityEvidence,
   closeoutRuntimeRun,
   getRuntimeOperatorStatus,
   getRuntimeStatus,
   launchRuntimeReview,
+  launchRuntimePlanningReviewBundle,
   materializeRuntimeNextTask,
   markRuntimeRunDiscardable,
   recordRuntimeNextTask,
@@ -63,13 +70,17 @@ function printRunHelp(): void {
     "  node bin/ch run record-procedure --run <run-id> --procedure <id> --file <path> [--dry-run]",
     "  node bin/ch run prepare-packet [--run <run-id>] --kind auto|plan|implementation|review|fix-pass|closeout [--dry-run]",
     "  node bin/ch run record-stage-result [--run <run-id>] --packet <id> --file <path> [--dry-run]",
-    "  node bin/ch run launch-review --run <run-id> --procedure <plan-review|implementation-review> --request <path> --output <path> [--timeout-seconds <n>] [--stale-after-seconds <n>] [--evaluation-mode approved|shadow|replay|canary] [--candidate-policy-version <id> --candidate-binding-version <id> --candidate-profile-id <id>] [--source-application-decision <id>] [--dry-run]",
+    "  node bin/ch run launch-review --run <run-id> --procedure <plan-review|implementation-review|fix-pass-review> --request <path> --output <path> [--timeout-seconds <n>] [--stale-after-seconds <n>] [--evaluation-mode approved|shadow|replay|canary] [--candidate-policy-version <id> --candidate-binding-version <id> --candidate-profile-id <id>] [--source-application-decision <id>] [--dry-run]",
+    "  node bin/ch run launch-review --run <run-id> --bundle planning --lens-manifest <manifest.json> --request <path> --output <bundle.json> [--timeout-seconds <n>] [--stale-after-seconds <n>] [--dry-run]",
     "  node bin/ch run record-routing-evaluation --run <run-id> --file <bundle.json> [--dry-run]",
     "  node bin/ch run decide-routing-policy --run <run-id> --evaluation <id> --decision authorize-canary|promote|reject|rollback --policy-version <id> --binding-version <id> --approver <name> --reason <text> [--selector <file>] [--max-invocations <1-3>] [--dry-run]",
     "  node bin/ch run record-routing-policy-source-application --run <run-id> --decision <id> --commit <sha> --policy-file <path> --binding-file <path> --implementation-review <artifact-id> [--dry-run]",
     "  node bin/ch run cleanup-prepared-successor --run <run-id> --decision-id <id> --file <evidence.json> [--dry-run]",
     "  node bin/ch run approve-plan --run <run-id> --plan <path> --approver <name> [--reason <text>] [--dry-run]",
-    "  node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>] [--dry-run]",
+    "  node bin/ch run bind-implementation-baseline --run <run-id> --plan <path> --approval-id <id> --expected-head <sha> [--dry-run]",
+    "  node bin/ch run record-proof --run <run-id> --file <proof.json> [--dry-run]",
+    "  node bin/ch run record-review-capability-evidence --run <run-id> --file <evidence.json> --expected-sha <sha256> [--dry-run]",
+    "  node bin/ch run record-next-task --run <run-id> (--task <path> --base-commit <sha> --file <path> [--base-ref <ref>] | --no-successor --reason <text> --decision-owner <id> --approval-id <id>) [--dry-run]",
     "  node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <Desktop-created-path> --enter-existing [--recover-existing-activation] [--dry-run]",
     "  node bin/ch run mark-discardable --run <run-id> --reason <reason> [--dry-run]",
     "  node bin/ch run remote-status [--run <provider-run-id>] [--provider <provider>] [--gate <gate-id>] [--name <name>] [--status pass|failed|skipped|missing|unknown] [--required true|false] [--explanation <text>] [--dry-run]",
@@ -88,6 +99,9 @@ function printRunHelp(): void {
     "  record-routing-policy-source-application Validate and record reviewed source application.",
     "  cleanup-prepared-successor Recoverably quarantine an unopened Desktop-created successor.",
     "  approve-plan  Record explicit human approval of the reviewed plan.",
+    "  bind-implementation-baseline Validate and record the immutable implementation diff base.",
+    "  record-proof Validate and record one accepted proof for an eligible run.",
+    "  record-review-capability-evidence Record observed safe-session-resume capability evidence.",
     "  record-next-task Record the next task decision with exact base-commit authority.",
     "  materialize-next-task Validate and enter a Codex Desktop-created successor worktree; never create one with raw Git.",
     "  mark-discardable Record an explicit discard reason for a run.",
@@ -384,13 +398,42 @@ function renderPlanApprovalLines(result: RuntimePlanApprovalResult): string[] {
   return output;
 }
 
+function renderImplementationBaselineLines(
+  result: RuntimeImplementationBaselineResult,
+): string[] {
+  const output = renderRunLines(
+    "codex-harness run bind-implementation-baseline",
+    result,
+  );
+  output.push(
+    `implementation baseline head: ${result.binding.implementation_baseline_head}`,
+  );
+  output.push(
+    `implementation baseline tree: ${result.binding.implementation_baseline_tree_hash}`,
+  );
+  output.push(`approval id: ${result.binding.approval_id}`);
+  output.push(`plan artifact hash: ${result.binding.plan_artifact_hash}`);
+  output.push(`recorded: ${result.recorded ? "true" : "false"}`);
+  return output;
+}
+
+function renderIndependentRecordLines(title: string, result: RuntimeIndependentRecordResult): string[] {
+  const output = renderRunLines(title, result);
+  output.push(`record kind: ${result.recordKind}`);
+  output.push(`record id: ${result.recordId}`);
+  output.push(`recorded: ${result.recorded ? "true" : "false"}`);
+  return output;
+}
+
 function renderNextTaskDecisionLines(result: RuntimeNextTaskDecisionResult): string[] {
   const output = renderRunLines("codex-harness run record-next-task", result);
   output.push(`decision id: ${result.decision.decision_id}`);
   output.push(`recorded: ${result.recorded ? "true" : "false"}`);
-  output.push(`artifact path: ${result.artifact.path}`);
-  output.push(`artifact id: ${result.artifact.artifact_id}`);
-  output.push(`evidence id: ${result.evidence.evidence_id}`);
+  if (result.artifact) {
+    output.push(`artifact path: ${result.artifact.path}`);
+    output.push(`artifact id: ${result.artifact.artifact_id}`);
+  }
+  if (result.evidence) output.push(`evidence id: ${result.evidence.evidence_id}`);
   return output;
 }
 
@@ -561,13 +604,14 @@ async function runRecordStageResult(args: string[]): Promise<number> {
 
 async function runLaunchReview(args: string[]): Promise<number> {
   const options = parseOptions(args, new Set([
-    "run", "procedure", "request", "output", "timeout-seconds", "stale-after-seconds",
+    "run", "procedure", "bundle", "lens-manifest", "request", "output", "timeout-seconds", "stale-after-seconds",
     "evaluation-mode", "approved-attempt", "evaluation-case", "candidate-policy-version",
     "candidate-binding-version", "candidate-profile-id", "candidate-output", "canary-authorization",
     "source-application-decision",
     "replay-source-run-instance", "replay-packet-artifact"
   ]));
   const procedureId = stringOption(options, "procedure");
+  const bundle = stringOption(options, "bundle");
   const requestPath = stringOption(options, "request");
   const outputPath = stringOption(options, "output");
   const evaluationMode = stringOption(options, "evaluation-mode");
@@ -575,8 +619,8 @@ async function runLaunchReview(args: string[]): Promise<number> {
     throw new Error("--evaluation-mode must be one of: approved, shadow, replay, canary.");
   }
 
-  if (!procedureId) {
-    throw new Error("--procedure is required.");
+  if ((procedureId ? 1 : 0) + (bundle ? 1 : 0) !== 1) {
+    throw new Error("Exactly one of --procedure or --bundle is required.");
   }
   if (!requestPath) {
     throw new Error("--request is required.");
@@ -585,10 +629,26 @@ async function runLaunchReview(args: string[]): Promise<number> {
     throw new Error("--output is required.");
   }
 
+  if (bundle) {
+    if (bundle !== "planning") throw new Error("--bundle must be planning.");
+    const lensManifestPath = stringOption(options, "lens-manifest");
+    if (!lensManifestPath) throw new Error("--lens-manifest is required for planning bundles.");
+    const result = await launchRuntimePlanningReviewBundle(process.cwd(), {
+      dryRun: dryRunOption(options),
+      runId: stringOption(options, "run"),
+      requestPath,
+      outputPath,
+      lensManifestPath,
+      timeoutSeconds: parsePositiveIntegerOption(options, "timeout-seconds"),
+      staleAfterSeconds: parsePositiveIntegerOption(options, "stale-after-seconds")
+    });
+    lines(renderReviewLaunchLines(result));
+    return result.observation.status === "success" || result.observation.status === "dry_run" ? 0 : 1;
+  }
   const result = await launchRuntimeReview(process.cwd(), {
     dryRun: dryRunOption(options),
     runId: stringOption(options, "run"),
-    procedureId,
+    procedureId: procedureId!,
     requestPath,
     outputPath,
     timeoutSeconds: parsePositiveIntegerOption(options, "timeout-seconds"),
@@ -706,21 +766,62 @@ async function runApprovePlan(args: string[]): Promise<number> {
   return 0;
 }
 
+async function runBindImplementationBaseline(args: string[]): Promise<number> {
+  const options = parseOptions(
+    args,
+    new Set(["run", "plan", "approval-id", "expected-head"]),
+  );
+  const planPath = stringOption(options, "plan");
+  const approvalId = stringOption(options, "approval-id");
+  const expectedHead = stringOption(options, "expected-head");
+  if (!planPath) throw new Error("--plan is required.");
+  if (!approvalId) throw new Error("--approval-id is required.");
+  if (!expectedHead) throw new Error("--expected-head is required.");
+  const result = await bindRuntimeImplementationBaseline(process.cwd(), {
+    dryRun: dryRunOption(options),
+    runId: stringOption(options, "run"),
+    planPath,
+    approvalId,
+    expectedHead,
+  } satisfies BindImplementationBaselineOptions);
+  lines(renderImplementationBaselineLines(result));
+  return 0;
+}
+
+function runIndependentFileCommand(
+  args: string[],
+  kind: "proof" | "review-capability"
+): number {
+  const options = parseOptions(args, new Set(["run", "file", "expected-sha"]));
+  const filePath = stringOption(options, "file");
+  if (!filePath) throw new Error("--file is required.");
+  const serviceOptions = {
+    runId: stringOption(options, "run"),
+    filePath,
+    expectedSha: stringOption(options, "expected-sha"),
+    dryRun: dryRunOption(options)
+  };
+  const result = kind === "proof"
+    ? recordRuntimeProof(process.cwd(), serviceOptions)
+    : recordRuntimeReviewCapabilityEvidence(process.cwd(), serviceOptions);
+  lines(renderIndependentRecordLines(
+    kind === "proof"
+      ? "codex-harness run record-proof"
+      : "codex-harness run record-review-capability-evidence",
+    result
+  ));
+  return 0;
+}
+
 async function runRecordNextTask(args: string[]): Promise<number> {
-  const options = parseOptions(args, new Set(["run", "task", "base-commit", "base-ref", "file"]));
+  const options = parseOptions(args, new Set([
+    "run", "task", "base-commit", "base-ref", "file",
+    "reason", "decision-owner", "approval-id"
+  ]), new Set(["dry-run", "no-successor"]));
   const taskPath = stringOption(options, "task");
   const baseCommit = stringOption(options, "base-commit");
   const filePath = stringOption(options, "file");
-
-  if (!taskPath) {
-    throw new Error("--task is required.");
-  }
-  if (!baseCommit) {
-    throw new Error("--base-commit is required.");
-  }
-  if (!filePath) {
-    throw new Error("--file is required.");
-  }
+  const noSuccessor = options["no-successor"] === true;
 
   const result = await recordRuntimeNextTask(process.cwd(), {
     dryRun: dryRunOption(options),
@@ -728,7 +829,11 @@ async function runRecordNextTask(args: string[]): Promise<number> {
     taskPath,
     baseCommit,
     baseRef: stringOption(options, "base-ref"),
-    filePath
+    filePath,
+    noSuccessor,
+    reason: stringOption(options, "reason"),
+    decisionOwner: stringOption(options, "decision-owner"),
+    approvalId: stringOption(options, "approval-id")
   } satisfies RecordNextTaskOptions);
   lines(renderNextTaskDecisionLines(result));
   return 0;
@@ -865,6 +970,12 @@ export async function runRuntime(args: string[]): Promise<number> {
         return runCleanupPreparedSuccessor(commandArgs);
       case "approve-plan":
         return runApprovePlan(commandArgs);
+      case "bind-implementation-baseline":
+        return runBindImplementationBaseline(commandArgs);
+      case "record-proof":
+        return runIndependentFileCommand(commandArgs, "proof");
+      case "record-review-capability-evidence":
+        return runIndependentFileCommand(commandArgs, "review-capability");
       case "record-next-task":
         return runRecordNextTask(commandArgs);
       case "materialize-next-task":

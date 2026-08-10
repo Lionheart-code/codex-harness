@@ -14,6 +14,11 @@ Plan Review
 ## purpose
 Independently review a draft plan before implementation begins.
 
+This lens owns task/scope compliance, decision completeness, consolidated
+contract consistency, exact inventory, operator choices, validation, stop
+conditions, and assignment to specialized lenses. It does not duplicate
+detailed architecture dependency analysis or storage transaction/replay review.
+
 ## when_to_use
 - A draft plan exists and implementation has not started.
 - The plan needs a reviewer pass against task scope, acceptance, and repo
@@ -36,6 +41,8 @@ Independently review a draft plan before implementation begins.
 - Do not treat review as optional.
 
 ## checklist
+- Classify every finding as `PLAN_BLOCKER`, `IMPLEMENTATION_DISCRETION`,
+  `IMPLEMENTATION_REVIEW_CHECK`, or `DEFERRED_DEBT`.
 - Derive the review surface from the active task, relevant plan artifacts,
   changed file domains, affected procedures, required evidence, forbidden
   scope, and authority boundaries.
@@ -61,6 +68,9 @@ Independently review a draft plan before implementation begins.
 - Use only the canonical `outcome_state` tokens defined by the checked-in
   output format and runtime/registry contract.
 - Return findings clearly enough for `plan-amend` to act on them.
+- Bind the exact same candidate plan SHA, source HEAD, task artifact, immutable
+  base, cohort, and checked-in output-contract identity as the architecture and
+  DB/storage lens outputs.
 
 ## manual_invocation_guidance
 - Run this review in a separate reviewer session from the planner or builder.

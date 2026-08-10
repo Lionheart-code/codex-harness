@@ -431,6 +431,10 @@ evidence
 
 Target repositories receive an installed harness layer.
 
+The product repository itself is never an install or upgrade target. Those
+commands must reject a canonical-path match to product source before planning
+or mutation; product self-hosting uses the source CLI/runtime boundary instead.
+
 The same concepts exist in both places, but their state must remain separate:
 
 ```text

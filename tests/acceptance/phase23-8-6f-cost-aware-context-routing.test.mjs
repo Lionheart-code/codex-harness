@@ -114,12 +114,18 @@ test("Phase F documentation downstream and future phase boundaries remain narrow
   }
 });
 
-test("Phase F policy covers all 15 procedures and only two automatic launches", () => {
+test("Phase F policy covers all 15 procedures and Phase 23.9 automatic reviews", () => {
   const registry = JSON.parse(fs.readFileSync(path.join(productRoot, "skills/self-hosting/procedure-registry.json"), "utf8"));
   const execution = policy.readProcedureExecutionPolicy(productRoot);
   policy.reconcileProcedureExecutionPolicy(registry, execution);
   assert.equal(execution.procedures.length, 15);
-  assert.deepEqual(execution.procedures.filter((entry) => entry.automatic_launch).map((entry) => entry.procedure_id).sort(), ["implementation-review", "plan-review"]);
+  assert.deepEqual(execution.procedures.filter((entry) => entry.automatic_launch).map((entry) => entry.procedure_id).sort(), [
+    "architecture-review",
+    "db-storage-review",
+    "fix-pass-review",
+    "implementation-review",
+    "plan-review"
+  ]);
   assert.ok(execution.procedures.every((entry) => entry.required_output_contract.length && entry.required_evidence_contract.length));
 });
 

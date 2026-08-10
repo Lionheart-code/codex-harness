@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewAttemptV1",
+  "type": "object",
+  "required": [
+    "schema_version", "record_kind", "record_id", "content_hash", "run_instance_id", "run_id",
+    "attempt_kind", "cohort_id", "attempt_id", "claim_id", "procedure_ids", "profile_id",
+    "request_artifact_hash", "expected_bundle_output_path", "claimed_event_id", "started_event_id",
+    "terminal_event_id", "terminal_status", "verdict", "reviewed_source_head",
+    "implementation_diff_id", "predecessor_review_attempt_id", "predecessor_review_artifact_id",
+    "bundle_envelope_id", "bundle_envelope_hash", "lens_results", "created_at"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 }, "record_kind": { "const": "review_attempt" },
+    "record_id": { "$ref": "#/$defs/sha256" }, "content_hash": { "$ref": "#/$defs/sha256" },
+    "run_instance_id": { "type": "string", "minLength": 1 }, "run_id": { "type": "string", "minLength": 1 },
+    "attempt_kind": { "enum": ["planning_bundle", "single_review"] },
+    "cohort_id": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "attempt_id": { "type": "string", "minLength": 1 }, "claim_id": { "type": "string", "minLength": 1 },
+    "procedure_ids": { "type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "profile_id": { "type": "string", "minLength": 1 }, "request_artifact_hash": { "$ref": "#/$defs/sha256" },
+    "expected_bundle_output_path": { "type": "string", "minLength": 1 },
+    "claimed_event_id": { "$ref": "#/$defs/sha256" },
+    "started_event_id": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "terminal_event_id": { "$ref": "#/$defs/sha256" },
+    "terminal_status": { "enum": ["success", "spawn_failed", "startup_observation_failed", "profile_mismatch", "failed", "timeout", "blocked", "invalid_artifact"] },
+    "verdict": { "type": "null" },
+    "reviewed_source_head": { "anyOf": [{ "$ref": "#/$defs/gitSha" }, { "type": "null" }] },
+    "implementation_diff_id": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "predecessor_review_attempt_id": { "type": ["string", "null"] },
+    "predecessor_review_artifact_id": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "bundle_envelope_id": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "bundle_envelope_hash": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "lens_results": { "type": "array", "maxItems": 3, "items": { "$ref": "#/$defs/lensResult" } },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    { "if": { "properties": { "attempt_kind": { "const": "planning_bundle" } }, "required": ["attempt_kind"] },
+      "then": { "properties": { "cohort_id": { "$ref": "#/$defs/sha256" }, "reviewed_source_head": { "type": "null" }, "implementation_diff_id": { "type": "null" }, "predecessor_review_attempt_id": { "type": "null" }, "predecessor_review_artifact_id": { "type": "null" } } },
+      "else": { "properties": { "cohort_id": { "type": "null" }, "procedure_ids": { "minItems": 1, "maxItems": 1, "items": { "enum": ["implementation-review", "fix-pass-review"] } }, "reviewed_source_head": { "$ref": "#/$defs/gitSha" }, "implementation_diff_id": { "$ref": "#/$defs/sha256" }, "bundle_envelope_id": { "type": "null" }, "bundle_envelope_hash": { "type": "null" } } } },
+    { "if": { "properties": { "terminal_status": { "const": "success" } }, "required": ["terminal_status"] },
+      "then": { "properties": { "lens_results": { "minItems": 1 } }, "allOf": [
+        { "if": { "properties": { "attempt_kind": { "const": "planning_bundle" } }, "required": ["attempt_kind"] },
+          "then": { "properties": { "bundle_envelope_id": { "$ref": "#/$defs/sha256" }, "bundle_envelope_hash": { "$ref": "#/$defs/sha256" } } } }
+      ] },
+      "else": { "properties": { "lens_results": { "maxItems": 0 }, "bundle_envelope_id": { "type": "null" }, "bundle_envelope_hash": { "type": "null" } } } },
+    { "if": { "properties": { "procedure_ids": { "const": ["fix-pass-review"] } }, "required": ["procedure_ids"] },
+      "then": { "properties": { "predecessor_review_attempt_id": { "type": "string", "minLength": 1 }, "predecessor_review_artifact_id": { "$ref": "#/$defs/sha256" } } },
+      "else": { "if": { "properties": { "attempt_kind": { "const": "single_review" } }, "required": ["attempt_kind"] }, "then": { "properties": { "predecessor_review_attempt_id": { "type": "null" }, "predecessor_review_artifact_id": { "type": "null" } } } } }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "gitSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "lensResult": {
+      "type": "object", "required": ["procedure_id", "status", "verdict", "artifact_id", "artifact_hash"],
+      "properties": {
+        "procedure_id": { "enum": ["plan-review", "architecture-review", "db-storage-review", "implementation-review", "fix-pass-review"] },
+        "status": { "enum": ["recorded", "unavailable"] },
+        "verdict": { "enum": ["PASS", "FIX_REQUIRED", "AMEND_REQUIRED", "BLOCKED", null] },
+        "artifact_id": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "artifact_hash": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -65,17 +65,16 @@ test("phase 1 doctor reports git repository and installed-layer status text", ()
   assert.match(result.stdout, /installed layer:/);
 });
 
-test("phase 1 install dry-run does not change product-repo git status", () => {
+test("phase 23.9 install dry-run fails closed without changing product-repo git status", () => {
   ensureBuiltCli();
 
   const beforeStatus = getGitStatus(productRoot);
   const result = runCli(["install", "--dry-run"], { cwd: productRoot });
   const afterStatus = getGitStatus(productRoot);
 
-  assertSuccess(result, "node bin/ch install --dry-run");
+  assert.notEqual(result.status, 0, "product-root install dry-run must fail closed");
   assert.equal(afterStatus, beforeStatus, "install --dry-run changed product-repo git status");
-  assert.match(result.stdout, /codex-harness install \(dry-run\)/);
-  assert.match(result.stdout, /status: no files were written/);
+  assert.match(result.stderr, /product_repository_install_forbidden/);
 });
 
 test("phase 1 init dry-run succeeds without an installed harness layer and does not mutate the repo", () => {

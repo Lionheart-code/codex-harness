@@ -1,5 +1,14 @@
 # Phase Acceptance Rules
 
+## Phase 23.9
+
+Acceptance requires exact baseline binding, proof-record derivation and
+survival, three-lens identity/coverage reconciliation, zero-owner normal
+materialization, product-root install/upgrade zero-write rejection, safe
+self-install reconciliation, standalone fresh read-only implementation/fix
+review launches, focused suites, full verification, delivery facts, closeout,
+and harvest evidence.
+
 ## Global acceptance rules
 
 Every phase promoted to the current `TASK.md` must have:
@@ -118,6 +127,15 @@ context/route policy and the isolated Codex binding only for the existing
 `plan-review` and `implementation-review` launch surfaces. Acceptance fails if
 that exception creates another automatic procedure binding, generic runner,
 daemon, self-approval, or provider-specific lifecycle authority.
+
+Phase 23.9 is the sole further narrow exception: it may add a sequential,
+profile-validated planning-review cohort for the existing `plan-review`,
+`architecture-review`, and `db-storage-review` procedures and an eligible
+amended `plan-review`. Each remains a separate procedure artifact and verdict;
+implementation review is excluded. The exception fails if it creates a general
+runner, lifecycle stage, review category, parallel reviewer, implicit-default
+resume, unvalidated profile continuation, source mutation during review, or
+provider-specific lifecycle authority.
 
 Phase F acceptance also fails if a launched reviewer can recursively create a
 second reviewer claim/process/wait, if `REVIEW_RECURSION_FORBIDDEN` is not

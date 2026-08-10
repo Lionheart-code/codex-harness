@@ -36,3 +36,9 @@ Source map authority: `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`
 
 - Reviewer as implementer
 - Silent plan changes during review
+
+## phase_23_9_adaptation
+
+- General plan review is one separately recorded lens in a shared fresh
+  planning-review bundle; specialized architecture/storage detail remains with
+  its owning lens.

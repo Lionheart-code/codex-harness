@@ -73,6 +73,9 @@ files or starting execution.
 ## expected_output_format
 Return the exact section order documented in
 `references/output-format.md`.
+For `high` and `extra-high` work, produce one candidate identity for the
+three-lens planning-review bundle. No amendment begins until all assigned lens
+results are terminal.
 
 ## blocker_conditions
 - Acceptance or boundary rules are too ambiguous to recommend a safe concrete

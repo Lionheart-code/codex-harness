@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SelfInstallReconciliationV1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_kind",
+    "journal_id",
+    "product_root",
+    "state",
+    "inventory_hash",
+    "task_state_hash",
+    "registry_hash",
+    "registry_snapshot",
+    "ownership_manifest_id",
+    "ownership_catalog_id",
+    "product_source_hash",
+    "unrelated_agents_hash",
+    "preserved_hashes",
+    "items",
+    "completed_steps",
+    "created_at",
+    "updated_at",
+    "error"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "record_kind": { "const": "self_install_reconciliation" },
+    "journal_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "product_root": { "type": "string", "minLength": 1 },
+    "state": {
+      "enum": [
+        "prepared",
+        "applying",
+        "partial_failure",
+        "rollback_required",
+        "rolled_back",
+        "completed_receipt"
+      ]
+    },
+    "inventory_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "task_state_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "registry_hash": {
+      "anyOf": [
+        { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "registry_snapshot": { "type": ["string", "null"] },
+    "ownership_manifest_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "ownership_catalog_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "product_source_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "unrelated_agents_hash": {
+      "anyOf": [
+        { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        { "type": "null" }
+      ]
+    },
+    "preserved_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "anyOf": [
+          { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          { "type": "null" }
+        ]
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "disposition", "content_hash"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "disposition": {
+            "enum": [
+              "quarantine_then_remove",
+              "preserve_as_runtime",
+              "remove",
+              "ambiguous_stop"
+            ]
+          },
+          "content_hash": {
+            "anyOf": [
+              { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+              { "type": "null" }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "completed_steps": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "error": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

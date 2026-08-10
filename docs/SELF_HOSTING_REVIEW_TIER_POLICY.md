@@ -1,5 +1,13 @@
 # Self-Hosting Review Tier Policy
 
+## Phase 23.9 high and extra-high planning
+
+The candidate review is the complete three-lens bundle. Closure is an impact
+review of changed decisions/traces, every intersecting contract surface, and
+unchanged-plan compatibility—not unrestricted rediscovery. A second reviewer
+is escalation-only for conflict, uncertainty, or explicit second-opinion
+policy.
+
 ## Purpose
 
 Keep lightweight work lightweight while escalating lifecycle, authority,

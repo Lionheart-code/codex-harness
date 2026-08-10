@@ -34,6 +34,9 @@ import {
   getManagedAgentsBlock
 } from "./paths";
 import { detectGitRepository } from "./git";
+import { assertNotProductRepository } from "./product-repository-identity";
+import { buildInstallerOwnershipManifest } from "./installer-ownership";
+import { sha256Hex } from "./evidence-types";
 
 export interface LastUpgradeMetadata {
   from_version: string;
@@ -52,6 +55,7 @@ export interface InstallMetadata {
   producer_command?: string;
   updated_at?: string;
   last_upgrade?: LastUpgradeMetadata;
+  ownership_manifest?: string;
 }
 
 export interface InstallResult {
@@ -207,7 +211,8 @@ export function readInstallMetadata(installJsonPath: string): InstallMetadata | 
     ...(parsed.schema_version === CURRENT_SCHEMA_VERSION ? { schema_version: CURRENT_SCHEMA_VERSION } : {}),
     ...(typeof parsed.producer_command === "string" ? { producer_command: parsed.producer_command } : {}),
     ...(typeof parsed.updated_at === "string" ? { updated_at: parsed.updated_at } : {}),
-    ...(parsed.last_upgrade ? { last_upgrade: parsed.last_upgrade } : {})
+    ...(parsed.last_upgrade ? { last_upgrade: parsed.last_upgrade } : {}),
+    ...(typeof parsed.ownership_manifest === "string" ? { ownership_manifest: parsed.ownership_manifest } : {})
   };
 }
 
@@ -547,11 +552,30 @@ export function installHarness(cwd: string, dryRun: boolean): InstallResult {
   }
 
   const targetRoot = gitStatus.rootPath;
+  assertNotProductRepository(targetRoot);
   const version = getPackageVersion();
   const existingMetadata = readInstallMetadataFromTarget(targetRoot);
-  const metadata = buildInstallMetadata(version, "node bin/ch install", existingMetadata);
+  const metadataBase = buildInstallMetadata(version, "node bin/ch install", existingMetadata);
   const managedContent = getManagedBaselineContents(version);
   const schemaSnapshotFiles = getSchemaSnapshotFilePlans(targetRoot);
+  const ownershipManifest = buildInstallerOwnershipManifest(targetRoot, [
+    {
+      path: CONFIG_PATH,
+      content_hash: `sha256:${sha256Hex(managedContent.configToml)}`,
+      disposition: "quarantine",
+      owner: "installer"
+    },
+    {
+      path: MANAGED_AGENTS_BLOCK_PATH,
+      content_hash: `sha256:${sha256Hex(managedContent.agentsBlock)}`,
+      disposition: "quarantine",
+      owner: "installer"
+    }
+  ]);
+  const metadata: InstallMetadata = {
+    ...metadataBase,
+    ownership_manifest: ownershipManifest.manifest_id
+  };
 
   const conflicts: string[] = [];
   const warnings: string[] = [];
@@ -572,6 +596,12 @@ export function installHarness(cwd: string, dryRun: boolean): InstallResult {
   ];
   const configFile = planManagedFile(targetRoot, CONFIG_PATH, managedContent.configToml, conflicts);
   const installFile = planManagedFile(targetRoot, INSTALL_JSON_PATH, buildInstallJson(metadata), conflicts);
+  const ownershipManifestFile = planManagedFile(
+    targetRoot,
+    ".harness/installer-ownership.v1.json",
+    `${JSON.stringify(ownershipManifest, null, 2)}\n`,
+    conflicts
+  );
   const managedAgentsBaseline = planManagedFile(
     targetRoot,
     MANAGED_AGENTS_BLOCK_PATH,
@@ -619,7 +649,7 @@ export function installHarness(cwd: string, dryRun: boolean): InstallResult {
       applyDirectoryPlan(directory);
     }
 
-    for (const filePlan of [configFile, installFile, managedAgentsBaseline, managedConfigBaseline, ...schemaFiles]) {
+    for (const filePlan of [configFile, installFile, ownershipManifestFile, managedAgentsBaseline, managedConfigBaseline, ...schemaFiles]) {
       applyFilePlan(filePlan);
     }
 
@@ -641,7 +671,7 @@ export function installHarness(cwd: string, dryRun: boolean): InstallResult {
     }
   }
 
-  const managedFiles = [configFile, installFile, managedAgentsBaseline, managedConfigBaseline, ...schemaFiles];
+  const managedFiles = [configFile, installFile, ownershipManifestFile, managedAgentsBaseline, managedConfigBaseline, ...schemaFiles];
   const created = [
     ...directories.filter((plan) => plan.action === "create").map((plan) => plan.relativePath),
     ...[...managedFiles, ...memorySeedFiles, ...governanceSeedFiles, agentsFile]

@@ -16,6 +16,8 @@ procedure files.
 Run only the `plan-review` procedure. Return the exact output format from
 `references/output-format.md`, or the procedure's blocker format if the required
 inputs are missing.
+When invoked in a planning bundle, keep this lens a separate canonical artifact
+bound to the shared identity. Resolve its exact schema/version from the registry.
 
 Use only the canonical `outcome_state` tokens listed in the output format. Do
 not invent aliases or more human-readable replacements.

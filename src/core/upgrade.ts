@@ -39,6 +39,7 @@ import {
 } from "./paths";
 import { upsertRegistryProject } from "./registry";
 import { detectGitRepository } from "./git";
+import { assertNotProductRepository } from "./product-repository-identity";
 
 type UpgradeAction = "create" | "update" | "unchanged" | "blocked";
 
@@ -389,6 +390,9 @@ function planInstallMetadataUpdate(
     templates_version: version,
     installed_at: existingMetadata.installed_at,
     source: existingMetadata.source,
+    ...(existingMetadata.ownership_manifest
+      ? { ownership_manifest: existingMetadata.ownership_manifest }
+      : {}),
     ...buildSchemaMetadata("node bin/ch upgrade"),
     updated_at: appliedAt,
     last_upgrade: buildLastUpgradeMetadata(
@@ -492,6 +496,7 @@ export function upgradeHarness(cwd: string, dryRun: boolean): UpgradeResult {
   }
 
   const targetRoot = gitStatus.rootPath;
+  assertNotProductRepository(targetRoot);
 
   if (!detectInstalledLayer(targetRoot)) {
     throw new Error("Installed harness layer not found. Run `node bin/ch install` first.");

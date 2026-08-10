@@ -1,0 +1,405 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProofRecordV1",
+  "type": "object",
+  "required": [
+    "schema_version", "record_kind", "record_id", "content_hash", "proof_input_hash",
+    "run_instance_id", "run_id", "task_artifact_id", "immutable_base", "activation_hash",
+    "activation_source_head", "implementation_baseline_head", "final_reviewed_source_head",
+    "delivered_source_head", "eligibility_snapshot_id", "lifecycle_applicability",
+    "task_verifiability_map", "evidence_refs", "evidence_families", "assumption_ledger",
+    "operating_envelope", "delivery_slices", "delivery_slice_manifest_hash",
+    "evidence_gaps", "acceptance", "created_at"
+  ],
+  "properties": {
+    "schema_version": { "const": "phase-23.9.proof-record.v1" },
+    "record_kind": { "const": "proof_record" },
+    "record_id": { "$ref": "#/$defs/sha256" },
+    "content_hash": { "$ref": "#/$defs/sha256" },
+    "proof_input_hash": { "$ref": "#/$defs/sha256" },
+    "run_instance_id": { "$ref": "#/$defs/nonempty" },
+    "run_id": { "$ref": "#/$defs/nonempty" },
+    "task_artifact_id": { "$ref": "#/$defs/sha256" },
+    "immutable_base": { "$ref": "#/$defs/gitSha" },
+    "activation_hash": { "$ref": "#/$defs/sha256" },
+    "activation_source_head": { "$ref": "#/$defs/gitSha" },
+    "implementation_baseline_head": { "$ref": "#/$defs/nullableGitSha" },
+    "final_reviewed_source_head": { "$ref": "#/$defs/nullableGitSha" },
+    "delivered_source_head": { "$ref": "#/$defs/nullableGitSha" },
+    "eligibility_snapshot_id": { "$ref": "#/$defs/sha256" },
+    "lifecycle_applicability": {
+      "type": "object",
+      "required": ["snapshot_id", "contract_marker", "procedure_requirements", "stage_requirements"],
+      "properties": {
+        "snapshot_id": { "$ref": "#/$defs/sha256" },
+        "contract_marker": { "$ref": "#/$defs/sha256" },
+        "procedure_requirements": { "type": "array", "minItems": 1, "items": { "$ref": "./proof-eligibility-snapshot.schema.json#/$defs/procedureRequirement" } },
+        "stage_requirements": { "type": "array", "minItems": 1, "items": { "$ref": "./proof-eligibility-snapshot.schema.json#/$defs/stageRequirement" } }
+      },
+      "additionalProperties": false
+    },
+    "task_verifiability_map": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/taskVerifiability" }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidenceRef" }
+    },
+    "evidence_families": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidenceFamily" }
+    },
+    "assumption_ledger": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/assumption" }
+    },
+    "operating_envelope": { "$ref": "#/$defs/operatingEnvelope" },
+    "delivery_slices": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/deliverySlice" }
+    },
+    "delivery_slice_manifest_hash": { "$ref": "#/$defs/sha256" },
+    "evidence_gaps": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidenceGap" }
+    },
+    "acceptance": { "$ref": "#/$defs/acceptance" },
+    "created_at": { "$ref": "#/$defs/dateTime" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "nonempty": { "type": "string", "minLength": 1 },
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "gitSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "nullableGitSha": {
+      "anyOf": [
+        { "$ref": "#/$defs/gitSha" },
+        { "type": "null" }
+      ]
+    },
+    "dateTime": { "type": "string", "format": "date-time" },
+    "stringIds": {
+      "type": "array", "uniqueItems": true,
+      "items": { "$ref": "#/$defs/nonempty" }
+    },
+    "requirementSource": {
+      "type": "object",
+      "required": [
+        "task_artifact_id", "requirement_kind", "normalized_heading_path",
+        "heading_path_hash", "block_content_hash", "duplicate_index",
+        "byte_start", "byte_end"
+      ],
+      "properties": {
+        "task_artifact_id": { "$ref": "#/$defs/sha256" },
+        "requirement_kind": {
+          "enum": [
+            "scope_clause", "required_concept", "required_narrowing",
+            "deferred_boundary", "acceptance_command", "acceptance_behavior",
+            "future_phase_boundary", "foundation_constraint",
+            "schema_authority_constraint"
+          ]
+        },
+        "normalized_heading_path": { "$ref": "#/$defs/nonempty" },
+        "heading_path_hash": { "$ref": "#/$defs/sha256" },
+        "block_content_hash": { "$ref": "#/$defs/sha256" },
+        "duplicate_index": { "type": "integer", "minimum": 1 },
+        "byte_start": { "type": "integer", "minimum": 0 },
+        "byte_end": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "taskVerifiability": {
+      "type": "object",
+      "required": [
+        "requirement_id", "source", "applicability", "verification_status",
+        "applicability_authority_ref_id", "evidence_ref_ids", "gap_ids",
+        "assumption_ids"
+      ],
+      "properties": {
+        "requirement_id": { "$ref": "#/$defs/sha256" },
+        "source": { "$ref": "#/$defs/requirementSource" },
+        "applicability": { "enum": ["mandatory", "not_applicable"] },
+        "verification_status": { "enum": ["verified", "blocked", "not_applicable"] },
+        "applicability_authority_ref_id": {
+          "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "evidence_ref_ids": { "$ref": "#/$defs/stringIds" },
+        "gap_ids": { "$ref": "#/$defs/stringIds" },
+        "assumption_ids": { "$ref": "#/$defs/stringIds" }
+      },
+      "additionalProperties": false
+    },
+    "evidenceRef": {
+      "type": "object",
+      "required": [
+        "ref_id", "source_kind", "source_id", "content_hash", "run_instance_id",
+        "locator", "relationship"
+      ],
+      "properties": {
+        "ref_id": { "$ref": "#/$defs/sha256" },
+        "source_kind": {
+          "enum": [
+            "staging_record", "procedure_artifact", "delivery_fact",
+            "git_object", "owner_directive"
+          ]
+        },
+        "source_id": { "$ref": "#/$defs/nonempty" },
+        "content_hash": { "$ref": "#/$defs/sha256" },
+        "run_instance_id": {
+          "anyOf": [{ "$ref": "#/$defs/nonempty" }, { "type": "null" }]
+        },
+        "locator": { "$ref": "#/$defs/nonempty" },
+        "relationship": {
+          "enum": [
+            "verifies_requirement", "supports_assumption", "resolves_assumption",
+            "describes_environment", "authorizes_delivery_slice", "explains_gap"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidenceFamily": {
+      "type": "object",
+      "required": ["family", "applicability", "ref_ids", "gap_ids"],
+      "properties": {
+        "family": { "$ref": "#/$defs/nonempty" },
+        "applicability": {
+          "enum": [
+            "mandatory", "optional", "not_applicable",
+            "unavailable_legacy", "unavailable_error"
+          ]
+        },
+        "ref_ids": { "$ref": "#/$defs/stringIds" },
+        "gap_ids": { "$ref": "#/$defs/stringIds" }
+      },
+      "additionalProperties": false
+    },
+    "assumption": {
+      "type": "object",
+      "required": [
+        "assumption_id", "statement", "requirement_ids", "source_authority_ref_id",
+        "status", "resolution_ref_id", "evidence_ref_ids"
+      ],
+      "properties": {
+        "assumption_id": { "$ref": "#/$defs/nonempty" },
+        "statement": { "$ref": "#/$defs/nonempty" },
+        "requirement_ids": { "$ref": "#/$defs/stringIds" },
+        "source_authority_ref_id": { "$ref": "#/$defs/nonempty" },
+        "status": { "enum": ["open", "resolved", "rejected"] },
+        "resolution_ref_id": {
+          "anyOf": [{ "$ref": "#/$defs/nonempty" }, { "type": "null" }]
+        },
+        "evidence_ref_ids": { "$ref": "#/$defs/stringIds" }
+      },
+      "additionalProperties": false
+    },
+    "envelopeField": {
+      "type": "object",
+      "required": [
+        "field_id", "field_name", "status", "value", "evidence_ref_id",
+        "gap_id", "unavailable_cause"
+      ],
+      "properties": {
+        "field_id": { "$ref": "#/$defs/sha256" },
+        "field_name": {
+          "enum": [
+            "host_os", "host_arch", "node_version", "network_access",
+            "adapter", "provider", "model", "reasoning", "sandbox",
+            "approval_policy"
+          ]
+        },
+        "status": { "enum": ["observed", "declared", "unavailable"] },
+        "value": { "type": ["string", "null"] },
+        "evidence_ref_id": {
+          "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "gap_id": {
+          "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "unavailable_cause": {
+          "anyOf": [{ "$ref": "#/$defs/gapCause" }, { "type": "null" }]
+        }
+      },
+      "additionalProperties": false
+    },
+    "reviewContext": {
+      "type": "object",
+      "required": [
+        "context_id", "selection_role", "procedure_id", "availability",
+        "cohort_id", "attempt_id", "terminal_event_id", "artifact_id",
+        "source_plan_sha", "carry_forward_ref_id", "fields",
+        "selection_gap_ids"
+      ],
+      "properties": {
+        "context_id": { "$ref": "#/$defs/sha256" },
+        "selection_role": {
+          "enum": [
+            "planning_candidate", "planning_closure",
+            "implementation_review", "fix_pass_review"
+          ]
+        },
+        "procedure_id": { "$ref": "#/$defs/nonempty" },
+        "availability": { "enum": ["selected", "unavailable"] },
+        "cohort_id": { "type": ["string", "null"] },
+        "attempt_id": { "type": ["string", "null"] },
+        "terminal_event_id": { "type": ["string", "null"] },
+        "artifact_id": {
+          "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "source_plan_sha": {
+          "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "carry_forward_ref_id": { "type": ["string", "null"] },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/envelopeField" }
+        },
+        "selection_gap_ids": { "$ref": "#/$defs/stringIds" }
+      },
+      "additionalProperties": false
+    },
+    "planningLineage": {
+      "type": "object",
+      "required": [
+        "lineage_id", "target_plan_sha", "direct_closure_cohort_id",
+        "contributing_context_ids", "lens_map"
+      ],
+      "properties": {
+        "lineage_id": { "$ref": "#/$defs/sha256" },
+        "target_plan_sha": { "$ref": "#/$defs/sha256" },
+        "direct_closure_cohort_id": { "type": ["string", "null"] },
+        "contributing_context_ids": { "$ref": "#/$defs/stringIds" },
+        "lens_map": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "procedure_id", "context_id", "source_kind", "carry_forward_ref_id"
+            ],
+            "properties": {
+              "procedure_id": {
+                "enum": ["plan-review", "architecture-review", "db-storage-review"]
+              },
+              "context_id": { "$ref": "#/$defs/sha256" },
+              "source_kind": { "enum": ["direct", "carried"] },
+              "carry_forward_ref_id": { "type": ["string", "null"] }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "operatingEnvelope": {
+      "type": "object",
+      "required": [
+        "schema_version", "producer_id", "run_start_ref_id", "runtime_fields",
+        "planning_lineage", "review_contexts", "gap_ids"
+      ],
+      "properties": {
+        "schema_version": { "const": "phase-23.9.operating-envelope.v1" },
+        "producer_id": { "const": "proof_record_deriver_v1" },
+        "run_start_ref_id": { "$ref": "#/$defs/sha256" },
+        "runtime_fields": {
+          "type": "array", "minItems": 4, "maxItems": 4,
+          "items": { "$ref": "#/$defs/envelopeField" }
+        },
+        "planning_lineage": { "$ref": "#/$defs/planningLineage" },
+        "review_contexts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/reviewContext" }
+        },
+        "gap_ids": { "$ref": "#/$defs/stringIds" }
+      },
+      "additionalProperties": false
+    },
+    "deliverySlice": {
+      "type": "object",
+      "required": [
+        "slice_id", "classification", "authority_ref_id", "exact_paths",
+        "requirement_ids", "acceptance_ref_ids"
+      ],
+      "properties": {
+        "slice_id": { "$ref": "#/$defs/sha256" },
+        "classification": { "enum": ["active_task", "owner_approved_supporting"] },
+        "authority_ref_id": { "$ref": "#/$defs/sha256" },
+        "exact_paths": { "$ref": "#/$defs/stringIds" },
+        "requirement_ids": { "$ref": "#/$defs/stringIds" },
+        "acceptance_ref_ids": { "$ref": "#/$defs/stringIds" }
+      },
+      "additionalProperties": false
+    },
+    "gapCause": {
+      "enum": [
+        "legacy_absent", "producer_unavailable", "artifact_missing",
+        "join_missing", "join_ambiguous", "artifact_invalid",
+        "verification_failed", "review_non_pass", "delivery_fact_missing",
+        "policy_forbidden", "corrupt_record", "attempt_missing",
+        "attempt_non_success", "attempt_ambiguous", "profile_unavailable",
+        "not_recorded", "redacted"
+      ]
+    },
+    "gapOwner": {
+      "type": "object",
+      "required": ["owner_kind", "owner_id", "slot"],
+      "properties": {
+        "owner_kind": {
+          "enum": [
+            "task_requirement", "evidence_family", "operating_envelope_field",
+            "operating_envelope_attempt"
+          ]
+        },
+        "owner_id": { "$ref": "#/$defs/nonempty" },
+        "slot": { "$ref": "#/$defs/nonempty" }
+      },
+      "additionalProperties": false
+    },
+    "evidenceGap": {
+      "type": "object",
+      "required": [
+        "gap_id", "family", "requirement_ids", "underlying_requirement",
+        "cause", "blocking", "evidence_ref_ids", "owner_refs", "detail",
+        "detected_by", "created_at"
+      ],
+      "properties": {
+        "gap_id": { "$ref": "#/$defs/sha256" },
+        "family": { "$ref": "#/$defs/nonempty" },
+        "requirement_ids": { "$ref": "#/$defs/stringIds" },
+        "underlying_requirement": { "enum": ["mandatory", "optional"] },
+        "cause": { "$ref": "#/$defs/gapCause" },
+        "blocking": { "type": "boolean" },
+        "evidence_ref_ids": { "$ref": "#/$defs/stringIds" },
+        "owner_refs": {
+          "type": "array", "minItems": 1,
+          "items": { "$ref": "#/$defs/gapOwner" }
+        },
+        "detail": { "$ref": "#/$defs/nonempty" },
+        "detected_by": {
+          "enum": [
+            "proof_record_deriver_v1", "task_requirement_extractor_v1",
+            "operating_envelope_deriver_v1", "evidence_join_validator_v1"
+          ]
+        },
+        "created_at": { "$ref": "#/$defs/dateTime" }
+      },
+      "additionalProperties": false
+    },
+    "acceptance": {
+      "type": "object",
+      "required": [
+        "status", "blocking_requirement_ids", "blocking_gap_ids",
+        "open_assumption_ids", "evaluated_by", "evaluated_at"
+      ],
+      "properties": {
+        "status": { "enum": ["accepted", "rejected"] },
+        "blocking_requirement_ids": { "$ref": "#/$defs/stringIds" },
+        "blocking_gap_ids": { "$ref": "#/$defs/stringIds" },
+        "open_assumption_ids": { "$ref": "#/$defs/stringIds" },
+        "evaluated_by": { "const": "phase-23.9.proof-validator.v1" },
+        "evaluated_at": { "$ref": "#/$defs/dateTime" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

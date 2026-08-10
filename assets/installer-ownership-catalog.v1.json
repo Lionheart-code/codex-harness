@@ -1,0 +1,32 @@
+{
+  "schema_version": "phase-23.9.installer-ownership-catalog.v1",
+  "record_kind": "installer_ownership_catalog",
+  "manifest_entries": [
+    {
+      "entry_id": "sha256:8ec5c290a53767163144a8b406c58f6fe2d628a5679157d471777ae28a57214c",
+      "provenance": {
+        "kind": "committed_historical_source",
+        "source_id": "06540fedf45e23b06c7843ae1bce0a068537efb9",
+        "source_content_hash": "sha256:3500a4df318536d8532f2193f5e8307aba3c7e689de66c50beff75869dc056a8",
+        "manifest_path": "src/core/install.ts",
+        "manifest_content_hash": "sha256:d7f496e11f50368716192cb4cb1d85d370259b7d4242e35fc7870c4f5dfc80a8",
+        "review_authority_ref": "sha256:319361d8138b82b56de8ff69afb471efe8aee47e3f8bf4f18e0d30bf8cd78592"
+      },
+      "inventory": [
+        {
+          "path": ".harness/config.toml",
+          "content_hash": "sha256:2f5a07309692bc0a70db91592d00c2dfecf3e6953a8cee588239aedda8727f9d",
+          "disposition": "quarantine",
+          "owner": "installer"
+        },
+        {
+          "path": ".harness/templates/managed/agents-block.md",
+          "content_hash": "sha256:5e5d5a654dce7628848ce2e20eb017e7febe41e9a5a3010cbad9ef0aad109376",
+          "disposition": "quarantine",
+          "owner": "installer"
+        }
+      ]
+    }
+  ],
+  "catalog_id": "sha256:29bff9817c38384786165770e37b918983f8a328400a6166bb43ab682f7df1d7"
+}

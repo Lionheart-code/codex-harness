@@ -34,3 +34,8 @@ Source map authority: `docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md`
 
 - JSONL as primary new authority
 - Hooks as accepted-memory writers
+
+## phase_23_9_adaptation
+
+- DB/storage review is a separately recorded lens inside the shared fresh
+  planning bundle and owns identity/cardinality/transaction/harvest contracts.

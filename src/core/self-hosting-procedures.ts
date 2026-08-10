@@ -259,8 +259,8 @@ function assertReviewLaunchProfile(
 
 function assertAutomaticLaunchCapability(value: unknown, procedureId: string, label: string): SelfHostingAutomaticLaunchCapability | undefined {
   if (value === undefined) return undefined;
-  if (procedureId !== "plan-review" && procedureId !== "implementation-review") {
-    throw new Error(`${label} automatic_launch_capability is only allowed for plan-review and implementation-review.`);
+  if (!["plan-review", "architecture-review", "db-storage-review", "implementation-review", "fix-pass-review"].includes(procedureId)) {
+    throw new Error(`${label} automatic_launch_capability is outside the Phase 23.9 review allowlist.`);
   }
   const record = assertObject(value, `${label} automatic_launch_capability`);
   if (record.adapter_id !== "codex_cli" || record.transport !== "fresh_independent_delta"

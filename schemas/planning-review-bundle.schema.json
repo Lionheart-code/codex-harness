@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PlanningReviewBundleV1",
+  "type": "object",
+  "required": [
+    "schema_version", "bundle_id", "plan_sha", "source_head",
+    "task_artifact_id", "immutable_base", "lens_results", "lens_documents"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "bundle_id": { "type": "string", "minLength": 1 },
+    "plan_sha": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "source_head": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "task_artifact_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "immutable_base": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "lens_results": {
+      "type": "array", "minItems": 1, "maxItems": 3,
+      "items": { "$ref": "./planning-review-lens-output.schema.json" }
+    },
+    "lens_documents": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "plan-review": { "type": "string", "minLength": 1 },
+        "architecture-review": { "type": "string", "minLength": 1 },
+        "db-storage-review": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "bundleRecord": {
+      "type": "object",
+      "required": ["schema_version", "record_kind", "record_id", "content_hash", "run_instance_id", "run_id", "cohort_id", "attempt_id", "raw_envelope_utf8", "raw_envelope_hash", "ordered_lens_refs", "created_at"],
+      "properties": {
+        "schema_version": { "const": "phase-23.9.planning-review-bundle-record.v1" },
+        "record_kind": { "const": "planning_review_bundle" },
+        "record_id": { "$ref": "#/$defs/sha256" }, "content_hash": { "$ref": "#/$defs/sha256" },
+        "run_instance_id": { "type": "string", "minLength": 1 }, "run_id": { "type": "string", "minLength": 1 },
+        "cohort_id": { "$ref": "#/$defs/sha256" }, "attempt_id": { "type": "string", "minLength": 1 },
+        "raw_envelope_utf8": { "type": "string", "minLength": 1 }, "raw_envelope_hash": { "$ref": "#/$defs/sha256" },
+        "ordered_lens_refs": { "type": "array", "minItems": 1, "maxItems": 3, "items": { "$ref": "#/$defs/lensRef" } },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "lensRef": {
+      "type": "object",
+      "required": ["procedure_id", "artifact_id", "artifact_hash", "output_contract_id"],
+      "properties": {
+        "procedure_id": { "enum": ["plan-review", "architecture-review", "db-storage-review"] },
+        "artifact_id": { "$ref": "#/$defs/sha256" }, "artifact_hash": { "$ref": "#/$defs/sha256" },
+        "output_contract_id": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
