@@ -41,6 +41,7 @@ export const PRODUCT_SCHEMA_FILE_NAMES = [
   ,"review-attempt.schema.json"
   ,"review-capability-evidence.schema.json"
   ,"planning-review-bundle.schema.json"
+  ,"planning-review-bundle-record.schema.json"
   ,"planning-lens-result.schema.json"
   ,"planning-review-lens-output.schema.json"
   ,"review-finding-aggregate.schema.json"

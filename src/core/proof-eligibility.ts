@@ -6,11 +6,21 @@ export interface ProofEligibilityComponentRefV1 {
   content_hash: `sha256:${string}`;
 }
 
-export interface ProofEligibilityApplicabilityPredicateV1 {
-  subject_kind: "procedure" | "stage";
-  subject_id: string;
-  requirement: "always_required" | "required_when";
-  predicate: "true" | "blocking_findings_exist" | "bounded_fix_pass_diff_exists" | "delivery_requested";
+export interface ProcedureRequirementV1 {
+  procedure_id: string;
+  procedure_occurrence: "single" | "planning_candidate" | "planning_closure";
+  requirement_class: "always" | "required_if";
+  predicate_id: string;
+  predicate_result: "true" | "false" | "deferred";
+  basis_ref_ids: string[];
+}
+
+export interface StageRequirementV1 {
+  stage_id: string;
+  requirement_class: "always" | "required_if";
+  predicate_id: string;
+  predicate_result: "true" | "false" | "deferred";
+  basis_ref_ids: string[];
 }
 
 export interface ProofEligibilitySnapshotV1 {
@@ -23,7 +33,8 @@ export interface ProofEligibilitySnapshotV1 {
   activation_source_head: string;
   contract_marker: `sha256:${string}`;
   component_refs: ProofEligibilityComponentRefV1[];
-  applicability_predicates: ProofEligibilityApplicabilityPredicateV1[];
+  procedure_requirements: ProcedureRequirementV1[];
+  stage_requirements: StageRequirementV1[];
   bootstrap_eligibility: "eligible" | "bootstrap_ineligible" | "legacy_gap_unaccepted";
   created_at: string;
 }
@@ -35,15 +46,20 @@ export function buildProofEligibilitySnapshot(
   if (components.length !== 4 || new Set(components.map((entry) => entry.component_kind)).size !== 4) {
     throw new Error("proof_eligibility_component_cardinality_invalid");
   }
-  const predicates = [...input.applicability_predicates].sort((a, b) =>
-    `${a.subject_kind}:${a.subject_id}`.localeCompare(`${b.subject_kind}:${b.subject_id}`));
-  if (predicates.length === 0
-    || new Set(predicates.map((entry) => `${entry.subject_kind}:${entry.subject_id}`)).size !== predicates.length
-    || predicates.some((entry) =>
-      (entry.requirement === "always_required") !== (entry.predicate === "true"))) {
+  const procedures = [...input.procedure_requirements].sort((a, b) =>
+    `${a.procedure_id}:${a.procedure_occurrence}`.localeCompare(`${b.procedure_id}:${b.procedure_occurrence}`));
+  const stages = [...input.stage_requirements].sort((a, b) => a.stage_id.localeCompare(b.stage_id));
+  const invalidRequirement = (entry: ProcedureRequirementV1 | StageRequirementV1): boolean =>
+    (entry.requirement_class === "always" && (entry.predicate_result !== "true" || entry.basis_ref_ids.length !== 0))
+    || (entry.requirement_class === "required_if" && entry.predicate_result !== "deferred" && entry.basis_ref_ids.length === 0)
+    || new Set(entry.basis_ref_ids).size !== entry.basis_ref_ids.length;
+  if (procedures.length === 0 || stages.length === 0
+    || new Set(procedures.map((entry) => `${entry.procedure_id}:${entry.procedure_occurrence}`)).size !== procedures.length
+    || new Set(stages.map((entry) => entry.stage_id)).size !== stages.length
+    || procedures.some(invalidRequirement) || stages.some(invalidRequirement)) {
     throw new Error("proof_eligibility_applicability_predicates_invalid");
   }
-  const contractMarker = `sha256:${sha256Hex(canonicalJson({ components, predicates }))}` as const;
+  const contractMarker = `sha256:${sha256Hex(canonicalJson({ components, procedures, stages }))}` as const;
   const identity = {
     run_instance_id: input.run_instance_id,
     task_artifact_id: input.task_artifact_id,
@@ -58,6 +74,7 @@ export function buildProofEligibilitySnapshot(
     ...input,
     contract_marker: contractMarker,
     component_refs: components,
-    applicability_predicates: predicates
+    procedure_requirements: procedures,
+    stage_requirements: stages
   };
 }

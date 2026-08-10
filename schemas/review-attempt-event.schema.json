@@ -21,9 +21,22 @@
     "owner_token_hash": { "$ref": "#/$defs/sha256" }, "occurred_at": { "type": "string", "format": "date-time" },
     "raw_startup_observation": { "oneOf": [{ "$ref": "#/$defs/cliPreamble" }, { "$ref": "#/$defs/turnContext" }, { "type": "null" }] },
     "observed_profile": { "oneOf": [{ "$ref": "#/$defs/observedProfile" }, { "type": "null" }] },
-    "terminal_status": { "enum": ["success", "failed", null] }, "error_code": { "type": ["string", "null"] },
+    "terminal_status": { "enum": ["success", "spawn_failed", "startup_observation_failed", "profile_mismatch", "failed", "timeout", "blocked", "invalid_artifact", null] }, "error_code": { "type": ["string", "null"] },
     "output_artifact_hash": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] }
   },
+  "allOf": [
+    { "if": { "properties": { "event_type": { "const": "claimed" } }, "required": ["event_type"] },
+      "then": { "properties": { "sequence": { "const": 1 }, "raw_startup_observation": { "type": "null" }, "observed_profile": { "type": "null" }, "terminal_status": { "type": "null" }, "error_code": { "type": "null" }, "output_artifact_hash": { "type": "null" } } } },
+    { "if": { "properties": { "event_type": { "const": "started" } }, "required": ["event_type"] },
+      "then": { "properties": { "sequence": { "const": 2 }, "raw_startup_observation": { "type": "object" }, "observed_profile": { "type": "object" }, "terminal_status": { "type": "null" }, "error_code": { "type": "null" }, "output_artifact_hash": { "type": "null" } } } },
+    { "if": { "properties": { "event_type": { "const": "terminal" }, "sequence": { "const": 2 } }, "required": ["event_type", "sequence"] },
+      "then": { "properties": { "terminal_status": { "enum": ["spawn_failed", "startup_observation_failed"] }, "raw_startup_observation": { "type": "null" }, "observed_profile": { "type": "null" }, "error_code": { "type": "string", "minLength": 1 }, "output_artifact_hash": { "type": "null" } } } },
+    { "if": { "properties": { "event_type": { "const": "terminal" }, "sequence": { "const": 3 } }, "required": ["event_type", "sequence"] },
+      "then": { "properties": { "terminal_status": { "enum": ["success", "profile_mismatch", "failed", "timeout", "blocked", "invalid_artifact"] }, "raw_startup_observation": { "type": "null" }, "observed_profile": { "type": "null" } } } },
+    { "if": { "properties": { "event_type": { "const": "terminal" }, "terminal_status": { "const": "success" } }, "required": ["event_type", "terminal_status"] },
+      "then": { "properties": { "error_code": { "type": "null" }, "output_artifact_hash": { "$ref": "#/$defs/sha256" } } },
+      "else": { "if": { "properties": { "event_type": { "const": "terminal" } }, "required": ["event_type"] }, "then": { "properties": { "error_code": { "type": "string", "minLength": 1 } } } } }
+  ],
   "additionalProperties": false,
   "$defs": {
     "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },

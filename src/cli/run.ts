@@ -71,7 +71,7 @@ function printRunHelp(): void {
     "  node bin/ch run prepare-packet [--run <run-id>] --kind auto|plan|implementation|review|fix-pass|closeout [--dry-run]",
     "  node bin/ch run record-stage-result [--run <run-id>] --packet <id> --file <path> [--dry-run]",
     "  node bin/ch run launch-review --run <run-id> --procedure <plan-review|implementation-review|fix-pass-review> --request <path> --output <path> [--timeout-seconds <n>] [--stale-after-seconds <n>] [--evaluation-mode approved|shadow|replay|canary] [--candidate-policy-version <id> --candidate-binding-version <id> --candidate-profile-id <id>] [--source-application-decision <id>] [--dry-run]",
-    "  node bin/ch run launch-review --run <run-id> --bundle planning --request <path> --output <bundle.json> [--timeout-seconds <n>] [--stale-after-seconds <n>] [--dry-run]",
+    "  node bin/ch run launch-review --run <run-id> --bundle planning --lens-manifest <manifest.json> --request <path> --output <bundle.json> [--timeout-seconds <n>] [--stale-after-seconds <n>] [--dry-run]",
     "  node bin/ch run record-routing-evaluation --run <run-id> --file <bundle.json> [--dry-run]",
     "  node bin/ch run decide-routing-policy --run <run-id> --evaluation <id> --decision authorize-canary|promote|reject|rollback --policy-version <id> --binding-version <id> --approver <name> --reason <text> [--selector <file>] [--max-invocations <1-3>] [--dry-run]",
     "  node bin/ch run record-routing-policy-source-application --run <run-id> --decision <id> --commit <sha> --policy-file <path> --binding-file <path> --implementation-review <artifact-id> [--dry-run]",
@@ -604,7 +604,7 @@ async function runRecordStageResult(args: string[]): Promise<number> {
 
 async function runLaunchReview(args: string[]): Promise<number> {
   const options = parseOptions(args, new Set([
-    "run", "procedure", "bundle", "request", "output", "timeout-seconds", "stale-after-seconds",
+    "run", "procedure", "bundle", "lens-manifest", "request", "output", "timeout-seconds", "stale-after-seconds",
     "evaluation-mode", "approved-attempt", "evaluation-case", "candidate-policy-version",
     "candidate-binding-version", "candidate-profile-id", "candidate-output", "canary-authorization",
     "source-application-decision",
@@ -631,11 +631,14 @@ async function runLaunchReview(args: string[]): Promise<number> {
 
   if (bundle) {
     if (bundle !== "planning") throw new Error("--bundle must be planning.");
+    const lensManifestPath = stringOption(options, "lens-manifest");
+    if (!lensManifestPath) throw new Error("--lens-manifest is required for planning bundles.");
     const result = await launchRuntimePlanningReviewBundle(process.cwd(), {
       dryRun: dryRunOption(options),
       runId: stringOption(options, "run"),
       requestPath,
       outputPath,
+      lensManifestPath,
       timeoutSeconds: parsePositiveIntegerOption(options, "timeout-seconds"),
       staleAfterSeconds: parsePositiveIntegerOption(options, "stale-after-seconds")
     });

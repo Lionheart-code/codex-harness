@@ -13,7 +13,7 @@ import { openVerifiedTaskStateStore } from "../../dist/core/tasks.js";
 import { buildSuccessorDisposition, assertCompatibleSuccessorDisposition } from "../../dist/core/successor-disposition.js";
 import {
   buildReviewAttempt, buildReviewAttemptEvent, buildReviewCohort,
-  parseRawReviewStartupObservation, assertPlanningBundleIdentity
+  buildPlanningReviewBundleRecord, parseRawReviewStartupObservation, assertPlanningBundleIdentity
 } from "../../dist/core/review-cohort.js";
 import { aggregatePlanBlockers, reconcilePlanningLenses, validatePlanningLensResult } from "../../dist/core/plan-contract.js";
 import { buildProofRecord, extractTaskRequirements, parseProofDerivationRequest } from "../../dist/core/proof-record.js";
@@ -31,7 +31,9 @@ import {
 } from "../../dist/core/product-self-install-reconciliation.js";
 import { RunStagingDatabase } from "../../dist/core/run-staging-db.js";
 import { ProjectMemoryDatabase } from "../../dist/core/project-memory-db.js";
-import { buildRuntimeRun, extractEffectiveValidationCommands } from "../../dist/core/runtime.js";
+import {
+  buildRuntimeRun, extractEffectiveValidationCommands, extractReviewedAuthorityOverlay
+} from "../../dist/core/runtime.js";
 import { harvestRun } from "../../dist/core/harvest.js";
 
 const sha = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -86,6 +88,35 @@ test("phase 23.9 zero-owner materialization creates one exact owner and replays"
   assert.throws(() => materializeZeroOwnerTaskState(input), /task_contract_identity_mismatch/);
 });
 
+test("phase 23.9 zero-owner materialization compensates absent and existing pointers", { skip: process.platform === "win32" }, () => {
+  for (const existingPointer of [false, true]) {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ch-owner-rollback-project-"));
+    const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "ch-owner-rollback-worktree-"));
+    fs.mkdirSync(path.join(worktree, "tasks"));
+    fs.writeFileSync(path.join(worktree, "tasks/NEXT.md"), "# next\n");
+    const pointerPath = path.join(worktree, "TASK.md");
+    if (existingPointer) {
+      fs.writeFileSync(pointerPath, "# preserved\n");
+      fs.chmodSync(pointerPath, 0o444);
+    } else {
+      fs.chmodSync(worktree, 0o555);
+    }
+    try {
+      assert.throws(() => materializeZeroOwnerTaskState({
+        projectRoot, worktreePath: worktree, branch: `codex/rollback-${existingPointer}`,
+        baseCommitSha: "a".repeat(40), taskPath: "tasks/NEXT.md",
+        sourceArtifactIdentity: sha("# next\n"), pointerContents: "# replacement\n"
+      }));
+      assert.equal(openVerifiedTaskStateStore(projectRoot).enumerate().length, 0);
+      assert.equal(fs.existsSync(pointerPath), existingPointer);
+      if (existingPointer) assert.equal(fs.readFileSync(pointerPath, "utf8"), "# preserved\n");
+    } finally {
+      fs.chmodSync(worktree, 0o755);
+      if (fs.existsSync(pointerPath)) fs.chmodSync(pointerPath, 0o644);
+    }
+  }
+});
+
 test("phase 23.9 successor disposition rejects a conflicting authority", () => {
   const selected = buildSuccessorDisposition({
     source_run_instance_id: "instance", disposition: "selected_successor",
@@ -116,12 +147,13 @@ test("phase 23.9 raw startup observation binds one three-lens attempt", () => {
     cohort_id: sha("cohort"), attempt_id: "attempt", claim_id: "claim", profile_id: "sol-high-read-only",
     request_artifact_hash: sha("request"), expected_bundle_output_path: "bundle.json",
     claimed_event_id: sha("claimed"), started_event_id: sha("started"), terminal_event_id: sha("terminal"),
-    terminal_status: "success", verdict: "PASS", reviewed_source_head: "a".repeat(40),
+    terminal_status: "success", verdict: null, reviewed_source_head: null,
     implementation_diff_id: null, predecessor_review_attempt_id: null,
     predecessor_review_artifact_id: null, bundle_envelope_id: sha("bundle"),
     bundle_envelope_hash: sha("envelope"),
     lens_results: ["plan-review", "architecture-review", "db-storage-review"].map((procedure_id) => ({
-      procedure_id, artifact_id: sha(procedure_id), verdict: "PASS"
+      procedure_id, status: "recorded", artifact_id: sha(procedure_id),
+      artifact_hash: sha(procedure_id), verdict: "PASS"
     })), created_at: new Date(0).toISOString()
   };
   const attempt = buildReviewAttempt(attemptInput, observation, { model: "gpt-5.6-sol", sandbox: "read-only" });
@@ -144,7 +176,9 @@ test("phase 23.9 retained turn context has exact raw identity and legal event ch
     session_meta_raw_bytes: meta, session_meta_raw_byte_length: Buffer.byteLength(meta),
     session_meta_raw_sha256: sha(meta), turn_context_record_ordinal: 1,
     turn_context_raw_bytes: turn, turn_context_raw_byte_length: Buffer.byteLength(turn),
-    turn_context_raw_sha256: sha(turn), raw_pair_sha256: sha(meta + turn)
+    turn_context_raw_sha256: sha(turn), raw_pair_sha256: sha(JSON.stringify({
+      session_meta_raw_sha256: sha(meta), turn_context_raw_sha256: sha(turn)
+    }))
   };
   const observed = parseRawReviewStartupObservation(raw);
   assert.deepEqual({ model: observed.model, reasoning: observed.reasoning, sandbox: observed.sandbox },
@@ -189,7 +223,7 @@ test("phase 23.9 cohort identity includes exact output contracts and rejects cor
     run_instance_id: "instance", run_id: "run", task_artifact_id: sha("task"),
     immutable_base: "a".repeat(40), planning_review_source_head: "b".repeat(40),
     anchor_plan_sha: sha("plan"), output_contract_refs: refs, profile_id: "sol-high-read-only",
-    bundle_kind: "closure", predecessor_cohort_id: sha("prior"),
+    bundle_kind: "candidate", predecessor_cohort_id: null,
     required_lens_ids: ["plan-review", "architecture-review", "db-storage-review"],
     carried_lens_refs: [], context_core_hash: sha("context"), created_at: new Date(0).toISOString()
   };
@@ -198,6 +232,130 @@ test("phase 23.9 cohort identity includes exact output contracts and rejects cor
   assert.throws(() => buildReviewCohort({ ...input, output_contract_refs: [
     { ...refs[0], output_contract_id: sha("corrupt") }, refs[1], refs[2]
   ] }), /output_contract_identity_invalid/);
+});
+
+test("phase 23.9 selective closure and raw bundle record preserve exact lineage", () => {
+  const contract = (procedure_id) => {
+    const body = { procedure_id, registry_contract_version: "v1", skill_path: `${procedure_id}/SKILL.md`,
+      skill_hash: sha("skill"), output_format_path: `${procedure_id}/output.md`, output_format_hash: sha("format"),
+      output_schema_path: "schema.json", output_schema_hash: sha("schema") };
+    return { ...body, output_contract_id: sha(JSON.stringify(Object.fromEntries(Object.entries(body).sort(([a], [b]) => a.localeCompare(b))))) };
+  };
+  const carry = (procedure_id) => ({
+    procedure_id, source_cohort_id: sha("prior"), source_plan_sha: sha("old-plan"),
+    source_artifact_id: sha(`${procedure_id}:artifact`), source_artifact_hash: sha(`${procedure_id}:artifact`),
+    target_plan_sha: sha("new-plan"), unchanged_decision_ids: ["D1"], unchanged_trace_ids: ["T1"],
+    unchanged_contract_surface_ids: ["C1"], output_contract_id: sha(`${procedure_id}:contract`),
+    validation_hash: sha(`${procedure_id}:validation`)
+  });
+  const cohortInput = {
+    run_instance_id: "instance", run_id: "run", task_artifact_id: sha("task"),
+    immutable_base: "a".repeat(40), planning_review_source_head: "b".repeat(40),
+    anchor_plan_sha: sha("new-plan"), output_contract_refs: [contract("plan-review")],
+    profile_id: "sol-high-read-only", bundle_kind: "closure", predecessor_cohort_id: sha("prior"),
+    required_lens_ids: ["plan-review"], carried_lens_refs: [carry("architecture-review"), carry("db-storage-review")],
+    context_core_hash: sha("context"), created_at: new Date(0).toISOString()
+  };
+  const cohort = buildReviewCohort(cohortInput);
+  const rawEnvelope = '{"schema_version":1}\n';
+  const bundle = buildPlanningReviewBundleRecord({
+    run_instance_id: "instance", run_id: "run", cohort_id: cohort.record_id,
+    attempt_id: "attempt", raw_envelope_utf8: rawEnvelope,
+    ordered_lens_refs: [{ procedure_id: "plan-review", artifact_id: sha("lens"),
+      artifact_hash: sha("lens"), output_contract_id: contract("plan-review").output_contract_id }],
+    created_at: new Date(0).toISOString()
+  });
+  assert.equal(bundle.raw_envelope_hash, sha(rawEnvelope));
+  assert.throws(() => buildReviewCohort({ ...cohortInput,
+    required_lens_ids: ["plan-review", "architecture-review"], carried_lens_refs: [carry("architecture-review"), carry("db-storage-review")]
+  }), /lens_cardinality_invalid/);
+  assert.throws(() => buildReviewCohort({ ...cohortInput,
+    carried_lens_refs: [
+      { ...carry("architecture-review"), target_plan_sha: sha("wrong-plan") },
+      carry("db-storage-review")
+    ]
+  }), /carry_forward_invalid/);
+});
+
+test("phase 23.9 fix attempt persists exact predecessor and diff lineage", () => {
+  const observationRaw = "adapter=codex_cli\nprovider=openai\nmodel=gpt-5.6-sol\nreasoning=high\nsandbox=read-only\napproval_policy=never";
+  const observation = { schema_version: 1, source: "codex_cli_startup_preamble_v1", session_id: "session",
+    raw_bytes: observationRaw, raw_byte_length: Buffer.byteLength(observationRaw), raw_sha256: sha(observationRaw),
+    byte_start: 0, byte_end: Buffer.byteLength(observationRaw) };
+  const attempt = buildReviewAttempt({
+    run_instance_id: "instance", run_id: "run", attempt_kind: "single_review", cohort_id: null,
+    attempt_id: "attempt", claim_id: "claim", procedure_ids: ["fix-pass-review"], profile_id: "sol-high",
+    request_artifact_hash: sha("request"), expected_bundle_output_path: "review.md",
+    claimed_event_id: sha("claimed"), started_event_id: sha("started"), terminal_event_id: sha("terminal"),
+    terminal_status: "success", verdict: null, reviewed_source_head: "a".repeat(40),
+    implementation_diff_id: sha("exact-diff"), predecessor_review_attempt_id: "implementation-attempt",
+    predecessor_review_artifact_id: sha("implementation-artifact"), bundle_envelope_id: null,
+    bundle_envelope_hash: null, lens_results: [{ procedure_id: "fix-pass-review", status: "recorded",
+      verdict: "PASS", artifact_id: sha("fix-artifact"), artifact_hash: sha("fix-artifact") }],
+    created_at: new Date(0).toISOString()
+  }, observation, { model: "gpt-5.6-sol", sandbox: "read-only" });
+  assert.equal(attempt.implementation_diff_id, sha("exact-diff"));
+  assert.equal(attempt.predecessor_review_attempt_id, "implementation-attempt");
+  assert.equal(attempt.predecessor_review_artifact_id, sha("implementation-artifact"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ch-fix-attempt-"));
+  const staging = new RunStagingDatabase(root, root, "run-fix-attempt");
+  const run = buildRuntimeRun({
+    runId: "run-fix-attempt", taskPath: "TASK.md", phaseId: "23.9",
+    timestamp: new Date(0).toISOString(), repository: {
+      root_path: root, project_root: root, branch: "codex/test",
+      head_sha: "a".repeat(40), dirty: false
+    }
+  });
+  staging.saveRun(run);
+  staging.mutateRunWithDatabase(run.run_id, (current, database) => {
+    staging.storeIndependentRecord(database, {
+      recordKind: "review_attempt", recordId: attempt.record_id,
+      runId: run.run_id, phaseId: "23.9", taskPath: "TASK.md",
+      createdAt: attempt.created_at, status: attempt.terminal_status,
+      summary: "fix review attempt", payload: attempt
+    });
+    return current;
+  });
+  assert.deepEqual(staging.listIndependentRecords("review_attempt", run.run_id), [attempt]);
+});
+
+test("phase 23.9 reviewed baseline overlay is exact and source-grounded", () => {
+  const diffHash = "8".repeat(64);
+  const plan = [
+    `owner-authorized planning authority diff SHA-256: \`${diffHash}\``,
+    "", "Preapproval owner-authority overlay, already reviewed:", "",
+    "- `tasks/PHASE_23_9.md`;", "- `tasks/PHASE_31.md`;", "- `docs/IMPLEMENTATION_ROADMAP.md`.",
+    "", "Inspect only after this plan is recorded:"
+  ].join("\n");
+  assert.deepEqual(extractReviewedAuthorityOverlay(plan), {
+    diffHash,
+    paths: ["tasks/PHASE_23_9.md", "tasks/PHASE_31.md", "docs/IMPLEMENTATION_ROADMAP.md"]
+  });
+  assert.throws(() => extractReviewedAuthorityOverlay(plan.replace(diffHash, "requested")),
+    /REVIEWED_AUTHORITY_OVERLAY_MISSING/);
+});
+
+test("phase 23.9 durable review and proof schemas expose closed contracts", () => {
+  const readSchema = (name) => JSON.parse(fs.readFileSync(path.join(process.cwd(), "schemas", name), "utf8"));
+  const attempt = readSchema("review-attempt.schema.json");
+  const event = readSchema("review-attempt-event.schema.json");
+  const cohort = readSchema("review-cohort.schema.json");
+  const bundle = readSchema("planning-review-bundle-record.schema.json");
+  const proof = readSchema("proof-record.schema.json");
+  assert.deepEqual(attempt.properties.verdict, { type: "null" });
+  assert.deepEqual(attempt.properties.terminal_status.enum, [
+    "success", "spawn_failed", "startup_observation_failed", "profile_mismatch",
+    "failed", "timeout", "blocked", "invalid_artifact"
+  ]);
+  assert.equal(event.allOf.length, 5);
+  assert.equal(event.$defs.cliPreamble.additionalProperties, false);
+  assert.equal(event.$defs.turnContext.additionalProperties, false);
+  assert.equal(cohort.properties.required_lens_ids.minItems, 1);
+  assert.equal(bundle.properties.schema_version.const,
+    "phase-23.9.planning-review-bundle-record.v1");
+  assert.deepEqual(proof.properties.lifecycle_applicability.required, [
+    "snapshot_id", "contract_marker", "procedure_requirements", "stage_requirements"
+  ]);
 });
 
 test("phase 23.9 reconciliation aggregates blockers only and requires coverage", () => {
@@ -544,6 +702,10 @@ test("phase 23.9 reconciliation stops on drift and preserves runtime and source"
     assert.equal(fs.readFileSync(path.join(root, ".harness/runs/retained.txt"), "utf8"), "runtime\n");
     assert.equal(fs.existsSync(path.join(root, ".harness/install.json")), true);
     fs.writeFileSync(path.join(root, ".harness/config.toml"), managed.configToml);
+    fs.writeFileSync(path.join(root, "AGENTS.md"),
+      `unrelated\n${managed.agentsBlock.replace("Treat `.harness/`", "Treat altered `.harness/`")}tail\n`);
+    assert.throws(() => applySelfInstallReconciliation(journal), /managed_agents_block_drift/);
+    fs.writeFileSync(path.join(root, "AGENTS.md"), `unrelated\n${managed.agentsBlock}tail\n`);
     const quarantine = path.join(
       root, ".harness/self-install-reconciliation/quarantine", journal.journal_id.slice(7),
       ".harness/config.toml"
@@ -560,7 +722,7 @@ test("phase 23.9 reconciliation stops on drift and preserves runtime and source"
     assert.equal(completed.state, "completed_receipt");
     assert.equal(fs.existsSync(path.join(root, ".harness/install.json")), false);
     assert.equal(fs.readFileSync(path.join(root, ".harness/runs/retained.txt"), "utf8"), "runtime\n");
-    assert.equal(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8"), "unrelated\n\ntail\n");
+    assert.equal(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8"), "unrelated\ntail\n");
     const rolledBack = rollbackSelfInstallReconciliation(completed);
     assert.equal(rolledBack.state, "rolled_back");
     assert.equal(fs.existsSync(path.join(root, ".harness/install.json")), true);

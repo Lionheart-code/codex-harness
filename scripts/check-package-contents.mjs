@@ -135,7 +135,8 @@ function main() {
 
   const packInfo = runPackDryRun();
   const packedFiles = packInfo.files.map((entry) => entry.path.replace(/\\/g, "/"));
-  const packedFileSet = new Set(packedFiles);
+  const comparablePackedFiles = packedFiles.filter((entry) => !isIgnoredPlatformMetadata(entry));
+  const packedFileSet = new Set(comparablePackedFiles);
 
   const requiredPaths = [
     "package.json",
@@ -148,7 +149,8 @@ function main() {
   ].sort((left, right) => left.localeCompare(right));
 
   const missingPaths = requiredPaths.filter((relativePath) => !packedFileSet.has(relativePath));
-  const forbiddenPaths = packedFiles.filter((relativePath) => isForbiddenPackedPath(relativePath));
+  const unexpectedPaths = comparablePackedFiles.filter((relativePath) => !requiredPaths.includes(relativePath));
+  const forbiddenPaths = comparablePackedFiles.filter((relativePath) => isForbiddenPackedPath(relativePath));
   const binEntry = packInfo.files.find((entry) => entry.path.replace(/\\/g, "/") === "bin/ch");
 
   if (!binEntry) {
@@ -157,7 +159,7 @@ function main() {
     throw new Error(`Packed bin/ch is not executable. Observed mode: ${binEntry.mode}`);
   }
 
-  if (missingPaths.length > 0 || forbiddenPaths.length > 0) {
+  if (missingPaths.length > 0 || unexpectedPaths.length > 0 || forbiddenPaths.length > 0) {
     const lines = ["Phase 22 package contents check failed."];
 
     if (missingPaths.length > 0) {
@@ -168,6 +170,10 @@ function main() {
     if (forbiddenPaths.length > 0) {
       lines.push("Forbidden packed paths present:");
       lines.push(...forbiddenPaths.map((relativePath) => `- ${relativePath}`));
+    }
+    if (unexpectedPaths.length > 0) {
+      lines.push("Unexpected packed paths present:");
+      lines.push(...unexpectedPaths.map((relativePath) => `- ${relativePath}`));
     }
 
     throw new Error(lines.join("\n"));

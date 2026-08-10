@@ -115,6 +115,12 @@ function assertInstalledRuntimeFiles(installedPackageRoot) {
   if (missingFiles.length > 0) {
     throw new Error(`Installed tarball is missing required runtime files:\n- ${missingFiles.join("\n- ")}`);
   }
+  const installedFiles = listFilesRecursively(installedPackageRoot)
+    .map((filePath) => toPortableRelativePath(installedPackageRoot, filePath));
+  const unexpectedFiles = installedFiles.filter((relativePath) => !requiredFiles.includes(relativePath));
+  if (unexpectedFiles.length > 0) {
+    throw new Error(`Installed tarball has unexpected runtime files:\n- ${unexpectedFiles.join("\n- ")}`);
+  }
 }
 
 function assertBinShebang(binPath) {

@@ -100,6 +100,7 @@ function installedControlAuthority(root: string): {
   manifestId: `sha256:${string}`;
   catalogId: `sha256:${string}`;
   removablePaths: string[];
+  managedAgentsBlockHash: `sha256:${string}`;
 } {
   const installPath = path.join(root, ".harness", "install.json");
   const manifestPath = path.join(root, ".harness", "installer-ownership.v1.json");
@@ -187,7 +188,12 @@ function installedControlAuthority(root: string): {
       throw new Error(`reconciliation_managed_content_drift:${relativePath}`);
     }
   }
-  return { manifestId: manifest.manifest_id, catalogId: catalog.catalog_id, removablePaths };
+  return {
+    manifestId: manifest.manifest_id,
+    catalogId: catalog.catalog_id,
+    removablePaths,
+    managedAgentsBlockHash: `sha256:${sha256Hex(expectedManaged.agentsBlock)}`
+  };
 }
 
 function unrelatedAgentsHash(root: string): `sha256:${string}` | null {
@@ -214,6 +220,13 @@ export function prepareSelfInstallReconciliation(rootPath: string, dryRun = fals
   const matchingRegistry = registry?.projects.filter((entry) => path.resolve(entry.root_path) === root) ?? [];
   if (matchingRegistry.length > 1) throw new Error("product_registry_ownership_ambiguous");
   const authority = installedControlAuthority(root);
+  const agentsPath = path.join(root, "AGENTS.md");
+  const managedAgentsBlock = fs.existsSync(agentsPath)
+    ? extractManagedAgentsBlock(fs.readFileSync(agentsPath, "utf8")) : null;
+  if (managedAgentsBlock !== null
+    && `sha256:${sha256Hex(managedAgentsBlock)}` !== authority.managedAgentsBlockHash) {
+    throw new Error("reconciliation_managed_agents_block_unproven");
+  }
   const normalizedRemovable = new Set(authority.removablePaths);
   const unknownHarnessPaths: string[] = [];
   const walkHarness = (absoluteDirectory: string): void => {
@@ -254,10 +267,10 @@ export function prepareSelfInstallReconciliation(rootPath: string, dryRun = fals
     })),
     {
       path: "AGENTS.md#managed-block",
-      disposition: fs.existsSync(path.join(root, "AGENTS.md"))
+      disposition: managedAgentsBlock !== null
         ? "quarantine_then_remove" as const
         : "preserve_as_runtime" as const,
-      content_hash: hashPath(path.join(root, "AGENTS.md"))
+      content_hash: managedAgentsBlock === null ? null : authority.managedAgentsBlockHash
     },
     {
       path: getProjectRegistryPath(),
@@ -299,14 +312,24 @@ export function prepareSelfInstallReconciliation(rootPath: string, dryRun = fals
 }
 
 function stripManagedAgentsBlock(contents: string): string {
+  const block = extractManagedAgentsBlock(contents);
+  if (block === null) return contents;
+  const start = contents.indexOf(AGENTS_BLOCK_START);
+  return `${contents.slice(0, start)}${contents.slice(start + block.length)}`.replace(/\n{3,}/gu, "\n\n");
+}
+
+function extractManagedAgentsBlock(contents: string): string | null {
   const start = contents.indexOf(AGENTS_BLOCK_START);
   const end = contents.indexOf(AGENTS_BLOCK_END);
-  if (start < 0 && end < 0) return contents;
+  if (start < 0 && end < 0) return null;
   if (start < 0 || end < start || contents.indexOf(AGENTS_BLOCK_START, start + 1) >= 0
     || contents.indexOf(AGENTS_BLOCK_END, end + 1) >= 0) {
     throw new Error("managed_agents_block_ambiguous");
   }
-  return `${contents.slice(0, start)}${contents.slice(end + AGENTS_BLOCK_END.length)}`.replace(/\n{3,}/gu, "\n\n");
+  let endExclusive = end + AGENTS_BLOCK_END.length;
+  if (contents.slice(endExclusive, endExclusive + 2) === "\r\n") endExclusive += 2;
+  else if (contents[endExclusive] === "\n") endExclusive += 1;
+  return contents.slice(start, endExclusive);
 }
 
 function quarantineRootFor(journal: SelfInstallReconciliationV1): string {
@@ -355,7 +378,20 @@ function assertReconciliationPreflight(journal: SelfInstallReconciliationV1): vo
     if (item.disposition === "ambiguous_stop") {
       throw new Error(`reconciliation_ambiguous_inventory:${item.path}`);
     }
-    if (item.path === "AGENTS.md#managed-block" || item.path === getProjectRegistryPath()) continue;
+    if (item.path === "AGENTS.md#managed-block") {
+      const agentsPath = path.join(root, "AGENTS.md");
+      const block = fs.existsSync(agentsPath) ? extractManagedAgentsBlock(fs.readFileSync(agentsPath, "utf8")) : null;
+      const currentHash = block === null ? null : `sha256:${sha256Hex(block)}`;
+      const completed = journal.completed_steps.includes("removed:AGENTS.md#managed-block");
+      if (!completed && currentHash !== item.content_hash) {
+        throw new Error("reconciliation_managed_agents_block_drift");
+      }
+      if (completed && currentHash !== null) {
+        throw new Error("reconciliation_managed_agents_block_reappeared");
+      }
+      continue;
+    }
+    if (item.path === getProjectRegistryPath()) continue;
     if (item.path === ".harness/self-install-reconciliation") continue;
     const currentHash = hashPath(path.join(root, item.path));
     const completed = journal.completed_steps.includes(`removed:${item.path}`);

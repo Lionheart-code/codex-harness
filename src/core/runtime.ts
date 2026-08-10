@@ -125,6 +125,7 @@ import {
   buildReviewAttemptRecord,
   buildReviewAttemptEvent,
   buildReviewCohort,
+  buildPlanningReviewBundleRecord,
   parseRawReviewStartupObservation,
   type RawReviewStartupObservationV1
 } from "./review-cohort";
@@ -135,7 +136,8 @@ import {
 } from "./plan-contract";
 import {
   buildProofEligibilitySnapshot,
-  type ProofEligibilityApplicabilityPredicateV1
+  type ProcedureRequirementV1,
+  type StageRequirementV1
 } from "./proof-eligibility";
 
 export const RUNTIME_CONTRACT_NAMES = [
@@ -501,6 +503,7 @@ export interface LaunchPlanningReviewBundleOptions {
   runId?: string;
   requestPath: string;
   outputPath: string;
+  lensManifestPath: string;
   timeoutSeconds?: number;
   staleAfterSeconds?: number;
   dryRun?: boolean;
@@ -3829,6 +3832,56 @@ function loadRunForMutation(
   throw new Error("No current runtime run found. Run `node bin/ch run start --task TASK.md` first.");
 }
 
+function buildPhase239ProcedureRequirements(): ProcedureRequirementV1[] {
+  const always = (procedure_id: string, procedure_occurrence: ProcedureRequirementV1["procedure_occurrence"] = "single"): ProcedureRequirementV1 => ({
+    procedure_id, procedure_occurrence, requirement_class: "always",
+    predicate_id: "always", predicate_result: "true", basis_ref_ids: []
+  });
+  const conditional = (procedure_id: string, procedure_occurrence: ProcedureRequirementV1["procedure_occurrence"],
+    predicate_id: string, predicate_result: ProcedureRequirementV1["predicate_result"]): ProcedureRequirementV1 => ({
+    procedure_id, procedure_occurrence, requirement_class: "required_if", predicate_id,
+    predicate_result, basis_ref_ids: [`predicate-contract:${predicate_id}`]
+  });
+  return [
+    ...["task-intake", "task-prompt-writer", "draft-plan"].map((id) => always(id)),
+    always("plan-review", "planning_candidate"), always("architecture-review", "planning_candidate"),
+    always("db-storage-review", "planning_candidate"), always("implementation-review"),
+    always("verification-review"), always("delivery-facts-review"), always("phase-closeout-review"),
+    conditional("feature-decomposition", "single", "task_intake_requires_decomposition", "false"),
+    conditional("plan-amend", "single", "candidate_has_plan_blocker_or_owner_external_audit", "true"),
+    conditional("plan-review", "planning_closure", "amendment_manifest_intersects_lens", "true"),
+    conditional("architecture-review", "planning_closure", "amendment_manifest_intersects_lens", "true"),
+    conditional("db-storage-review", "planning_closure", "amendment_manifest_intersects_lens", "true"),
+    conditional("fix-pass-review", "single", "implementation_chain_requires_fix", "deferred"),
+    conditional("docs-consistency-review", "single", "authoritative_docs_prompts_skills_or_policy_changed", "true"),
+    conditional("harness-audit", "single", "lifecycle_runtime_or_authority_contract_changed", "true")
+  ];
+}
+
+function buildPhase239StageRequirements(): StageRequirementV1[] {
+  const always = (stage_id: string): StageRequirementV1 => ({
+    stage_id, requirement_class: "always", predicate_id: "always", predicate_result: "true", basis_ref_ids: []
+  });
+  const conditional = (stage_id: string, predicate_id: string,
+    predicate_result: StageRequirementV1["predicate_result"]): StageRequirementV1 => ({
+    stage_id, requirement_class: "required_if", predicate_id, predicate_result,
+    basis_ref_ids: [`predicate-contract:${predicate_id}`]
+  });
+  return [
+    ...["TASK_INTAKE_REQUIRED", "TASK_PROMPT_REQUIRED", "DRAFT_PLAN_REQUIRED", "PLAN_REVIEW_REQUIRED",
+      "PLAN_APPROVAL_REQUIRED", "IMPLEMENTATION_READY", "IMPLEMENTATION_REVIEW_REQUIRED",
+      "VERIFICATION_REVIEW_REQUIRED", "DELIVERY_FACTS_REVIEW_REQUIRED", "CLOSEOUT_REVIEW_REQUIRED",
+      "CLOSEOUT_READY", "HARVEST_READY", "RUN_HARVESTED"].map(always),
+    conditional("FEATURE_DECOMPOSITION_REQUIRED", "task_intake_requires_decomposition", "false"),
+    conditional("PLAN_AMEND_REQUIRED", "candidate_has_plan_blocker_or_owner_external_audit", "true"),
+    conditional("POST_AMEND_PLAN_REVIEW_REQUIRED", "amendment_requires_closure", "true"),
+    conditional("FIX_PASS_REQUIRED", "implementation_chain_requires_fix", "deferred"),
+    conditional("RUN_BLOCKED", "terminal_blocked", "deferred"),
+    conditional("RUN_QUARANTINED", "terminal_quarantined", "deferred"),
+    conditional("RUN_DISCARDED", "terminal_discarded", "deferred")
+  ];
+}
+
 export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptions): Promise<RuntimeServiceResult> {
   const roots = resolveHarnessRoots(cwd);
   const targetRoot = roots.targetRoot;
@@ -3945,47 +3998,8 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
         path: relativePath,
         content_hash: `sha256:${sha256Hex(fs.readFileSync(path.join(targetRoot, relativePath)))}`
       })),
-      applicability_predicates: (([
-        "task-intake", "task-prompt-writer", "draft-plan", "plan-review",
-        "architecture-review", "db-storage-review", "implementation-review",
-        "verification-review", "closeout-review"
-      ].map((procedureId) => ({
-        subject_kind: "procedure" as const,
-        subject_id: procedureId,
-        requirement: "always_required" as const,
-        predicate: "true" as const
-      })) as ProofEligibilityApplicabilityPredicateV1[]).concat([
-        {
-          subject_kind: "procedure" as const,
-          subject_id: "plan-amend",
-          requirement: "required_when" as const,
-          predicate: "blocking_findings_exist" as const
-        },
-        {
-          subject_kind: "procedure" as const,
-          subject_id: "fix-pass-review",
-          requirement: "required_when" as const,
-          predicate: "bounded_fix_pass_diff_exists" as const
-        },
-        {
-          subject_kind: "procedure" as const,
-          subject_id: "delivery-facts-review",
-          requirement: "required_when" as const,
-          predicate: "delivery_requested" as const
-        },
-        {
-          subject_kind: "stage" as const,
-          subject_id: "PLAN_APPROVAL_REQUIRED",
-          requirement: "always_required" as const,
-          predicate: "true" as const
-        },
-        {
-          subject_kind: "stage" as const,
-          subject_id: "FIX_PASS_REQUIRED",
-          requirement: "required_when" as const,
-          predicate: "bounded_fix_pass_diff_exists" as const
-        }
-      ])),
+      procedure_requirements: buildPhase239ProcedureRequirements(),
+      stage_requirements: buildPhase239StageRequirements(),
       bootstrap_eligibility: "eligible",
       created_at: finalRun.created_at
     });
@@ -5091,7 +5105,7 @@ function recordLaunchAttempt(
       started_event_id: acceptedCanonicalEvents[1].record_id,
       terminal_event_id: acceptedCanonicalEvents[2].record_id,
       terminal_status: "success",
-      verdict: validateReviewLaunchArtifact(observation.procedure_id, accepted.markdown).status as "PASS" | "FIX_REQUIRED" | "AMEND_REQUIRED",
+      verdict: null,
       reviewed_source_head: observation.reviewed_source_head ?? packet.core.source_snapshot,
       implementation_diff_id: (observation.reviewed_diff_hash ?? packet.overlay.content_hash) as `sha256:${string}`,
       predecessor_review_attempt_id: observation.predecessor_review_attempt_id ?? null,
@@ -5100,8 +5114,10 @@ function recordLaunchAttempt(
       bundle_envelope_hash: null,
       lens_results: [{
         procedure_id: observation.procedure_id,
+        status: "recorded",
         artifact_id: accepted.artifact.artifact_id as `sha256:${string}`,
-        verdict: validateReviewLaunchArtifact(observation.procedure_id, accepted.markdown).status
+        artifact_hash: accepted.artifact.artifact_id as `sha256:${string}`,
+        verdict: validateReviewLaunchArtifact(observation.procedure_id, accepted.markdown).status as "PASS" | "FIX_REQUIRED" | "AMEND_REQUIRED" | "BLOCKED"
       }],
       created_at: timestamp
     }, packet.rawStartup, {
@@ -5306,7 +5322,9 @@ function recordLaunchAttempt(
       const candidateOutput = path.resolve(targetRoot, observation.output_path);
       failureEvents.push(buildReviewAttemptEvent({ ...eventCommon, sequence: packet.rawStartup ? 3 : 2,
         event_type: "terminal", occurred_at: timestamp, raw_startup_observation: null, observed_profile: null,
-        terminal_status: "failed", error_code: failureClass,
+        terminal_status: failureClass === "timeout" ? "timeout"
+          : failureClass === "artifact_invalid" ? "invalid_artifact" : "failed",
+        error_code: failureClass,
         output_artifact_hash: fs.existsSync(candidateOutput)
           ? `sha256:${sha256Hex(fs.readFileSync(candidateOutput))}` : null }));
       const canonicalAttempt = buildReviewAttemptRecord({
@@ -5318,7 +5336,8 @@ function recordLaunchAttempt(
         claimed_event_id: failureEvents[0].record_id,
         started_event_id: packet.rawStartup ? failureEvents[1].record_id : null,
         terminal_event_id: failureEvents[failureEvents.length - 1].record_id,
-        terminal_status: "failed", verdict: "failed",
+        terminal_status: failureClass === "timeout" ? "timeout"
+          : failureClass === "artifact_invalid" ? "invalid_artifact" : "failed", verdict: null,
         reviewed_source_head: observation.reviewed_source_head ?? packet.core.source_snapshot,
         implementation_diff_id: (observation.reviewed_diff_hash ?? packet.overlay.content_hash) as `sha256:${string}`,
         predecessor_review_attempt_id: observation.predecessor_review_attempt_id ?? null,
@@ -5426,7 +5445,10 @@ function extractRawStartupObservation(stdout: string): RawReviewStartupObservati
     turn_context_raw_bytes: turnRaw,
     turn_context_raw_byte_length: turn.raw.length,
     turn_context_raw_sha256: `sha256:${sha256Hex(turn.raw)}`,
-    raw_pair_sha256: `sha256:${sha256Hex(Buffer.concat([meta.raw, turn.raw]))}`
+    raw_pair_sha256: `sha256:${sha256Hex(canonicalJson({
+      session_meta_raw_sha256: `sha256:${sha256Hex(meta.raw)}`,
+      turn_context_raw_sha256: `sha256:${sha256Hex(turn.raw)}`
+    }))}`
   };
 }
 
@@ -5454,6 +5476,29 @@ export async function launchRuntimePlanningReviewBundle(
   const staleAfterSeconds = validateLaunchSeconds(options.staleAfterSeconds, profile.stale_after_seconds, "--stale-after-seconds");
   const requestPath = resolveLaunchRequestPath(targetRoot, options.requestPath);
   const outputPath = resolveLaunchOutputPath(targetRoot, current.run, options.outputPath);
+  const lensManifestPath = path.resolve(targetRoot, options.lensManifestPath);
+  ensureInsideTargetRoot(targetRoot, lensManifestPath);
+  const lensManifestBytes = fs.readFileSync(lensManifestPath);
+  const lensManifest = JSON.parse(lensManifestBytes.toString("utf8")) as {
+    schema_version?: unknown; bundle_kind?: unknown; required_lens_ids?: unknown;
+    predecessor_cohort_id?: unknown; carried_lens_refs?: unknown;
+  };
+  const manifestKeys = Object.keys(lensManifest).sort();
+  if (canonicalJson(manifestKeys) !== canonicalJson([
+    "bundle_kind", "carried_lens_refs", "predecessor_cohort_id", "required_lens_ids", "schema_version"
+  ]) || lensManifest.schema_version !== 1
+    || !["candidate", "closure"].includes(String(lensManifest.bundle_kind))
+    || !Array.isArray(lensManifest.required_lens_ids)
+    || !Array.isArray(lensManifest.carried_lens_refs)) {
+    throw new Error("planning_review_lens_manifest_invalid");
+  }
+  const expectedProcedures = lensManifest.required_lens_ids.map(String);
+  const allPlanningLenses = ["plan-review", "architecture-review", "db-storage-review"];
+  if (expectedProcedures.length < 1 || expectedProcedures.length > 3
+    || new Set(expectedProcedures).size !== expectedProcedures.length
+    || expectedProcedures.some((entry) => !allPlanningLenses.includes(entry))) {
+    throw new Error("planning_review_lens_manifest_required_set_invalid");
+  }
   const effectivePlanSha = current.run.approvals[current.run.approvals.length - 1]?.reviewed_plan_artifact_id;
   if (!effectivePlanSha || !/^sha256:[a-f0-9]{64}$/u.test(effectivePlanSha)) {
     throw new Error("planning_review_bundle_effective_plan_identity_missing");
@@ -5467,7 +5512,7 @@ export async function launchRuntimePlanningReviewBundle(
     throw new Error("planning_review_bundle_immutable_base_missing");
   }
   const expectedOutputContracts = Object.fromEntries(
-    ["plan-review", "architecture-review", "db-storage-review"].map((procedureId) => [
+    expectedProcedures.map((procedureId) => [
       procedureId,
       `sha256:${sha256Hex(fs.readFileSync(path.join(
         targetRoot, "skills", "self-hosting", procedureId, "references", "output-format.md"
@@ -5475,7 +5520,7 @@ export async function launchRuntimePlanningReviewBundle(
     ])
   );
   const outputSchemaPath = "schemas/planning-lens-result.schema.json";
-  const outputContractRefs = ["plan-review", "architecture-review", "db-storage-review"].map((procedureId) => {
+  const outputContractRefs = expectedProcedures.map((procedureId) => {
     const descriptor = registry.procedures.find((entry) => entry.procedure_id === procedureId);
     if (!descriptor) throw new Error(`planning_review_bundle_procedure_missing:${procedureId}`);
     const body = {
@@ -5500,22 +5545,28 @@ export async function launchRuntimePlanningReviewBundle(
     .filter((entry) => (entry as { record_kind?: unknown }).record_kind === "review_cohort") as Array<{ record_id: `sha256:${string}`; created_at: string }>;
   priorCohorts.sort((left, right) => left.created_at.localeCompare(right.created_at));
   const requestBody = fs.readFileSync(requestPath, "utf8").trim();
-  const bundleKind = /closure/iu.test(requestBody) ? "closure" as const : "candidate" as const;
+  const bundleKind = lensManifest.bundle_kind as "candidate" | "closure";
+  const predecessorCohortId = lensManifest.predecessor_cohort_id === null
+    ? null : String(lensManifest.predecessor_cohort_id) as `sha256:${string}`;
+  const carriedLensRefs = lensManifest.carried_lens_refs as Parameters<typeof buildReviewCohort>[0]["carried_lens_refs"];
+  if (bundleKind === "closure" && !priorCohorts.some((entry) => entry.record_id === predecessorCohortId)) {
+    throw new Error("planning_review_lens_manifest_predecessor_missing");
+  }
   const cohort = buildReviewCohort({
     run_instance_id: current.run.run_instance_id ?? "", run_id: current.run.run_id,
     task_artifact_id: expectedTaskArtifactId as `sha256:${string}`, immutable_base: expectedImmutableBase,
     planning_review_source_head: expectedSourceHead, anchor_plan_sha: effectivePlanSha as `sha256:${string}`,
     output_contract_refs: outputContractRefs, profile_id: profile.adapter_id, bundle_kind: bundleKind,
-    predecessor_cohort_id: bundleKind === "closure" ? priorCohorts[priorCohorts.length - 1]?.record_id ?? null : null,
-    required_lens_ids: ["plan-review", "architecture-review", "db-storage-review"],
-    carried_lens_refs: [], context_core_hash: contextCoreHash, created_at: current.run.updated_at
+    predecessor_cohort_id: predecessorCohortId,
+    required_lens_ids: expectedProcedures,
+    carried_lens_refs: carriedLensRefs, context_core_hash: contextCoreHash, created_at: current.run.updated_at
   });
   const requestMarkdown = [
     requestBody,
     "",
-    "Return one JSON object with schema_version=1, common identity fields, three",
-    "structured lens_results, and lens_documents containing untouched Markdown",
-    "for plan-review, architecture-review, and db-storage-review. Read each",
+    "Return one JSON object with schema_version=1, common identity fields, exactly",
+    `the manifest-selected lens_results and lens_documents for: ${expectedProcedures.join(", ")}.`,
+    "Keep each lens document untouched. Read each",
     "checked-in SKILL.md and references/output-format.md.",
     "",
     `plan_sha: ${effectivePlanSha}`,
@@ -5524,6 +5575,7 @@ export async function launchRuntimePlanningReviewBundle(
     `immutable_base: ${expectedImmutableBase}`,
     `output_contract_ids: ${canonicalJson(expectedOutputContracts)}`
     ,`review_cohort_id: ${cohort.record_id}`
+    ,`lens_manifest_sha256: sha256:${sha256Hex(lensManifestBytes)}`
   ].join("\n");
   const observationBase = {
     procedure_id: "planning-review-bundle",
@@ -5580,7 +5632,7 @@ export async function launchRuntimePlanningReviewBundle(
       run_instance_id: current.run.run_instance_id ?? "", run_id: current.run.run_id,
       attempt_kind: "planning_bundle" as const, cohort_id: cohort.record_id,
       attempt_id: attemptId, claim_id: attemptId,
-      procedure_ids: ["plan-review", "architecture-review", "db-storage-review"],
+      procedure_ids: expectedProcedures,
       request_artifact_hash: observationBase.request_artifact_hash as `sha256:${string}`,
       expected_bundle_output_path: observationBase.expected_output_path,
       owner_token_hash: `sha256:${sha256Hex(attemptId)}` as `sha256:${string}`
@@ -5591,8 +5643,13 @@ export async function launchRuntimePlanningReviewBundle(
       raw_startup_observation: rawStartup, observed_profile: parseRawReviewStartupObservation(rawStartup),
       terminal_status: null, error_code: null, output_artifact_hash: null }));
     events.push(buildReviewAttemptEvent({ ...common, sequence: rawStartup ? 3 : 2, event_type: "terminal", occurred_at: failedAt,
-      raw_startup_observation: null, observed_profile: null, terminal_status: "failed", error_code: errorCode,
-      output_artifact_hash: fs.existsSync(outputPath) ? `sha256:${sha256Hex(fs.readFileSync(outputPath))}` : null }));
+      raw_startup_observation: null, observed_profile: null,
+      terminal_status: rawStartup
+        ? errorCode === "timeout" ? "timeout" : errorCode === "artifact_invalid" ? "invalid_artifact" : "failed"
+        : errorCode === "startup_observation_failed" ? "startup_observation_failed" : "spawn_failed",
+      error_code: errorCode,
+      output_artifact_hash: rawStartup && fs.existsSync(outputPath)
+        ? `sha256:${sha256Hex(fs.readFileSync(outputPath))}` : null }));
     const attempt = buildReviewAttemptRecord({
       run_instance_id: common.run_instance_id, run_id: common.run_id, attempt_kind: common.attempt_kind,
       cohort_id: common.cohort_id, attempt_id: common.attempt_id, claim_id: common.claim_id,
@@ -5602,7 +5659,11 @@ export async function launchRuntimePlanningReviewBundle(
       claimed_event_id: events[0].record_id,
       started_event_id: rawStartup ? events[1].record_id : null,
       terminal_event_id: events[events.length - 1].record_id,
-      terminal_status: "failed", verdict: "failed", reviewed_source_head: expectedSourceHead,
+      terminal_status: rawStartup
+        ? errorCode === "timeout" ? "timeout"
+          : errorCode === "artifact_invalid" ? "invalid_artifact" : "failed"
+        : errorCode === "startup_observation_failed" ? "startup_observation_failed" : "spawn_failed",
+      verdict: null, reviewed_source_head: null,
       implementation_diff_id: null, predecessor_review_attempt_id: null,
       predecessor_review_artifact_id: null, bundle_envelope_id: null, bundle_envelope_hash: null,
       lens_results: [], created_at: failedAt
@@ -5655,11 +5716,10 @@ export async function launchRuntimePlanningReviewBundle(
   ])) {
     throw new Error("planning_review_bundle_schema_invalid:properties");
   }
-  if (!Array.isArray(envelope.lens_results) || envelope.lens_results.length !== 3
+  if (!Array.isArray(envelope.lens_results) || envelope.lens_results.length !== expectedProcedures.length
     || !envelope.lens_documents || typeof envelope.lens_documents !== "object") {
     throw new Error("planning_review_bundle_schema_invalid:cardinality");
   }
-  const expectedProcedures = ["plan-review", "architecture-review", "db-storage-review"];
   if (envelope.schema_version !== 1
     || envelope.bundle_id !== cohort.record_id
     || envelope.plan_sha !== effectivePlanSha
@@ -5698,6 +5758,19 @@ export async function launchRuntimePlanningReviewBundle(
     started_at: child.startTime
   }))}`;
   const bundleRecordedAt = child.completedTime ?? nowIso();
+  const rawEnvelopeUtf8 = fs.readFileSync(outputPath, "utf8");
+  const bundleRecord = buildPlanningReviewBundleRecord({
+    run_instance_id: current.run.run_instance_id ?? "", run_id: current.run.run_id,
+    cohort_id: cohort.record_id, attempt_id: bundleAttemptId,
+    raw_envelope_utf8: rawEnvelopeUtf8,
+    ordered_lens_refs: expectedProcedures.map((procedureId) => ({
+      procedure_id: procedureId,
+      artifact_id: `sha256:${sha256Hex(envelope.lens_documents[procedureId])}` as `sha256:${string}`,
+      artifact_hash: `sha256:${sha256Hex(envelope.lens_documents[procedureId])}` as `sha256:${string}`,
+      output_contract_id: outputContractRefs.find((entry) => entry.procedure_id === procedureId)!.output_contract_id
+    })),
+    created_at: bundleRecordedAt
+  });
   const bundleEventCommon = {
     run_instance_id: current.run.run_instance_id ?? "", run_id: current.run.run_id,
     attempt_kind: "planning_bundle" as const, cohort_id: cohort.record_id,
@@ -5731,16 +5804,18 @@ export async function launchRuntimePlanningReviewBundle(
     started_event_id: bundleEvents[1].record_id,
     terminal_event_id: bundleEvents[2].record_id,
     terminal_status: "success",
-    verdict: envelope.lens_results.every((result) => result.verdict === "PASS") ? "PASS" : "AMEND_REQUIRED",
-    reviewed_source_head: envelope.source_head,
+    verdict: null,
+    reviewed_source_head: null,
     implementation_diff_id: null,
     predecessor_review_attempt_id: null,
     predecessor_review_artifact_id: null,
-    bundle_envelope_id: envelope.bundle_id,
-    bundle_envelope_hash: `sha256:${sha256Hex(fs.readFileSync(outputPath))}`,
+    bundle_envelope_id: bundleRecord.record_id,
+    bundle_envelope_hash: bundleRecord.content_hash,
     lens_results: envelope.lens_results.map((result) => ({
       procedure_id: result.procedure_id,
+      status: "recorded",
       artifact_id: `sha256:${sha256Hex(envelope.lens_documents[result.procedure_id])}`,
+      artifact_hash: `sha256:${sha256Hex(envelope.lens_documents[result.procedure_id])}`,
       verdict: result.verdict
     })),
     created_at: bundleRecordedAt
@@ -5840,11 +5915,11 @@ export async function launchRuntimePlanningReviewBundle(
       summary: "Terminal planning review bundle attempt.", payload: attempt
     });
     staging.storeIndependentRecord(database, {
-      recordKind: "planning_review_bundle", recordId: envelope.bundle_id,
+      recordKind: "planning_review_bundle", recordId: bundleRecord.record_id,
       runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
       createdAt: recordedAt, status: "terminal",
       summary: "Three-lens planning review bundle.",
-      payload: { ...envelope, raw_startup_observation: rawStartup, attempt }
+      payload: bundleRecord
     });
     return nextRun;
   }, {
@@ -5876,7 +5951,10 @@ export async function launchRuntimePlanningReviewBundle(
   };
   } catch (error) {
     const failedAt = child.completedTime ?? nowIso();
-    persistPlanningBundleFailure(child.startTime, failedAt, "artifact_invalid", observedStartup);
+    const errorCode = !observedStartup && error instanceof Error
+      && error.message.startsWith("review_startup_")
+      ? "startup_observation_failed" : "artifact_invalid";
+    persistPlanningBundleFailure(child.startTime, failedAt, errorCode, observedStartup);
     throw error;
   }
 }
@@ -7767,6 +7845,7 @@ export async function bindRuntimeImplementationBaseline(
     throw new Error(`Implementation baseline plan artifact not found: ${options.planPath}`);
   }
   const planHash = sha256Hex(fs.readFileSync(absolutePlanPath));
+  const planMarkdown = fs.readFileSync(absolutePlanPath, "utf8");
   const approval = current.run.approvals.find(
     (entry) =>
       entry.approval_id === options.approvalId &&
@@ -7895,17 +7974,27 @@ export async function bindRuntimeImplementationBaseline(
       );
     }
     planningHead = reviewedPlanningHead;
+    const reviewedOverlay = extractReviewedAuthorityOverlay(planMarkdown);
+    const changedPaths = runGitCommand(targetRoot, [
+      "diff", "--name-only", expectedParent, expectedHead, "--"
+    ]);
     const authorityDiff = runGitCommand(targetRoot, [
       "diff",
       "--binary",
       expectedParent,
       expectedHead,
       "--",
+      ...reviewedOverlay.paths,
     ]);
-    if (authorityDiff.status !== 0) {
+    const exactPaths = changedPaths.stdout.split(/\r?\n/u).filter(Boolean).sort();
+    if (changedPaths.status !== 0 || authorityDiff.status !== 0
+      || canonicalJson(exactPaths) !== canonicalJson([...reviewedOverlay.paths].sort())) {
       throw new Error("IMPLEMENTATION_BASELINE_DIFF_UNAVAILABLE");
     }
     authorityDiffHash = sha256Hex(authorityDiff.stdout);
+    if (authorityDiffHash !== reviewedOverlay.diffHash) {
+      throw new Error("IMPLEMENTATION_BASELINE_AUTHORITY_OVERLAY_MISMATCH");
+    }
   }
 
   const timestamp = nowIso();
@@ -7997,6 +8086,22 @@ export async function bindRuntimeImplementationBaseline(
   };
 }
 
+export function extractReviewedAuthorityOverlay(planMarkdown: string): {
+  diffHash: string;
+  paths: string[];
+} {
+  const hashMatch = /owner-authorized(?: planning)? authority diff SHA-256[\s\S]{0,240}?`([a-f0-9]{64})`/iu.exec(planMarkdown);
+  const section = /Preapproval owner-authority overlay[^\n]*\n[\s\S]*?(?=\n\n(?:Inspect only|No other source))/iu.exec(planMarkdown)?.[0];
+  const paths = section
+    ? [...section.matchAll(/^- `([^`]+)`[;,.]?$/gmu)].map((match) => match[1])
+    : [];
+  if (!hashMatch || paths.length === 0 || new Set(paths).size !== paths.length
+    || paths.some((entry) => path.isAbsolute(entry) || entry.split("/").includes(".."))) {
+    throw new Error("IMPLEMENTATION_BASELINE_REVIEWED_AUTHORITY_OVERLAY_MISSING");
+  }
+  return { diffHash: hashMatch[1], paths };
+}
+
 export function recordRuntimeProof(
   cwd: string,
   options: RecordIndependentFileOptions
@@ -8025,7 +8130,9 @@ export function recordRuntimeProof(
     immutable_base: string;
     activation_source_head: string;
     bootstrap_eligibility: string;
-    applicability_predicates: ProofEligibilityApplicabilityPredicateV1[];
+    contract_marker: `sha256:${string}`;
+    procedure_requirements: ProcedureRequirementV1[];
+    stage_requirements: StageRequirementV1[];
   };
   if (snapshot.bootstrap_eligibility !== "eligible") throw new Error("proof_run_not_eligible");
   const taskPath = path.join(roots.targetRoot, current.run.active_task_path ?? current.run.task_path);
@@ -8375,13 +8482,20 @@ export function recordRuntimeProof(
     eligibility_snapshot_id: snapshot.snapshot_id,
     lifecycle_applicability: {
       snapshot_id: snapshot.snapshot_id,
-      resolved: snapshot.applicability_predicates.map((predicate) => {
-        const required = predicate.requirement === "always_required"
-          || predicate.predicate === "blocking_findings_exist" && current.run.artifacts.some((entry) => entry.kind.includes("plan-amend"))
-          || predicate.predicate === "bounded_fix_pass_diff_exists" && current.run.review_results.some((entry) => reviewSourceMatchesProcedure(entry.source, "fix-pass-review"))
-          || predicate.predicate === "delivery_requested" && current.run.delivery_facts.length > 0;
-        return { ...predicate, resolved_required: required };
-      })
+      contract_marker: snapshot.contract_marker,
+      procedure_requirements: snapshot.procedure_requirements.map((entry) => entry.predicate_result !== "deferred"
+        ? entry
+        : { ...entry, predicate_result: current.run.review_results.some((reviewResult) =>
+            reviewSourceMatchesProcedure(reviewResult.source, entry.procedure_id)) ? "true" as const : "false" as const,
+          basis_ref_ids: [`run:${current.run.run_instance_id}:procedure:${entry.procedure_id}`] }),
+      stage_requirements: snapshot.stage_requirements.map((entry) => entry.predicate_result !== "deferred"
+        ? entry
+        : { ...entry, predicate_result: entry.stage_id === "FIX_PASS_REQUIRED"
+            ? current.run.review_results.some((reviewResult) => reviewSourceMatchesProcedure(reviewResult.source, "fix-pass-review")) ? "true" as const : "false" as const
+            : entry.stage_id === "RUN_DISCARDED" ? current.run.lifecycle_status === "discarded" ? "true" as const : "false" as const
+            : entry.stage_id === "RUN_QUARANTINED" ? "false" as const
+            : current.run.run_issues.length > 0 ? "true" as const : "false" as const,
+          basis_ref_ids: [`run:${current.run.run_instance_id}:stage:${entry.stage_id}`] })
     },
     task_verifiability_map: taskMap,
     evidence_refs: evidenceRefs,

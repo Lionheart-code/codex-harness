@@ -14,6 +14,20 @@ export interface ProcedureOutputContractRefV1 {
   output_contract_id: Sha256;
 }
 
+export interface ReviewCarryForwardRefV1 {
+  procedure_id: string;
+  source_cohort_id: Sha256;
+  source_plan_sha: Sha256;
+  source_artifact_id: Sha256;
+  source_artifact_hash: Sha256;
+  target_plan_sha: Sha256;
+  unchanged_decision_ids: string[];
+  unchanged_trace_ids: string[];
+  unchanged_contract_surface_ids: string[];
+  output_contract_id: Sha256;
+  validation_hash: Sha256;
+}
+
 export interface ReviewCohortV1 {
   schema_version: 1;
   record_kind: "review_cohort";
@@ -30,7 +44,7 @@ export interface ReviewCohortV1 {
   bundle_kind: "candidate" | "closure";
   predecessor_cohort_id: Sha256 | null;
   required_lens_ids: string[];
-  carried_lens_refs: Sha256[];
+  carried_lens_refs: ReviewCarryForwardRefV1[];
   context_core_hash: Sha256;
   created_at: string;
 }
@@ -38,18 +52,92 @@ export interface ReviewCohortV1 {
 export function buildReviewCohort(
   input: Omit<ReviewCohortV1, "schema_version" | "record_kind" | "record_id" | "content_hash">
 ): ReviewCohortV1 {
-  if (canonicalJson(input.required_lens_ids) !== canonicalJson(["plan-review", "architecture-review", "db-storage-review"])
-    || input.output_contract_refs.length !== 3
-    || new Set(input.output_contract_refs.map((entry) => entry.procedure_id)).size !== 3) {
+  const allLenses = ["plan-review", "architecture-review", "db-storage-review"];
+  const required = input.required_lens_ids;
+  const carried = input.carried_lens_refs.map((entry) => entry.procedure_id);
+  if (required.length < 1 || new Set(required).size !== required.length
+    || new Set(carried).size !== carried.length
+    || canonicalJson([...required, ...carried].sort()) !== canonicalJson([...allLenses].sort())
+    || input.output_contract_refs.length !== required.length
+    || canonicalJson(input.output_contract_refs.map((entry) => entry.procedure_id)) !== canonicalJson(required)
+    || (input.bundle_kind === "candidate"
+      ? canonicalJson(required) !== canonicalJson(allLenses)
+        || input.predecessor_cohort_id !== null || carried.length !== 0
+      : input.predecessor_cohort_id === null || carried.length !== allLenses.length - required.length)) {
     throw new Error("review_cohort_lens_cardinality_invalid");
   }
   for (const contract of input.output_contract_refs) {
     const expected = sha(canonicalJson(Object.fromEntries(Object.entries(contract).filter(([key]) => key !== "output_contract_id"))));
     if (contract.output_contract_id !== expected) throw new Error(`review_cohort_output_contract_identity_invalid:${contract.procedure_id}`);
   }
+  for (const ref of input.carried_lens_refs) {
+    if (ref.source_cohort_id !== input.predecessor_cohort_id
+      || ref.target_plan_sha !== input.anchor_plan_sha
+      || ref.source_artifact_id !== ref.source_artifact_hash
+      || ref.unchanged_decision_ids.length !== new Set(ref.unchanged_decision_ids).size
+      || ref.unchanged_trace_ids.length !== new Set(ref.unchanged_trace_ids).size
+      || ref.unchanged_contract_surface_ids.length !== new Set(ref.unchanged_contract_surface_ids).size) {
+      throw new Error(`review_cohort_carry_forward_invalid:${ref.procedure_id}`);
+    }
+  }
   const content = { schema_version: 1 as const, record_kind: "review_cohort" as const, ...input };
   const contentHash = sha(canonicalJson(content));
-  return { ...content, content_hash: contentHash, record_id: contentHash };
+  const identity = {
+    run_instance_id: input.run_instance_id,
+    task_artifact_id: input.task_artifact_id,
+    immutable_base: input.immutable_base,
+    planning_review_source_head: input.planning_review_source_head,
+    anchor_plan_sha: input.anchor_plan_sha,
+    ordered_output_contract_ids: input.output_contract_refs.map((entry) => entry.output_contract_id),
+    context_core_hash: input.context_core_hash,
+    bundle_kind: input.bundle_kind,
+    predecessor_cohort_id: input.predecessor_cohort_id,
+    profile_id: input.profile_id
+  };
+  return { ...content, content_hash: contentHash, record_id: sha(canonicalJson(identity)) };
+}
+
+export interface PlanningReviewBundleRecordV1 {
+  schema_version: "phase-23.9.planning-review-bundle-record.v1";
+  record_kind: "planning_review_bundle";
+  record_id: Sha256;
+  content_hash: Sha256;
+  run_instance_id: string;
+  run_id: string;
+  cohort_id: Sha256;
+  attempt_id: string;
+  raw_envelope_utf8: string;
+  raw_envelope_hash: Sha256;
+  ordered_lens_refs: Array<{
+    procedure_id: string;
+    artifact_id: Sha256;
+    artifact_hash: Sha256;
+    output_contract_id: Sha256;
+  }>;
+  created_at: string;
+}
+
+export function buildPlanningReviewBundleRecord(
+  input: Omit<PlanningReviewBundleRecordV1, "schema_version" | "record_kind" | "record_id" | "content_hash" | "raw_envelope_hash">
+): PlanningReviewBundleRecordV1 {
+  if (input.ordered_lens_refs.length < 1
+    || new Set(input.ordered_lens_refs.map((entry) => entry.procedure_id)).size !== input.ordered_lens_refs.length
+    || input.ordered_lens_refs.some((entry) => entry.artifact_id !== entry.artifact_hash)) {
+    throw new Error("planning_review_bundle_record_lens_refs_invalid");
+  }
+  const rawEnvelopeHash = sha(input.raw_envelope_utf8);
+  const content = {
+    schema_version: "phase-23.9.planning-review-bundle-record.v1" as const,
+    record_kind: "planning_review_bundle" as const,
+    ...input,
+    raw_envelope_hash: rawEnvelopeHash
+  };
+  const contentHash = sha(canonicalJson(content));
+  const recordId = sha(canonicalJson({
+    run_instance_id: input.run_instance_id, cohort_id: input.cohort_id,
+    attempt_id: input.attempt_id, raw_envelope_hash: rawEnvelopeHash
+  }));
+  return { ...content, content_hash: contentHash, record_id: recordId };
 }
 
 export interface ObservedReviewProfileV1 {
@@ -112,15 +200,21 @@ export interface ReviewAttemptV1 {
   claimed_event_id: Sha256;
   started_event_id: Sha256 | null;
   terminal_event_id: Sha256;
-  terminal_status: "success" | "failed";
-  verdict: "PASS" | "FIX_REQUIRED" | "AMEND_REQUIRED" | "failed" | null;
+  terminal_status: "success" | "spawn_failed" | "startup_observation_failed" | "profile_mismatch" | "failed" | "timeout" | "blocked" | "invalid_artifact";
+  verdict: null;
   reviewed_source_head: string | null;
   implementation_diff_id: Sha256 | null;
   predecessor_review_attempt_id: string | null;
   predecessor_review_artifact_id: string | null;
   bundle_envelope_id: string | null;
   bundle_envelope_hash: Sha256 | null;
-  lens_results: Array<{ procedure_id: string; artifact_id: Sha256; verdict: string }>;
+  lens_results: Array<{
+    procedure_id: string;
+    status: "recorded" | "unavailable";
+    verdict: "PASS" | "FIX_REQUIRED" | "AMEND_REQUIRED" | "BLOCKED" | null;
+    artifact_id: Sha256 | null;
+    artifact_hash: Sha256 | null;
+  }>;
   created_at: string;
 }
 
@@ -144,7 +238,7 @@ export interface ReviewAttemptEventV1 {
   occurred_at: string;
   raw_startup_observation: RawReviewStartupObservationV1 | null;
   observed_profile: ObservedReviewProfileV1 | null;
-  terminal_status: "success" | "failed" | null;
+  terminal_status: "success" | "spawn_failed" | "startup_observation_failed" | "profile_mismatch" | "failed" | "timeout" | "blocked" | "invalid_artifact" | null;
   error_code: string | null;
   output_artifact_hash: Sha256 | null;
 }
@@ -155,14 +249,23 @@ export function buildReviewAttemptEvent(
   const sequenceValid = input.sequence === 1 && input.event_type === "claimed"
     || input.sequence === 2 && ["started", "terminal"].includes(input.event_type)
     || input.sequence === 3 && input.event_type === "terminal";
+  const prestartTerminal = input.event_type === "terminal" && input.sequence === 2;
+  const poststartTerminal = input.event_type === "terminal" && input.sequence === 3;
   if (!sequenceValid
     || (input.event_type === "started") !== Boolean(input.raw_startup_observation && input.observed_profile)
-    || (input.event_type === "terminal") !== Boolean(input.terminal_status)) {
+    || (input.event_type === "terminal") !== Boolean(input.terminal_status)
+    || (input.event_type !== "terminal" && (input.error_code !== null || input.output_artifact_hash !== null))
+    || (prestartTerminal && !["spawn_failed", "startup_observation_failed"].includes(input.terminal_status ?? ""))
+    || (poststartTerminal && ["spawn_failed", "startup_observation_failed"].includes(input.terminal_status ?? ""))
+    || (input.terminal_status === "success" ? input.error_code !== null : input.event_type === "terminal" && !input.error_code)) {
     throw new Error("review_attempt_event_automaton_invalid");
   }
   const content = { schema_version: 1 as const, record_kind: "review_attempt_event" as const, ...input };
   const contentHash = sha(canonicalJson(content));
-  return { ...content, content_hash: contentHash, record_id: contentHash };
+  return { ...content, content_hash: contentHash, record_id: sha(canonicalJson({
+    run_instance_id: input.run_instance_id, attempt_id: input.attempt_id,
+    sequence: input.sequence, event_type: input.event_type
+  })) };
 }
 
 function sha(bytes: string): Sha256 {
@@ -220,7 +323,10 @@ export function parseRawReviewStartupObservation(
     || sha(observation.turn_context_raw_bytes) !== observation.turn_context_raw_sha256
     || Buffer.byteLength(observation.session_meta_raw_bytes) !== observation.session_meta_raw_byte_length
     || Buffer.byteLength(observation.turn_context_raw_bytes) !== observation.turn_context_raw_byte_length
-    || sha(observation.session_meta_raw_bytes + observation.turn_context_raw_bytes) !== observation.raw_pair_sha256
+    || sha(canonicalJson({
+      session_meta_raw_sha256: observation.session_meta_raw_sha256,
+      turn_context_raw_sha256: observation.turn_context_raw_sha256
+    })) !== observation.raw_pair_sha256
     || observation.session_meta_record_ordinal < 0
     || observation.turn_context_record_ordinal <= observation.session_meta_record_ordinal) {
     throw new Error("review_startup_turn_context_identity_invalid");
@@ -268,6 +374,30 @@ export function buildReviewAttempt(
 export function buildReviewAttemptRecord(
   input: Omit<ReviewAttemptV1, "schema_version" | "record_kind" | "record_id" | "content_hash">
 ): ReviewAttemptV1 {
+  const success = input.terminal_status === "success";
+  if (input.verdict !== null
+    || (input.attempt_kind === "planning_bundle"
+      ? !input.cohort_id || input.reviewed_source_head !== null || input.implementation_diff_id !== null
+        || (success
+          ? !input.bundle_envelope_id || !input.bundle_envelope_hash
+          : input.bundle_envelope_id !== null || input.bundle_envelope_hash !== null)
+      : input.cohort_id !== null || input.procedure_ids.length !== 1
+        || !["implementation-review", "fix-pass-review"].includes(input.procedure_ids[0])
+        || !input.reviewed_source_head || !input.implementation_diff_id
+        || input.bundle_envelope_id !== null || input.bundle_envelope_hash !== null)
+    || (success
+      ? input.lens_results.length !== input.procedure_ids.length
+        || input.lens_results.some((entry) => entry.status !== "recorded" || !entry.verdict
+          || !entry.artifact_id || entry.artifact_id !== entry.artifact_hash)
+      : input.lens_results.length !== 0)) {
+    throw new Error("review_attempt_contract_invalid");
+  }
+  if (input.attempt_kind === "single_review") {
+    const isFix = input.procedure_ids[0] === "fix-pass-review";
+    if (isFix !== Boolean(input.predecessor_review_attempt_id && input.predecessor_review_artifact_id)) {
+      throw new Error("review_attempt_predecessor_lineage_invalid");
+    }
+  }
   const content = {
     schema_version: 1 as const,
     record_kind: "review_attempt" as const,
@@ -276,12 +406,16 @@ export function buildReviewAttemptRecord(
     lens_results: input.lens_results.map((entry) => ({ ...entry }))
   };
   const contentHash = sha(canonicalJson(content));
-  return { ...content, content_hash: contentHash, record_id: contentHash };
+  return { ...content, content_hash: contentHash, record_id: sha(canonicalJson({
+    run_instance_id: input.run_instance_id, attempt_id: input.attempt_id
+  })) };
 }
 
 export function assertPlanningBundleIdentity(attempt: ReviewAttemptV1): void {
   if (attempt.attempt_kind !== "planning_bundle"
-    || canonicalJson(attempt.procedure_ids) !== canonicalJson(["plan-review", "architecture-review", "db-storage-review"])
+    || attempt.procedure_ids.length < 1 || attempt.procedure_ids.length > 3
+    || new Set(attempt.procedure_ids).size !== attempt.procedure_ids.length
+    || attempt.procedure_ids.some((entry) => !["plan-review", "architecture-review", "db-storage-review"].includes(entry))
     || attempt.cohort_id === null) {
     throw new Error("planning_review_bundle_identity_invalid");
   }
