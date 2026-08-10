@@ -48,10 +48,7 @@ export interface SelfInstallReconciliationV1 {
 
 const INSTALLER_CONTROL_PATHS = [
   ".harness/install.json",
-  ".harness/installer-ownership.v1.json",
-  ".harness/config.toml",
-  ".harness/templates/managed",
-  ".harness/schemas"
+  ".harness/installer-ownership.v1.json"
 ] as const;
 const PRESERVED = [
   ".harness/memory",
@@ -149,11 +146,31 @@ function installedControlAuthority(root: string): {
     throw new Error(`reconciliation_catalog_authority_cardinality_invalid:${catalogMatches.length}`);
   }
   const catalogEntry = catalogMatches[0];
+  const runsRoot = path.join(root, ".harness", "runs");
+  const authorityBindings = fs.existsSync(runsRoot)
+    ? fs.readdirSync(runsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).flatMap((entry) => {
+        const runPath = path.join(runsRoot, entry.name, "run.json");
+        if (!fs.existsSync(runPath)) return [];
+        try {
+          const run = JSON.parse(fs.readFileSync(runPath, "utf8")) as {
+            approvals?: Array<{ status?: unknown; reviewed_plan_artifact_id?: unknown }>;
+          };
+          return run.approvals?.some((approval) => approval.status === "approved"
+            && approval.reviewed_plan_artifact_id === catalogEntry.provenance.review_authority_ref)
+            ? [entry.name] : [];
+        } catch { throw new Error(`reconciliation_review_authority_run_invalid:${entry.name}`); }
+      })
+    : [];
   const sourceTree = runGitCommand(root, ["rev-parse", `${catalogEntry.provenance.source_id}^{tree}`]);
   const sourceFile = runGitCommand(root, [
     "show", `${catalogEntry.provenance.source_id}:${catalogEntry.provenance.manifest_path}`
   ]);
-  if (sourceTree.status !== 0 || sourceFile.status !== 0
+  const sourceIsAncestor = runGitCommand(root, ["merge-base", "--is-ancestor", catalogEntry.provenance.source_id, "HEAD"]);
+  const liveCatalog = fs.readFileSync(path.join(root, "assets", "installer-ownership-catalog.v1.json"));
+  const headCatalog = runGitCommand(root, ["show", "HEAD:assets/installer-ownership-catalog.v1.json"]);
+  if (sourceTree.status !== 0 || sourceFile.status !== 0 || sourceIsAncestor.status !== 0
+    || headCatalog.status !== 0 || !liveCatalog.equals(Buffer.from(headCatalog.stdout, "utf8"))
+    || authorityBindings.length < 1
     || `sha256:${sha256Hex(sourceTree.stdout.trim())}` !== catalogEntry.provenance.source_content_hash
     || `sha256:${sha256Hex(sourceFile.stdout)}` !== catalogEntry.provenance.manifest_content_hash
     || !/^sha256:[a-f0-9]{64}$/u.test(catalogEntry.provenance.review_authority_ref)) {
@@ -163,9 +180,7 @@ function installedControlAuthority(root: string): {
     ...INSTALLER_CONTROL_PATHS.filter((relativePath) => fs.existsSync(path.join(root, relativePath))),
     ...manifest.entries.map((entry) => entry.path.replace(/\\/gu, "/"))
   ])].sort();
-  const removablePaths = removableCandidates.filter((candidate) =>
-    !removableCandidates.some((ancestor) =>
-      ancestor !== candidate && candidate.startsWith(`${ancestor}/`)));
+  const removablePaths = removableCandidates;
   for (const [relativePath, expectedHash] of expectedHashes) {
     const absolutePath = path.join(root, relativePath);
     if (fs.existsSync(absolutePath) && hashPath(absolutePath) !== expectedHash) {
@@ -199,14 +214,20 @@ export function prepareSelfInstallReconciliation(rootPath: string, dryRun = fals
   const matchingRegistry = registry?.projects.filter((entry) => path.resolve(entry.root_path) === root) ?? [];
   if (matchingRegistry.length > 1) throw new Error("product_registry_ownership_ambiguous");
   const authority = installedControlAuthority(root);
-  const knownTopLevel = new Set([
-    ...authority.removablePaths,
-    ...PRESERVED
-  ].map((entry) => entry.split("/").slice(0, 2).join("/")));
-  const unknownHarnessPaths = fs.readdirSync(path.join(root, ".harness"), { withFileTypes: true })
-    .map((entry) => `.harness/${entry.name}`)
-    .filter((entry) => !knownTopLevel.has(entry))
-    .sort();
+  const normalizedRemovable = new Set(authority.removablePaths);
+  const unknownHarnessPaths: string[] = [];
+  const walkHarness = (absoluteDirectory: string): void => {
+    for (const entry of fs.readdirSync(absoluteDirectory, { withFileTypes: true })) {
+      const absolute = path.join(absoluteDirectory, entry.name);
+      const relative = path.relative(root, absolute).replace(/\\/gu, "/");
+      if (PRESERVED.some((preserved) => relative === preserved || relative.startsWith(`${preserved}/`))) continue;
+      if (entry.isDirectory()) walkHarness(absolute);
+      else if (entry.isFile() && !normalizedRemovable.has(relative)) unknownHarnessPaths.push(relative);
+      else if (!entry.isFile() && !entry.isDirectory()) unknownHarnessPaths.push(relative);
+    }
+  };
+  walkHarness(path.join(root, ".harness"));
+  unknownHarnessPaths.sort();
   const backupPaths = fs.readdirSync(root)
     .filter((entry) => entry.startsWith("AGENTS.md.codex-harness.bak"))
     .sort();

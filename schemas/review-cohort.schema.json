@@ -3,19 +3,56 @@
   "title": "ReviewCohortV1",
   "type": "object",
   "required": [
-    "schema_version", "cohort_id", "plan_sha", "source_head",
-    "task_artifact_id", "immutable_base", "procedure_ids"
+    "schema_version", "record_kind", "record_id", "content_hash", "run_instance_id",
+    "run_id", "task_artifact_id", "immutable_base", "planning_review_source_head",
+    "anchor_plan_sha", "output_contract_refs", "profile_id", "bundle_kind",
+    "predecessor_cohort_id", "required_lens_ids", "carried_lens_refs",
+    "context_core_hash", "created_at"
   ],
   "properties": {
     "schema_version": { "const": 1 },
-    "cohort_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-    "plan_sha": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-    "source_head": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
-    "task_artifact_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-    "immutable_base": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
-    "procedure_ids": {
+    "record_kind": { "const": "review_cohort" },
+    "record_id": { "$ref": "#/$defs/sha256" },
+    "content_hash": { "$ref": "#/$defs/sha256" },
+    "run_instance_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "task_artifact_id": { "$ref": "#/$defs/sha256" },
+    "immutable_base": { "$ref": "#/$defs/gitSha" },
+    "planning_review_source_head": { "$ref": "#/$defs/gitSha" },
+    "anchor_plan_sha": { "$ref": "#/$defs/sha256" },
+    "output_contract_refs": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "items": { "$ref": "#/$defs/outputContract" }
+    },
+    "profile_id": { "type": "string", "minLength": 1 },
+    "bundle_kind": { "enum": ["candidate", "closure"] },
+    "predecessor_cohort_id": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "required_lens_ids": {
       "const": ["plan-review", "architecture-review", "db-storage-review"]
-    }
+    },
+    "carried_lens_refs": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/sha256" } },
+    "context_core_hash": { "$ref": "#/$defs/sha256" },
+    "created_at": { "type": "string", "format": "date-time" }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "gitSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "outputContract": {
+      "type": "object",
+      "required": ["procedure_id", "registry_contract_version", "skill_path", "skill_hash", "output_format_path", "output_format_hash", "output_schema_path", "output_schema_hash", "output_contract_id"],
+      "properties": {
+        "procedure_id": { "enum": ["plan-review", "architecture-review", "db-storage-review"] },
+        "registry_contract_version": { "type": "string", "minLength": 1 },
+        "skill_path": { "type": "string", "minLength": 1 },
+        "skill_hash": { "$ref": "#/$defs/sha256" },
+        "output_format_path": { "type": "string", "minLength": 1 },
+        "output_format_hash": { "$ref": "#/$defs/sha256" },
+        "output_schema_path": { "type": "string", "minLength": 1 },
+        "output_schema_hash": { "$ref": "#/$defs/sha256" },
+        "output_contract_id": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    }
+  }
 }

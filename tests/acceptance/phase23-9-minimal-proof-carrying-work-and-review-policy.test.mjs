@@ -11,7 +11,10 @@ import { detectProductRepositoryIdentity, assertNotProductRepository } from "../
 import { materializeZeroOwnerTaskState } from "../../dist/core/zero-owner-materialization.js";
 import { openVerifiedTaskStateStore } from "../../dist/core/tasks.js";
 import { buildSuccessorDisposition, assertCompatibleSuccessorDisposition } from "../../dist/core/successor-disposition.js";
-import { buildReviewAttempt, assertPlanningBundleIdentity } from "../../dist/core/review-cohort.js";
+import {
+  buildReviewAttempt, buildReviewAttemptEvent, buildReviewCohort,
+  parseRawReviewStartupObservation, assertPlanningBundleIdentity
+} from "../../dist/core/review-cohort.js";
 import { aggregatePlanBlockers, reconcilePlanningLenses, validatePlanningLensResult } from "../../dist/core/plan-contract.js";
 import { buildProofRecord, extractTaskRequirements, parseProofDerivationRequest } from "../../dist/core/proof-record.js";
 import {
@@ -27,6 +30,7 @@ import {
   rollbackSelfInstallReconciliation
 } from "../../dist/core/product-self-install-reconciliation.js";
 import { RunStagingDatabase } from "../../dist/core/run-staging-db.js";
+import { ProjectMemoryDatabase } from "../../dist/core/project-memory-db.js";
 import { buildRuntimeRun, extractEffectiveValidationCommands } from "../../dist/core/runtime.js";
 import { harvestRun } from "../../dist/core/harvest.js";
 
@@ -59,8 +63,11 @@ test("phase 23.9 zero-owner materialization creates one exact owner and replays"
   const input = {
     projectRoot, worktreePath: worktree, branch: "codex/phase-24",
     baseCommitSha: "a".repeat(40), taskPath: "tasks/NEXT.md",
+    sourceArtifactIdentity: sha("# next task\n"),
     pointerContents: "# Current Task\n\n`tasks/NEXT.md`\n"
   };
+  fs.mkdirSync(path.join(worktree, "tasks"));
+  fs.writeFileSync(path.join(worktree, "tasks/NEXT.md"), "# next task\n");
   assert.equal(materializeZeroOwnerTaskState(input).created_owner, true);
   const owners = openVerifiedTaskStateStore(projectRoot).enumerate();
   assert.equal(owners.length, 1);
@@ -74,7 +81,9 @@ test("phase 23.9 zero-owner materialization creates one exact owner and replays"
   fs.writeFileSync(path.join(worktree, "TASK.md"), input.pointerContents);
   assert.throws(() => materializeZeroOwnerTaskState({
     ...input, taskPath: "tasks/OTHER.md"
-  }), /task_contract_conflict/);
+  }), /task_contract_missing/);
+  fs.writeFileSync(path.join(worktree, "tasks/NEXT.md"), "# changed\n");
+  assert.throws(() => materializeZeroOwnerTaskState(input), /task_contract_identity_mismatch/);
 });
 
 test("phase 23.9 successor disposition rejects a conflicting authority", () => {
@@ -96,23 +105,99 @@ test("phase 23.9 successor disposition rejects a conflicting authority", () => {
 test("phase 23.9 raw startup observation binds one three-lens attempt", () => {
   const raw = "adapter=codex_cli\nprovider=openai\nmodel=gpt-5.6-sol\nreasoning=high\nsandbox=read-only\napproval_policy=never";
   const observation = {
-    schema_version: 1, source_kind: "codex_cli_startup_preamble_v1",
+    schema_version: 1, source: "codex_cli_startup_preamble_v1",
     session_id: "fresh", raw_bytes: raw, raw_sha256: sha(raw),
+    raw_byte_length: Buffer.byteLength(raw),
     byte_start: 0, byte_end: Buffer.byteLength(raw)
   };
-  const attempt = buildReviewAttempt({
-    launch_kind: "planning_review_bundle",
+  const attemptInput = {
+    run_instance_id: "instance", run_id: "run", attempt_kind: "planning_bundle",
     procedure_ids: ["plan-review", "architecture-review", "db-storage-review"],
-    cohort_id: "cohort", source_head: "a".repeat(40), source_plan_sha: sha("plan"),
-    terminal_status: "success", artifact_ids: [sha("p"), sha("a"), sha("d")]
-  }, observation, { model: "gpt-5.6-sol", sandbox: "read-only" });
+    cohort_id: sha("cohort"), attempt_id: "attempt", claim_id: "claim", profile_id: "sol-high-read-only",
+    request_artifact_hash: sha("request"), expected_bundle_output_path: "bundle.json",
+    claimed_event_id: sha("claimed"), started_event_id: sha("started"), terminal_event_id: sha("terminal"),
+    terminal_status: "success", verdict: "PASS", reviewed_source_head: "a".repeat(40),
+    implementation_diff_id: null, predecessor_review_attempt_id: null,
+    predecessor_review_artifact_id: null, bundle_envelope_id: sha("bundle"),
+    bundle_envelope_hash: sha("envelope"),
+    lens_results: ["plan-review", "architecture-review", "db-storage-review"].map((procedure_id) => ({
+      procedure_id, artifact_id: sha(procedure_id), verdict: "PASS"
+    })), created_at: new Date(0).toISOString()
+  };
+  const attempt = buildReviewAttempt(attemptInput, observation, { model: "gpt-5.6-sol", sandbox: "read-only" });
   assert.doesNotThrow(() => assertPlanningBundleIdentity(attempt));
-  assert.throws(() => buildReviewAttempt({
-    launch_kind: attempt.launch_kind, procedure_ids: attempt.procedure_ids,
-    cohort_id: attempt.cohort_id, source_head: attempt.source_head,
-    source_plan_sha: attempt.source_plan_sha, terminal_status: attempt.terminal_status,
-    artifact_ids: attempt.artifact_ids
-  }, { ...observation, raw_sha256: sha("wrong") }), /raw_hash_mismatch/);
+  assert.throws(() => buildReviewAttempt(attemptInput,
+    { ...observation, raw_sha256: sha("wrong") }), /preamble_identity_invalid/);
+});
+
+test("phase 23.9 retained turn context has exact raw identity and legal event chain", () => {
+  const meta = `${JSON.stringify({ type: "session_meta", payload: {
+    id: "session", model_provider: "openai"
+  } })}\n`;
+  const turn = `${JSON.stringify({ type: "turn_context", payload: {
+    cwd: "/worktree", model: "gpt-5.6-sol", effort: "high",
+    sandbox_policy: { type: "read-only" }, approval_policy: "never"
+  } })}\n`;
+  const raw = {
+    schema_version: 1, source: "codex_turn_context_v1", session_id: "session",
+    rollout_path_hash: sha("/rollout"), session_meta_record_ordinal: 0,
+    session_meta_raw_bytes: meta, session_meta_raw_byte_length: Buffer.byteLength(meta),
+    session_meta_raw_sha256: sha(meta), turn_context_record_ordinal: 1,
+    turn_context_raw_bytes: turn, turn_context_raw_byte_length: Buffer.byteLength(turn),
+    turn_context_raw_sha256: sha(turn), raw_pair_sha256: sha(meta + turn)
+  };
+  const observed = parseRawReviewStartupObservation(raw);
+  assert.deepEqual({ model: observed.model, reasoning: observed.reasoning, sandbox: observed.sandbox },
+    { model: "gpt-5.6-sol", reasoning: "high", sandbox: "read-only" });
+  const common = {
+    run_instance_id: "instance", run_id: "run", attempt_kind: "single_review",
+    cohort_id: null, attempt_id: "attempt", claim_id: "claim", procedure_ids: ["fix-pass-review"],
+    request_artifact_hash: sha("request"), expected_bundle_output_path: "review.md",
+    owner_token_hash: sha("owner")
+  };
+  const claimed = buildReviewAttemptEvent({ ...common, sequence: 1, event_type: "claimed",
+    occurred_at: new Date(0).toISOString(), raw_startup_observation: null, observed_profile: null,
+    terminal_status: null, error_code: null, output_artifact_hash: null });
+  const started = buildReviewAttemptEvent({ ...common, sequence: 2, event_type: "started",
+    occurred_at: new Date(1).toISOString(), raw_startup_observation: raw, observed_profile: observed,
+    terminal_status: null, error_code: null, output_artifact_hash: null });
+  const terminal = buildReviewAttemptEvent({ ...common, sequence: 3, event_type: "terminal",
+    occurred_at: new Date(2).toISOString(), raw_startup_observation: null, observed_profile: null,
+    terminal_status: "success", error_code: null, output_artifact_hash: sha("review") });
+  assert.deepEqual([claimed.event_type, started.event_type, terminal.event_type], ["claimed", "started", "terminal"]);
+  assert.throws(() => buildReviewAttemptEvent({ ...common, sequence: 1, event_type: "terminal",
+    occurred_at: new Date(0).toISOString(), raw_startup_observation: null, observed_profile: null,
+    terminal_status: "failed", error_code: "bad", output_artifact_hash: null }), /automaton_invalid/);
+});
+
+test("phase 23.9 cohort identity includes exact output contracts and rejects corruption", () => {
+  const refs = ["plan-review", "architecture-review", "db-storage-review"].map((procedure_id) => {
+    const body = {
+      procedure_id, registry_contract_version: "v1", skill_path: `${procedure_id}/SKILL.md`,
+      skill_hash: sha(`${procedure_id}:skill`), output_format_path: `${procedure_id}/output.md`,
+      output_format_hash: sha(`${procedure_id}:format`), output_schema_path: "schemas/lens.json",
+      output_schema_hash: sha("schema")
+    };
+    return { ...body, output_contract_id: sha(JSON.stringify(body)) };
+  });
+  // The product identity uses canonical key order, not insertion order.
+  for (const ref of refs) {
+    const body = Object.fromEntries(Object.entries(ref).filter(([key]) => key !== "output_contract_id"));
+    ref.output_contract_id = sha(JSON.stringify(Object.fromEntries(Object.entries(body).sort(([a], [b]) => a.localeCompare(b)))));
+  }
+  const input = {
+    run_instance_id: "instance", run_id: "run", task_artifact_id: sha("task"),
+    immutable_base: "a".repeat(40), planning_review_source_head: "b".repeat(40),
+    anchor_plan_sha: sha("plan"), output_contract_refs: refs, profile_id: "sol-high-read-only",
+    bundle_kind: "closure", predecessor_cohort_id: sha("prior"),
+    required_lens_ids: ["plan-review", "architecture-review", "db-storage-review"],
+    carried_lens_refs: [], context_core_hash: sha("context"), created_at: new Date(0).toISOString()
+  };
+  const cohort = buildReviewCohort(input);
+  assert.match(cohort.record_id, /^sha256:[a-f0-9]{64}$/);
+  assert.throws(() => buildReviewCohort({ ...input, output_contract_refs: [
+    { ...refs[0], output_contract_id: sha("corrupt") }, refs[1], refs[2]
+  ] }), /output_contract_identity_invalid/);
 });
 
 test("phase 23.9 reconciliation aggregates blockers only and requires coverage", () => {
@@ -165,6 +250,49 @@ test("phase 23.9 proof is rejected until baseline review and delivery exist", ()
   });
   assert.equal(proof.acceptance.status, "rejected");
   assert.match(proof.record_id, /^sha256:[a-f0-9]{64}$/);
+});
+
+test("phase 23.9 accepts a proof whose requirement map is extracted from frozen task bytes", () => {
+  const taskBytes = fs.readFileSync(path.join(process.cwd(),
+    "tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md"));
+  const requirements = extractTaskRequirements(taskBytes);
+  const evidence_refs = requirements.map((requirement) => ({
+    ref_id: sha(`evidence:${requirement.requirement_id}`), source_kind: "procedure_artifact",
+    source_id: `${sha("review")}#${requirement.requirement_id}`, content_hash: sha(requirement.requirement_id),
+    run_instance_id: "instance", locator: `review#${requirement.requirement_id}`,
+    relationship: "verifies_requirement"
+  }));
+  const runtimeField = (field_name) => ({
+    field_id: sha(field_name), field_name, status: "observed", value: "observed",
+    evidence_ref_id: evidence_refs[0].ref_id, gap_id: null, unavailable_cause: null
+  });
+  const proof = buildProofRecord({
+    run_instance_id: "instance", run_id: "run", task_artifact_id: sha(taskBytes),
+    immutable_base: "a".repeat(40), activation_hash: sha("activation"),
+    activation_source_head: "b".repeat(40), implementation_baseline_head: "c".repeat(40),
+    final_reviewed_source_head: "d".repeat(40), delivered_source_head: "e".repeat(40),
+    eligibility_snapshot_id: sha("eligibility"), lifecycle_applicability: { resolved: true },
+    task_verifiability_map: requirements.map((requirement, index) => ({
+      requirement_id: requirement.requirement_id, source: requirement.source,
+      applicability: "mandatory", verification_status: "verified",
+      applicability_authority_ref_id: null, evidence_ref_ids: [evidence_refs[index].ref_id],
+      gap_ids: [], assumption_ids: []
+    })),
+    evidence_refs, evidence_families: [{
+      family: "task_requirements", applicability: "mandatory",
+      ref_ids: evidence_refs.map((entry) => entry.ref_id), gap_ids: []
+    }], assumption_ledger: [],
+    operating_envelope: {
+      schema_version: "phase-23.9.operating-envelope.v1", producer_id: "proof_record_deriver_v1",
+      run_start_ref_id: sha("run-start"),
+      runtime_fields: ["host_os", "host_arch", "node_version", "network_access"].map(runtimeField),
+      planning_lineage: { lineage_id: sha("lineage"), target_plan_sha: sha("plan"),
+        direct_closure_cohort_id: null, contributing_context_ids: [], lens_map: [] },
+      review_contexts: [], gap_ids: []
+    }, delivery_slices: [], evidence_gaps: [], created_at: new Date(0).toISOString()
+  });
+  assert.equal(proof.acceptance.status, "accepted");
+  assert.equal(proof.task_verifiability_map.length, requirements.length);
 });
 
 test("phase 23.9 proof command accepts derivation requests, never caller-authored proof", () => {
@@ -222,6 +350,69 @@ test("phase 23.9 procedure sequences are internal, unique, and monotonic", () =>
   assert.equal(staging.readProcedureArtifact(
     run.run_instance_id, "plan-review", descriptor("3").artifact_id
   ), undefined);
+});
+
+test("phase 23.9 review bundle records compensate as one transaction", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ch-bundle-transaction-"));
+  const staging = new RunStagingDatabase(root, root, "run-bundle");
+  const run = buildRuntimeRun({
+    runId: "run-bundle", taskPath: "TASK.md", phaseId: "23.9",
+    timestamp: new Date(0).toISOString(), repository: {
+      root_path: root, project_root: root, branch: "codex/test",
+      head_sha: "a".repeat(40), dirty: false
+    }
+  });
+  staging.saveRun(run);
+  assert.throws(() => staging.mutateRunWithDatabase(run.run_id, (current, database) => {
+    for (const [recordKind, recordId] of [
+      ["review_cohort", sha("cohort")], ["review_attempt_event", sha("event")],
+      ["review_attempt", sha("attempt")], ["planning_review_bundle", sha("bundle")]
+    ]) {
+      staging.storeIndependentRecord(database, {
+        recordKind, recordId, runId: run.run_id, phaseId: "23.9", taskPath: "TASK.md",
+        createdAt: new Date(0).toISOString(), status: "terminal", summary: recordKind,
+        payload: { record_kind: recordKind, record_id: recordId }
+      });
+    }
+    throw new Error("injected_bundle_failure");
+  }), /injected_bundle_failure/);
+  for (const kind of ["review_cohort", "review_attempt_event", "review_attempt", "planning_review_bundle"]) {
+    assert.equal(staging.listIndependentRecords(kind, run.run_id).length, 0);
+  }
+});
+
+test("phase 23.9 corrupt proof transfer rolls back project run and receipt", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ch-proof-transfer-"));
+  const staging = new RunStagingDatabase(root, root, "run-proof");
+  const run = buildRuntimeRun({
+    runId: "run-proof", taskPath: "TASK.md", phaseId: "23.9",
+    timestamp: new Date(0).toISOString(), repository: {
+      root_path: root, project_root: root, branch: "codex/test",
+      head_sha: "a".repeat(40), dirty: false
+    }
+  });
+  staging.saveRun(run);
+  staging.mutateRunWithDatabase(run.run_id, (current, database) => {
+    staging.storeIndependentRecord(database, {
+      recordKind: "proof_record", recordId: sha("proof"), runId: run.run_id,
+      phaseId: "23.9", taskPath: "TASK.md", createdAt: new Date(0).toISOString(),
+      status: "accepted", summary: "corrupt proof",
+      payload: { record_id: sha("different-proof"), acceptance: { status: "accepted" } },
+      retentionClass: "accepted"
+    });
+    return current;
+  });
+  const stored = staging.loadRun(run.run_id);
+  const project = new ProjectMemoryDatabase(root, root);
+  const harvest = {
+    harvest_id: "harvest-run-proof", run_id: run.run_id, project_run_id: run.run_instance_id,
+    status: "promoted", promoted_at: new Date(1).toISOString(), accepted_count: 1,
+    discarded_count: 0, quarantined_count: 0, redacted_count: 0, unresolved_count: 0,
+    source_task_path: "TASK.md", source_snapshot: "a".repeat(40), details: {}
+  };
+  assert.throws(() => project.saveAcceptedRun(stored, [], harvest), /project_proof_transfer_corrupt/);
+  assert.equal(project.getRunByInstanceId(run.run_instance_id), undefined);
+  assert.equal(project.getHarvestRecordByRunInstanceId(run.run_instance_id), undefined);
 });
 
 test("phase 23.9 harvest preserves discarded runs and gates later self-hosting runs", () => {
@@ -298,6 +489,11 @@ test("phase 23.9 reconciliation stops on drift and preserves runtime and source"
             path: ".harness/templates/managed/agents-block.md",
             content_hash: sha(managed.agentsBlock),
             disposition: "quarantine", owner: "installer"
+          },
+          {
+            path: ".harness/templates/managed/config.toml",
+            content_hash: sha(managed.configToml),
+            disposition: "quarantine", owner: "installer"
           }
         ]
       })
@@ -325,12 +521,20 @@ test("phase 23.9 reconciliation stops on drift and preserves runtime and source"
       {
         path: ".harness/templates/managed/agents-block.md", content_hash: sha(managed.agentsBlock),
         disposition: "quarantine", owner: "installer"
+      },
+      {
+        path: ".harness/templates/managed/config.toml", content_hash: sha(managed.configToml),
+        disposition: "quarantine", owner: "installer"
       }
     ]);
     fs.writeFileSync(path.join(root, ".harness/installer-ownership.v1.json"),
       `${JSON.stringify(manifest, null, 2)}\n`);
     fs.writeFileSync(path.join(root, ".harness/install.json"), `${JSON.stringify({
       harness_version: "0.1.0", ownership_manifest: manifest.manifest_id
+    })}\n`);
+    fs.mkdirSync(path.join(root, ".harness/runs/reviewed"), { recursive: true });
+    fs.writeFileSync(path.join(root, ".harness/runs/reviewed/run.json"), `${JSON.stringify({
+      approvals: [{ status: "approved", reviewed_plan_artifact_id: sha("fixture-review") }]
     })}\n`);
     fs.writeFileSync(path.join(root, "AGENTS.md"),
       `unrelated\n${managed.agentsBlock}tail\n`);
@@ -364,6 +568,11 @@ test("phase 23.9 reconciliation stops on drift and preserves runtime and source"
     assert.equal(fs.readFileSync(path.join(root, ".harness/runs/retained.txt"), "utf8"), "runtime\n");
     assert.equal(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8"),
       `unrelated\n${managed.agentsBlock}tail\n`);
+    fs.writeFileSync(path.join(root, ".harness/templates/managed/unowned.txt"), "unknown\n");
+    const ambiguous = prepareSelfInstallReconciliation(root, true);
+    assert.ok(ambiguous.items.some((item) => item.path.endsWith("unowned.txt")
+      && item.disposition === "ambiguous_stop"));
+    assert.throws(() => applySelfInstallReconciliation(ambiguous), /reconciliation_ambiguous_inventory/);
   } finally {
     if (priorHome === undefined) delete process.env.HOME;
     else process.env.HOME = priorHome;

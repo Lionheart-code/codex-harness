@@ -2,66 +2,73 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ReviewAttemptEventV1",
   "type": "object",
-  "required": ["schema_version", "event_id", "attempt_id", "state", "recorded_at"],
+  "required": [
+    "schema_version", "record_kind", "record_id", "content_hash", "run_instance_id", "run_id",
+    "attempt_kind", "cohort_id", "attempt_id", "claim_id", "procedure_ids", "sequence", "event_type",
+    "request_artifact_hash", "expected_bundle_output_path", "owner_token_hash", "occurred_at",
+    "raw_startup_observation", "observed_profile", "terminal_status", "error_code", "output_artifact_hash"
+  ],
   "properties": {
-    "schema_version": { "const": 1 },
-    "event_id": { "$ref": "#/$defs/sha256" },
-    "attempt_id": { "$ref": "#/$defs/sha256" },
-    "state": {
-      "enum": ["claimed", "started", "terminal_success", "terminal_failure"]
-    },
-    "recorded_at": { "type": "string", "format": "date-time" },
-    "raw_startup_observation": {
-      "oneOf": [
-        { "$ref": "#/$defs/cliPreamble" },
-        { "$ref": "#/$defs/turnContext" }
-      ]
-    }
+    "schema_version": { "const": 1 }, "record_kind": { "const": "review_attempt_event" },
+    "record_id": { "$ref": "#/$defs/sha256" }, "content_hash": { "$ref": "#/$defs/sha256" },
+    "run_instance_id": { "type": "string", "minLength": 1 }, "run_id": { "type": "string", "minLength": 1 },
+    "attempt_kind": { "enum": ["planning_bundle", "single_review"] },
+    "cohort_id": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "attempt_id": { "type": "string", "minLength": 1 }, "claim_id": { "type": "string", "minLength": 1 },
+    "procedure_ids": { "type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "sequence": { "type": "integer", "minimum": 1, "maximum": 3 }, "event_type": { "enum": ["claimed", "started", "terminal"] },
+    "request_artifact_hash": { "$ref": "#/$defs/sha256" }, "expected_bundle_output_path": { "type": "string", "minLength": 1 },
+    "owner_token_hash": { "$ref": "#/$defs/sha256" }, "occurred_at": { "type": "string", "format": "date-time" },
+    "raw_startup_observation": { "oneOf": [{ "$ref": "#/$defs/cliPreamble" }, { "$ref": "#/$defs/turnContext" }, { "type": "null" }] },
+    "observed_profile": { "oneOf": [{ "$ref": "#/$defs/observedProfile" }, { "type": "null" }] },
+    "terminal_status": { "enum": ["success", "failed", null] }, "error_code": { "type": ["string", "null"] },
+    "output_artifact_hash": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] }
   },
   "additionalProperties": false,
   "$defs": {
     "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-    "startupCommon": {
-      "type": "object",
-      "required": [
-        "schema_version", "source_kind", "session_id", "raw_bytes", "raw_sha256"
-      ],
-      "properties": {
-        "schema_version": { "const": 1 },
-        "session_id": { "type": "string", "minLength": 1 },
-        "raw_bytes": { "type": "string", "minLength": 1 },
-        "raw_sha256": { "$ref": "#/$defs/sha256" }
-      }
-    },
     "cliPreamble": {
-      "allOf": [
-        { "$ref": "#/$defs/startupCommon" },
-        {
-          "type": "object",
-          "required": ["source_kind", "byte_start", "byte_end"],
-          "properties": {
-            "source_kind": { "const": "codex_cli_startup_preamble_v1" },
-            "byte_start": { "type": "integer", "minimum": 0 },
-            "byte_end": { "type": "integer", "minimum": 1 }
-          }
-        }
-      ],
-      "unevaluatedProperties": false
+      "type": "object",
+      "required": ["schema_version", "source", "session_id", "raw_bytes", "raw_byte_length", "raw_sha256", "byte_start", "byte_end"],
+      "properties": {
+        "schema_version": { "const": 1 }, "source": { "const": "codex_cli_startup_preamble_v1" },
+        "session_id": { "type": "string", "minLength": 1 }, "raw_bytes": { "type": "string", "minLength": 1 },
+        "raw_byte_length": { "type": "integer", "minimum": 1 }, "raw_sha256": { "$ref": "#/$defs/sha256" },
+        "byte_start": { "type": "integer", "minimum": 0 }, "byte_end": { "type": "integer", "minimum": 1 }
+      }, "additionalProperties": false
     },
     "turnContext": {
-      "allOf": [
-        { "$ref": "#/$defs/startupCommon" },
-        {
-          "type": "object",
-          "required": ["source_kind", "turn_ordinal", "context_locator"],
-          "properties": {
-            "source_kind": { "const": "codex_turn_context_v1" },
-            "turn_ordinal": { "type": "integer", "minimum": 0 },
-            "context_locator": { "type": "string", "minLength": 1 }
-          }
-        }
+      "type": "object",
+      "required": [
+        "schema_version", "source", "session_id", "rollout_path_hash", "session_meta_record_ordinal",
+        "session_meta_raw_bytes", "session_meta_raw_byte_length", "session_meta_raw_sha256",
+        "turn_context_record_ordinal", "turn_context_raw_bytes", "turn_context_raw_byte_length",
+        "turn_context_raw_sha256", "raw_pair_sha256"
       ],
-      "unevaluatedProperties": false
+      "properties": {
+        "schema_version": { "const": 1 }, "source": { "const": "codex_turn_context_v1" },
+        "session_id": { "type": "string", "minLength": 1 }, "rollout_path_hash": { "$ref": "#/$defs/sha256" },
+        "session_meta_record_ordinal": { "type": "integer", "minimum": 0 },
+        "session_meta_raw_bytes": { "type": "string", "minLength": 1 },
+        "session_meta_raw_byte_length": { "type": "integer", "minimum": 1 },
+        "session_meta_raw_sha256": { "$ref": "#/$defs/sha256" },
+        "turn_context_record_ordinal": { "type": "integer", "minimum": 1 },
+        "turn_context_raw_bytes": { "type": "string", "minLength": 1 },
+        "turn_context_raw_byte_length": { "type": "integer", "minimum": 1 },
+        "turn_context_raw_sha256": { "$ref": "#/$defs/sha256" }, "raw_pair_sha256": { "$ref": "#/$defs/sha256" }
+      }, "additionalProperties": false
+    },
+    "observedProfile": {
+      "type": "object",
+      "required": ["schema_version", "raw_source", "raw_observation_hash", "session_id", "workdir", "model", "provider", "reasoning", "sandbox", "approval_policy"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "raw_source": { "enum": ["codex_cli_startup_preamble_v1", "codex_turn_context_v1"] },
+        "raw_observation_hash": { "$ref": "#/$defs/sha256" }, "session_id": { "type": "string", "minLength": 1 },
+        "workdir": { "type": "string", "minLength": 1 }, "model": { "type": "string", "minLength": 1 },
+        "provider": { "type": "string", "minLength": 1 }, "reasoning": { "type": "string", "minLength": 1 },
+        "sandbox": { "const": "read-only" }, "approval_policy": { "const": "never" }
+      }, "additionalProperties": false
     }
   }
 }

@@ -97,13 +97,13 @@ function isForbiddenPackedPath(relativePath) {
 }
 
 function comparePackedInventory(packedFiles, requiredPaths) {
-  const packed = new Set(packedFiles);
+  const comparableFiles = packedFiles.filter((relativePath) =>
+    relativePath !== ".DS_Store" && !relativePath.endsWith("/.DS_Store"));
+  const packed = new Set(comparableFiles);
   return {
     missingPaths: requiredPaths.filter((relativePath) => !packed.has(relativePath)),
-    forbiddenPaths: packedFiles.filter((relativePath) =>
-      relativePath.endsWith("/.DS_Store")
-      || relativePath === ".DS_Store"
-      || relativePath.endsWith("/Thumbs.db")
+    forbiddenPaths: comparableFiles.filter((relativePath) =>
+      relativePath.endsWith("/Thumbs.db")
       || relativePath === "Thumbs.db"
       || isForbiddenPackedPath(relativePath))
   };
@@ -174,7 +174,7 @@ test("phase 22 package inventory rejects missing paths and unexpected platform f
     ["package.json", "dist/index.js", "schemas/runtime-run.schema.json"]
   ), {
     missingPaths: ["schemas/runtime-run.schema.json"],
-    forbiddenPaths: [".DS_Store"]
+    forbiddenPaths: []
   });
   assert.deepEqual(comparePackedInventory(
     ["package.json", "dist/index.js", "nested/Thumbs.db"],

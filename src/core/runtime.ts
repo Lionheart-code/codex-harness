@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
+import * as os from "node:os";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { type VerifierRecord, validateVerifierRecord } from "./checks";
@@ -121,6 +122,10 @@ import {
 import {
   assertPlanningBundleIdentity,
   buildReviewAttempt,
+  buildReviewAttemptRecord,
+  buildReviewAttemptEvent,
+  buildReviewCohort,
+  parseRawReviewStartupObservation,
   type RawReviewStartupObservationV1
 } from "./review-cohort";
 import {
@@ -4426,7 +4431,7 @@ function priorReviewArtifactFindings(
   }));
 }
 
-function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "plan-review" | "implementation-review" | "fix-pass-review", operatorRequest: string, requestPath: string): {
+function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "plan-review" | "implementation-review" | "fix-pass-review", operatorRequest: string, requestPath: string, exactFixPassBase?: string): {
   core: ContextCore;
   manifest: ContextManifest;
   overlay: ReviewDeltaOverlay;
@@ -4472,17 +4477,14 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
     && sourceDirty.length > 0) {
     throw new Error(`REVIEW_SOURCE_DIRTY:${sourceDirty.join(",")}`);
   }
-  const fixPredecessorHead = procedureId === "fix-pass-review"
-    ? resolveExactCommit(targetRoot, `${reviewedSourceHead}^`)
-    : undefined;
+  const fixPredecessorHead = procedureId === "fix-pass-review" ? exactFixPassBase : undefined;
   const exactDiffBase = procedureId === "implementation-review"
     ? run.implementation_baseline_head
     : procedureId === "fix-pass-review"
       ? fixPredecessorHead
       : undefined;
-  if (procedureId === "fix-pass-review" && (!fixPredecessorHead
-    || runGitCommand(targetRoot, ["rev-list", "--count", `${fixPredecessorHead}..${reviewedSourceHead}`]).stdout.trim() !== "1")) {
-    throw new Error("FIX_PASS_DIFF_MUST_BE_ONE_CLEAN_COMMIT");
+  if (procedureId === "fix-pass-review" && !fixPredecessorHead) {
+    throw new Error("FIX_PASS_DIFF_BASE_MISSING");
   }
   const inventory = reviewChangeInventory(targetRoot, exactDiffBase, reviewedSourceHead);
   const latestVerification = run.verification_results[run.verification_results.length - 1];
@@ -5045,27 +5047,70 @@ function recordLaunchAttempt(
     fs.writeFileSync(accepted.absoluteArtifactPath, accepted.markdown, "utf8");
   }
   let acceptedCanonicalAttempt: ReturnType<typeof buildReviewAttempt> | undefined;
+  let acceptedCanonicalEvents: ReturnType<typeof buildReviewAttemptEvent>[] = [];
   if (accepted && currentRun.phase_id === "23.9") {
     if (!packet?.rawStartup) throw new Error("REVIEW_ACCEPTED_RAW_STARTUP_OBSERVATION_MISSING");
     const sourcePlanSha = packet.core.approved_plan_ref.split("#").pop();
     if (!sourcePlanSha || !/^sha256:[a-f0-9]{64}$/u.test(sourcePlanSha)) {
       throw new Error("REVIEW_ACCEPTED_PLAN_IDENTITY_MISSING");
     }
+    const observedProfile = parseRawReviewStartupObservation(packet.rawStartup);
+    const eventCommon = {
+      run_instance_id: currentRun.run_instance_id ?? "",
+      run_id: currentRun.run_id,
+      attempt_kind: "single_review" as const,
+      cohort_id: null,
+      attempt_id: claim.attempt_id,
+      claim_id: claim.claim_id,
+      procedure_ids: [observation.procedure_id],
+      request_artifact_hash: observation.request_artifact_hash as `sha256:${string}`,
+      expected_bundle_output_path: observation.expected_output_path ?? observation.output_path,
+      owner_token_hash: claim.owner_token_hash as `sha256:${string}`
+    };
+    acceptedCanonicalEvents = [
+      buildReviewAttemptEvent({ ...eventCommon, sequence: 1, event_type: "claimed", occurred_at: claim.created_at,
+        raw_startup_observation: null, observed_profile: null, terminal_status: null, error_code: null, output_artifact_hash: null }),
+      buildReviewAttemptEvent({ ...eventCommon, sequence: 2, event_type: "started", occurred_at: observation.start_time ?? claim.created_at,
+        raw_startup_observation: packet.rawStartup, observed_profile: observedProfile, terminal_status: null, error_code: null, output_artifact_hash: null }),
+      buildReviewAttemptEvent({ ...eventCommon, sequence: 3, event_type: "terminal", occurred_at: timestamp,
+        raw_startup_observation: null, observed_profile: null, terminal_status: "success", error_code: null,
+        output_artifact_hash: accepted.artifact.artifact_id as `sha256:${string}` })
+    ];
     acceptedCanonicalAttempt = buildReviewAttempt({
-      launch_kind: "single_review",
+      run_instance_id: currentRun.run_instance_id ?? "",
+      run_id: currentRun.run_id,
+      attempt_kind: "single_review",
       procedure_ids: [observation.procedure_id],
       cohort_id: null,
-      source_head: observation.reviewed_source_head ?? packet.core.source_snapshot,
-      source_plan_sha: sourcePlanSha as `sha256:${string}`,
+      attempt_id: claim.attempt_id,
+      claim_id: claim.claim_id,
+      profile_id: observation.binding_profile_id ?? observation.adapter_id,
+      request_artifact_hash: observation.request_artifact_hash as `sha256:${string}`,
+      expected_bundle_output_path: observation.expected_output_path ?? observation.output_path,
+      claimed_event_id: acceptedCanonicalEvents[0].record_id,
+      started_event_id: acceptedCanonicalEvents[1].record_id,
+      terminal_event_id: acceptedCanonicalEvents[2].record_id,
       terminal_status: "success",
-      artifact_ids: [accepted.artifact.artifact_id]
+      verdict: validateReviewLaunchArtifact(observation.procedure_id, accepted.markdown).status as "PASS" | "FIX_REQUIRED" | "AMEND_REQUIRED",
+      reviewed_source_head: observation.reviewed_source_head ?? packet.core.source_snapshot,
+      implementation_diff_id: (observation.reviewed_diff_hash ?? packet.overlay.content_hash) as `sha256:${string}`,
+      predecessor_review_attempt_id: observation.predecessor_review_attempt_id ?? null,
+      predecessor_review_artifact_id: observation.predecessor_review_artifact_id ?? null,
+      bundle_envelope_id: null,
+      bundle_envelope_hash: null,
+      lens_results: [{
+        procedure_id: observation.procedure_id,
+        artifact_id: accepted.artifact.artifact_id as `sha256:${string}`,
+        verdict: validateReviewLaunchArtifact(observation.procedure_id, accepted.markdown).status
+      }],
+      created_at: timestamp
     }, packet.rawStartup, {
-      adapter: observation.adapter_id,
       provider: "openai",
       model: observation.model,
       reasoning: observation.reasoning_effort,
       sandbox: "read-only",
-      approval_policy: "never"
+      approval_policy: "never",
+      workdir: targetRoot
     });
   }
 
@@ -5154,43 +5199,23 @@ function recordLaunchAttempt(
         throw new Error("REVIEW_ACCEPTED_CANONICAL_ATTEMPT_MISSING");
       }
       if (canonicalAttempt && packet?.rawStartup) {
-      for (const event of [
-        {
-          state: "started" as const,
-          recorded_at: observation.start_time ?? claim.created_at,
-          raw_startup_observation: packet.rawStartup
-        },
-        {
-          state: "terminal_success" as const,
-          recorded_at: timestamp
-        }
-      ]) {
-        const eventId = `sha256:${sha256Hex(canonicalJson({
-          attempt_id: canonicalAttempt.attempt_id,
-          state: event.state,
-          recorded_at: event.recorded_at
-        }))}`;
+      for (const event of acceptedCanonicalEvents) {
         staging.storeIndependentRecord(database, {
           recordKind: "review_attempt_event",
-          recordId: eventId,
+          recordId: event.record_id,
           runId: latestRun.run_id,
           phaseId: latestRun.phase_id,
           taskPath: latestRun.task_path,
-          createdAt: event.recorded_at,
-          status: event.state,
-          summary: `${observation.procedure_id} attempt ${event.state}.`,
-          payload: {
-            schema_version: 1,
-            event_id: eventId,
-            attempt_id: canonicalAttempt.attempt_id,
-            ...event
-          },
+          createdAt: event.occurred_at,
+          status: event.event_type === "terminal" ? `terminal_${event.terminal_status}` : event.event_type,
+          summary: `${observation.procedure_id} attempt ${event.event_type}.`,
+          payload: event,
           retentionClass: "accepted"
         });
       }
       staging.storeIndependentRecord(database, {
         recordKind: "review_attempt",
-        recordId: canonicalAttempt.attempt_id,
+        recordId: canonicalAttempt.record_id,
         runId: latestRun.run_id,
         phaseId: latestRun.phase_id,
         taskPath: latestRun.task_path,
@@ -5262,51 +5287,60 @@ function recordLaunchAttempt(
         : observation.status === "invalid_artifact"
           ? "artifact_invalid"
           : "process_failed";
-      const failureBody = {
-        schema_version: 1 as const,
-        launch_kind: "single_review" as const,
+      const eventCommon = {
+        run_instance_id: latestRun.run_instance_id ?? "", run_id: latestRun.run_id,
+        attempt_kind: "single_review" as const, cohort_id: null,
+        attempt_id: claim.attempt_id, claim_id: claim.claim_id,
         procedure_ids: [observation.procedure_id],
-        cohort_id: null,
-        source_head: observation.reviewed_source_head ?? packet.core.source_snapshot,
-        source_plan_sha: sourcePlanSha,
-        observed_profile: null,
-        startup_observation_hash: null,
-        startup_gap: "producer_unavailable" as const,
-        terminal_status: "failed" as const,
-        artifact_ids: [],
-        failure_class: failureClass
+        request_artifact_hash: observation.request_artifact_hash as `sha256:${string}`,
+        expected_bundle_output_path: observation.expected_output_path ?? observation.output_path,
+        owner_token_hash: claim.owner_token_hash as `sha256:${string}`
       };
-      const canonicalAttempt = {
-        ...failureBody,
-        attempt_id: `sha256:${sha256Hex(canonicalJson(failureBody))}`
-      };
-      for (const event of [
-        { state: "started" as const, recorded_at: observation.start_time ?? claim.created_at },
-        { state: "terminal_failure" as const, recorded_at: timestamp }
-      ]) {
-        const eventId = `sha256:${sha256Hex(canonicalJson({
-          attempt_id: canonicalAttempt.attempt_id, ...event
-        }))}`;
+      const failureEvents = [buildReviewAttemptEvent({ ...eventCommon, sequence: 1, event_type: "claimed",
+        occurred_at: claim.created_at, raw_startup_observation: null, observed_profile: null,
+        terminal_status: null, error_code: null, output_artifact_hash: null })];
+      if (packet.rawStartup) failureEvents.push(buildReviewAttemptEvent({ ...eventCommon, sequence: 2, event_type: "started",
+        occurred_at: observation.start_time ?? claim.created_at, raw_startup_observation: packet.rawStartup,
+        observed_profile: parseRawReviewStartupObservation(packet.rawStartup), terminal_status: null,
+        error_code: null, output_artifact_hash: null }));
+      const candidateOutput = path.resolve(targetRoot, observation.output_path);
+      failureEvents.push(buildReviewAttemptEvent({ ...eventCommon, sequence: packet.rawStartup ? 3 : 2,
+        event_type: "terminal", occurred_at: timestamp, raw_startup_observation: null, observed_profile: null,
+        terminal_status: "failed", error_code: failureClass,
+        output_artifact_hash: fs.existsSync(candidateOutput)
+          ? `sha256:${sha256Hex(fs.readFileSync(candidateOutput))}` : null }));
+      const canonicalAttempt = buildReviewAttemptRecord({
+        run_instance_id: eventCommon.run_instance_id, run_id: eventCommon.run_id,
+        attempt_kind: "single_review", cohort_id: null, attempt_id: claim.attempt_id, claim_id: claim.claim_id,
+        procedure_ids: eventCommon.procedure_ids, profile_id: observation.binding_profile_id ?? observation.adapter_id,
+        request_artifact_hash: eventCommon.request_artifact_hash,
+        expected_bundle_output_path: eventCommon.expected_bundle_output_path,
+        claimed_event_id: failureEvents[0].record_id,
+        started_event_id: packet.rawStartup ? failureEvents[1].record_id : null,
+        terminal_event_id: failureEvents[failureEvents.length - 1].record_id,
+        terminal_status: "failed", verdict: "failed",
+        reviewed_source_head: observation.reviewed_source_head ?? packet.core.source_snapshot,
+        implementation_diff_id: (observation.reviewed_diff_hash ?? packet.overlay.content_hash) as `sha256:${string}`,
+        predecessor_review_attempt_id: observation.predecessor_review_attempt_id ?? null,
+        predecessor_review_artifact_id: observation.predecessor_review_artifact_id ?? null,
+        bundle_envelope_id: null, bundle_envelope_hash: null, lens_results: [], created_at: timestamp
+      });
+      for (const event of failureEvents) {
         staging.storeIndependentRecord(database, {
           recordKind: "review_attempt_event",
-          recordId: eventId,
+          recordId: event.record_id,
           runId: latestRun.run_id,
           phaseId: latestRun.phase_id,
           taskPath: latestRun.task_path,
-          createdAt: event.recorded_at,
-          status: event.state,
-          summary: `${observation.procedure_id} attempt ${event.state}.`,
-          payload: {
-            schema_version: 1,
-            event_id: eventId,
-            attempt_id: canonicalAttempt.attempt_id,
-            ...event
-          }
+          createdAt: event.occurred_at,
+          status: event.event_type === "terminal" ? "terminal_failed" : event.event_type,
+          summary: `${observation.procedure_id} attempt ${event.event_type}.`,
+          payload: event
         });
       }
       staging.storeIndependentRecord(database, {
         recordKind: "review_attempt",
-        recordId: canonicalAttempt.attempt_id,
+        recordId: canonicalAttempt.record_id,
         runId: latestRun.run_id,
         phaseId: latestRun.phase_id,
         taskPath: latestRun.task_path,
@@ -5325,30 +5359,81 @@ function recordLaunchAttempt(
 }
 
 function extractRawStartupObservation(stdout: string): RawReviewStartupObservationV1 {
-  const candidates = stdout.split(/\r?\n/u).filter((line) =>
-    line.includes("turn_context")
-    && ["adapter", "provider", "model", "reasoning", "sandbox", "approval"]
-      .every((field) => line.toLowerCase().includes(field))
-  );
-  if (candidates.length !== 1) throw new Error(`review_startup_observation_cardinality_invalid:${candidates.length}`);
-  const raw = candidates[0];
-  let sessionId = "";
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    sessionId = String(parsed.session_id ?? parsed.thread_id ?? parsed.id ?? "");
-  } catch {
-    throw new Error("review_startup_turn_context_invalid_json");
+  const threadIds = stdout.split(/\r?\n/u).flatMap((line) => {
+    if (!line.trim()) return [];
+    try {
+      const parsed = JSON.parse(line) as { type?: unknown; thread_id?: unknown };
+      return parsed.type === "thread.started" && typeof parsed.thread_id === "string"
+        ? [parsed.thread_id] : [];
+    } catch { return []; }
+  });
+  const uniqueThreadIds = [...new Set(threadIds)];
+  if (uniqueThreadIds.length !== 1) {
+    throw new Error(`review_startup_thread_identity_cardinality_invalid:${uniqueThreadIds.length}`);
   }
-  if (!sessionId) throw new Error("review_startup_session_id_missing");
+  const sessionId = uniqueThreadIds[0];
+  const sessionsRoot = path.join(process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"), "sessions");
+  const matchingRollouts: string[] = [];
+  const visit = (directory: string): void => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(absolute);
+      else if (entry.isFile() && entry.name.includes(sessionId) && entry.name.endsWith(".jsonl")) matchingRollouts.push(absolute);
+    }
+  };
+  if (fs.existsSync(sessionsRoot)) visit(sessionsRoot);
+  if (matchingRollouts.length !== 1) {
+    throw new Error(`review_startup_rollout_cardinality_invalid:${matchingRollouts.length}`);
+  }
+  const rolloutPath = matchingRollouts[0];
+  const bytes = fs.readFileSync(rolloutPath);
+  const records: Array<{ ordinal: number; raw: Buffer; parsed: Record<string, unknown> }> = [];
+  let start = 0;
+  let ordinal = 0;
+  for (let cursor = 0; cursor < bytes.length; cursor += 1) {
+    if (bytes[cursor] !== 0x0a) continue;
+    const raw = bytes.subarray(start, cursor + 1);
+    start = cursor + 1;
+    if (raw.toString("utf8").trim()) {
+      try { records.push({ ordinal, raw, parsed: JSON.parse(raw.toString("utf8")) as Record<string, unknown> }); }
+      catch { throw new Error(`review_startup_rollout_record_invalid:${ordinal}`); }
+    }
+    ordinal += 1;
+  }
+  if (start !== bytes.length) throw new Error("review_startup_rollout_missing_terminal_lf");
+  const metas = records.filter((record) => {
+    const payload = record.parsed.payload as Record<string, unknown> | undefined;
+    return record.parsed.type === "session_meta"
+      && (payload?.id === sessionId || payload?.session_id === sessionId);
+  });
+  if (metas.length !== 1) throw new Error(`review_startup_session_meta_cardinality_invalid:${metas.length}`);
+  const turns = records.filter((record) => record.parsed.type === "turn_context" && record.ordinal > metas[0].ordinal);
+  if (turns.length < 1) throw new Error("review_startup_turn_context_cardinality_invalid:0");
+  const meta = metas[0];
+  const turn = turns[0];
+  const metaRaw = meta.raw.toString("utf8");
+  const turnRaw = turn.raw.toString("utf8");
   return {
     schema_version: 1,
-    source_kind: "codex_turn_context_v1",
+    source: "codex_turn_context_v1",
     session_id: sessionId,
-    raw_bytes: raw,
-    raw_sha256: `sha256:${sha256Hex(Buffer.from(raw, "utf8"))}`,
-    turn_ordinal: 0,
-    context_locator: "codex-jsonl:turn_context"
+    rollout_path_hash: `sha256:${sha256Hex(Buffer.from(rolloutPath, "utf8"))}`,
+    session_meta_record_ordinal: meta.ordinal,
+    session_meta_raw_bytes: metaRaw,
+    session_meta_raw_byte_length: meta.raw.length,
+    session_meta_raw_sha256: `sha256:${sha256Hex(meta.raw)}`,
+    turn_context_record_ordinal: turn.ordinal,
+    turn_context_raw_bytes: turnRaw,
+    turn_context_raw_byte_length: turn.raw.length,
+    turn_context_raw_sha256: `sha256:${sha256Hex(turn.raw)}`,
+    raw_pair_sha256: `sha256:${sha256Hex(Buffer.concat([meta.raw, turn.raw]))}`
   };
+}
+
+function rawStartupObservationHash(observation: RawReviewStartupObservationV1): `sha256:${string}` {
+  return observation.source === "codex_turn_context_v1"
+    ? observation.raw_pair_sha256
+    : observation.raw_sha256;
 }
 
 export async function launchRuntimePlanningReviewBundle(
@@ -5389,8 +5474,44 @@ export async function launchRuntimePlanningReviewBundle(
       )))}`
     ])
   );
+  const outputSchemaPath = "schemas/planning-lens-result.schema.json";
+  const outputContractRefs = ["plan-review", "architecture-review", "db-storage-review"].map((procedureId) => {
+    const descriptor = registry.procedures.find((entry) => entry.procedure_id === procedureId);
+    if (!descriptor) throw new Error(`planning_review_bundle_procedure_missing:${procedureId}`);
+    const body = {
+      procedure_id: procedureId,
+      registry_contract_version: registry.contract_version,
+      skill_path: descriptor.skill_path,
+      skill_hash: `sha256:${sha256Hex(fs.readFileSync(path.join(targetRoot, descriptor.skill_path)))}` as `sha256:${string}`,
+      output_format_path: descriptor.output_format_path,
+      output_format_hash: `sha256:${sha256Hex(fs.readFileSync(path.join(targetRoot, descriptor.output_format_path)))}` as `sha256:${string}`,
+      output_schema_path: outputSchemaPath,
+      output_schema_hash: `sha256:${sha256Hex(fs.readFileSync(path.join(targetRoot, outputSchemaPath)))}` as `sha256:${string}`
+    };
+    return { ...body, output_contract_id: `sha256:${sha256Hex(canonicalJson(body))}` as `sha256:${string}` };
+  });
+  const contextCoreHash = `sha256:${sha256Hex(canonicalJson({
+    run_instance_id: current.run.run_instance_id, run_id: current.run.run_id,
+    task_artifact_id: expectedTaskArtifactId as `sha256:${string}`, immutable_base: expectedImmutableBase,
+    planning_review_source_head: expectedSourceHead, anchor_plan_sha: effectivePlanSha
+  }))}` as `sha256:${string}`;
+  const priorCohorts = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id)
+    .listIndependentRecords("review_cohort", current.run.run_id)
+    .filter((entry) => (entry as { record_kind?: unknown }).record_kind === "review_cohort") as Array<{ record_id: `sha256:${string}`; created_at: string }>;
+  priorCohorts.sort((left, right) => left.created_at.localeCompare(right.created_at));
+  const requestBody = fs.readFileSync(requestPath, "utf8").trim();
+  const bundleKind = /closure/iu.test(requestBody) ? "closure" as const : "candidate" as const;
+  const cohort = buildReviewCohort({
+    run_instance_id: current.run.run_instance_id ?? "", run_id: current.run.run_id,
+    task_artifact_id: expectedTaskArtifactId as `sha256:${string}`, immutable_base: expectedImmutableBase,
+    planning_review_source_head: expectedSourceHead, anchor_plan_sha: effectivePlanSha as `sha256:${string}`,
+    output_contract_refs: outputContractRefs, profile_id: profile.adapter_id, bundle_kind: bundleKind,
+    predecessor_cohort_id: bundleKind === "closure" ? priorCohorts[priorCohorts.length - 1]?.record_id ?? null : null,
+    required_lens_ids: ["plan-review", "architecture-review", "db-storage-review"],
+    carried_lens_refs: [], context_core_hash: contextCoreHash, created_at: current.run.updated_at
+  });
   const requestMarkdown = [
-    fs.readFileSync(requestPath, "utf8").trim(),
+    requestBody,
     "",
     "Return one JSON object with schema_version=1, common identity fields, three",
     "structured lens_results, and lens_documents containing untouched Markdown",
@@ -5402,6 +5523,7 @@ export async function launchRuntimePlanningReviewBundle(
     `task_artifact_id: ${expectedTaskArtifactId}`,
     `immutable_base: ${expectedImmutableBase}`,
     `output_contract_ids: ${canonicalJson(expectedOutputContracts)}`
+    ,`review_cohort_id: ${cohort.record_id}`
   ].join("\n");
   const observationBase = {
     procedure_id: "planning-review-bundle",
@@ -5425,9 +5547,8 @@ export async function launchRuntimePlanningReviewBundle(
   const existingAttempts = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id)
     .listIndependentRecords("review_attempt", current.run.run_id)
     .filter((entry) => {
-      const attempt = entry as { launch_kind?: unknown; source_plan_sha?: unknown };
-      return attempt.launch_kind === "planning_review_bundle"
-        && attempt.source_plan_sha === latestPlanningApproval?.reviewed_plan_artifact_id;
+      const attempt = entry as { attempt_kind?: unknown; cohort_id?: unknown };
+      return attempt.attempt_kind === "planning_bundle" && attempt.cohort_id === cohort.record_id;
     }) as Array<{ terminal_status?: unknown }>;
   if (existingAttempts.some((entry) => entry.terminal_status === "success")
     || existingAttempts.length >= 2
@@ -5446,65 +5567,74 @@ export async function launchRuntimePlanningReviewBundle(
       }
     };
   }
+  const persistPlanningBundleFailure = (
+    startedAt: string,
+    failedAt: string,
+    errorCode: string,
+    rawStartup?: RawReviewStartupObservationV1
+  ): Run => {
+    const attemptId = `planning-bundle:${sha256Hex(canonicalJson({
+      request_artifact_hash: observationBase.request_artifact_hash, started_at: startedAt
+    }))}`;
+    const common = {
+      run_instance_id: current.run.run_instance_id ?? "", run_id: current.run.run_id,
+      attempt_kind: "planning_bundle" as const, cohort_id: cohort.record_id,
+      attempt_id: attemptId, claim_id: attemptId,
+      procedure_ids: ["plan-review", "architecture-review", "db-storage-review"],
+      request_artifact_hash: observationBase.request_artifact_hash as `sha256:${string}`,
+      expected_bundle_output_path: observationBase.expected_output_path,
+      owner_token_hash: `sha256:${sha256Hex(attemptId)}` as `sha256:${string}`
+    };
+    const events = [buildReviewAttemptEvent({ ...common, sequence: 1, event_type: "claimed", occurred_at: startedAt,
+      raw_startup_observation: null, observed_profile: null, terminal_status: null, error_code: null, output_artifact_hash: null })];
+    if (rawStartup) events.push(buildReviewAttemptEvent({ ...common, sequence: 2, event_type: "started", occurred_at: startedAt,
+      raw_startup_observation: rawStartup, observed_profile: parseRawReviewStartupObservation(rawStartup),
+      terminal_status: null, error_code: null, output_artifact_hash: null }));
+    events.push(buildReviewAttemptEvent({ ...common, sequence: rawStartup ? 3 : 2, event_type: "terminal", occurred_at: failedAt,
+      raw_startup_observation: null, observed_profile: null, terminal_status: "failed", error_code: errorCode,
+      output_artifact_hash: fs.existsSync(outputPath) ? `sha256:${sha256Hex(fs.readFileSync(outputPath))}` : null }));
+    const attempt = buildReviewAttemptRecord({
+      run_instance_id: common.run_instance_id, run_id: common.run_id, attempt_kind: common.attempt_kind,
+      cohort_id: common.cohort_id, attempt_id: common.attempt_id, claim_id: common.claim_id,
+      procedure_ids: common.procedure_ids, profile_id: profile.adapter_id,
+      request_artifact_hash: common.request_artifact_hash,
+      expected_bundle_output_path: common.expected_bundle_output_path,
+      claimed_event_id: events[0].record_id,
+      started_event_id: rawStartup ? events[1].record_id : null,
+      terminal_event_id: events[events.length - 1].record_id,
+      terminal_status: "failed", verdict: "failed", reviewed_source_head: expectedSourceHead,
+      implementation_diff_id: null, predecessor_review_attempt_id: null,
+      predecessor_review_artifact_id: null, bundle_envelope_id: null, bundle_envelope_hash: null,
+      lens_results: [], created_at: failedAt
+    });
+    const failureStaging = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
+    const latest = failureStaging.loadRun(current.run.run_id) ?? current.run;
+    const failedRun = failureStaging.mutateRunWithDatabase(latest.run_id, (latestRun, database) => {
+      for (const event of events) failureStaging.storeIndependentRecord(database, {
+        recordKind: "review_attempt_event", recordId: event.record_id,
+        runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
+        createdAt: event.occurred_at,
+        status: event.event_type === "terminal" ? "terminal_failed" : event.event_type,
+        summary: `Planning review attempt ${event.event_type}.`, payload: event
+      });
+      failureStaging.storeIndependentRecord(database, {
+        recordKind: "review_attempt", recordId: attempt.record_id,
+        runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
+        createdAt: failedAt, status: "failed", summary: "Terminal failed planning review bundle attempt.",
+        payload: attempt
+      });
+      return latestRun;
+    }, { expectedRunInstanceId: latest.run_instance_id, expectedRunRevision: latest.run_revision, expectedRunPresence: "present" });
+    writeCompatibilityRunArtifacts(targetRoot, failedRun);
+    return failedRun;
+  };
   const child = await runCodexCliReview(profile, {
     targetRoot, requestMarkdown, outputPath, timeoutSeconds, staleAfterSeconds,
     childEnvironment: { ...process.env }
   });
   if (child.timedOut || child.exitCode !== 0) {
     const failedAt = child.completedTime ?? nowIso();
-    const failedAttempt = {
-      schema_version: 1,
-      attempt_id: `sha256:${sha256Hex(canonicalJson({
-        launch_kind: "planning_review_bundle",
-        request_artifact_hash: observationBase.request_artifact_hash,
-        started_at: child.startTime
-      }))}`,
-      launch_kind: "planning_review_bundle",
-      procedure_ids: ["plan-review", "architecture-review", "db-storage-review"],
-      cohort_id: null,
-      source_head: resolveExactCommit(targetRoot, "HEAD"),
-      source_plan_sha: latestPlanningApproval?.reviewed_plan_artifact_id ?? null,
-      observed_profile: null,
-      startup_observation_hash: null,
-      startup_gap: "producer_unavailable",
-      terminal_status: "failed",
-      artifact_ids: [],
-      failure_class: child.timedOut ? "timeout" : "process_failed"
-    };
-    const failureStaging = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
-    const failedRun = failureStaging.mutateRunWithDatabase(current.run.run_id, (latestRun, database) => {
-      for (const event of [
-        { state: "started", recorded_at: child.startTime },
-        { state: "terminal_failure", recorded_at: failedAt }
-      ] as const) {
-        const eventId = `sha256:${sha256Hex(canonicalJson({
-          attempt_id: failedAttempt.attempt_id, ...event
-        }))}`;
-        failureStaging.storeIndependentRecord(database, {
-          recordKind: "review_attempt_event", recordId: eventId,
-          runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
-          createdAt: event.recorded_at, status: event.state,
-          summary: `Planning review attempt ${event.state}.`,
-          payload: {
-            schema_version: 1, event_id: eventId,
-            attempt_id: failedAttempt.attempt_id, ...event
-          }
-        });
-      }
-      failureStaging.storeIndependentRecord(database, {
-        recordKind: "review_attempt", recordId: failedAttempt.attempt_id,
-        runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
-        createdAt: failedAt, status: "failed",
-        summary: "Terminal failed planning review bundle attempt.",
-        payload: failedAttempt
-      });
-      return latestRun;
-    }, {
-      expectedRunInstanceId: current.run.run_instance_id,
-      expectedRunRevision: current.run.run_revision,
-      expectedRunPresence: "present"
-    });
-    writeCompatibilityRunArtifacts(targetRoot, failedRun);
+    persistPlanningBundleFailure(child.startTime, failedAt, child.timedOut ? "timeout" : "process_failed");
     throw new Error(child.timedOut
       ? "PLANNING_REVIEW_BUNDLE_TIMEOUT"
       : `PLANNING_REVIEW_BUNDLE_PROCESS_FAILED:${child.exitCode ?? "spawn"}`);
@@ -5518,18 +5648,20 @@ export async function launchRuntimePlanningReviewBundle(
     source_head: string; task_artifact_id: `sha256:${string}`; immutable_base: string;
     lens_results: PlanningLensResultV1[]; lens_documents: Record<string, string>;
   };
+  const envelopeKeys = Object.keys(envelope).sort();
+  if (canonicalJson(envelopeKeys) !== canonicalJson([
+    "bundle_id", "immutable_base", "lens_documents", "lens_results", "plan_sha",
+    "schema_version", "source_head", "task_artifact_id"
+  ])) {
+    throw new Error("planning_review_bundle_schema_invalid:properties");
+  }
+  if (!Array.isArray(envelope.lens_results) || envelope.lens_results.length !== 3
+    || !envelope.lens_documents || typeof envelope.lens_documents !== "object") {
+    throw new Error("planning_review_bundle_schema_invalid:cardinality");
+  }
   const expectedProcedures = ["plan-review", "architecture-review", "db-storage-review"];
-  const cohortIdentity = {
-    schema_version: 1,
-    plan_sha: envelope.plan_sha,
-    source_head: envelope.source_head,
-    task_artifact_id: envelope.task_artifact_id,
-    immutable_base: envelope.immutable_base,
-    procedure_ids: expectedProcedures
-  };
-  const canonicalCohortId = `sha256:${sha256Hex(canonicalJson(cohortIdentity))}`;
   if (envelope.schema_version !== 1
-    || envelope.bundle_id !== canonicalCohortId
+    || envelope.bundle_id !== cohort.record_id
     || envelope.plan_sha !== effectivePlanSha
     || envelope.source_head !== expectedSourceHead
     || envelope.task_artifact_id !== expectedTaskArtifactId
@@ -5561,17 +5693,59 @@ export async function launchRuntimePlanningReviewBundle(
     }
   }
   aggregatePlanBlockers(envelope.lens_results);
+  const bundleAttemptId = `planning-bundle:${sha256Hex(canonicalJson({
+    request_artifact_hash: observationBase.request_artifact_hash,
+    started_at: child.startTime
+  }))}`;
+  const bundleRecordedAt = child.completedTime ?? nowIso();
+  const bundleEventCommon = {
+    run_instance_id: current.run.run_instance_id ?? "", run_id: current.run.run_id,
+    attempt_kind: "planning_bundle" as const, cohort_id: cohort.record_id,
+    attempt_id: bundleAttemptId, claim_id: bundleAttemptId, procedure_ids: expectedProcedures,
+    request_artifact_hash: observationBase.request_artifact_hash as `sha256:${string}`,
+    expected_bundle_output_path: observationBase.expected_output_path,
+    owner_token_hash: `sha256:${sha256Hex(bundleAttemptId)}` as `sha256:${string}`
+  };
+  const bundleEvents = [
+    buildReviewAttemptEvent({ ...bundleEventCommon, sequence: 1, event_type: "claimed", occurred_at: child.startTime,
+      raw_startup_observation: null, observed_profile: null, terminal_status: null, error_code: null, output_artifact_hash: null }),
+    buildReviewAttemptEvent({ ...bundleEventCommon, sequence: 2, event_type: "started", occurred_at: child.startTime,
+      raw_startup_observation: rawStartup, observed_profile: parseRawReviewStartupObservation(rawStartup),
+      terminal_status: null, error_code: null, output_artifact_hash: null }),
+    buildReviewAttemptEvent({ ...bundleEventCommon, sequence: 3, event_type: "terminal", occurred_at: bundleRecordedAt,
+      raw_startup_observation: null, observed_profile: null, terminal_status: "success", error_code: null,
+      output_artifact_hash: `sha256:${sha256Hex(fs.readFileSync(outputPath))}` })
+  ];
   const attempt = buildReviewAttempt({
-    launch_kind: "planning_review_bundle",
+    run_instance_id: current.run.run_instance_id ?? "",
+    run_id: current.run.run_id,
+    attempt_kind: "planning_bundle",
     procedure_ids: expectedProcedures,
     cohort_id: envelope.bundle_id,
-    source_head: envelope.source_head,
-    source_plan_sha: envelope.plan_sha,
+    attempt_id: bundleAttemptId,
+    claim_id: bundleAttemptId,
+    profile_id: profile.adapter_id,
+    request_artifact_hash: observationBase.request_artifact_hash as `sha256:${string}`,
+    expected_bundle_output_path: observationBase.expected_output_path,
+    claimed_event_id: bundleEvents[0].record_id,
+    started_event_id: bundleEvents[1].record_id,
+    terminal_event_id: bundleEvents[2].record_id,
     terminal_status: "success",
-    artifact_ids: expectedProcedures.map((procedureId) =>
-      `sha256:${sha256Hex(envelope.lens_documents[procedureId])}`)
+    verdict: envelope.lens_results.every((result) => result.verdict === "PASS") ? "PASS" : "AMEND_REQUIRED",
+    reviewed_source_head: envelope.source_head,
+    implementation_diff_id: null,
+    predecessor_review_attempt_id: null,
+    predecessor_review_artifact_id: null,
+    bundle_envelope_id: envelope.bundle_id,
+    bundle_envelope_hash: `sha256:${sha256Hex(fs.readFileSync(outputPath))}`,
+    lens_results: envelope.lens_results.map((result) => ({
+      procedure_id: result.procedure_id,
+      artifact_id: `sha256:${sha256Hex(envelope.lens_documents[result.procedure_id])}`,
+      verdict: result.verdict
+    })),
+    created_at: bundleRecordedAt
   }, rawStartup, {
-    adapter: profile.adapter_id, model: profile.model,
+    provider: "openai", model: profile.model, workdir: targetRoot,
     reasoning: profile.reasoning_effort, sandbox: "read-only", approval_policy: "never"
   });
   assertPlanningBundleIdentity(attempt);
@@ -5633,7 +5807,7 @@ export async function launchRuntimePlanningReviewBundle(
           base_commit: nextRun.source_snapshot,
           review_attempt_id: attempt.attempt_id,
           review_cohort_id: envelope.bundle_id,
-          raw_startup_observation_hash: rawStartup.raw_sha256,
+          raw_startup_observation_hash: rawStartupObservationHash(rawStartup),
           compatibility_path: artifact.path
         })
       });
@@ -5648,38 +5822,19 @@ export async function launchRuntimePlanningReviewBundle(
       runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
       createdAt: recordedAt, status: "terminal",
       summary: "Exact three-lens planning review cohort.",
-      payload: { ...cohortIdentity, cohort_id: envelope.bundle_id }
+      payload: cohort
     });
-    for (const event of [
-      {
-        schema_version: 1 as const,
-        event_id: `sha256:${sha256Hex(canonicalJson({
-          attempt_id: attempt.attempt_id, state: "started", recorded_at: child.startTime
-        }))}`,
-        attempt_id: attempt.attempt_id,
-        state: "started" as const,
-        recorded_at: child.startTime,
-        raw_startup_observation: rawStartup
-      },
-      {
-        schema_version: 1 as const,
-        event_id: `sha256:${sha256Hex(canonicalJson({
-          attempt_id: attempt.attempt_id, state: "terminal_success", recorded_at: recordedAt
-        }))}`,
-        attempt_id: attempt.attempt_id,
-        state: "terminal_success" as const,
-        recorded_at: recordedAt
-      }
-    ]) {
+    for (const event of bundleEvents) {
       staging.storeIndependentRecord(database, {
-        recordKind: "review_attempt_event", recordId: event.event_id,
+        recordKind: "review_attempt_event", recordId: event.record_id,
         runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
-        createdAt: event.recorded_at, status: event.state,
-        summary: `Planning review attempt ${event.state}.`, payload: event
+        createdAt: event.occurred_at,
+        status: event.event_type === "terminal" ? `terminal_${event.terminal_status}` : event.event_type,
+        summary: `Planning review attempt ${event.event_type}.`, payload: event
       });
     }
     staging.storeIndependentRecord(database, {
-      recordKind: "review_attempt", recordId: attempt.attempt_id,
+      recordKind: "review_attempt", recordId: attempt.record_id,
       runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
       createdAt: recordedAt, status: attempt.terminal_status,
       summary: "Terminal planning review bundle attempt.", payload: attempt
@@ -5721,58 +5876,7 @@ export async function launchRuntimePlanningReviewBundle(
   };
   } catch (error) {
     const failedAt = child.completedTime ?? nowIso();
-    const attemptId = `sha256:${sha256Hex(canonicalJson({
-      launch_kind: "planning_review_bundle",
-      request_artifact_hash: observationBase.request_artifact_hash,
-      started_at: child.startTime
-    }))}`;
-    const failureStaging = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
-    const latest = failureStaging.loadRun(current.run.run_id) ?? current.run;
-    const failedRun = failureStaging.mutateRunWithDatabase(latest.run_id, (latestRun, database) => {
-      for (const event of [
-        { state: "started", recorded_at: child.startTime },
-        { state: "terminal_failure", recorded_at: failedAt }
-      ] as const) {
-        const eventId = `sha256:${sha256Hex(canonicalJson({ attempt_id: attemptId, ...event }))}`;
-        failureStaging.storeIndependentRecord(database, {
-          recordKind: "review_attempt_event", recordId: eventId,
-          runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
-          createdAt: event.recorded_at, status: event.state,
-          summary: `Planning review attempt ${event.state}.`,
-          payload: {
-            schema_version: 1, event_id: eventId, attempt_id: attemptId, ...event,
-            ...(event.state === "started" && observedStartup
-              ? { raw_startup_observation: observedStartup } : {})
-          }
-        });
-      }
-      failureStaging.storeIndependentRecord(database, {
-        recordKind: "review_attempt", recordId: attemptId,
-        runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
-        createdAt: failedAt, status: "failed",
-        summary: "Terminal failed planning review bundle validation attempt.",
-        payload: {
-          schema_version: 1, attempt_id: attemptId,
-          launch_kind: "planning_review_bundle",
-          procedure_ids: ["plan-review", "architecture-review", "db-storage-review"],
-          cohort_id: null,
-          source_head: expectedSourceHead,
-          source_plan_sha: effectivePlanSha,
-          observed_profile: null,
-          startup_observation_hash: observedStartup?.raw_sha256 ?? null,
-          startup_gap: observedStartup ? null : "producer_unavailable",
-          terminal_status: "failed",
-          artifact_ids: [],
-          failure_class: "artifact_invalid"
-        }
-      });
-      return latestRun;
-    }, {
-      expectedRunInstanceId: latest.run_instance_id,
-      expectedRunRevision: latest.run_revision,
-      expectedRunPresence: "present"
-    });
-    writeCompatibilityRunArtifacts(targetRoot, failedRun);
+    persistPlanningBundleFailure(child.startTime, failedAt, "artifact_invalid", observedStartup);
     throw error;
   }
 }
@@ -5976,7 +6080,8 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     current.run,
     options.procedureId as "plan-review" | "implementation-review" | "fix-pass-review",
     operatorRequestMarkdown,
-    toRepoRelative(targetRoot, requestPath)
+    toRepoRelative(targetRoot, requestPath),
+    fixPassLineage?.predecessorReviewedSourceHead
   );
   const exactReviewDiffBase = options.procedureId === "implementation-review"
     ? current.run.implementation_baseline_head
@@ -6271,23 +6376,17 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
   if (current.run.phase_id === "23.9" && !child.timedOut && child.exitCode === 0) {
     try {
       rawStartup = extractRawStartupObservation(child.stdout);
-      buildReviewAttempt({
-        launch_kind: "single_review",
-        procedure_ids: [options.procedureId],
-        cohort_id: null,
-        source_head: packet.core.source_snapshot,
-        source_plan_sha: (packet.core.approved_plan_ref.split("#").pop()
-          ?? "") as `sha256:${string}`,
-        terminal_status: "failed",
-        artifact_ids: []
-      }, rawStartup, {
-        adapter: effectiveProfile.adapter_id,
-        provider: "openai",
-        model: effectiveProfile.model,
-        reasoning: effectiveProfile.reasoning_effort,
-        sandbox: "read-only",
-        approval_policy: "never"
-      });
+      const observed = parseRawReviewStartupObservation(rawStartup);
+      const expected = {
+        provider: "openai", model: effectiveProfile.model,
+        reasoning: effectiveProfile.reasoning_effort, sandbox: "read-only",
+        approval_policy: "never", workdir: targetRoot
+      };
+      for (const [field, value] of Object.entries(expected)) {
+        if (observed[field as keyof typeof observed] !== value) {
+          throw new Error(`review_startup_profile_mismatch:${field}`);
+        }
+      }
     } catch (error) {
       startupFailure = error instanceof Error ? error.message : String(error);
     }
@@ -7926,6 +8025,7 @@ export function recordRuntimeProof(
     immutable_base: string;
     activation_source_head: string;
     bootstrap_eligibility: string;
+    applicability_predicates: ProofEligibilityApplicabilityPredicateV1[];
   };
   if (snapshot.bootstrap_eligibility !== "eligible") throw new Error("proof_run_not_eligible");
   const taskPath = path.join(roots.targetRoot, current.run.active_task_path ?? current.run.task_path);
@@ -7985,6 +8085,9 @@ export function recordRuntimeProof(
     }
   }
   let reviewRef: string | undefined;
+  let reviewEvidenceValue: unknown;
+  let reviewEvidenceSourceId: string | undefined;
+  let reviewEvidenceLocator: string | undefined;
   if (review && current.run.run_instance_id && current.run.final_reviewed_source_head) {
     const procedureId = reviewSourceMatchesProcedure(review.source, "fix-pass-review")
       ? "fix-pass-review"
@@ -8017,6 +8120,9 @@ export function recordRuntimeProof(
           review.artifact_refs[0].path,
           "verifies_requirement"
         );
+        reviewEvidenceValue = { descriptor, body_hash: `sha256:${body.content_hash}`, verdict: validated.status };
+        reviewEvidenceSourceId = body.artifact_id;
+        reviewEvidenceLocator = review.artifact_refs[0].path;
       }
     } catch {
       reviewRef = undefined;
@@ -8084,7 +8190,11 @@ export function recordRuntimeProof(
   const taskMap = requirements.map((requirement) => {
     const evidenceRef = requirement.source.requirement_kind === "acceptance_command"
       ? commandEvidence.get(requirement.requirement_id)
-      : reviewRef;
+      : reviewEvidenceSourceId && reviewEvidenceLocator
+        ? addEvidence("procedure_artifact", `${reviewEvidenceSourceId}#${requirement.requirement_id}`,
+            { review: reviewEvidenceValue, requirement_id: requirement.requirement_id, requirement_source: requirement.source },
+            `${reviewEvidenceLocator}#requirement=${requirement.requirement_id}`, "verifies_requirement")
+        : undefined;
     const gapId = evidenceRef ? undefined : addGap(
       requirement.source.requirement_kind === "acceptance_command" ? "deterministic_verification" : "independent_review",
       [requirement.requirement_id],
@@ -8124,13 +8234,64 @@ export function recordRuntimeProof(
       unavailable_cause: "not_recorded" as const
     };
   });
+  const approval = [...current.run.approvals].reverse().find((entry) => entry.status === "approved");
   const reviewRoles = [
     ["planning_candidate", "plan-review"],
     ["planning_closure", "plan-review"],
     ["implementation_review", "implementation-review"],
     ["fix_pass_review", "fix-pass-review"]
   ] as const;
+  const durableAttempts = staging.listIndependentRecords("review_attempt", current.run.run_id) as Array<{
+    record_id?: string; attempt_id?: string; attempt_kind?: string; procedure_ids?: string[];
+    cohort_id?: string | null; terminal_event_id?: string; terminal_status?: string;
+    reviewed_source_head?: string | null; lens_results?: Array<{ procedure_id?: string; artifact_id?: string }>;
+  }>;
+  const durableEvents = staging.listIndependentRecords("review_attempt_event", current.run.run_id) as Array<{
+    record_id?: string; attempt_id?: string; event_type?: string; observed_profile?: {
+      adapter?: string; provider?: string; model?: string; reasoning?: string; sandbox?: string; approval_policy?: string;
+    } | null;
+  }>;
   const reviewContexts: ReviewOperatingContextV1[] = reviewRoles.map(([selectionRole, procedureId]) => {
+    const selectedAttempts = durableAttempts.filter((attempt) => attempt.terminal_status === "success"
+      && attempt.procedure_ids?.includes(procedureId)
+      && (selectionRole === "implementation_review" || selectionRole === "fix_pass_review"));
+    if (selectedAttempts.length === 1) {
+      const attempt = selectedAttempts[0];
+      const started = durableEvents.filter((event) => event.attempt_id === attempt.attempt_id
+        && event.event_type === "started" && event.observed_profile);
+      const artifactId = attempt.lens_results?.find((entry) => entry.procedure_id === procedureId)?.artifact_id;
+      if (started.length === 1 && artifactId && attempt.terminal_event_id) {
+        const profile = started[0].observed_profile!;
+        const profileEvidenceRef = addEvidence("staging_record", started[0].record_id ?? `${attempt.attempt_id}:started`,
+          started[0], `run:${current.run.run_instance_id}:review-attempt:${attempt.attempt_id}:started`, "describes_environment");
+        const fields = (["adapter", "provider", "model", "reasoning", "sandbox", "approval_policy"] as const)
+          .map((fieldName) => ({
+            field_id: `sha256:${sha256Hex(canonicalJson({ attempt_id: attempt.attempt_id, field_name: fieldName }))}` as const,
+            field_name: fieldName,
+            status: "observed" as const,
+            value: fieldName === "adapter" ? "codex_cli" : profile[fieldName] ?? null,
+            evidence_ref_id: profileEvidenceRef,
+            gap_id: null,
+            unavailable_cause: null
+          }));
+        if (fields.every((field) => field.value)) {
+          return {
+            context_id: `sha256:${sha256Hex(canonicalJson({ attempt_id: attempt.attempt_id, procedure_id: procedureId }))}` as `sha256:${string}`,
+            selection_role: selectionRole,
+            procedure_id: procedureId,
+            availability: "selected" as const,
+            cohort_id: attempt.cohort_id ?? null,
+            attempt_id: attempt.attempt_id ?? null,
+            terminal_event_id: attempt.terminal_event_id,
+            artifact_id: artifactId,
+            source_plan_sha: (approval?.reviewed_plan_artifact_id ?? null) as `sha256:${string}` | null,
+            carry_forward_ref_id: null,
+            fields,
+            selection_gap_ids: []
+          };
+        }
+      }
+    }
     const gapId = addGap(
       "operating_envelope",
       [],
@@ -8164,7 +8325,6 @@ export function recordRuntimeProof(
   const exactPaths = changed.status === 0
     ? changed.stdout.split(/\r?\n/u).filter(Boolean).sort()
     : [];
-  const approval = [...current.run.approvals].reverse().find((entry) => entry.status === "approved");
   const approvalRef = approval
     ? addEvidence("owner_directive", approval.approval_id, approval,
       `run:${current.run.run_instance_id}:approval:${approval.approval_id}`, "authorizes_delivery_slice")
@@ -8213,7 +8373,16 @@ export function recordRuntimeProof(
     final_reviewed_source_head: current.run.final_reviewed_source_head ?? null,
     delivered_source_head: deliveredHead ?? null,
     eligibility_snapshot_id: snapshot.snapshot_id,
-    lifecycle_applicability: snapshot,
+    lifecycle_applicability: {
+      snapshot_id: snapshot.snapshot_id,
+      resolved: snapshot.applicability_predicates.map((predicate) => {
+        const required = predicate.requirement === "always_required"
+          || predicate.predicate === "blocking_findings_exist" && current.run.artifacts.some((entry) => entry.kind.includes("plan-amend"))
+          || predicate.predicate === "bounded_fix_pass_diff_exists" && current.run.review_results.some((entry) => reviewSourceMatchesProcedure(entry.source, "fix-pass-review"))
+          || predicate.predicate === "delivery_requested" && current.run.delivery_facts.length > 0;
+        return { ...predicate, resolved_required: required };
+      })
+    },
     task_verifiability_map: taskMap,
     evidence_refs: evidenceRefs,
     evidence_families: [
@@ -8793,6 +8962,7 @@ export async function materializeRuntimeNextTask(
           branch: options.branch,
           baseCommitSha: record.base_commit_sha,
           taskPath: nextTaskPath,
+          sourceArtifactIdentity: record.source_artifact_identity as `sha256:${string}`,
           pointerContents: buildNextTaskPointerMarkdown(nextTaskPath),
           dryRun
         });

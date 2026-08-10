@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createTaskId } from "./paths";
+import { sha256Hex } from "./evidence-types";
 import {
   buildTaskState,
   openVerifiedTaskStateStore,
@@ -13,6 +14,7 @@ export interface ZeroOwnerMaterializationInput {
   branch: string;
   baseCommitSha: string;
   taskPath: string;
+  sourceArtifactIdentity: `sha256:${string}`;
   pointerContents: string;
   dryRun?: boolean;
 }
@@ -37,6 +39,14 @@ function samePath(left: string | undefined, right: string): boolean {
 export function materializeZeroOwnerTaskState(
   input: ZeroOwnerMaterializationInput
 ): ZeroOwnerMaterializationResult {
+  const taskContractPath = path.join(input.worktreePath, input.taskPath);
+  if (!fs.existsSync(taskContractPath) || !fs.statSync(taskContractPath).isFile()) {
+    throw new Error("zero_owner_materialization_task_contract_missing");
+  }
+  const actualTaskIdentity = `sha256:${sha256Hex(fs.readFileSync(taskContractPath))}`;
+  if (actualTaskIdentity !== input.sourceArtifactIdentity) {
+    throw new Error("zero_owner_materialization_task_contract_identity_mismatch");
+  }
   const store = openVerifiedTaskStateStore(input.projectRoot);
   const all = store.enumerate();
   const exact = all.filter((state) =>
