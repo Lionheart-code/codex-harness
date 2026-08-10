@@ -412,10 +412,40 @@ export function applySelfInstallReconciliation(
   journal: SelfInstallReconciliationV1
 ): SelfInstallReconciliationV1 {
   if (journal.state === "completed_receipt") return journal;
-  if (journal.state !== "prepared" && journal.state !== "partial_failure") {
+  if (!["prepared", "applying", "partial_failure"].includes(journal.state)) {
     throw new Error(`reconciliation_invalid_state:${journal.state}`);
   }
   const root = journal.product_root;
+  if (journal.state === "applying") {
+    const quarantineRoot = quarantineRootFor(journal);
+    const recoveredSteps = new Set(journal.completed_steps);
+    for (const item of journal.items.filter((entry) => entry.disposition === "quarantine_then_remove"
+      && !entry.path.includes("#"))) {
+      if (!fs.existsSync(path.join(root, item.path))
+        && hashPath(path.join(quarantineRoot, item.path)) === item.content_hash) {
+        recoveredSteps.add(`removed:${item.path}`);
+      }
+    }
+    const agentsPath = path.join(root, "AGENTS.md");
+    const agentsBackup = path.join(quarantineRoot, "AGENTS.md");
+    if (fs.existsSync(agentsBackup)
+      && extractManagedAgentsBlock(fs.readFileSync(agentsBackup, "utf8")) !== null
+      && (!fs.existsSync(agentsPath)
+        || extractManagedAgentsBlock(fs.readFileSync(agentsPath, "utf8")) === null)) {
+      recoveredSteps.add("removed:AGENTS.md#managed-block");
+    }
+    const registryMatches = loadProjectRegistry()?.projects
+      .filter((entry) => path.resolve(entry.root_path) === root) ?? [];
+    if (registryMatches.length === 0) recoveredSteps.add("removed:registry");
+    journal = {
+      ...journal,
+      state: "partial_failure",
+      completed_steps: [...recoveredSteps],
+      updated_at: new Date().toISOString(),
+      error: "reconciliation_interrupted_during_apply"
+    };
+    writeJournal(root, journal);
+  }
   assertReconciliationPreflight(journal);
   const preservedBefore = new Map(Object.entries(journal.preserved_hashes));
   let next: SelfInstallReconciliationV1 = {
@@ -442,7 +472,13 @@ export function applySelfInstallReconciliation(
         throw new Error(`reconciliation_removal_source_missing:${relativePath}`);
       }
       fs.mkdirSync(path.dirname(destination), { recursive: true });
-      fs.cpSync(source, destination, { recursive: true, errorOnExist: true });
+      if (fs.existsSync(destination)) {
+        if (hashPath(source) !== hashPath(destination)) {
+          throw new Error(`quarantine_readback_failed:${relativePath}`);
+        }
+      } else {
+        fs.cpSync(source, destination, { recursive: true, errorOnExist: true });
+      }
       if (hashPath(source) !== hashPath(destination)) throw new Error(`quarantine_readback_failed:${relativePath}`);
       fs.rmSync(source, { recursive: true, force: false });
       next.completed_steps.push(`removed:${relativePath}`);
@@ -515,7 +551,7 @@ export function rollbackSelfInstallReconciliation(
   journal: SelfInstallReconciliationV1
 ): SelfInstallReconciliationV1 {
   if (journal.state === "rolled_back") return journal;
-  if (!["partial_failure", "rollback_required", "completed_receipt"].includes(journal.state)) {
+  if (!["applying", "partial_failure", "rollback_required", "completed_receipt"].includes(journal.state)) {
     throw new Error(`reconciliation_rollback_invalid_state:${journal.state}`);
   }
   const root = journal.product_root;

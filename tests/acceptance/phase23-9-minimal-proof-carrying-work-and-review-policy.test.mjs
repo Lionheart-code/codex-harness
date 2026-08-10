@@ -32,7 +32,8 @@ import {
 import { RunStagingDatabase } from "../../dist/core/run-staging-db.js";
 import { ProjectMemoryDatabase } from "../../dist/core/project-memory-db.js";
 import {
-  buildRuntimeRun, extractEffectiveValidationCommands, extractReviewedAuthorityOverlay
+  buildRuntimeRun, extractEffectiveValidationCommands, extractReviewedAuthorityOverlay,
+  launchRuntimePlanningReviewBundle
 } from "../../dist/core/runtime.js";
 import { harvestRun } from "../../dist/core/harvest.js";
 
@@ -199,6 +200,18 @@ test("phase 23.9 retained turn context has exact raw identity and legal event ch
     occurred_at: new Date(2).toISOString(), raw_startup_observation: null, observed_profile: null,
     terminal_status: "success", error_code: null, output_artifact_hash: sha("review") });
   assert.deepEqual([claimed.event_type, started.event_type, terminal.event_type], ["claimed", "started", "terminal"]);
+  for (const [terminal_status, error_code] of [
+    ["timeout", "review_timeout"], ["profile_mismatch", "review_startup_profile_mismatch:model"]
+  ]) {
+    const failure = buildReviewAttemptEvent({ ...common, sequence: 3, event_type: "terminal",
+      occurred_at: new Date(2).toISOString(), raw_startup_observation: null, observed_profile: null,
+      terminal_status, error_code, output_artifact_hash: null });
+    assert.equal(failure.terminal_status, terminal_status);
+  }
+  const startupFailure = buildReviewAttemptEvent({ ...common, sequence: 2, event_type: "terminal",
+    occurred_at: new Date(2).toISOString(), raw_startup_observation: null, observed_profile: null,
+    terminal_status: "startup_observation_failed", error_code: "startup_missing", output_artifact_hash: null });
+  assert.equal(startupFailure.sequence, 2);
   assert.throws(() => buildReviewAttemptEvent({ ...common, sequence: 1, event_type: "terminal",
     occurred_at: new Date(0).toISOString(), raw_startup_observation: null, observed_profile: null,
     terminal_status: "failed", error_code: "bad", output_artifact_hash: null }), /automaton_invalid/);
@@ -340,7 +353,7 @@ test("phase 23.9 durable review and proof schemas expose closed contracts", () =
   const attempt = readSchema("review-attempt.schema.json");
   const event = readSchema("review-attempt-event.schema.json");
   const cohort = readSchema("review-cohort.schema.json");
-  const bundle = readSchema("planning-review-bundle-record.schema.json");
+  const bundle = readSchema("planning-review-bundle.schema.json");
   const proof = readSchema("proof-record.schema.json");
   assert.deepEqual(attempt.properties.verdict, { type: "null" });
   assert.deepEqual(attempt.properties.terminal_status.enum, [
@@ -351,7 +364,7 @@ test("phase 23.9 durable review and proof schemas expose closed contracts", () =
   assert.equal(event.$defs.cliPreamble.additionalProperties, false);
   assert.equal(event.$defs.turnContext.additionalProperties, false);
   assert.equal(cohort.properties.required_lens_ids.minItems, 1);
-  assert.equal(bundle.properties.schema_version.const,
+  assert.equal(bundle.$defs.bundleRecord.properties.schema_version.const,
     "phase-23.9.planning-review-bundle-record.v1");
   assert.deepEqual(proof.properties.lifecycle_applicability.required, [
     "snapshot_id", "contract_marker", "procedure_requirements", "stage_requirements"
@@ -539,6 +552,114 @@ test("phase 23.9 review bundle records compensate as one transaction", () => {
   }
 });
 
+test("phase 23.9 production planning bundle persists typed failure and one retry", async () => {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "ch-planning-bundle-runtime-")));
+  fs.cpSync(path.join(process.cwd(), "skills", "self-hosting"), path.join(root, "skills", "self-hosting"), {
+    recursive: true
+  });
+  fs.mkdirSync(path.join(root, "schemas"), { recursive: true });
+  fs.copyFileSync(
+    path.join(process.cwd(), "schemas/planning-review-lens-output.schema.json"),
+    path.join(root, "schemas/planning-review-lens-output.schema.json")
+  );
+  fs.mkdirSync(path.join(root, "tasks"), { recursive: true });
+  fs.writeFileSync(path.join(root, "tasks/PHASE_23_9.md"), "# Phase 23.9\n");
+  fs.writeFileSync(path.join(root, "TASK.md"), "# Current Task\n");
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+  execFileSync("git", ["add", "."], { cwd: root });
+  execFileSync("git", ["commit", "-qm", "fixture"], { cwd: root });
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  const staging = new RunStagingDatabase(root, root, "run-bundle-runtime");
+  const run = buildRuntimeRun({
+    runId: "run-bundle-runtime", taskPath: "TASK.md", phaseId: "23.9",
+    timestamp: new Date(0).toISOString(), repository: {
+      root_path: root, project_root: root, branch: "codex/test", head_sha: head, dirty: false
+    }
+  });
+  staging.saveRun({
+    ...run,
+    source_snapshot: head,
+    active_task_path: "tasks/PHASE_23_9.md",
+    approvals: [{
+      approval_id: "approval", title: "reviewed plan", status: "approved",
+      created_at: new Date(0).toISOString(), approver: "owner", reason: "fixture",
+      reviewed_plan_artifact_id: sha("plan"), reviewed_plan_content_hash: sha("plan").slice(7),
+      reviewed_evidence_artifact_id: sha("review")
+    }]
+  });
+  fs.mkdirSync(path.join(root, ".codex"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".codex/request.md"), "Review the exact candidate.\n");
+  fs.writeFileSync(path.join(root, ".codex/lenses.json"), JSON.stringify({
+    schema_version: 1, bundle_kind: "candidate",
+    predecessor_cohort_id: null,
+    required_lens_ids: ["plan-review", "architecture-review", "db-storage-review"],
+    carried_lens_refs: []
+  }));
+  const fakeBin = path.join(root, "fake-bin");
+  const codexHome = path.join(root, "codex-home");
+  const sessionId = "phase239-runtime-fixture";
+  fs.mkdirSync(fakeBin, { recursive: true });
+  fs.mkdirSync(path.join(codexHome, "sessions"), { recursive: true });
+  fs.writeFileSync(path.join(fakeBin, "codex"), [
+    "#!/usr/bin/env node",
+    `process.stdout.write(${JSON.stringify(`${JSON.stringify({ type: "thread.started", thread_id: sessionId })}\n`)});`,
+    "if (process.env.CODEX_FAKE_SLEEP === '1') setTimeout(() => process.exit(0), 3000);",
+    "else process.exit(1);", ""
+  ].join("\n"));
+  fs.chmodSync(path.join(fakeBin, "codex"), 0o755);
+  fs.writeFileSync(path.join(codexHome, "sessions", `rollout-${sessionId}.jsonl`), [
+    JSON.stringify({ type: "session_meta", payload: { id: sessionId, model_provider: "openai" } }),
+    JSON.stringify({ type: "turn_context", payload: {
+      cwd: root, model: "gpt-5.6-sol", effort: "high",
+      sandbox_policy: { type: "read-only" }, approval_policy: "never"
+    } }), ""
+  ].join("\n"));
+  const priorPath = process.env.PATH;
+  const priorCodexHome = process.env.CODEX_HOME;
+  const priorFakeSleep = process.env.CODEX_FAKE_SLEEP;
+  process.env.PATH = `${fakeBin}${path.delimiter}${priorPath ?? ""}`;
+  process.env.CODEX_HOME = codexHome;
+  process.env.CODEX_FAKE_SLEEP = "1";
+  const launch = () => launchRuntimePlanningReviewBundle(root, {
+    runId: run.run_id, requestPath: ".codex/request.md",
+    outputPath: ".harness/runs/run-bundle-runtime/manual/bundle.json",
+    lensManifestPath: ".codex/lenses.json", timeoutSeconds: 1, staleAfterSeconds: 1
+  });
+  try {
+    await assert.rejects(launch(), /PLANNING_REVIEW_BUNDLE_TIMEOUT/);
+    let attempts = staging.listIndependentRecords("review_attempt", run.run_id);
+    let events = staging.listIndependentRecords("review_attempt_event", run.run_id);
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0].terminal_status, "timeout");
+    assert.deepEqual(events.map((entry) => entry.sequence).sort(), [1, 2, 3]);
+    assert.equal(staging.listIndependentRecords("review_cohort", run.run_id).length, 0);
+    assert.equal(staging.listIndependentRecords("planning_review_bundle", run.run_id).length, 0);
+    assert.equal(staging.loadRun(run.run_id).review_results.length, 0);
+    process.env.CODEX_FAKE_SLEEP = "0";
+    fs.writeFileSync(path.join(codexHome, "sessions", `rollout-${sessionId}.jsonl`), [
+      JSON.stringify({ type: "session_meta", payload: { id: sessionId, model_provider: "openai" } }),
+      JSON.stringify({ type: "turn_context", payload: {
+        cwd: root, model: "gpt-5.6-terra", effort: "high",
+        sandbox_policy: { type: "read-only" }, approval_policy: "never"
+      } }), ""
+    ].join("\n"));
+    await assert.rejects(launch(), /PLANNING_REVIEW_BUNDLE_PROCESS_FAILED/);
+    attempts = staging.listIndependentRecords("review_attempt", run.run_id);
+    assert.equal(attempts.length, 2);
+    assert.deepEqual(attempts.map((entry) => entry.terminal_status).sort(), ["profile_mismatch", "timeout"]);
+    await assert.rejects(launch(), /PLANNING_REVIEW_BUNDLE_RETRY_NOT_ALLOWED/);
+  } finally {
+    if (priorPath === undefined) delete process.env.PATH;
+    else process.env.PATH = priorPath;
+    if (priorCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = priorCodexHome;
+    if (priorFakeSleep === undefined) delete process.env.CODEX_FAKE_SLEEP;
+    else process.env.CODEX_FAKE_SLEEP = priorFakeSleep;
+  }
+});
+
 test("phase 23.9 corrupt proof transfer rolls back project run and receipt", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ch-proof-transfer-"));
   const staging = new RunStagingDatabase(root, root, "run-proof");
@@ -715,9 +836,9 @@ test("phase 23.9 reconciliation stops on drift and preserves runtime and source"
     fs.rmSync(path.join(root, ".harness/config.toml"));
     const completed = applySelfInstallReconciliation({
       ...journal,
-      state: "partial_failure",
-      completed_steps: ["removed:.harness/config.toml"],
-      error: "injected interruption"
+      state: "applying",
+      completed_steps: [],
+      error: null
     });
     assert.equal(completed.state, "completed_receipt");
     assert.equal(fs.existsSync(path.join(root, ".harness/install.json")), false);

@@ -5471,7 +5471,20 @@ export async function launchRuntimePlanningReviewBundle(
   }
   const registry = readSelfHostingProcedureRegistry(targetRoot);
   if (!registry) throw new Error("Self-hosting procedure registry not found.");
-  const profile = requireReviewLaunchCapability(indexSelfHostingProceduresById(registry), "plan-review");
+  const launchCapability = requireReviewLaunchCapability(indexSelfHostingProceduresById(registry), "plan-review");
+  const bindingCandidates = readCodexReferenceBinding(targetRoot).profiles.filter((entry) =>
+    entry.status === "accepted" && entry.route_class === "critical_independent"
+    && entry.adapter_id === launchCapability.adapter_id
+    && entry.capabilities.fresh_independent_delta && !entry.capabilities.safe_session_resume);
+  if (bindingCandidates.length !== 1) {
+    throw new Error(`planning_review_bundle_profile_cardinality_invalid:${bindingCandidates.length}`);
+  }
+  const bindingProfile = bindingCandidates[0];
+  const profile: SelfHostingReviewLaunchProfile = {
+    ...launchCapability,
+    model: bindingProfile.model,
+    reasoning_effort: bindingProfile.reasoning_effort
+  };
   const timeoutSeconds = validateLaunchSeconds(options.timeoutSeconds, profile.timeout_seconds, "--timeout-seconds");
   const staleAfterSeconds = validateLaunchSeconds(options.staleAfterSeconds, profile.stale_after_seconds, "--stale-after-seconds");
   const requestPath = resolveLaunchRequestPath(targetRoot, options.requestPath);
@@ -5519,7 +5532,7 @@ export async function launchRuntimePlanningReviewBundle(
       )))}`
     ])
   );
-  const outputSchemaPath = "schemas/planning-lens-result.schema.json";
+  const outputSchemaPath = "schemas/planning-review-lens-output.schema.json";
   const outputContractRefs = expectedProcedures.map((procedureId) => {
     const descriptor = registry.procedures.find((entry) => entry.procedure_id === procedureId);
     if (!descriptor) throw new Error(`planning_review_bundle_procedure_missing:${procedureId}`);
@@ -5556,7 +5569,7 @@ export async function launchRuntimePlanningReviewBundle(
     run_instance_id: current.run.run_instance_id ?? "", run_id: current.run.run_id,
     task_artifact_id: expectedTaskArtifactId as `sha256:${string}`, immutable_base: expectedImmutableBase,
     planning_review_source_head: expectedSourceHead, anchor_plan_sha: effectivePlanSha as `sha256:${string}`,
-    output_contract_refs: outputContractRefs, profile_id: profile.adapter_id, bundle_kind: bundleKind,
+    output_contract_refs: outputContractRefs, profile_id: bindingProfile.profile_id, bundle_kind: bundleKind,
     predecessor_cohort_id: predecessorCohortId,
     required_lens_ids: expectedProcedures,
     carried_lens_refs: carriedLensRefs, context_core_hash: contextCoreHash, created_at: current.run.updated_at
@@ -5602,9 +5615,13 @@ export async function launchRuntimePlanningReviewBundle(
       const attempt = entry as { attempt_kind?: unknown; cohort_id?: unknown };
       return attempt.attempt_kind === "planning_bundle" && attempt.cohort_id === cohort.record_id;
     }) as Array<{ terminal_status?: unknown }>;
+  const terminalAttemptStatuses = [
+    "success", "spawn_failed", "startup_observation_failed", "profile_mismatch",
+    "failed", "timeout", "blocked", "invalid_artifact"
+  ];
   if (existingAttempts.some((entry) => entry.terminal_status === "success")
     || existingAttempts.length >= 2
-    || existingAttempts.some((entry) => !["success", "failed"].includes(String(entry.terminal_status)))) {
+    || existingAttempts.some((entry) => !terminalAttemptStatuses.includes(String(entry.terminal_status)))) {
     throw new Error("PLANNING_REVIEW_BUNDLE_RETRY_NOT_ALLOWED");
   }
   if (dryRun) {
@@ -5645,7 +5662,9 @@ export async function launchRuntimePlanningReviewBundle(
     events.push(buildReviewAttemptEvent({ ...common, sequence: rawStartup ? 3 : 2, event_type: "terminal", occurred_at: failedAt,
       raw_startup_observation: null, observed_profile: null,
       terminal_status: rawStartup
-        ? errorCode === "timeout" ? "timeout" : errorCode === "artifact_invalid" ? "invalid_artifact" : "failed"
+        ? errorCode === "timeout" ? "timeout"
+          : errorCode === "artifact_invalid" ? "invalid_artifact"
+            : errorCode === "profile_mismatch" ? "profile_mismatch" : "failed"
         : errorCode === "startup_observation_failed" ? "startup_observation_failed" : "spawn_failed",
       error_code: errorCode,
       output_artifact_hash: rawStartup && fs.existsSync(outputPath)
@@ -5653,7 +5672,7 @@ export async function launchRuntimePlanningReviewBundle(
     const attempt = buildReviewAttemptRecord({
       run_instance_id: common.run_instance_id, run_id: common.run_id, attempt_kind: common.attempt_kind,
       cohort_id: common.cohort_id, attempt_id: common.attempt_id, claim_id: common.claim_id,
-      procedure_ids: common.procedure_ids, profile_id: profile.adapter_id,
+      procedure_ids: common.procedure_ids, profile_id: bindingProfile.profile_id,
       request_artifact_hash: common.request_artifact_hash,
       expected_bundle_output_path: common.expected_bundle_output_path,
       claimed_event_id: events[0].record_id,
@@ -5661,7 +5680,8 @@ export async function launchRuntimePlanningReviewBundle(
       terminal_event_id: events[events.length - 1].record_id,
       terminal_status: rawStartup
         ? errorCode === "timeout" ? "timeout"
-          : errorCode === "artifact_invalid" ? "invalid_artifact" : "failed"
+          : errorCode === "artifact_invalid" ? "invalid_artifact"
+            : errorCode === "profile_mismatch" ? "profile_mismatch" : "failed"
         : errorCode === "startup_observation_failed" ? "startup_observation_failed" : "spawn_failed",
       verdict: null, reviewed_source_head: null,
       implementation_diff_id: null, predecessor_review_attempt_id: null,
@@ -5695,7 +5715,26 @@ export async function launchRuntimePlanningReviewBundle(
   });
   if (child.timedOut || child.exitCode !== 0) {
     const failedAt = child.completedTime ?? nowIso();
-    persistPlanningBundleFailure(child.startTime, failedAt, child.timedOut ? "timeout" : "process_failed");
+    let failedStartup: RawReviewStartupObservationV1 | undefined;
+    try { failedStartup = extractRawStartupObservation(child.stdout); } catch { /* typed below */ }
+    const failedObserved = failedStartup ? parseRawReviewStartupObservation(failedStartup) : undefined;
+    const failedProfileMismatch = failedObserved && (
+      failedObserved.provider !== "openai"
+      || failedObserved.model !== profile.model
+      || failedObserved.workdir !== targetRoot
+      || failedObserved.reasoning !== profile.reasoning_effort
+      || failedObserved.sandbox !== "read-only"
+      || failedObserved.approval_policy !== "never"
+    );
+    persistPlanningBundleFailure(
+      child.startTime,
+      failedAt,
+      failedStartup
+        ? failedProfileMismatch ? "profile_mismatch"
+          : child.timedOut ? "timeout" : "process_failed"
+        : child.pid ? "startup_observation_failed" : "spawn_failed",
+      failedStartup
+    );
     throw new Error(child.timedOut
       ? "PLANNING_REVIEW_BUNDLE_TIMEOUT"
       : `PLANNING_REVIEW_BUNDLE_PROCESS_FAILED:${child.exitCode ?? "spawn"}`);
@@ -5797,7 +5836,7 @@ export async function launchRuntimePlanningReviewBundle(
     cohort_id: envelope.bundle_id,
     attempt_id: bundleAttemptId,
     claim_id: bundleAttemptId,
-    profile_id: profile.adapter_id,
+    profile_id: bindingProfile.profile_id,
     request_artifact_hash: observationBase.request_artifact_hash as `sha256:${string}`,
     expected_bundle_output_path: observationBase.expected_output_path,
     claimed_event_id: bundleEvents[0].record_id,
@@ -5951,9 +5990,10 @@ export async function launchRuntimePlanningReviewBundle(
   };
   } catch (error) {
     const failedAt = child.completedTime ?? nowIso();
-    const errorCode = !observedStartup && error instanceof Error
-      && error.message.startsWith("review_startup_")
-      ? "startup_observation_failed" : "artifact_invalid";
+    const errorCode = error instanceof Error && error.message.startsWith("review_startup_profile_mismatch:")
+      ? "profile_mismatch"
+      : !observedStartup && error instanceof Error && error.message.startsWith("review_startup_")
+        ? "startup_observation_failed" : "artifact_invalid";
     persistPlanningBundleFailure(child.startTime, failedAt, errorCode, observedStartup);
     throw error;
   }
