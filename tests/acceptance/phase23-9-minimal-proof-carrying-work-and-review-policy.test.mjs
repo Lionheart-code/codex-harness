@@ -60,6 +60,31 @@ test("phase 23.9 product guard fails before mutation", () => {
   assert.equal(fs.existsSync(path.join(root, ".harness")), false);
 });
 
+test("phase 23.9 operator authority matches zero-owner and pre-harvest disposition rules", () => {
+  const manual = fs.readFileSync(path.join(process.cwd(), "docs/HUMAN_OPERATOR_MANUAL.md"), "utf8");
+  const operations = fs.readFileSync(path.join(process.cwd(), "docs/OPERATIONS_PLAN.md"), "utf8");
+  const roadmap = fs.readFileSync(path.join(process.cwd(), "docs/IMPLEMENTATION_ROADMAP.md"), "utf8");
+  const stageMap = fs.readFileSync(path.join(process.cwd(), "docs/SELF_HOSTING_OPERATOR_STAGE_MAP.md"), "utf8");
+
+  assert.match(manual, /zero matching owners, normal materialization transactionally/);
+  assert.match(manual, /Before harvest, a normal self-hosting run must record exactly one/);
+  assert.match(manual, /A harvested run cannot add or change that disposition/);
+  assert.doesNotMatch(manual, /requires exactly one installed TaskState to own that worktree/);
+  assert.doesNotMatch(manual, /A closing or harvested run may record/);
+  assert.match(operations, /normal materialization\ntransactionally creates exactly one canonical installed `TaskState` owner/);
+  assert.match(operations, /records exactly one successor disposition/);
+  assert.match(operations, /a harvested run cannot change that disposition/);
+  assert.doesNotMatch(operations, /fails closed unless exactly one installed TaskState owns/);
+  assert.doesNotMatch(operations, /harvest without a next-task decision/);
+  assert.match(roadmap, /before harvest, a normal self-hosting run records exactly one successor/);
+  assert.match(roadmap, /a harvested run cannot add or change that disposition/);
+  assert.doesNotMatch(roadmap, /a closing or harvested run may determine and record/);
+  assert.doesNotMatch(roadmap, /allowing harvest without one when no successor is selected/);
+  assert.match(stageMap, /selected-successor or explicit no-successor disposition/);
+  assert.match(stageMap, /Harvest rejects a missing, duplicate, ambiguous, or conflicting successor/);
+  assert.doesNotMatch(stageMap, /RUN_HARVESTED[^\n]+record next-task decision/);
+});
+
 test("phase 23.9 zero-owner materialization creates one exact owner and replays", () => {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ch-owner-project-"));
   const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "ch-owner-worktree-"));

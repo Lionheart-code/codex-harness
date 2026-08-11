@@ -378,8 +378,10 @@ Global constraints for the rebase:
 
 Task-cycle materialization invariant:
 - one task = one branch = one worktree;
-- a closing or harvested run may determine and record the next task decision;
-- a closing or harvested run must not create, claim, or mutate the next task
+- before harvest, a normal self-hosting run records exactly one successor
+  disposition: either a selected next-task decision or an explicit no-successor
+  decision; a harvested run cannot add or change that disposition;
+- the closing or harvested run must not create, claim, or mutate the next task
   branch/worktree;
 - the next task branch/worktree belongs to the new active task, not the old
   closing or harvested run;
@@ -438,8 +440,9 @@ Required scope:
   23.8.6C2 -> 23.8.6C2A -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9 -> 24A -> 24B ->
   25A -> 25B -> 26 sequence and
   a direct block before Phase 23.9;
-- separate end-of-old-cycle decision from start-of-new-cycle materialization:
-  closeout/harvest may record the next task, while the new cycle creates or
+- separate end-of-old-cycle disposition from start-of-new-cycle materialization:
+  closeout records exactly one selected-successor or explicit no-successor
+  disposition before harvest, while a selected new cycle creates or
   enters the task branch/worktree, activates the task there, and starts the
   run in that task context;
 - keep the historical delivered Phase 23.8.5 self-hosting run context distinct
@@ -543,13 +546,15 @@ Required scope:
   `TASK.md` pointer there, commit the activation/materialization change as the
   first commit in that task branch/worktree, verify clean git, and only then
   start the new run in that task worktree;
-- require a recorded next-task decision before harvest when a successor is
-  selected, while allowing harvest without one when no successor is selected;
+- require exactly one recorded successor disposition before harvest: a
+  next-task decision when a successor is selected, or an explicit no-successor
+  decision otherwise;
 - keep a recorded next-task decision as recorded decision state only until an
   explicit status or equivalent typed distinction marks the committed source
   activation as complete;
-- ensure a harvested/closing run may record the next task decision but cannot
-  create, claim, or mutate the new task branch/worktree;
+- ensure a closing run records the successor disposition before harvest, a
+  harvested run cannot add or change it, and neither may create, claim, or
+  mutate the new task branch/worktree;
 - forbid accepted/project readback from acting as implicit repair authority
   without exact immutable run-instance identity match;
 - regenerate compatibility `run.json` from staging DB rather than treating it

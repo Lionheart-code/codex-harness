@@ -93,14 +93,16 @@ test("phase 23.8.6C2A remains the completed bounded task-materialization predece
   assert.match(operations, /23\.8\.6C2 -> 23\.8\.6C2A -> 23\.8\.6D/);
   assert.match(operations, /worktree bootstrap/);
   assert.match(operations, /failed\s+labeled verdict routes to a fix pass/i);
-  assert.match(operations, /exactly one installed TaskState owns the\s+new worktree or branch/i);
+  assert.match(operations, /zero matching owners, normal materialization\s+transactionally creates exactly one canonical installed `TaskState` owner/i);
+  assert.doesNotMatch(operations, /fails closed unless exactly one installed TaskState owns/i);
   assert.match(operations, /Materialization never opens a successor run\./);
   assert.match(operations, /Codex Desktop `create_thread`/);
   assert.match(operations, /materialize-next-task[\s\S]*--enter-existing/);
   assert.doesNotMatch(operations, /\(--create\|--enter-existing\)/);
   assert.match(manual, /node bin\/ch worktree bootstrap/);
   assert.match(manual, /fresh combined review before verification/i);
-  assert.match(manual, /requires exactly one installed TaskState/i);
+  assert.match(manual, /zero matching owners, normal materialization transactionally\s+creates exactly one installed `TaskState` owner/i);
+  assert.doesNotMatch(manual, /requires exactly one installed TaskState/i);
   assert.doesNotMatch(manual, /Until C2A is\s+delivered/);
   assert.match(stageMap, /stop\s+the predecessor before successor\s+implementation work/);
   assert.match(stageMap, /COMBINED_ARCHITECTURE_DB_REVIEW_REQUIRED/);
