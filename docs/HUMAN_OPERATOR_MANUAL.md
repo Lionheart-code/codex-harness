@@ -74,10 +74,13 @@ This document explains how a human operator should use `codex-harness` safely.
 9. Commit only after review, verification, and closeout prerequisites are
    satisfied.
 
-A closing or harvested run may record which task should come next. It does not
-own the new task branch/worktree and it must not edit `TASK.md` for that next
-task. The next cycle becomes authoritative only when `TASK.md` is written in
-that task's own branch/worktree, the activation/materialization change is
+A normal self-hosting run must record exactly one successor disposition before
+harvest: either a selected next-task decision or an explicit no-successor
+decision. A harvested run cannot add or change that disposition. The old run
+does not own the new task branch/worktree and it must not edit `TASK.md` for
+that next task. An explicit no-successor disposition ends the handoff. For a
+selected successor, the next cycle becomes authoritative only when `TASK.md`
+is written in that task's own branch/worktree, the activation/materialization change is
 committed there as the first commit, clean git is confirmed, deterministic
 dependency/build and tracked-procedure readiness verification passes, and only
 then the new run is treated as active task context. Broader self-hosting
@@ -380,10 +383,16 @@ After apply:
 
 ## Moving to next phase
 
-Only after commit and closeout/harvest decision:
+After the implementation commit and before harvest:
 
-1. record the next task decision with
+1. record exactly one successor disposition. For a selected successor, record
+   the next-task decision with
    `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`;
+   otherwise record the explicit no-successor disposition and stop without
+   materializing a successor.
+
+Only after harvest, for a selected successor:
+
 2. create the successor with Codex Desktop `create_thread`, verify native
    identity/cwd/branch/base readback, then run
    `node bin/ch run materialize-next-task --run <run-id> --decision-id <id> --task <path> --branch <name> --worktree <path> --enter-existing`;

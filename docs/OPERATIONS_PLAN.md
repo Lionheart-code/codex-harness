@@ -27,12 +27,12 @@ operator stage
 -> deterministic validation/review gate
 ```
 
-Task-cycle boundaries are explicit. When a successor is selected, end-of-old-
-cycle closeout records its next-task decision before harvest, but it must not
-create or claim the next task branch/worktree. A run with no selected successor
-may still harvest without a next-task decision. Start-of-new-cycle
-materialization belongs to the new task context. Phase 23.8.6 now provides the
-current narrow command path for that:
+Task-cycle boundaries are explicit. Before harvest, end-of-old-cycle closeout
+records exactly one successor disposition: either a selected next-task decision
+or an explicit no-successor decision. It must not create or claim the next task
+branch/worktree, and a harvested run cannot change that disposition.
+Start-of-new-cycle materialization belongs to the new task context. Phase
+23.8.6 now provides the current narrow command path for that:
 record the next-task decision, materialize the new task branch/worktree, write
 `TASK.md` there, commit the activation/materialization change as the first
 commit in that task branch/worktree, verify clean git, and only then start the
@@ -135,9 +135,13 @@ successor run `node bin/ch worktree bootstrap` to perform deterministic
 dependency/build and tracked-procedure readiness checks before starting the
 authoritative Harness run. A Codex Desktop local environment may run the same
 setup during worktree creation, but its UI selection is not proof by itself.
-Materialization never opens a successor run. It also fails closed unless exactly one installed TaskState owns the
-new worktree or branch, so every Harness-materialized successor receives the
-recorded immutable base before it can reach `run start`. That successor start
+Materialization never opens a successor run. For an exact registered, clean,
+named-branch Desktop worktree with zero matching owners, normal materialization
+transactionally creates exactly one canonical installed `TaskState` owner bound
+to the recorded immutable base. Existing duplicate, partial, ambiguous, or
+conflicting ownership fails closed. Every Harness-materialized successor therefore
+receives the recorded immutable base before it can reach `run start`. That
+successor start
 repeats the deterministic bootstrap before durable run creation; `--verify`
 accepts only a generated readiness marker matching the committed `HEAD`, source
 tree, lockfile, and CLI build output; those authority and readiness paths may
@@ -241,10 +245,16 @@ Commit only after:
 
 ## Move to next phase
 
-After commit:
+After the implementation commit and before harvest:
 
-1. Record the next task decision if closeout/harvest has not already done so.
-   Use `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`.
+1. Record exactly one successor disposition. For a selected successor, record
+   the next-task decision with
+   `node bin/ch run record-next-task --run <run-id> --task <path> --base-commit <sha> --file <path> [--base-ref <ref>]`.
+   Otherwise record the explicit no-successor disposition and do not materialize
+   a successor.
+
+Only after harvest, for a selected successor:
+
 2. Create the successor task/worktree with Codex Desktop `create_thread`, then
    read it back and verify the exact task identity, cwd, branch, and base HEAD.
    Harness never substitutes raw Git or app-server `thread/start` for that
