@@ -53,6 +53,24 @@
       "type": "string",
       "pattern": "^[a-f0-9]{40}$"
     },
+    "delivery_source_relationship": {
+      "type": "object",
+      "required": [
+        "schema_version", "relationship", "delivered_source_head", "final_reviewed_source_head",
+        "delivered_tree_hash", "final_reviewed_tree_hash", "ancestry", "delivery_fact_id"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "relationship": { "enum": ["identity", "merge_contains_exact_tree"] },
+        "delivered_source_head": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "final_reviewed_source_head": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "delivered_tree_hash": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "final_reviewed_tree_hash": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "ancestry": { "enum": ["same_commit", "ancestor"] },
+        "delivery_fact_id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
     "implementation_baseline_binding": {
       "type": "object",
       "required": [

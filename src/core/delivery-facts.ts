@@ -9,7 +9,8 @@ import {
   type RemoteCheckResult,
   type ReviewResult,
   type ReviewResultStatus,
-  type Run
+  type Run,
+  deriveDeliverySourceRelationship
 } from "./runtime";
 
 export interface DeliveryFactInput {
@@ -279,6 +280,15 @@ export function importDeliveryFacts(
     const timeCompare = left.created_at.localeCompare(right.created_at);
     return timeCompare !== 0 ? timeCompare : left.review_result_id.localeCompare(right.review_result_id);
   });
+    const relationship = deriveDeliverySourceRelationship(
+      roots.targetRoot,
+      nextRun,
+      nextRun.delivery_facts
+    );
+    if (relationship) {
+      nextRun.delivered_source_head = relationship.delivered_source_head;
+      nextRun.delivery_source_relationship = relationship;
+    }
     nextRun.updated_at = new Date().toISOString();
     return { nextRun, imported };
   };

@@ -402,6 +402,17 @@ export interface DeliveryFactRecord {
   metadata?: Record<string, unknown>;
 }
 
+export interface DeliverySourceRelationshipV1 {
+  schema_version: 1;
+  relationship: "identity" | "merge_contains_exact_tree";
+  delivered_source_head: string;
+  final_reviewed_source_head: string;
+  delivered_tree_hash: string;
+  final_reviewed_tree_hash: string;
+  ancestry: "same_commit" | "ancestor";
+  delivery_fact_id: string;
+}
+
 export interface RunIssue {
   issue_id: string;
   phase_id: BootstrapIssuePhaseId;
