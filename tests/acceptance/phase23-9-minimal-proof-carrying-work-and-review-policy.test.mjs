@@ -60,6 +60,18 @@ test("phase 23.9 product guard fails before mutation", () => {
   assert.equal(fs.existsSync(path.join(root, ".harness")), false);
 });
 
+test("phase 23.9 operator authority matches zero-owner and pre-harvest disposition rules", () => {
+  const manual = fs.readFileSync(path.join(process.cwd(), "docs/HUMAN_OPERATOR_MANUAL.md"), "utf8");
+  const stageMap = fs.readFileSync(path.join(process.cwd(), "docs/SELF_HOSTING_OPERATOR_STAGE_MAP.md"), "utf8");
+
+  assert.match(manual, /zero matching owners, normal materialization transactionally/);
+  assert.match(manual, /Before harvest, a normal self-hosting run must record exactly one/);
+  assert.doesNotMatch(manual, /requires exactly one installed TaskState to own that worktree/);
+  assert.match(stageMap, /selected-successor or explicit no-successor disposition/);
+  assert.match(stageMap, /Harvest rejects a missing, duplicate, ambiguous, or conflicting successor/);
+  assert.doesNotMatch(stageMap, /RUN_HARVESTED[^\n]+record next-task decision/);
+});
+
 test("phase 23.9 zero-owner materialization creates one exact owner and replays", () => {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ch-owner-project-"));
   const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "ch-owner-worktree-"));

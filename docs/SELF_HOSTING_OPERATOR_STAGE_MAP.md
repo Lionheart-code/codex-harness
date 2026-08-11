@@ -44,8 +44,8 @@ Non-procedure transitions belong in `next_allowed_action`.
 | `DELIVERY_FACTS_REVIEW_REQUIRED` | `delivery-facts-review` | run delivery-facts-review procedure | delivery facts record/import | `missing_delivery_facts` | closeout |
 | `CLOSEOUT_REVIEW_REQUIRED` | `phase-closeout-review` | run phase-closeout-review procedure | accepted implementation review, verification, delivery facts | `missing_closeout_review` | harvest |
 | `CLOSEOUT_READY` | `none` | perform closeout lifecycle command under Phase 23.5 rules | accepted closeout review | `closeout_ready` | new implementation in same run |
-| `HARVEST_READY` | `none` | perform harvest lifecycle command under Phase 23.5 rules | closeout receipt and harvest candidates | `harvest_ready` | direct accepted-memory writes without harvest |
-| `RUN_HARVESTED` | `none` | record next-task decision, or if one is already recorded, begin separate new-cycle materialization through commit-backed activation | identity-matched harvested run/closeout record | `run_already_harvested` | new work in same run, claiming next task branch/worktree from harvested run |
+| `HARVEST_READY` | `none` | record the required selected-successor or explicit no-successor disposition, then perform harvest under Phase 23.5 rules | closeout receipt, harvest candidates, and the exact-instance successor disposition when required | `harvest_ready` or `successor_disposition_cardinality_invalid` | direct accepted-memory writes without harvest |
+| `RUN_HARVESTED` | `none` | if the recorded disposition selected a successor, begin separate new-cycle materialization through commit-backed activation; otherwise stop | identity-matched harvested run/closeout record and successor disposition | `run_already_harvested` | new work in same run, recording a different disposition, or claiming the next task branch/worktree from harvested state |
 | `RUN_DISCARDED` | `none` | require explicit recovery/reopen decision | discarded run/staging state | `run_discarded` | resume without explicit recovery/reopen decision |
 | `RUN_QUARANTINED` | `none` | manual/review decision before transition | quarantined run/evidence/state | `run_quarantined` | implementation, harvest, accepted-memory writes |
 | `BLOCKED` | `none` | resolve blocker-specific condition | blocker-specific evidence | blocker-specific stop reason such as `harvest_identity_collision` | any transition not resolving blocker |
@@ -123,9 +123,11 @@ discipline in `docs/SELF_HOSTING_MODEL_ROUTING_POLICY.md` rather than ad hoc
 CLI guesses. A blocker note, launch hang, or missing artifact does not satisfy
 review-required evidence and must not be treated as an accepted review result.
 
-Procedure ingestion may record that closeout/harvest selected the next task.
-New-cycle materialization is separate. Phase 23.8.6 now provides the current
-narrow command path for it: `run record-next-task`, Codex Desktop
+Before harvest, a normal self-hosting run records exactly one successor
+disposition: either a selected next task through `run record-next-task` or an
+explicit no-successor decision through `run record-next-task --no-successor`.
+New-cycle materialization is separate. The selected-successor path continues
+with Codex Desktop
 `create_thread` plus exact native readback, then
 `run materialize-next-task --enter-existing`. Harness rejects raw-Git creation
 with `HANDOFF_CREATION_FAILED`. This sequence prepares, rather than starts, the
@@ -145,14 +147,14 @@ the successor run `node bin/ch worktree bootstrap` before
 `node bin/ch run start --task TASK.md`. The harvested run still must not create,
 claim, or mutate the next task branch/worktree as old-run-owned state.
 
-If a harvested predecessor lacks a recorded next-task decision, or an
-already-activated successor lacks its uniquely owning `TaskState` because
-materialization was skipped, the handoff must stop fail-closed. The active D
-task-intake and draft-plan must define the smallest product-owned recovery from
-the recorded immutable decision base before materialization and activation
-proof. Manual `TaskState`/database edits, substituting current `HEAD` for the
-base, silently claiming an advanced worktree, and starting the successor before
-owner-match proof are forbidden.
+Harvest rejects a missing, duplicate, ambiguous, or conflicting successor
+disposition. For a selected successor, normal materialization accepts a verified
+Desktop-created worktree with zero matching owners and transactionally creates
+one canonical `TaskState`; any nonzero conflicting or ambiguous owner set stops
+fail-closed. The existing recovery path remains limited to an already committed
+activation chain. Manual `TaskState`/database edits, substituting current `HEAD`
+for the recorded base, silently claiming an advanced worktree, and starting the
+successor before owner-match proof are forbidden.
 
 For a materialized successor, `run start` repeats the deterministic bootstrap
 before durable run creation. Its readiness marker must match the committed
