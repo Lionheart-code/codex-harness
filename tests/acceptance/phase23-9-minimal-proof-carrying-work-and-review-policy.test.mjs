@@ -31,9 +31,10 @@ import {
 } from "../../dist/core/product-self-install-reconciliation.js";
 import { RunStagingDatabase } from "../../dist/core/run-staging-db.js";
 import { ProjectMemoryDatabase } from "../../dist/core/project-memory-db.js";
+import { importDeliveryFacts } from "../../dist/core/delivery-facts.js";
 import {
   buildRuntimeRun, extractEffectiveValidationCommands, extractReviewedAuthorityOverlay,
-  launchRuntimePlanningReviewBundle
+  launchRuntimePlanningReviewBundle, createCloseoutReceipt, validateRuntimeRun
 } from "../../dist/core/runtime.js";
 import { harvestRun } from "../../dist/core/harvest.js";
 
@@ -446,6 +447,117 @@ test("phase 23.9 proof is rejected until baseline review and delivery exist", ()
   });
   assert.equal(proof.acceptance.status, "rejected");
   assert.match(proof.record_id, /^sha256:[a-f0-9]{64}$/);
+});
+
+test("phase 23.9 delivery import persists exact-tree source authority and closeout rejects drift", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ch-delivery-source-"));
+  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  git("init", "-q");
+  git("config", "user.email", "phase23-9@example.invalid");
+  git("config", "user.name", "Phase 23.9 Test");
+  fs.writeFileSync(path.join(root, "source.txt"), "reviewed\n");
+  git("add", "source.txt");
+  git("commit", "-q", "-m", "reviewed");
+  const reviewedHead = git("rev-parse", "HEAD");
+  const reviewedTree = git("rev-parse", "HEAD^{tree}");
+  git("commit", "-q", "--allow-empty", "-m", "delivered");
+  const deliveredHead = git("rev-parse", "HEAD");
+
+  const makeRun = (runId) => ({
+    ...buildRuntimeRun({
+      runId,
+      taskPath: "TASK.md",
+      phaseId: "23.9",
+      repository: { root_path: root, project_root: root, dirty: false },
+      requiredGates: []
+    }),
+    final_reviewed_source_head: reviewedHead,
+    verification_results: [{
+      verification_result_id: "verification-1", status: "pass",
+      created_at: new Date(0).toISOString(), summary: "pass", source: "test",
+      artifact_refs: [], command_results: []
+    }],
+    review_results: [{
+      review_result_id: "review-1", status: "PASS",
+      created_at: new Date(0).toISOString(), summary: "pass", source: "test",
+      blockers: [], artifact_refs: []
+    }]
+  });
+  const factsFor = (commitSha) => ({ facts: [
+    {
+      fact_kind: "merge_result", source: "github", status: "merged",
+      recorded_at: new Date(1).toISOString(), summary: "merged", commit_sha: commitSha
+    },
+    {
+      fact_kind: "merge_commit", source: "github", status: "merged",
+      recorded_at: new Date(1).toISOString(), summary: "merge commit", commit_sha: commitSha
+    }
+  ] });
+
+  const identityRun = makeRun("run-delivery-source-identity");
+  const identityStaging = new RunStagingDatabase(root, root, identityRun.run_id);
+  identityStaging.saveRun(identityRun);
+  const identityFactsPath = path.join(root, "delivery-facts-identity.json");
+  fs.writeFileSync(identityFactsPath, `${JSON.stringify(factsFor(reviewedHead))}\n`);
+  const identity = importDeliveryFacts(root, identityRun.run_id, identityFactsPath);
+  assert.equal(identity.run.delivery_source_relationship.relationship, "identity");
+  assert.equal(identity.run.delivery_source_relationship.ancestry, "same_commit");
+  assert.equal(identity.run.delivery_source_relationship.delivered_tree_hash, reviewedTree);
+
+  const run = makeRun("run-delivery-source");
+  const staging = new RunStagingDatabase(root, root, run.run_id);
+  staging.saveRun(run);
+  const factsPath = path.join(root, "delivery-facts.json");
+  fs.writeFileSync(factsPath, `${JSON.stringify(factsFor(deliveredHead))}\n`);
+  const imported = importDeliveryFacts(root, run.run_id, factsPath);
+  assert.equal(imported.run.delivered_source_head, deliveredHead);
+  assert.deepEqual(imported.run.delivery_source_relationship, {
+    schema_version: 1,
+    relationship: "merge_contains_exact_tree",
+    delivered_source_head: deliveredHead,
+    final_reviewed_source_head: reviewedHead,
+    delivered_tree_hash: reviewedTree,
+    final_reviewed_tree_hash: reviewedTree,
+    ancestry: "ancestor",
+    delivery_fact_id: imported.run.delivery_facts.find((fact) => fact.fact_kind === "merge_commit").delivery_fact_id
+  });
+  assert.deepEqual(staging.loadRun(run.run_id).delivery_source_relationship,
+    imported.run.delivery_source_relationship);
+  assert.equal(createCloseoutReceipt(imported.run, root).status, "READY");
+
+  const missing = { ...imported.run, delivered_source_head: undefined, delivery_source_relationship: undefined };
+  assert.match(createCloseoutReceipt(missing, root).blockers.join("\n"), /relationship is absent/);
+  const stale = {
+    ...imported.run,
+    delivery_source_relationship: {
+      ...imported.run.delivery_source_relationship,
+      delivery_fact_id: "delivery-stale"
+    }
+  };
+  assert.match(createCloseoutReceipt(stale, root).blockers.join("\n"), /stale, malformed/);
+  assert.throws(() => validateRuntimeRun({
+    ...imported.run,
+    delivery_source_relationship: {
+      ...imported.run.delivery_source_relationship,
+      ancestry: "same_commit"
+    }
+  }), /inconsistent ancestry/);
+
+  fs.writeFileSync(path.join(root, "source.txt"), "changed after review\n");
+  git("add", "source.txt");
+  git("commit", "-q", "-m", "different delivered tree");
+  const changedHead = git("rev-parse", "HEAD");
+  const rejectedRun = makeRun("run-delivery-source-rejected");
+  const rejectedStaging = new RunStagingDatabase(root, root, rejectedRun.run_id);
+  rejectedStaging.saveRun(rejectedRun);
+  const rejectedFactsPath = path.join(root, "delivery-facts-rejected.json");
+  fs.writeFileSync(rejectedFactsPath, `${JSON.stringify(factsFor(changedHead))}\n`);
+  assert.throws(
+    () => importDeliveryFacts(root, rejectedRun.run_id, rejectedFactsPath),
+    /delivery_source_tree_mismatch/
+  );
+  assert.equal(rejectedStaging.loadRun(rejectedRun.run_id).delivered_source_head, undefined);
+  assert.equal(rejectedStaging.loadRun(rejectedRun.run_id).delivery_source_relationship, undefined);
 });
 
 test("phase 23.9 accepts a proof whose requirement map is extracted from frozen task bytes", () => {

@@ -34,6 +34,7 @@ import {
   type BootstrapIssuePhaseId,
   type BootstrapStatus,
   type DeliveryFactRecord,
+  type DeliverySourceRelationshipV1,
   type LifecycleStatus,
   type RepairPacket,
   type RunIssue,
@@ -417,6 +418,7 @@ export interface Run {
   implementation_baseline_binding?: ImplementationBaselineBinding;
   final_reviewed_source_head?: string;
   delivered_source_head?: string;
+  delivery_source_relationship?: DeliverySourceRelationshipV1;
   review_launch_claims?: ReviewLaunchClaim[];
   review_routing_records?: ReviewOperationalRecord[];
   stage_states?: StageState[];
@@ -2390,6 +2392,43 @@ export function validateRuntimeRun(value: unknown): Run {
       throw new Error(`runtime run has invalid ${field}.`);
     }
   }
+  let deliverySourceRelationship: DeliverySourceRelationshipV1 | undefined;
+  if (record.delivery_source_relationship !== undefined) {
+    const relationship = assertObject(
+      record.delivery_source_relationship,
+      "runtime run delivery_source_relationship"
+    );
+    const allowedKeys = new Set([
+      "schema_version", "relationship", "delivered_source_head", "final_reviewed_source_head",
+      "delivered_tree_hash", "final_reviewed_tree_hash", "ancestry", "delivery_fact_id"
+    ]);
+    if (Object.keys(relationship).some((key) => !allowedKeys.has(key))) {
+      throw new Error("runtime run delivery_source_relationship has unknown fields.");
+    }
+    if (relationship.schema_version !== 1
+      || !isAllowedStatus(relationship.relationship, ["identity", "merge_contains_exact_tree"])
+      || !isAllowedStatus(relationship.ancestry, ["same_commit", "ancestor"])) {
+      throw new Error("runtime run delivery_source_relationship has invalid discriminator fields.");
+    }
+    for (const field of [
+      "delivered_source_head", "final_reviewed_source_head", "delivered_tree_hash", "final_reviewed_tree_hash"
+    ] as const) {
+      if (typeof relationship[field] !== "string" || !/^[a-f0-9]{40}$/u.test(relationship[field] as string)) {
+        throw new Error(`runtime run delivery_source_relationship has invalid ${field}.`);
+      }
+    }
+    assertRequiredString(relationship, "delivery_fact_id", "runtime run delivery_source_relationship");
+    if (relationship.delivered_source_head !== record.delivered_source_head
+      || relationship.final_reviewed_source_head !== record.final_reviewed_source_head) {
+      throw new Error("runtime run delivery source head and relationship disagree.");
+    }
+    if ((relationship.relationship === "identity") !== (relationship.ancestry === "same_commit")) {
+      throw new Error("runtime run delivery_source_relationship has inconsistent ancestry.");
+    }
+    deliverySourceRelationship = relationship as unknown as DeliverySourceRelationshipV1;
+  } else if (record.delivered_source_head !== undefined) {
+    throw new Error("runtime run delivered_source_head requires an exact delivery source relationship.");
+  }
 
   const deliveryFacts = record.delivery_facts === undefined
     ? []
@@ -2921,6 +2960,9 @@ export function validateRuntimeRun(value: unknown): Run {
     ...(typeof record.delivered_source_head === "string"
       ? { delivered_source_head: record.delivered_source_head }
       : {}),
+    ...(deliverySourceRelationship
+      ? { delivery_source_relationship: deliverySourceRelationship }
+      : {}),
     ...(reviewLaunchClaims ? { review_launch_claims: reviewLaunchClaims } : {}),
     ...(reviewOperationalRecords ? { review_routing_records: reviewOperationalRecords } : {}),
     ...(stageStates ? { stage_states: stageStates } : {}),
@@ -3235,7 +3277,68 @@ function latestReview(run: Run, timestamp: string): ReviewResult {
     : missingReviewResult(run, timestamp);
 }
 
+function readExactGitObject(targetRoot: string, revision: string, kind: "commit" | "tree"): string {
+  const result = runGitCommand(targetRoot, ["rev-parse", "--verify", `${revision}^{${kind}}`]);
+  const value = result.stdout.trim();
+  if (result.status !== 0 || !/^[a-f0-9]{40}$/u.test(value)) {
+    throw new Error(`delivery_source_${kind}_unavailable:${revision}`);
+  }
+  return value;
+}
+
+export function deriveDeliverySourceRelationship(
+  targetRoot: string,
+  run: Pick<Run, "run_id" | "final_reviewed_source_head">,
+  deliveryFacts: DeliveryFactRecord[]
+): DeliverySourceRelationshipV1 | undefined {
+  const merge = evaluateMergeFacts(deliveryFacts);
+  if (merge.blockers.length > 0) return undefined;
+  const resultFact = merge.latestBuckets.merge_result?.[0];
+  const commitFact = merge.latestBuckets.merge_commit?.[0];
+  const reviewedHead = run.final_reviewed_source_head;
+  const deliveredHead = commitFact?.commit_sha;
+  if (!reviewedHead || !resultFact || !commitFact || !deliveredHead) return undefined;
+  if (resultFact.commit_sha !== deliveredHead) {
+    throw new Error("delivery_source_merge_facts_disagree");
+  }
+  const reviewedCommit = readExactGitObject(targetRoot, reviewedHead, "commit");
+  const deliveredCommit = readExactGitObject(targetRoot, deliveredHead, "commit");
+  const reviewedTree = readExactGitObject(targetRoot, reviewedCommit, "tree");
+  const deliveredTree = readExactGitObject(targetRoot, deliveredCommit, "tree");
+  if (reviewedTree !== deliveredTree) {
+    throw new Error("delivery_source_tree_mismatch");
+  }
+  if (reviewedCommit === deliveredCommit) {
+    return {
+      schema_version: 1,
+      relationship: "identity",
+      delivered_source_head: deliveredCommit,
+      final_reviewed_source_head: reviewedCommit,
+      delivered_tree_hash: deliveredTree,
+      final_reviewed_tree_hash: reviewedTree,
+      ancestry: "same_commit",
+      delivery_fact_id: commitFact.delivery_fact_id
+    };
+  }
+  const ancestor = runGitCommand(targetRoot, ["merge-base", "--is-ancestor", reviewedCommit, deliveredCommit]);
+  if (ancestor.status !== 0) {
+    throw new Error("delivery_source_ancestry_mismatch");
+  }
+  return {
+    schema_version: 1,
+    relationship: "merge_contains_exact_tree",
+    delivered_source_head: deliveredCommit,
+    final_reviewed_source_head: reviewedCommit,
+    delivered_tree_hash: deliveredTree,
+    final_reviewed_tree_hash: reviewedTree,
+    ancestry: "ancestor",
+    delivery_fact_id: commitFact.delivery_fact_id
+  };
+}
+
 function findCloseoutBlockers(
+  run: Run,
+  targetRoot: string,
   verification: VerificationResult,
   review: ReviewResult,
   findings: Finding[],
@@ -3273,14 +3376,37 @@ function findCloseoutBlockers(
     blockers.push(`Merge delivery state is blocked: ${blocker}.`);
   }
 
+  const requiresDeliverySourceProof = Boolean(
+    run.implementation_baseline_head
+    || run.final_reviewed_source_head
+    || run.delivered_source_head
+    || run.delivery_source_relationship
+  );
+  if (requiresDeliverySourceProof) {
+    try {
+      const expected = deriveDeliverySourceRelationship(targetRoot, run, deliveryFacts);
+      if (!run.delivered_source_head || !run.delivery_source_relationship) {
+        blockers.push("Delivery source relationship is absent.");
+      } else if (!expected
+        || canonicalJson(run.delivery_source_relationship) !== canonicalJson(expected)
+        || run.delivered_source_head !== expected.delivered_source_head) {
+        blockers.push("Delivery source relationship is stale, malformed, or bound to a different source/tree.");
+      }
+    } catch (error) {
+      blockers.push(`Delivery source relationship is invalid: ${error instanceof Error ? error.message : String(error)}.`);
+    }
+  }
+
   return blockers;
 }
 
-export function createCloseoutReceipt(run: Run): CloseoutReceipt {
+export function createCloseoutReceipt(run: Run, targetRoot = run.repository.root_path): CloseoutReceipt {
   const timestamp = nowIso();
   const verification = latestVerification(run, timestamp);
   const review = latestReview(run, timestamp);
-  const blockers = findCloseoutBlockers(verification, review, run.findings, run.required_gates, run.delivery_facts);
+  const blockers = findCloseoutBlockers(
+    run, targetRoot, verification, review, run.findings, run.required_gates, run.delivery_facts
+  );
 
   return {
     ...buildSchemaMetadata("node bin/ch run closeout"),
