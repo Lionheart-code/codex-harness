@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 
 import { isIgnoredPlatformMetadata } from "../../dist/core/platform-metadata.js";
 import { detectProductRepositoryIdentity, assertNotProductRepository } from "../../dist/core/product-repository-identity.js";
@@ -39,6 +40,7 @@ import {
 import { harvestRun } from "../../dist/core/harvest.js";
 
 const sha = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
+const require = createRequire(import.meta.url);
 
 test("phase 23.9 ignores only case-sensitive .DS_Store", () => {
   assert.equal(isIgnoredPlatformMetadata(".DS_Store"), true);
@@ -535,6 +537,11 @@ test("phase 23.9 delivery import persists exact-tree source authority and closeo
     }
   };
   assert.match(createCloseoutReceipt(stale, root).blockers.join("\n"), /stale, malformed/);
+  const differentSource = {
+    ...imported.run,
+    final_reviewed_source_head: deliveredHead
+  };
+  assert.match(createCloseoutReceipt(differentSource, root).blockers.join("\n"), /stale, malformed/);
   assert.throws(() => validateRuntimeRun({
     ...imported.run,
     delivery_source_relationship: {
@@ -558,6 +565,52 @@ test("phase 23.9 delivery import persists exact-tree source authority and closeo
   );
   assert.equal(rejectedStaging.loadRun(rejectedRun.run_id).delivered_source_head, undefined);
   assert.equal(rejectedStaging.loadRun(rejectedRun.run_id).delivery_source_relationship, undefined);
+
+  const symbolicRun = makeRun("run-delivery-source-symbolic");
+  const symbolicStaging = new RunStagingDatabase(root, root, symbolicRun.run_id);
+  symbolicStaging.saveRun(symbolicRun);
+  const symbolicFactsPath = path.join(root, "delivery-facts-symbolic.json");
+  fs.writeFileSync(symbolicFactsPath, `${JSON.stringify(factsFor("HEAD"))}\n`);
+  assert.throws(
+    () => importDeliveryFacts(root, symbolicRun.run_id, symbolicFactsPath),
+    /delivery_source_commit_identity_invalid/
+  );
+  assert.equal(symbolicStaging.loadRun(symbolicRun.run_id).delivery_facts.length, 0);
+  assert.equal(symbolicStaging.loadRun(symbolicRun.run_id).delivered_source_head, undefined);
+
+  const unrelatedHead = git("commit-tree", reviewedTree, "-m", "unrelated equal tree");
+  const unrelatedRun = makeRun("run-delivery-source-unrelated");
+  const unrelatedStaging = new RunStagingDatabase(root, root, unrelatedRun.run_id);
+  unrelatedStaging.saveRun(unrelatedRun);
+  const unrelatedFactsPath = path.join(root, "delivery-facts-unrelated.json");
+  fs.writeFileSync(unrelatedFactsPath, `${JSON.stringify(factsFor(unrelatedHead))}\n`);
+  assert.throws(
+    () => importDeliveryFacts(root, unrelatedRun.run_id, unrelatedFactsPath),
+    /delivery_source_ancestry_mismatch/
+  );
+  assert.equal(unrelatedStaging.loadRun(unrelatedRun.run_id).delivery_facts.length, 0);
+
+  const rollbackRun = makeRun("run-delivery-source-rollback");
+  const rollbackStaging = new RunStagingDatabase(root, root, rollbackRun.run_id);
+  rollbackStaging.saveRun(rollbackRun);
+  const sqlite = require("node:sqlite");
+  const database = new sqlite.DatabaseSync(rollbackStaging.paths.stagingDbPath);
+  database.exec([
+    "CREATE TRIGGER phase23_9_force_delivery_failure",
+    "BEFORE INSERT ON delivery_facts",
+    "BEGIN SELECT RAISE(ABORT, 'forced_delivery_persistence_failure'); END;"
+  ].join(" "));
+  database.close();
+  const rollbackFactsPath = path.join(root, "delivery-facts-rollback.json");
+  fs.writeFileSync(rollbackFactsPath, `${JSON.stringify(factsFor(deliveredHead))}\n`);
+  assert.throws(
+    () => importDeliveryFacts(root, rollbackRun.run_id, rollbackFactsPath),
+    /forced_delivery_persistence_failure/
+  );
+  const rolledBack = rollbackStaging.loadRun(rollbackRun.run_id);
+  assert.equal(rolledBack.delivery_facts.length, 0);
+  assert.equal(rolledBack.delivered_source_head, undefined);
+  assert.equal(rolledBack.delivery_source_relationship, undefined);
 });
 
 test("phase 23.9 accepts a proof whose requirement map is extracted from frozen task bytes", () => {

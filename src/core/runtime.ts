@@ -3298,6 +3298,11 @@ export function deriveDeliverySourceRelationship(
   const reviewedHead = run.final_reviewed_source_head;
   const deliveredHead = commitFact?.commit_sha;
   if (!reviewedHead || !resultFact || !commitFact || !deliveredHead) return undefined;
+  if (!/^[a-f0-9]{40}$/u.test(deliveredHead)
+    || typeof resultFact.commit_sha !== "string"
+    || !/^[a-f0-9]{40}$/u.test(resultFact.commit_sha)) {
+    throw new Error("delivery_source_commit_identity_invalid");
+  }
   if (resultFact.commit_sha !== deliveredHead) {
     throw new Error("delivery_source_merge_facts_disagree");
   }
