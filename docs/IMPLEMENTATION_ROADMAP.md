@@ -1172,8 +1172,10 @@ Add a minimal proof/evidence/assumption/review mapping over stable
 procedure/stage records.
 
 Status:
-Active. First correct the normal zero-TaskState native-successor materialization
-gap under the Phase 23.9 task contract. The proof-record work remains blocked
+Complete, accepted, merged, closed out, and harvested. It corrected the normal
+zero-TaskState native-successor materialization gap and delivered proof-record
+provenance. Its successor decision selected Phase 24A at its immutable delivered
+base. Its proof-record work was gated
 until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
 23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C1A, Phase 23.8.6C2,
 Phase 23.8.6C2A, Phase 23.8.6D, Phase 23.8.6E, Phase 23.8.6F, and Phase
@@ -1241,8 +1243,12 @@ Goal:
 Implement the smallest useful deterministic report/packet substrate.
 
 Status:
-Planned split from `tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`. Blocked
-until Phase 23.9 is complete and reviewed.
+Active successor to accepted and harvested Phase 23.9. Before its minimal
+report/packet slice, it owns bounded transition-correctness hardening: direct
+task-contract pointer grammar, distinct decision-source versus task-contract
+identity, phase-neutral successor/bootstrap guarantees, and reusable exact
+implementation-review-to-delivery/closeout provenance. This does not expand
+into a generic lifecycle rewrite or Phase 24B.
 
 Scope:
 - one deterministic run evidence/closeout report;

@@ -109,10 +109,16 @@ worktree retention. Phase 23.8.6E is complete, independently reviewed,
 accepted, merged, closed out, and harvested. Phase 23.8.6F is complete,
 independently reviewed, accepted, merged, closed out, and harvested. Phase
 23.8.7 is complete, independently reviewed, accepted, merged, closed out, and
-harvested. Phase 23.9 is the active implementation phase. It first corrects
-the normal zero-TaskState native-successor materialization gap, then adds proof
-provenance without selecting providers or launching runners. Phase 24A adds
-deterministic report/export views, and Phase 30 generalizes experimentation.
+harvested. Phase 23.9 is historical, complete, accepted, merged, closed out,
+and harvested; it corrected the normal zero-TaskState native-successor
+materialization gap and added proof provenance without selecting providers or
+launching runners. Phase 24A is the active successor. It first owns bounded
+transition correctness for direct task parsing, successor identity semantics,
+phase-neutral successor/bootstrap authority, and reusable delivery provenance,
+then adds deterministic report/export views. The already-recorded 23.9-to-24A
+decision predates corrected identity semantics, so this activation uses the
+existing recovery path; that historical recovery does not claim the corrected
+runtime behavior is already implemented. Phase 30 generalizes experimentation.
 Phase 31 remains the first general external-runner provider-binding and
 execution boundary.
 
