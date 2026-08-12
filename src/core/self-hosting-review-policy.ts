@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { type SelfHostingProcedureRegistry } from "./self-hosting-procedures";
 
 export const PROCEDURE_EXECUTION_POLICY_PATH = "skills/self-hosting/procedure-execution-policy.json";
+export const PROCEDURE_EXECUTION_POLICY_SCHEMA_PATH = "schemas/self-hosting-procedure-execution-policy.schema.json";
 export const REVIEW_ROUTE_POLICY_PATH = "skills/self-hosting/review-route-policy.json";
 export const CODEX_REFERENCE_BINDING_PATH = "skills/self-hosting/codex-reference-binding.json";
 
@@ -218,8 +219,65 @@ function readJson<T>(targetRoot: string, relativePath: string, label: string): T
   return JSON.parse(fs.readFileSync(absolutePath, "utf8")) as T;
 }
 
+function assertExactKeys(value: Record<string, unknown>, allowed: readonly string[], label: string): void {
+  const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (unknown.length > 0) throw new Error(`${label} contains unknown properties: ${unknown.sort().join(",")}.`);
+}
+
+function assertPositiveSchemaInteger(value: unknown, label: string): void {
+  if (!Number.isInteger(value) || Number(value) < 1) {
+    throw new Error(`${label} must be a positive integer under the registered execution-policy schema.`);
+  }
+}
+
+export function validateProcedureExecutionPolicySchema(targetRoot: string, policy: unknown): asserts policy is ProcedureExecutionPolicy {
+  const schema = assertObject(readJson<unknown>(
+    targetRoot,
+    PROCEDURE_EXECUTION_POLICY_SCHEMA_PATH,
+    "Procedure execution policy schema"
+  ), "Procedure execution policy schema");
+  const procedureSchema = assertObject(
+    assertObject(schema.properties, "Procedure execution policy schema properties").procedures,
+    "Procedure execution policy schema procedures"
+  );
+  const reviewLaunchSchema = assertObject(
+    assertObject(procedureSchema.items, "Procedure execution policy schema procedure item").properties,
+    "Procedure execution policy schema procedure properties"
+  ).review_launch;
+  if (!reviewLaunchSchema || typeof reviewLaunchSchema !== "object" || Array.isArray(reviewLaunchSchema)) {
+    throw new Error("Procedure execution policy schema must declare review_launch.");
+  }
+  const record = assertObject(policy, "Procedure execution policy");
+  assertExactKeys(record, ["schema_version", "producer_command", "contract_version", "policy_id", "procedures"], "Procedure execution policy");
+  if (!Array.isArray(record.procedures)) throw new Error("Procedure execution policy procedures must be an array.");
+  for (const item of record.procedures) {
+    const procedure = assertObject(item, "Procedure execution policy procedure");
+    assertExactKeys(procedure, [
+      "procedure_id", "canonical_contract_ref", "semantic_class", "deterministic_prechecks", "semantic_residual",
+      "minimum_route", "escalation_triggers", "independence", "context_transport", "automatic_launch",
+      "deterministic_completion_supported", "required_output_contract", "required_evidence_contract",
+      "direct_artifact_required", "nested_review_launch_forbidden", "review_launch"
+    ], "Procedure execution policy procedure");
+    if (procedure.review_launch === undefined) continue;
+    const timing = assertObject(procedure.review_launch, "Procedure execution policy review_launch");
+    assertExactKeys(timing, ["timeout_seconds", "stale_after_seconds", "timeout_override", "stale_after_override", "termination_policy"], "Procedure execution policy review_launch");
+    assertPositiveSchemaInteger(timing.timeout_seconds, "Procedure execution policy review_launch timeout_seconds");
+    assertPositiveSchemaInteger(timing.stale_after_seconds, "Procedure execution policy review_launch stale_after_seconds");
+    for (const field of ["timeout_override", "stale_after_override"] as const) {
+      const override = assertObject(timing[field], `Procedure execution policy review_launch ${field}`);
+      assertExactKeys(override, ["minimum_seconds", "maximum_seconds"], `Procedure execution policy review_launch ${field}`);
+      assertPositiveSchemaInteger(override.minimum_seconds, `Procedure execution policy review_launch ${field}.minimum_seconds`);
+      assertPositiveSchemaInteger(override.maximum_seconds, `Procedure execution policy review_launch ${field}.maximum_seconds`);
+    }
+    if (timing.termination_policy !== "terminal_completion_only") {
+      throw new Error("Procedure execution policy review_launch termination_policy must be terminal_completion_only under the registered execution-policy schema.");
+    }
+  }
+}
+
 export function readProcedureExecutionPolicy(targetRoot: string): ProcedureExecutionPolicy {
-  const policy = readJson<ProcedureExecutionPolicy>(targetRoot, PROCEDURE_EXECUTION_POLICY_PATH, "Procedure execution policy");
+  const policy = readJson<unknown>(targetRoot, PROCEDURE_EXECUTION_POLICY_PATH, "Procedure execution policy");
+  validateProcedureExecutionPolicySchema(targetRoot, policy);
   if (policy.schema_version !== 1 || !policy.contract_version || !Array.isArray(policy.procedures)) {
     throw new Error("Procedure execution policy is invalid.");
   }

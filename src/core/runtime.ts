@@ -5331,7 +5331,7 @@ function recordLaunchAttempt(
       )) {
         next = recordReviewResult(next, review);
       }
-      if (latestRun.phase_id === "23.9"
+      if (!isPrePhaseFVerificationCompatibility(latestRun.phase_id)
         && ["implementation-review", "fix-pass-review"].includes(observation.procedure_id)
         && review?.status === "PASS") {
         const exactReviewedHead = observation.reviewed_source_head ?? packet?.core.source_snapshot;
@@ -5344,6 +5344,12 @@ function recordLaunchAttempt(
         next = { ...next, final_reviewed_source_head: exactReviewedHead };
       }
       if (!latestRun.run_instance_id) throw new Error("REVIEW_ACCEPTED_RUN_INSTANCE_MISSING");
+      const reviewedPlanBinding = observation.procedure_id === "plan-review"
+        ? tryResolveExactPlanEvidenceBinding(latestRun)
+        : undefined;
+      if (observation.procedure_id === "plan-review" && !reviewedPlanBinding) {
+        throw new Error("REVIEW_ACCEPTED_PLAN_BINDING_MISSING: terminal plan-review acceptance requires the latest exact effective plan.");
+      }
       const acceptedPayload = new PayloadStore(database).store({
         parentRecordId: accepted.artifact.artifact_id,
         sourceRunId: latestRun.run_id,
@@ -5376,7 +5382,12 @@ function recordLaunchAttempt(
           predecessor_review_artifact_id: observation.predecessor_review_artifact_id,
           predecessor_reviewed_source_head: observation.predecessor_reviewed_source_head,
           compatibility_path: accepted.artifact.path
-        })
+        }),
+        ...(reviewedPlanBinding ? {
+          reviewed_plan_artifact_id: reviewedPlanBinding.artifactId,
+          reviewed_plan_content_hash: reviewedPlanBinding.contentHash,
+          reviewed_evidence_artifact_id: reviewedPlanBinding.artifactId
+        } : {})
       });
       const canonicalAttempt = acceptedCanonicalAttempt;
       if (latestRun.phase_id === "23.9" && (!canonicalAttempt || !packet?.rawStartup)) {
@@ -10614,7 +10625,8 @@ function resolveExactPlanApprovalBinding(
   if (!run.run_instance_id) {
     throw new Error("Plan approval cannot resolve an immutable plan binding without an exact run instance ID.");
   }
-  const requiresDurableBinding = !isPrePhaseFVerificationCompatibility(run.phase_id);
+  const requiresDurableBinding = run.phase_id === "23.8.6D"
+    || !isPrePhaseFVerificationCompatibility(run.phase_id);
   if (candidateArtifactId !== plan.artifactId) {
     throw new Error(
       `Approved plan does not match the exact effective plan evidence. Expected ${plan.artifactId}, got ${candidateArtifactId}.`
@@ -10843,7 +10855,8 @@ function hasApprovedPlan(runContext: OperatorRunContext): boolean {
       if (!matchesApproval) {
         return false;
       }
-      if (isPrePhaseFVerificationCompatibility(runContext.run.phase_id)) {
+      if (runContext.run.phase_id !== "23.8.6D"
+        && isPrePhaseFVerificationCompatibility(runContext.run.phase_id)) {
         return true;
       }
       return hasExactDurableDApprovalBinding(runContext, approval, latestEffectivePlanArtifactId, expectedContentHash);

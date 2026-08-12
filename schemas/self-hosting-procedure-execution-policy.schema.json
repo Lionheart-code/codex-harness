@@ -29,7 +29,35 @@
           "required_output_contract": {"type": "array", "items": {"type": "string", "minLength": 1}},
           "required_evidence_contract": {"type": "array", "items": {"type": "string", "minLength": 1}},
           "direct_artifact_required": {"type": "boolean"},
-          "nested_review_launch_forbidden": {"type": "boolean"}
+          "nested_review_launch_forbidden": {"type": "boolean"},
+          "review_launch": {
+            "type": "object",
+            "required": ["timeout_seconds", "stale_after_seconds", "timeout_override", "stale_after_override", "termination_policy"],
+            "properties": {
+              "timeout_seconds": {"type": "integer", "minimum": 1},
+              "stale_after_seconds": {"type": "integer", "minimum": 1},
+              "timeout_override": {
+                "type": "object",
+                "required": ["minimum_seconds", "maximum_seconds"],
+                "properties": {
+                  "minimum_seconds": {"type": "integer", "minimum": 1},
+                  "maximum_seconds": {"type": "integer", "minimum": 1}
+                },
+                "additionalProperties": false
+              },
+              "stale_after_override": {
+                "type": "object",
+                "required": ["minimum_seconds", "maximum_seconds"],
+                "properties": {
+                  "minimum_seconds": {"type": "integer", "minimum": 1},
+                  "maximum_seconds": {"type": "integer", "minimum": 1}
+                },
+                "additionalProperties": false
+              },
+              "termination_policy": {"const": "terminal_completion_only"}
+            },
+            "additionalProperties": false
+          }
         },
         "additionalProperties": false
       }

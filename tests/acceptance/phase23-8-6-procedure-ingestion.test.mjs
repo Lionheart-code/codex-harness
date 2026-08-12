@@ -107,6 +107,14 @@ function readProductText(relativePath) {
   return fs.readFileSync(path.join(productRoot, relativePath), "utf8");
 }
 
+function copyProcedureExecutionPolicySchema(tempRepo) {
+  fs.mkdirSync(path.join(tempRepo, "schemas"), { recursive: true });
+  fs.copyFileSync(
+    path.join(productRoot, "schemas", "self-hosting-procedure-execution-policy.schema.json"),
+    path.join(tempRepo, "schemas", "self-hosting-procedure-execution-policy.schema.json")
+  );
+}
+
 function writeSuccessorBootstrapSurfaces(tempRepo) {
   fs.mkdirSync(path.join(tempRepo, "bin"), { recursive: true });
   writeText(path.join(tempRepo, "AGENTS.md"), "# Fixture instructions\n");
@@ -181,6 +189,7 @@ function createPhase2386Repo(prefix) {
   fs.cpSync(path.join(productRoot, "skills", "self-hosting"), path.join(tempRepo, "skills", "self-hosting"), {
     recursive: true
   });
+  copyProcedureExecutionPolicySchema(tempRepo);
   fs.cpSync(path.join(productRoot, "prompts", "self-hosting"), path.join(tempRepo, "prompts", "self-hosting"), {
     recursive: true
   });
@@ -231,6 +240,7 @@ function createPhase2386ARepo(prefix) {
   fs.cpSync(path.join(productRoot, "skills", "self-hosting"), path.join(tempRepo, "skills", "self-hosting"), {
     recursive: true
   });
+  copyProcedureExecutionPolicySchema(tempRepo);
   fs.cpSync(path.join(productRoot, "prompts", "self-hosting"), path.join(tempRepo, "prompts", "self-hosting"), {
     recursive: true
   });
@@ -281,6 +291,7 @@ function createPhase2386B2Repo(prefix) {
   fs.cpSync(path.join(productRoot, "skills", "self-hosting"), path.join(tempRepo, "skills", "self-hosting"), {
     recursive: true
   });
+  copyProcedureExecutionPolicySchema(tempRepo);
   fs.cpSync(path.join(productRoot, "prompts", "self-hosting"), path.join(tempRepo, "prompts", "self-hosting"), {
     recursive: true
   });
@@ -367,6 +378,7 @@ function createPhase2386B2AuthorityBaselineRepo(prefix) {
   fs.cpSync(path.join(productRoot, "skills", "self-hosting"), path.join(tempRepo, "skills", "self-hosting"), {
     recursive: true
   });
+  copyProcedureExecutionPolicySchema(tempRepo);
   fs.cpSync(path.join(productRoot, "prompts", "self-hosting"), path.join(tempRepo, "prompts", "self-hosting"), {
     recursive: true
   });
@@ -4714,13 +4726,42 @@ test("phase 23.8.6F harvested replay proves distinct-host eligibility and reject
     created_at: "2026-06-24T00:30:00.000Z",
     approver: "owner",
     reviewed_plan_artifact_id: sourcePlanArtifact.artifact_id,
-    reviewed_plan_content_hash: sourcePlanArtifact.artifact_id.slice("sha256:".length)
+    reviewed_plan_content_hash: sourcePlanArtifact.artifact_id.slice("sha256:".length),
+    reviewed_evidence_artifact_id: `sha256:${"1".repeat(64)}`
   });
+  run.implementation_baseline_head = run.source_snapshot;
+  run.implementation_baseline_binding = {
+    schema_version: 2,
+    approval_id: "approval-replay-source-plan",
+    plan_artifact_hash: sourcePlanArtifact.artifact_id,
+    plan_review_artifact_hash: `sha256:${"1".repeat(64)}`,
+    planning_review_source_head: run.source_snapshot,
+    authority_transition: "reviewed_source",
+    owner_authority_diff_hash: `sha256:${createHash("sha256").update("").digest("hex")}`,
+    implementation_baseline_head: run.source_snapshot,
+    implementation_baseline_tree_hash: runCommand("git", ["rev-parse", "HEAD^{tree}"], { cwd: tempRepo }).stdout.trim(),
+    expected_tree_hash: runCommand("git", ["rev-parse", "HEAD^{tree}"], { cwd: tempRepo }).stdout.trim(),
+    bound_at: "2026-06-24T00:30:00.000Z"
+  };
   writeText(path.join(tempRepo, ".harness", "runs", run.run_id, sourcePlanArtifact.path), sourcePlanBody);
+  const fakeCodexEnv = createFakeCodexReviewEnv(tempRepo, exactImplementationReviewPass());
+  assertSuccess(runCommand("git", ["add", "fake-codex-bin"], { cwd: tempRepo }), "stage replay fixture reviewer");
+  assertSuccess(runCommand("git", ["commit", "-m", "replay fixture reviewer"], { cwd: tempRepo }), "commit replay fixture reviewer");
+  const reviewedHead = gitHead(tempRepo);
+  const reviewedTree = runCommand("git", ["rev-parse", "HEAD^{tree}"], { cwd: tempRepo }).stdout.trim();
+  run.source_snapshot = reviewedHead;
+  run.repository.head_sha = reviewedHead;
+  run.implementation_baseline_head = reviewedHead;
+  run.implementation_baseline_binding = {
+    ...run.implementation_baseline_binding,
+    planning_review_source_head: reviewedHead,
+    implementation_baseline_head: reviewedHead,
+    implementation_baseline_tree_hash: reviewedTree,
+    expected_tree_hash: reviewedTree
+  };
   writeRuntimeRunFixture(tempRepo, run);
   const requestPath = writeProcedureArtifact(tempRepo, run.run_id, "replay-source-request", "Review exact replay source.\n");
   const sourceOutput = `.harness/runs/${run.run_id}/manual/replay-source-output.md`;
-  const fakeCodexEnv = createFakeCodexReviewEnv(tempRepo, exactImplementationReviewPass());
   const sourceLaunch = runCli([
     "run", "launch-review", "--run", run.run_id, "--procedure", "implementation-review",
     "--request", path.relative(tempRepo, requestPath),

@@ -70,6 +70,11 @@ function createB1Repo(prefix) {
   fs.cpSync(path.join(productRoot, "skills", "self-hosting"), path.join(tempRepo, "skills", "self-hosting"), {
     recursive: true
   });
+  fs.mkdirSync(path.join(tempRepo, "schemas"), { recursive: true });
+  fs.copyFileSync(
+    path.join(productRoot, "schemas", "self-hosting-procedure-execution-policy.schema.json"),
+    path.join(tempRepo, "schemas", "self-hosting-procedure-execution-policy.schema.json")
+  );
   fs.cpSync(path.join(productRoot, "prompts", "self-hosting"), path.join(tempRepo, "prompts", "self-hosting"), {
     recursive: true
   });
@@ -551,6 +556,24 @@ test("registered timing policy supplies defaults, permits bounded overrides, and
     assertFailure(invalid, `unsafe timing override ${args.join(" ")}`);
     assert.match(invalid.stderr, /registered policy range|must remain below/);
   }
+
+  const policyPath = path.join(tempRepo, "skills", "self-hosting", "procedure-execution-policy.json");
+  const malformed = JSON.parse(fs.readFileSync(policyPath, "utf8"));
+  malformed.procedures.find((entry) => entry.procedure_id === "plan-review").review_launch.unbounded = true;
+  fs.writeFileSync(policyPath, `${JSON.stringify(malformed, null, 2)}\n`);
+  assert.throws(
+    () => reviewPolicyModule.readProcedureExecutionPolicy(tempRepo),
+    /unknown properties: unbounded/
+  );
+  malformed.procedures.find((entry) => entry.procedure_id === "plan-review").review_launch = {
+    timeout_seconds: 5,
+    stale_after_seconds: 1,
+    timeout_override: { minimum_seconds: 5, maximum_seconds: 60 },
+    stale_after_override: { minimum_seconds: 1, maximum_seconds: 4 },
+    termination_policy: "terminal_completion_only"
+  };
+  fs.writeFileSync(policyPath, `${JSON.stringify(malformed, null, 2)}\n`);
+  assert.doesNotThrow(() => reviewPolicyModule.readProcedureExecutionPolicy(tempRepo));
 });
 
 test("a written review output is not lifecycle evidence before terminal completion", async () => {
@@ -747,6 +770,59 @@ test("Phase 24A launches plan review from its exact draft plan before owner appr
   assert.ok(run.evidence.some((entry) => entry.kind === "procedure:draft-plan"));
   assert.ok(run.evidence.some((entry) => entry.kind === "procedure:plan-review"));
   assert.ok(run.review_results.some((entry) => entry.source === "procedure:plan-review" && entry.status === "PASS"));
+});
+
+test("Phase 24A automatic terminal plan review binds approval and direct baseline end to end", () => {
+  const tempRepo = createB1Repo("codex-harness-24a-automatic-baseline-");
+  const planEnv = createFakeCodexBin(tempRepo, "file");
+  assertSuccess(runCommand("git", ["add", "fake-bin"], { cwd: tempRepo }), "stage committed fake reviewer");
+  assertSuccess(runCommand("git", ["commit", "-m", "fixture reviewer"], { cwd: tempRepo }), "commit fake reviewer");
+  setRunPhase(tempRepo, "24A");
+  let planPath = "";
+  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan"]) {
+    const procedureBody = procedureId === "draft-plan"
+      ? "# draft-plan\n\n## Effective Validation\n\n1. `git diff --check`\n"
+      : `# ${procedureId}\n`;
+    const procedurePath = recordProcedure(tempRepo, "run-0001", procedureId, procedureBody);
+    if (procedureId === "draft-plan") planPath = procedurePath;
+  }
+  const requestPath = writeManualFile(tempRepo, "run-0001", "automatic-plan-review-request.md", "review the current effective plan");
+  assertSuccess(runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "plan-review",
+    "--request", requestPath,
+    "--output", ".harness/runs/run-0001/manual/automatic-plan-review.md"
+  ], {
+    cwd: tempRepo,
+    env: { ...planEnv, CODEX_FAKE_REVIEW_CONTENT: planReviewMarkdown() }
+  }), "automatic terminal Phase 24A plan review");
+
+  const roots = stagingModule.resolveHarnessRoots(tempRepo);
+  const staging = new stagingModule.RunStagingDatabase(roots.targetRoot, roots.projectRoot, "run-0001");
+  const reviewedRun = readRun(tempRepo);
+  const reviewArtifact = reviewedRun.evidence.find((entry) => entry.kind === "procedure:plan-review")?.artifact_id;
+  const planArtifact = reviewedRun.evidence.find((entry) => entry.kind === "procedure:draft-plan")?.artifact_id;
+  assert.ok(reviewArtifact && planArtifact, "automatic review and effective plan identities exist");
+  const descriptor = staging.readProcedureArtifact(reviewedRun.run_instance_id, "plan-review", reviewArtifact);
+  assert.equal(descriptor.reviewed_plan_artifact_id, planArtifact);
+  assert.equal(descriptor.reviewed_plan_content_hash, planArtifact.slice("sha256:".length));
+  assert.equal(descriptor.reviewed_evidence_artifact_id, planArtifact);
+
+  assertSuccess(runCli([
+    "run", "approve-plan", "--run", "run-0001", "--plan", planPath,
+    "--approver", "owner", "--reason", "Approve the automatic terminal review."
+  ], { cwd: tempRepo }), "approve exact automatic terminal review");
+  const approved = readRun(tempRepo).approvals.at(-1);
+  assertSuccess(bindImplementationBaseline(tempRepo, planPath, approved.approval_id, readHead(tempRepo)), "bind direct reviewed source after automatic review");
+
+  const implementationRequest = writeManualFile(tempRepo, "run-0001", "automatic-implementation-review-request.md", "review the approved implementation");
+  assertSuccess(runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review",
+    "--request", implementationRequest,
+    "--output", ".harness/runs/run-0001/manual/automatic-implementation-review.md"
+  ], {
+    cwd: tempRepo,
+    env: { ...planEnv, CODEX_FAKE_REVIEW_CONTENT: implementationReviewMarkdown("PASS") }
+  }), "implementation review after exact automatic review baseline");
 });
 
 test("plan-review accepts Markdown-formatted durable decision tokens", () => {

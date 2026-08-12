@@ -765,6 +765,10 @@ test("phase 23.9 production planning bundle persists typed failure and one retry
     path.join(process.cwd(), "schemas/planning-review-lens-output.schema.json"),
     path.join(root, "schemas/planning-review-lens-output.schema.json")
   );
+  fs.copyFileSync(
+    path.join(process.cwd(), "schemas/self-hosting-procedure-execution-policy.schema.json"),
+    path.join(root, "schemas/self-hosting-procedure-execution-policy.schema.json")
+  );
   fs.mkdirSync(path.join(root, "tasks"), { recursive: true });
   fs.writeFileSync(path.join(root, "tasks/PHASE_23_9.md"), "# Phase 23.9\n");
   fs.writeFileSync(path.join(root, "TASK.md"), "# Current Task\n");
