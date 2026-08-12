@@ -813,6 +813,24 @@ test("phase 23.9 production planning bundle persists typed failure and one retry
     "#!/usr/bin/env node",
     `process.stdout.write(${JSON.stringify(`${JSON.stringify({ type: "thread.started", thread_id: sessionId })}\n`)});`,
     "if (process.env.CODEX_FAKE_SLEEP === '1') setTimeout(() => process.exit(0), 3000);",
+    "else if (process.env.CODEX_FAKE_VALID === '1') {",
+    "  let request = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', (chunk) => { request += chunk; });",
+    "  process.stdin.on('end', () => {",
+    "    const value = (key) => request.match(new RegExp(`^${key}: (\\\\S+)$`, 'm'))?.[1];",
+    "    const contracts = JSON.parse(request.match(/^output_contract_ids: (.+)$/m)?.[1] ?? '{}');",
+    "    const procedures = ['plan-review', 'architecture-review', 'db-storage-review'];",
+    "    const prefix = (procedure) => [`## Review Surface`, '', `procedure_id: ${procedure}`, `plan_sha: ${value('plan_sha')}`, `source_head: ${value('source_head')}`, `task_artifact_id: ${value('task_artifact_id')}`, `immutable_base: ${value('immutable_base')}`, `output_contract_id: ${contracts[procedure]}`, ''].join('\\n');",
+    "    const documents = {",
+    "      'plan-review': [prefix('plan-review'), '## Durable Decision Record', '', 'verdict: PASS', 'outcome_state: ready_for_implementation', 'blocking_findings: none', 'required_amendments: none', 'accepted_defaults: none', 'real_operator_choices: owner approval', 'next_allowed_action: obtain explicit human approval', 'validation_required: npm run build', 'source_trace: exact bundle identities', 'future_phase_deferrals: none', '', '## Recommendation', '', 'PASS', ''].join('\\n'),",
+    "      'architecture-review': [prefix('architecture-review'), '## Review Tier', '', 'extra-high', '', '## Core Boundary Findings', '', 'No findings.', '', '## Future-phase Creep Check', '', 'No creep.', '', '## Source Trace', '', 'Exact identities above.', '', '## Keep Or Defer Decision', '', 'PASS', '', '## Risks', '', 'No unresolved risk.', ''].join('\\n'),",
+    "      'db-storage-review': [prefix('db-storage-review'), '## Review Tier', '', 'extra-high', '', '## Authority Model Check', '', 'Exact authority retained.', '', '## Lifecycle And Delivery-facts Check', '', 'No lifecycle mutation.', '', '## Harvest And Deletion Check', '', 'No change.', '', '## Recommendation', '', 'PASS', ''].join('\\n')",
+    "    };",
+    "    const lens_results = procedures.map((procedure_id) => ({ schema_version: 'phase-23.9.planning-lens-result.v1', procedure_id, bundle_kind: 'candidate', plan_sha: value('plan_sha'), source_head: value('source_head'), task_artifact_id: value('task_artifact_id'), immutable_base: value('immutable_base'), verdict: 'PASS', findings: [], covered_decision_ids: [], covered_trace_ids: [], output_contract_id: contracts[procedure_id] }));",
+    "    const output = process.argv[process.argv.indexOf('-o') + 1];",
+    "    fs = require('fs'); fs.writeFileSync(output, JSON.stringify({ schema_version: 1, bundle_id: value('review_cohort_id'), plan_sha: value('plan_sha'), source_head: value('source_head'), task_artifact_id: value('task_artifact_id'), immutable_base: value('immutable_base'), lens_results, lens_documents: documents }));",
+    "    process.exit(0);",
+    "  });",
+    "}",
     "else process.exit(1);", ""
   ].join("\n"));
   fs.chmodSync(path.join(fakeBin, "codex"), 0o755);
@@ -826,11 +844,12 @@ test("phase 23.9 production planning bundle persists typed failure and one retry
   const priorPath = process.env.PATH;
   const priorCodexHome = process.env.CODEX_HOME;
   const priorFakeSleep = process.env.CODEX_FAKE_SLEEP;
+  const priorFakeValid = process.env.CODEX_FAKE_VALID;
   process.env.PATH = `${fakeBin}${path.delimiter}${priorPath ?? ""}`;
   process.env.CODEX_HOME = codexHome;
   process.env.CODEX_FAKE_SLEEP = "1";
-  const launch = () => launchRuntimePlanningReviewBundle(root, {
-    runId: run.run_id, requestPath: ".codex/request.md",
+  const launch = (requestPath = ".codex/request.md") => launchRuntimePlanningReviewBundle(root, {
+    runId: run.run_id, requestPath,
     outputPath: ".harness/runs/run-bundle-runtime/manual/bundle.json",
     lensManifestPath: ".codex/lenses.json", timeoutSeconds: 2, staleAfterSeconds: 1
   });
@@ -857,6 +876,30 @@ test("phase 23.9 production planning bundle persists typed failure and one retry
     assert.equal(attempts.length, 2);
     assert.deepEqual(attempts.map((entry) => entry.terminal_status).sort(), ["profile_mismatch", "timeout"]);
     await assert.rejects(launch(), /PLANNING_REVIEW_BUNDLE_RETRY_NOT_ALLOWED/);
+    fs.writeFileSync(path.join(root, ".codex/request-fresh.md"), "Review the fresh exact candidate.\n");
+    fs.writeFileSync(path.join(root, "README.md"), "fresh candidate source\n");
+    execFileSync("git", ["add", "README.md"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "fresh planning candidate"], { cwd: root });
+    fs.writeFileSync(path.join(codexHome, "sessions", `rollout-${sessionId}.jsonl`), [
+      JSON.stringify({ type: "session_meta", payload: { id: sessionId, model_provider: "openai" } }),
+      JSON.stringify({ type: "turn_context", payload: {
+        cwd: root, model: "gpt-5.6-sol", effort: "high",
+        sandbox_policy: { type: "read-only" }, approval_policy: "never"
+      } }), ""
+    ].join("\n"));
+    process.env.CODEX_FAKE_VALID = "1";
+    await launch(".codex/request-fresh.md");
+    attempts = staging.listIndependentRecords("review_attempt", run.run_id);
+    assert.equal(attempts.length, 3);
+    const successful = attempts.find((entry) => entry.terminal_status === "success");
+    assert.ok(successful, "a fresh terminal bundle attempt must be recorded");
+    assert.deepEqual(successful.procedure_ids, ["plan-review", "architecture-review", "db-storage-review"]);
+    assert.equal(staging.listIndependentRecords("review_cohort", run.run_id).length, 1);
+    assert.equal(staging.listIndependentRecords("planning_review_bundle", run.run_id).length, 1);
+    const completedRun = staging.loadRun(run.run_id);
+    for (const procedureId of ["plan-review", "architecture-review", "db-storage-review"]) {
+      assert.equal(completedRun.review_results.find((entry) => entry.source === `procedure:${procedureId}`)?.status, "PASS");
+    }
   } finally {
     if (priorPath === undefined) delete process.env.PATH;
     else process.env.PATH = priorPath;
@@ -864,6 +907,8 @@ test("phase 23.9 production planning bundle persists typed failure and one retry
     else process.env.CODEX_HOME = priorCodexHome;
     if (priorFakeSleep === undefined) delete process.env.CODEX_FAKE_SLEEP;
     else process.env.CODEX_FAKE_SLEEP = priorFakeSleep;
+    if (priorFakeValid === undefined) delete process.env.CODEX_FAKE_VALID;
+    else process.env.CODEX_FAKE_VALID = priorFakeValid;
   }
 });
 

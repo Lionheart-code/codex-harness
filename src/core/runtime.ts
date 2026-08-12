@@ -9659,6 +9659,16 @@ function parseCombinedArchitectureDbReviewVerdicts(markdown: string): CombinedAr
   return { architectureAuthority, persistedStorage };
 }
 
+function parsePlanningLensVerdict(
+  markdown: string,
+  procedureId: "architecture-review" | "db-storage-review"
+): CombinedArchitectureDbReviewVerdict | undefined {
+  const heading = procedureId === "architecture-review"
+    ? "Keep Or Defer Decision"
+    : "Recommendation";
+  return parseCombinedReviewVerdictSection(markdown, heading);
+}
+
 function validatePlanReviewArtifact(markdown: string): {
   decisionRecord: PlanReviewDecisionRecord;
   recommendation: string;
@@ -9866,9 +9876,9 @@ function buildProcedureReviewResult(
 
   const combinedVerdicts = parseCombinedArchitectureDbReviewVerdicts(markdown);
   const combinedVerdict = procedureId === "architecture-review"
-    ? combinedVerdicts?.architectureAuthority
+    ? combinedVerdicts?.architectureAuthority ?? parsePlanningLensVerdict(markdown, "architecture-review")
     : procedureId === "db-storage-review"
-      ? combinedVerdicts?.persistedStorage
+      ? combinedVerdicts?.persistedStorage ?? parsePlanningLensVerdict(markdown, "db-storage-review")
       : undefined;
 
   if (combinedVerdict) {
