@@ -11589,6 +11589,9 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
   const freshPlanAmendForLatestPlanReview = planReviewDecision?.route === "amend"
     ? isProcedureEvidenceFreshAfter(context.runContext, "plan-amend", "plan-review")
     : false;
+  const freshPlanReviewForLatestAmend = hasPlanAmendEvidence
+    ? isProcedureEvidenceFreshAfter(context.runContext, "plan-review", "plan-amend")
+    : true;
 
   if (requiresPlanningLensBundle && missingPlanningLenses.length > 0) {
     return buildOperatorStageDraft({
@@ -11681,7 +11684,7 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
     });
   }
 
-  if (!hasPlanReviewEvidence || !durablePlanReviewOutcomeRecorded) {
+  if (!hasPlanReviewEvidence || !durablePlanReviewOutcomeRecorded || !freshPlanReviewForLatestAmend) {
     if (context.runContext && !hasPlanReviewEvidence) {
       const latestLaunchAttempt = readLatestReviewLaunchAttempt(context.runContext, "plan-review");
       const blockedLaunch = latestLaunchAttempt
@@ -11704,17 +11707,25 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
       required_evidence: hasPlanReviewEvidence
         ? ["plan-review", "durable plan review decision record"]
         : ["plan-review"],
-      missing_evidence: hasPlanReviewEvidence
+      missing_evidence: !freshPlanReviewForLatestAmend
+        ? ["fresh plan-review after the latest plan-amend artifact"]
+        : hasPlanReviewEvidence
         ? ["durable plan review decision record"]
         : ["plan-review"],
-      stop_reason: hasPlanReviewEvidence
+      stop_reason: !freshPlanReviewForLatestAmend
+        ? "plan_amend_requires_fresh_independent_review"
+        : hasPlanReviewEvidence
         ? "missing_plan_review_decision_record"
         : "missing_plan_review",
-      next_allowed_action: hasPlanReviewEvidence
+      next_allowed_action: !freshPlanReviewForLatestAmend
+        ? "launch a fresh independent plan-review against the latest effective plan-amend artifact before owner approval"
+        : hasPlanReviewEvidence
         ? "record or import the durable plan-review decision record before implementation can continue"
         : buildReviewStageAction("plan-review"),
       forbidden_actions: ["implementation", "source edits", "closeout"],
-      notes: hasPlanReviewEvidence
+      notes: !freshPlanReviewForLatestAmend
+        ? [...context.baseNotes, "plan_review_stale_for_latest_plan_amend: true"]
+        : hasPlanReviewEvidence
         ? [...context.baseNotes, "plan_review_progression_requires_durable_outcome: true"]
         : context.baseNotes
     });
