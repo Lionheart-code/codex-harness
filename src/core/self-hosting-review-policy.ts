@@ -36,6 +36,21 @@ export interface ProcedureExecutionContract {
   required_evidence_contract: string[];
   direct_artifact_required?: boolean;
   nested_review_launch_forbidden?: boolean;
+  review_launch?: ReviewLaunchTimingPolicy;
+}
+
+export interface ReviewLaunchTimingPolicy {
+  timeout_seconds: number;
+  stale_after_seconds: number;
+  timeout_override: {
+    minimum_seconds: number;
+    maximum_seconds: number;
+  };
+  stale_after_override: {
+    minimum_seconds: number;
+    maximum_seconds: number;
+  };
+  termination_policy: "terminal_completion_only";
 }
 
 export interface ProcedureExecutionPolicy {
@@ -208,7 +223,62 @@ export function readProcedureExecutionPolicy(targetRoot: string): ProcedureExecu
   if (policy.schema_version !== 1 || !policy.contract_version || !Array.isArray(policy.procedures)) {
     throw new Error("Procedure execution policy is invalid.");
   }
+  for (const procedure of policy.procedures) {
+    const label = `Procedure execution policy ${procedure.procedure_id}`;
+    if (procedure.automatic_launch) {
+      if (!procedure.review_launch) throw new Error(`${label} requires review_launch timing authority.`);
+      assertReviewLaunchTimingPolicy(procedure.review_launch, label);
+    } else if (procedure.review_launch) {
+      throw new Error(`${label} may not define review_launch timing without automatic_launch.`);
+    }
+  }
   return policy;
+}
+
+function assertReviewLaunchTimingPolicy(policy: ReviewLaunchTimingPolicy, label: string): void {
+  const positiveInteger = (value: unknown, field: string): number => {
+    if (!Number.isInteger(value) || Number(value) <= 0) {
+      throw new Error(`${label} review_launch ${field} must be a positive integer.`);
+    }
+    return Number(value);
+  };
+  const timeoutSeconds = positiveInteger(policy.timeout_seconds, "timeout_seconds");
+  const staleAfterSeconds = positiveInteger(policy.stale_after_seconds, "stale_after_seconds");
+  const timeoutMinimum = positiveInteger(policy.timeout_override?.minimum_seconds, "timeout_override.minimum_seconds");
+  const timeoutMaximum = positiveInteger(policy.timeout_override?.maximum_seconds, "timeout_override.maximum_seconds");
+  const staleMinimum = positiveInteger(policy.stale_after_override?.minimum_seconds, "stale_after_override.minimum_seconds");
+  const staleMaximum = positiveInteger(policy.stale_after_override?.maximum_seconds, "stale_after_override.maximum_seconds");
+  if (policy.termination_policy !== "terminal_completion_only") {
+    throw new Error(`${label} review_launch termination_policy must be terminal_completion_only.`);
+  }
+  if (staleAfterSeconds >= timeoutSeconds) {
+    throw new Error(`${label} review_launch stale_after_seconds must remain below timeout_seconds.`);
+  }
+  if (timeoutMinimum < timeoutSeconds || timeoutMaximum < timeoutMinimum) {
+    throw new Error(`${label} review_launch timeout override bounds may not shorten the registered timeout.`);
+  }
+  if (staleMinimum < staleAfterSeconds || staleMaximum < staleMinimum || staleMaximum >= timeoutSeconds) {
+    throw new Error(`${label} review_launch stale override bounds are invalid.`);
+  }
+}
+
+export function resolveReviewLaunchTiming(
+  policy: ProcedureExecutionPolicy,
+  procedureIds: string[]
+): ReviewLaunchTimingPolicy {
+  const timings = procedureIds.map((procedureId) => {
+    const procedure = policy.procedures.find((entry) => entry.procedure_id === procedureId);
+    if (!procedure?.automatic_launch || !procedure.review_launch) {
+      throw new Error(`REVIEW_TIMING_POLICY_UNAVAILABLE: ${procedureId} has no registered automatic review timing.`);
+    }
+    return procedure.review_launch;
+  });
+  if (timings.length === 0) throw new Error("REVIEW_TIMING_POLICY_UNAVAILABLE: no registered review procedures were selected.");
+  const authoritative = timings[0];
+  if (timings.some((timing) => canonicalReviewPolicyJson(timing) !== canonicalReviewPolicyJson(authoritative))) {
+    throw new Error("REVIEW_BUNDLE_TIMING_POLICY_CONFLICT: selected review procedures do not share one registered timing policy.");
+  }
+  return authoritative;
 }
 
 export function readReviewRoutePolicy(targetRoot: string): ReviewRoutePolicy {

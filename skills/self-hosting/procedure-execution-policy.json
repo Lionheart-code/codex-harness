@@ -75,6 +75,13 @@
       "independence": "independent",
       "context_transport": "fresh_independent_delta",
       "automatic_launch": true,
+      "review_launch": {
+        "timeout_seconds": 1800,
+        "stale_after_seconds": 300,
+        "timeout_override": { "minimum_seconds": 1800, "maximum_seconds": 3600 },
+        "stale_after_override": { "minimum_seconds": 300, "maximum_seconds": 900 },
+        "termination_policy": "terminal_completion_only"
+      },
       "deterministic_completion_supported": false,
       "direct_artifact_required": true,
       "nested_review_launch_forbidden": true,
@@ -107,6 +114,13 @@
       "independence": "independent",
       "context_transport": "fresh_independent_delta",
       "automatic_launch": true,
+      "review_launch": {
+        "timeout_seconds": 1800,
+        "stale_after_seconds": 300,
+        "timeout_override": { "minimum_seconds": 1800, "maximum_seconds": 3600 },
+        "stale_after_override": { "minimum_seconds": 300, "maximum_seconds": 900 },
+        "termination_policy": "terminal_completion_only"
+      },
       "deterministic_completion_supported": false,
       "direct_artifact_required": true,
       "nested_review_launch_forbidden": true,
@@ -124,6 +138,13 @@
       "independence": "independent",
       "context_transport": "fresh_independent_delta",
       "automatic_launch": true,
+      "review_launch": {
+        "timeout_seconds": 1800,
+        "stale_after_seconds": 300,
+        "timeout_override": { "minimum_seconds": 1800, "maximum_seconds": 3600 },
+        "stale_after_override": { "minimum_seconds": 300, "maximum_seconds": 900 },
+        "termination_policy": "terminal_completion_only"
+      },
       "deterministic_completion_supported": false,
       "direct_artifact_required": true,
       "nested_review_launch_forbidden": true,
@@ -141,6 +162,13 @@
       "independence": "independent",
       "context_transport": "fresh_independent_delta",
       "automatic_launch": true,
+      "review_launch": {
+        "timeout_seconds": 1800,
+        "stale_after_seconds": 300,
+        "timeout_override": { "minimum_seconds": 1800, "maximum_seconds": 3600 },
+        "stale_after_override": { "minimum_seconds": 300, "maximum_seconds": 900 },
+        "termination_policy": "terminal_completion_only"
+      },
       "deterministic_completion_supported": false,
       "required_output_contract": ["review_surface", "findings", "four_lens_verdicts", "durable_decision", "recommendation", "verdict"],
       "required_evidence_contract": ["approved_plan_ref", "diff_ref", "verification_refs", "source_identity"],
@@ -158,6 +186,13 @@
       "independence": "independent",
       "context_transport": "fresh_independent_delta",
       "automatic_launch": true,
+      "review_launch": {
+        "timeout_seconds": 1800,
+        "stale_after_seconds": 300,
+        "timeout_override": { "minimum_seconds": 1800, "maximum_seconds": 3600 },
+        "stale_after_override": { "minimum_seconds": 300, "maximum_seconds": 900 },
+        "termination_policy": "terminal_completion_only"
+      },
       "deterministic_completion_supported": false,
       "direct_artifact_required": true,
       "nested_review_launch_forbidden": true,

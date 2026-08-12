@@ -18,6 +18,8 @@ import {
 
 const require = createRequire(import.meta.url);
 const sqliteModule = require(path.join(productRoot, "dist/core/sqlite.js"));
+const stagingModule = require(path.join(productRoot, "dist/core/run-staging-db.js"));
+const reviewPolicyModule = require(path.join(productRoot, "dist/core/self-hosting-review-policy.js"));
 const ACTIVE_TASK_PATH = "tasks/PHASE_23_8_6B1_SUPERVISED_REVIEW_LAUNCH_AND_BLOCKED_DISPOSITION.md";
 const tempDirectories = [];
 
@@ -71,6 +73,19 @@ function createB1Repo(prefix) {
   fs.cpSync(path.join(productRoot, "prompts", "self-hosting"), path.join(tempRepo, "prompts", "self-hosting"), {
     recursive: true
   });
+  const executionPolicyPath = path.join(tempRepo, "skills", "self-hosting", "procedure-execution-policy.json");
+  const executionPolicy = JSON.parse(fs.readFileSync(executionPolicyPath, "utf8"));
+  for (const procedure of executionPolicy.procedures) {
+    if (!procedure.automatic_launch) continue;
+    procedure.review_launch = {
+      timeout_seconds: 5,
+      stale_after_seconds: 1,
+      timeout_override: { minimum_seconds: 5, maximum_seconds: 60 },
+      stale_after_override: { minimum_seconds: 1, maximum_seconds: 4 },
+      termination_policy: "terminal_completion_only"
+    };
+  }
+  writeText(executionPolicyPath, `${JSON.stringify(executionPolicy, null, 2)}\n`);
   assertSuccess(runCommand("git", ["add", "."], { cwd: tempRepo }), "git add B1 repo");
   assertSuccess(runCommand("git", ["commit", "-m", "init"], { cwd: tempRepo }), "git commit B1 repo");
   assertSuccess(runCli(["run", "start", "--task", "TASK.md"], { cwd: tempRepo }), "run start B1");
@@ -116,6 +131,9 @@ if (process.env.CODEX_FAKE_MODE === "stdout") {
     fs.writeFileSync(output, content, "utf8");
     process.exit(0);
   }, Number(process.env.CODEX_FAKE_SLEEP_MS || 3000));
+} else if (process.env.CODEX_FAKE_MODE === "write-then-sleep") {
+  fs.writeFileSync(output, content, "utf8");
+  setTimeout(() => process.exit(0), Number(process.env.CODEX_FAKE_SLEEP_MS || 3000));
 } else if (process.env.CODEX_FAKE_MODE === "nested-review") {
   const nested = spawnSync(process.execPath, [
     process.env.CODEX_FAKE_CH,
@@ -250,6 +268,12 @@ function readRun(tempRepo) {
   return JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"), "utf8"));
 }
 
+function setRunPhase(tempRepo, phaseId) {
+  const roots = stagingModule.resolveHarnessRoots(tempRepo);
+  const staging = new stagingModule.RunStagingDatabase(roots.targetRoot, roots.projectRoot, "run-0001");
+  staging.mutateRun("run-0001", (run) => ({ ...run, phase_id: phaseId }));
+}
+
 function readLatestAttempt(tempRepo, procedureId = "implementation-review") {
   const run = readRun(tempRepo);
   const evidence = [...run.evidence].reverse().find((entry) => entry.kind === `review-launch-attempt:${procedureId}`);
@@ -363,8 +387,65 @@ test("phase 23.8.6B1 launch-review dry-run validates without spawning or writing
 
   assertSuccess(result, "launch-review dry-run");
   assert.match(result.stdout, /launch status: dry_run/);
+  assert.match(result.stdout, /timeout seconds: 5/);
+  assert.doesNotMatch(result.stdout, /timeout seconds: 120/);
   assert.equal(fs.existsSync(path.join(tempRepo, outputPath)), false);
   assert.equal(readRun(tempRepo).evidence.some((entry) => entry.kind.startsWith("review-launch-attempt:")), false);
+});
+
+test("registered timing policy supplies defaults, permits bounded overrides, and rejects unsafe overrides", () => {
+  const tempRepo = createB1Repo("codex-harness-review-timing-policy-");
+  const requestPath = writeManualFile(tempRepo, "run-0001", "implementation-review-request.md", "review this diff");
+  const common = [
+    "run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review",
+    "--request", requestPath, "--output", ".harness/runs/run-0001/manual/implementation-review.md", "--dry-run"
+  ];
+
+  const defaultResult = runCli(common, { cwd: tempRepo });
+  assertSuccess(defaultResult, "registered timing default");
+  assert.match(defaultResult.stdout, /timeout seconds: 5/);
+  assert.match(defaultResult.stdout, /stale-after seconds: 1/);
+  assert.match(defaultResult.stdout, /termination policy: terminal_completion_only/);
+  const policy = reviewPolicyModule.readProcedureExecutionPolicy(tempRepo);
+  for (const procedureId of ["plan-review", "architecture-review", "db-storage-review", "implementation-review", "fix-pass-review"]) {
+    const timing = reviewPolicyModule.resolveReviewLaunchTiming(policy, [procedureId]);
+    assert.equal(timing.timeout_seconds, 5, `${procedureId} uses registered timeout authority`);
+    assert.equal(timing.stale_after_seconds, 1, `${procedureId} keeps stale detection distinct`);
+    assert.equal(timing.termination_policy, "terminal_completion_only");
+  }
+
+  const overrideResult = runCli([...common, "--timeout-seconds", "10", "--stale-after-seconds", "2"], { cwd: tempRepo });
+  assertSuccess(overrideResult, "bounded timing override");
+  assert.match(overrideResult.stdout, /timeout seconds: 10/);
+  assert.match(overrideResult.stdout, /stale-after seconds: 2/);
+
+  for (const args of [["--timeout-seconds", "4"], ["--timeout-seconds", "120"], ["--stale-after-seconds", "5"]]) {
+    const invalid = runCli([...common, ...args], { cwd: tempRepo });
+    assertFailure(invalid, `unsafe timing override ${args.join(" ")}`);
+    assert.match(invalid.stderr, /registered policy range|must remain below/);
+  }
+});
+
+test("a written review output is not lifecycle evidence before terminal completion", async () => {
+  const tempRepo = createB1Repo("codex-harness-review-terminal-only-");
+  const requestPath = writeManualFile(tempRepo, "run-0001", "implementation-review-request.md", "review this diff");
+  const outputPath = ".harness/runs/run-0001/manual/implementation-review.md";
+  const launched = launchReviewAsync(tempRepo, [
+    "run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review",
+    "--request", requestPath, "--output", outputPath
+  ], {
+    ...createFakeCodexBin(tempRepo, "write-then-sleep"),
+    CODEX_FAKE_SLEEP_MS: "1500",
+    CODEX_FAKE_REVIEW_CONTENT: implementationReviewMarkdown("PASS")
+  });
+  await waitForFile(path.join(tempRepo, outputPath));
+  const during = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(during, "operator status before reviewer termination");
+  assert.match(during.stdout, /current_stage: REVIEW_LAUNCH_IN_PROGRESS/);
+  assert.equal(readRun(tempRepo).evidence.some((entry) => entry.kind === "procedure:implementation-review"), false);
+  const completed = await launched.completed;
+  assert.equal(completed.status, 0, completed.stderr);
+  assert.ok(readRun(tempRepo).evidence.some((entry) => entry.kind === "procedure:implementation-review"));
 });
 
 test("phase 23.8.6F evaluation launch requires separate exact binding-version and profile identities", () => {
@@ -511,6 +592,34 @@ test("phase 23.8.6B1 failed plan-review launch is projected into operator status
   assert.match(status.stdout, /current_stage: REVIEW_LAUNCH_BLOCKED/);
   assert.match(status.stdout, /next_procedure_id: plan-review/);
   assert.match(status.stdout, /stop_reason: REVIEW_ARTIFACT_INVALID/);
+});
+
+test("Phase 24A launches plan review from its exact draft plan before owner approval", () => {
+  const tempRepo = createB1Repo("codex-harness-24a-plan-review-");
+  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan"]) {
+    recordProcedure(tempRepo, "run-0001", procedureId, `# ${procedureId}\n`);
+  }
+  setRunPhase(tempRepo, "24A");
+  const requestPath = writeManualFile(tempRepo, "run-0001", "plan-review-request.md", "review the exact draft plan");
+  const env = {
+    ...createFakeCodexBin(tempRepo, "file"),
+    CODEX_FAKE_REVIEW_CONTENT: planReviewMarkdown()
+  };
+
+  const result = runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "plan-review",
+    "--request", requestPath,
+    "--output", ".harness/runs/run-0001/manual/plan-review.md",
+    "--timeout-seconds", "5"
+  ], { cwd: tempRepo, env });
+
+  assertSuccess(result, "Phase 24A pre-approval plan-review launch");
+  const run = readRun(tempRepo);
+  assert.equal(run.phase_id, "24A");
+  assert.equal(run.approvals.length, 0, "the review must precede owner approval");
+  assert.ok(run.evidence.some((entry) => entry.kind === "procedure:draft-plan"));
+  assert.ok(run.evidence.some((entry) => entry.kind === "procedure:plan-review"));
+  assert.ok(run.review_results.some((entry) => entry.source === "procedure:plan-review" && entry.status === "PASS"));
 });
 
 test("phase 23.8.6B1 launch-review persists stdout fallback as validated artifact", () => {
@@ -767,22 +876,43 @@ test("phase 23.8.6B1 launch-review distinguishes missing artifact, timeout, and 
     "--output",
     ".harness/runs/run-0001/manual/implementation-review.md",
     "--timeout-seconds",
-    "1",
+    "5",
     "--stale-after-seconds",
-    "10"
+    "4"
   ], {
     cwd: timeoutRepo,
     env: {
-      ...createFakeCodexBin(timeoutRepo, "sleep"),
-      CODEX_FAKE_SLEEP_MS: "3000",
+      ...createFakeCodexBin(timeoutRepo, "write-then-sleep"),
+      CODEX_FAKE_SLEEP_MS: "7000",
+      CODEX_FAKE_REVIEW_CONTENT: implementationReviewMarkdown("PASS"),
       CODEX_FAKE_SIGTERM_SENTINEL: path.join(timeoutRepo, "hard-deadline-sigterm.txt")
     }
   });
 
   assertFailure(timeoutResult, "launch-review timeout");
   assert.match(timeoutResult.stdout, /failure classification: REVIEW_PROCESS_TIMEOUT/);
-  assert.equal(readLatestAttempt(timeoutRepo).failure_classification, "REVIEW_PROCESS_TIMEOUT");
+  const timedOutAttempt = readLatestAttempt(timeoutRepo);
+  assert.equal(timedOutAttempt.failure_classification, "REVIEW_PROCESS_TIMEOUT");
+  assert.equal(timedOutAttempt.artifact_present, true, "timed-out output remains non-authoritative");
+  assert.equal(readRun(timeoutRepo).evidence.some((entry) => entry.kind === "procedure:implementation-review"), false);
   assert.equal(fs.existsSync(path.join(timeoutRepo, "hard-deadline-sigterm.txt")), true, "only the hard deadline may send SIGTERM");
+  const freshOutputPath = ".harness/runs/run-0001/manual/implementation-review-fresh.md";
+  const freshResult = runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review",
+    "--request", ".harness/runs/run-0001/manual/implementation-review-request.md",
+    "--output", freshOutputPath
+  ], {
+    cwd: timeoutRepo,
+    env: {
+      ...createFakeCodexBin(timeoutRepo, "file"),
+      CODEX_FAKE_REVIEW_CONTENT: implementationReviewMarkdown("PASS")
+    }
+  });
+  assertSuccess(freshResult, "fresh attempt after timeout");
+  const freshAttempt = readLatestAttempt(timeoutRepo);
+  assert.notEqual(freshAttempt.attempt_id, timedOutAttempt.attempt_id);
+  assert.equal(freshAttempt.expected_output_path, freshOutputPath);
+  assert.match(freshResult.stdout, /artifact path: evidence\/implementation-review-/);
 
   const blockerRepo = createB1Repo("codex-harness-b1-review-blocker-note-");
   writeManualFile(blockerRepo, "run-0001", "implementation-review-request.md", "review this diff");

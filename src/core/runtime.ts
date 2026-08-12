@@ -83,6 +83,7 @@ import {
   readProcedureExecutionPolicy,
   readReviewRoutePolicy,
   reconcileProcedureExecutionPolicy,
+  resolveReviewLaunchTiming,
   resolveCodexBinding,
   type CodexBindingProfile,
   type ReviewRouteDecision
@@ -4203,7 +4204,7 @@ export async function startRuntimeRun(cwd: string, options: StartRuntimeRunOptio
 function requireReviewLaunchCapability(
   proceduresById: Map<string, SelfHostingProcedureDescriptor>,
   procedureId: string
-): SelfHostingReviewLaunchProfile {
+): SelfHostingProcedureDescriptor {
   if (!["plan-review", "implementation-review", "fix-pass-review"].includes(procedureId)) {
     throw new Error("--procedure must be one of: plan-review, implementation-review, fix-pass-review.");
   }
@@ -4213,29 +4214,36 @@ function requireReviewLaunchCapability(
     throw new Error(`Unknown self-hosting procedure id: ${procedureId}`);
   }
 
-  if (!descriptor.automatic_launch_capability) {
-    if (descriptor.review_launch_profile) return descriptor.review_launch_profile;
-    throw new Error(`Procedure ${procedureId} has no automatic_launch_capability.`);
-  }
-  return {
-    adapter_id: descriptor.automatic_launch_capability.adapter_id,
-    model: "policy-resolved",
-    reasoning_effort: "policy-resolved",
-    sandbox_mode: "read-only",
-    output_mode: "file",
-    timeout_seconds: 1800,
-    stale_after_seconds: 300,
-    termination_policy: "terminal_completion_only"
-  };
+  if (!descriptor.automatic_launch_capability) throw new Error(`Procedure ${procedureId} has no automatic_launch_capability.`);
+  return descriptor;
 }
 
-function validateLaunchSeconds(value: number | undefined, fallback: number, field: string): number {
-  const resolved = value ?? fallback;
-  if (!Number.isInteger(resolved) || resolved <= 0) {
-    throw new Error(`${field} must be a positive integer.`);
+function resolveLaunchTiming(
+  targetRoot: string,
+  procedureIds: string[],
+  timeoutOverride: number | undefined,
+  staleAfterOverride: number | undefined
+): { timeoutSeconds: number; staleAfterSeconds: number; terminationPolicy: "terminal_completion_only" } {
+  const policy = readProcedureExecutionPolicy(targetRoot);
+  const timing = resolveReviewLaunchTiming(policy, procedureIds);
+  const resolveOverride = (
+    value: number | undefined,
+    bounds: { minimum_seconds: number; maximum_seconds: number },
+    field: string,
+    fallback: number
+  ): number => {
+    if (value === undefined) return fallback;
+    if (!Number.isInteger(value) || value < bounds.minimum_seconds || value > bounds.maximum_seconds) {
+      throw new Error(`${field} must be an integer within the registered policy range ${bounds.minimum_seconds}-${bounds.maximum_seconds}.`);
+    }
+    return value;
+  };
+  const timeoutSeconds = resolveOverride(timeoutOverride, timing.timeout_override, "--timeout-seconds", timing.timeout_seconds);
+  const staleAfterSeconds = resolveOverride(staleAfterOverride, timing.stale_after_override, "--stale-after-seconds", timing.stale_after_seconds);
+  if (staleAfterSeconds >= timeoutSeconds) {
+    throw new Error("--stale-after-seconds must remain below the effective registered review timeout.");
   }
-
-  return resolved;
+  return { timeoutSeconds, staleAfterSeconds, terminationPolicy: timing.termination_policy };
 }
 
 function resolveLaunchRequestPath(targetRoot: string, requestPath: string): string {
@@ -4603,6 +4611,13 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
   const fallbackPlanContent = fs.readFileSync(path.join(targetRoot, taskContractRef));
   const planArtifact = approved?.reviewed_plan_artifact_id
     ? run.artifacts.find((entry) => entry.artifact_id === approved.reviewed_plan_artifact_id)
+    : procedureId === "plan-review"
+      ? (() => {
+          const candidate = tryResolveExactPlanEvidenceBinding(run);
+          return candidate
+            ? run.artifacts.find((entry) => entry.artifact_id === candidate.artifactId)
+            : undefined;
+        })()
     : run.phase_id === "23.8.6F"
       ? undefined
       : {
@@ -4633,7 +4648,9 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
   }
   const inventory = reviewChangeInventory(targetRoot, exactDiffBase, reviewedSourceHead);
   const latestVerification = run.verification_results[run.verification_results.length - 1];
-  const verificationComplete = verificationSatisfiesRequiredCommandInventory(targetRoot, run, latestVerification);
+  const verificationComplete = procedureId === "plan-review"
+    ? false
+    : verificationSatisfiesRequiredCommandInventory(targetRoot, run, latestVerification);
   const priorReviewProcedure = procedureId === "fix-pass-review" ? "implementation-review" : procedureId;
   const priorReview = [...run.review_results].reverse().find((entry) =>
     reviewSourceMatchesProcedure(entry.source, priorReviewProcedure));
@@ -5602,7 +5619,8 @@ export async function launchRuntimePlanningReviewBundle(
   }
   const registry = readSelfHostingProcedureRegistry(targetRoot);
   if (!registry) throw new Error("Self-hosting procedure registry not found.");
-  const launchCapability = requireReviewLaunchCapability(indexSelfHostingProceduresById(registry), "plan-review");
+  const launchDescriptor = requireReviewLaunchCapability(indexSelfHostingProceduresById(registry), "plan-review");
+  const launchCapability = launchDescriptor.automatic_launch_capability!;
   const bindingCandidates = readCodexReferenceBinding(targetRoot).profiles.filter((entry) =>
     entry.status === "accepted" && entry.route_class === "critical_independent"
     && entry.adapter_id === launchCapability.adapter_id
@@ -5611,13 +5629,19 @@ export async function launchRuntimePlanningReviewBundle(
     throw new Error(`planning_review_bundle_profile_cardinality_invalid:${bindingCandidates.length}`);
   }
   const bindingProfile = bindingCandidates[0];
+  const timing = resolveLaunchTiming(targetRoot, ["plan-review", "architecture-review", "db-storage-review"], options.timeoutSeconds, options.staleAfterSeconds);
   const profile: SelfHostingReviewLaunchProfile = {
-    ...launchCapability,
+    adapter_id: launchCapability.adapter_id,
     model: bindingProfile.model,
-    reasoning_effort: bindingProfile.reasoning_effort
+    reasoning_effort: bindingProfile.reasoning_effort,
+    sandbox_mode: "read-only",
+    output_mode: "file",
+    timeout_seconds: timing.timeoutSeconds,
+    stale_after_seconds: timing.staleAfterSeconds,
+    termination_policy: timing.terminationPolicy
   };
-  const timeoutSeconds = validateLaunchSeconds(options.timeoutSeconds, profile.timeout_seconds, "--timeout-seconds");
-  const staleAfterSeconds = validateLaunchSeconds(options.staleAfterSeconds, profile.stale_after_seconds, "--stale-after-seconds");
+  const timeoutSeconds = timing.timeoutSeconds;
+  const staleAfterSeconds = timing.staleAfterSeconds;
   const requestPath = resolveLaunchRequestPath(targetRoot, options.requestPath);
   const outputPath = resolveLaunchOutputPath(targetRoot, current.run, options.outputPath);
   const lensManifestPath = path.resolve(targetRoot, options.lensManifestPath);
@@ -6266,7 +6290,19 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
   }
 
   const proceduresById = indexSelfHostingProceduresById(registry);
-  const profile = requireReviewLaunchCapability(proceduresById, options.procedureId);
+  const descriptor = requireReviewLaunchCapability(proceduresById, options.procedureId);
+  const launchCapability = descriptor.automatic_launch_capability!;
+  const timing = resolveLaunchTiming(targetRoot, [options.procedureId], options.timeoutSeconds, options.staleAfterSeconds);
+  const profile: SelfHostingReviewLaunchProfile = {
+    adapter_id: launchCapability.adapter_id,
+    model: "policy-resolved",
+    reasoning_effort: "policy-resolved",
+    sandbox_mode: "read-only",
+    output_mode: "file",
+    timeout_seconds: timing.timeoutSeconds,
+    stale_after_seconds: timing.staleAfterSeconds,
+    termination_policy: timing.terminationPolicy
+  };
   const evaluationMode = options.evaluationMode ?? "approved";
   const evaluationOnly = evaluationMode !== "approved";
   if (evaluationOnly) {
@@ -6279,8 +6315,8 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
       [options.candidateOutputPath, "--candidate-output"]
     ] as const) if (!value) throw new Error(`${flag} is required for ${evaluationMode} evaluation.`);
   }
-  const timeoutSeconds = validateLaunchSeconds(options.timeoutSeconds, profile.timeout_seconds, "--timeout-seconds");
-  const staleAfterSeconds = validateLaunchSeconds(options.staleAfterSeconds, profile.stale_after_seconds, "--stale-after-seconds");
+  const timeoutSeconds = timing.timeoutSeconds;
+  const staleAfterSeconds = timing.staleAfterSeconds;
   const requestPath = resolveLaunchRequestPath(targetRoot, options.requestPath);
   const outputPath = resolveLaunchOutputPath(
     targetRoot,
