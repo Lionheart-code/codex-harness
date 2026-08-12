@@ -285,7 +285,18 @@ function prepareApprovedB1Plan(tempRepo, runId = "run-0001") {
       effectivePlanPath = pathForProcedure;
     }
   }
-  recordProcedure(tempRepo, runId, "plan-review", planReviewMarkdown());
+  if (readRun(tempRepo).phase_id === "24A") {
+    const planEnv = createFakeCodexBin(tempRepo, "file");
+    assertSuccess(runCommand("git", ["add", "fake-bin"], { cwd: tempRepo }), "stage fixture reviewer");
+    assertSuccess(runCommand("git", ["commit", "-m", "fixture reviewer"], { cwd: tempRepo }), "commit fixture reviewer");
+    const requestPath = writeManualFile(tempRepo, runId, "automatic-plan-review-request.md", "review the exact effective plan");
+    assertSuccess(runCli([
+      "run", "launch-review", "--run", runId, "--procedure", "plan-review",
+      "--request", requestPath, "--output", `.harness/runs/${runId}/manual/automatic-plan-review.md`
+    ], { cwd: tempRepo, env: { ...planEnv, CODEX_FAKE_REVIEW_CONTENT: planReviewMarkdown() } }), "automatic terminal B1 plan review");
+  } else {
+    recordProcedure(tempRepo, runId, "plan-review", planReviewMarkdown());
+  }
   assertSuccess(
     runCli([
       "run",
@@ -396,7 +407,14 @@ test("Phase F and later preserve an attributable owner-authorized baseline overl
     recordProcedure(tempRepo, "run-0001", procedureId, `# ${procedureId}\n`);
   }
   const planPath = recordProcedure(tempRepo, "run-0001", "draft-plan", plan);
-  recordProcedure(tempRepo, "run-0001", "plan-review", planReviewMarkdown());
+  const planEnv = createFakeCodexBin(tempRepo, "file");
+  assertSuccess(runCommand("git", ["add", "fake-bin"], { cwd: tempRepo }), "stage overlay fixture reviewer");
+  assertSuccess(runCommand("git", ["commit", "-m", "overlay fixture reviewer"], { cwd: tempRepo }), "commit overlay fixture reviewer");
+  const reviewRequest = writeManualFile(tempRepo, "run-0001", "overlay-plan-review-request.md", "review the exact overlay plan");
+  assertSuccess(runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "plan-review",
+    "--request", reviewRequest, "--output", ".harness/runs/run-0001/manual/overlay-plan-review.md"
+  ], { cwd: tempRepo, env: { ...planEnv, CODEX_FAKE_REVIEW_CONTENT: planReviewMarkdown() } }), "automatic terminal overlay plan review");
   assertSuccess(runCli([
     "run", "approve-plan", "--run", "run-0001", "--plan", planPath,
     "--approver", "owner", "--reason", "Authorize the reviewed overlay plan."
@@ -574,6 +592,15 @@ test("registered timing policy supplies defaults, permits bounded overrides, and
   };
   fs.writeFileSync(policyPath, `${JSON.stringify(malformed, null, 2)}\n`);
   assert.doesNotThrow(() => reviewPolicyModule.readProcedureExecutionPolicy(tempRepo));
+
+  const schemaPath = path.join(tempRepo, "schemas", "self-hosting-procedure-execution-policy.schema.json");
+  const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
+  schema.properties.procedures.items.properties.review_launch.properties.timeout_seconds.minimum = 6;
+  fs.writeFileSync(schemaPath, `${JSON.stringify(schema, null, 2)}\n`);
+  assert.throws(
+    () => reviewPolicyModule.readProcedureExecutionPolicy(tempRepo),
+    /timeout_seconds must be at least 6/
+  );
 });
 
 test("a written review output is not lifecycle evidence before terminal completion", async () => {
@@ -772,6 +799,23 @@ test("Phase 24A launches plan review from its exact draft plan before owner appr
   assert.ok(run.review_results.some((entry) => entry.source === "procedure:plan-review" && entry.status === "PASS"));
 });
 
+test("Phase 24A rejects a manually recorded plan-review as approval authority", () => {
+  const tempRepo = createB1Repo("codex-harness-24a-manual-plan-review-authority-");
+  setRunPhase(tempRepo, "24A");
+  let planPath = "";
+  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan"]) {
+    const procedurePath = recordProcedure(tempRepo, "run-0001", procedureId, `# ${procedureId}\n`);
+    if (procedureId === "draft-plan") planPath = procedurePath;
+  }
+  recordProcedure(tempRepo, "run-0001", "plan-review", planReviewMarkdown());
+  const approval = runCli([
+    "run", "approve-plan", "--run", "run-0001", "--plan", planPath,
+    "--approver", "owner", "--reason", "Manual review must not substitute for terminal launch provenance."
+  ], { cwd: tempRepo });
+  assertFailure(approval, "manual plan review cannot become Phase 24A approval authority");
+  assert.match(approval.stderr, /PLAN_APPROVAL_TERMINAL_REVIEW_PROVENANCE_MISSING/);
+});
+
 test("Phase 24A automatic terminal plan review binds approval and direct baseline end to end", () => {
   const tempRepo = createB1Repo("codex-harness-24a-automatic-baseline-");
   const planEnv = createFakeCodexBin(tempRepo, "file");
@@ -806,6 +850,13 @@ test("Phase 24A automatic terminal plan review binds approval and direct baselin
   assert.equal(descriptor.reviewed_plan_artifact_id, planArtifact);
   assert.equal(descriptor.reviewed_plan_content_hash, planArtifact.slice("sha256:".length));
   assert.equal(descriptor.reviewed_evidence_artifact_id, planArtifact);
+  const invocation = reviewedRun.review_routing_records.find((entry) =>
+    entry.record_kind === "review_invocation" && entry.payload.procedure_id === "plan-review");
+  assert.equal(invocation.status, "success");
+  assert.equal(invocation.payload.artifact_id, reviewArtifact);
+  assert.equal(invocation.payload.terminal_exit_code, 0);
+  assert.match(invocation.payload.review_claim_id, /^review-launch-/);
+  assert.match(invocation.payload.review_claim_owner_token_hash, /^sha256:[a-f0-9]{64}$/);
 
   assertSuccess(runCli([
     "run", "approve-plan", "--run", "run-0001", "--plan", planPath,

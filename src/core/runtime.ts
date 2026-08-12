@@ -666,6 +666,8 @@ export interface ReviewLaunchObservation {
   predecessor_reviewed_source_head?: string;
   reviewed_source_head?: string;
   reviewed_diff_hash?: string;
+  review_claim_id?: string;
+  review_claim_owner_token_hash?: string;
 }
 
 export interface ReviewRecursionFacts {
@@ -3749,6 +3751,18 @@ function isPrePhaseFVerificationCompatibility(phaseId: string | undefined): bool
   return !suffix || suffix[0] < "F";
 }
 
+function hasPhaseFDurableImplementationBaseline(run: Run): boolean {
+  const binding = run.implementation_baseline_binding;
+  return Boolean(
+    run.implementation_baseline_head
+    && binding
+    && binding.schema_version === 2
+    && binding.plan_review_artifact_hash
+    && binding.authority_transition
+    && run.implementation_baseline_head === binding.implementation_baseline_head
+  );
+}
+
 function resolveExactApprovedPlanAuthority(
   targetRoot: string,
   run: Run
@@ -5217,6 +5231,8 @@ function recordLaunchAttempt(
 
   const observationWithPayloadRefs: ReviewLaunchObservation = {
     ...observation,
+    review_claim_id: claim.claim_id,
+    review_claim_owner_token_hash: claim.owner_token_hash,
     usage_ref: usagePayload.payload_id,
     payload_refs: payloadRefs
   };
@@ -6198,13 +6214,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
   }
   if (!isPrePhaseFVerificationCompatibility(current.run.phase_id)
     && ["implementation-review", "fix-pass-review"].includes(options.procedureId)
-    && (!current.run.implementation_baseline_head
-      || !current.run.implementation_baseline_binding
-      || current.run.implementation_baseline_binding.schema_version !== 2
-      || !current.run.implementation_baseline_binding.plan_review_artifact_hash
-      || !current.run.implementation_baseline_binding.authority_transition
-      || current.run.implementation_baseline_head
-        !== current.run.implementation_baseline_binding.implementation_baseline_head)) {
+    && !hasPhaseFDurableImplementationBaseline(current.run)) {
     throw new Error(
       "IMPLEMENTATION_BASELINE_REQUIRED: review launch requires the exact durable implementation baseline binding."
     );
@@ -6591,7 +6601,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
       reviewed_source_head: fixPassLineage.reviewedSourceHead,
       reviewed_diff_hash: fixPassLineage.reviewedDiffHash
     } : {})
-    ,...(!fixPassLineage && ["implementation-review", "fix-pass-review"].includes(options.procedureId) ? {
+    ,...(!fixPassLineage && ["plan-review", "implementation-review", "fix-pass-review"].includes(options.procedureId) ? {
       reviewed_source_head: packet.core.source_snapshot,
       ...(exactReviewDiffHash ? { reviewed_diff_hash: exactReviewDiffHash } : {})
     } : {})
@@ -7769,7 +7779,7 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
         if (head.status !== 0 || !/^[a-f0-9]{40}$/u.test(head.stdout.trim()) || dirty.length > 0) {
           throw new Error("FINAL_REVIEWED_SOURCE_HEAD_REQUIRES_CLEAN_COMMITTED_TREE");
         }
-        if (!latestRun.implementation_baseline_head) {
+        if (!hasPhaseFDurableImplementationBaseline(latestRun)) {
           throw new Error("FINAL_REVIEWED_SOURCE_HEAD_REQUIRES_IMPLEMENTATION_BASELINE");
         }
         next = { ...next, final_reviewed_source_head: head.stdout.trim() };
@@ -8232,6 +8242,14 @@ export async function bindRuntimeImplementationBaseline(
       || descriptor.reviewed_plan_content_hash !== approvalBinding.planContentHash) {
       throw new Error(
         "IMPLEMENTATION_BASELINE_REVIEW_BINDING_MISMATCH: exact approved plan-review provenance is required."
+      );
+    }
+    const exactPlan = tryResolveExactPlanEvidenceBinding(current.run);
+    const exactReview = readLatestProcedureEvidenceById(current.run, "plan-review");
+    if (!exactPlan || !exactReview
+      || !hasTerminalAutomaticPlanReviewProvenance(current.run, exactPlan, exactReview, descriptor)) {
+      throw new Error(
+        "IMPLEMENTATION_BASELINE_REVIEW_BINDING_MISMATCH: terminal automatic plan-review provenance is required."
       );
     }
     planningHead = reviewedPlanningHead;
@@ -10608,6 +10626,63 @@ function tryResolveExactPlanEvidenceBinding(run: Run): ExactPlanEvidenceBinding 
   };
 }
 
+function hasTerminalAutomaticPlanReviewProvenance(
+  run: Run,
+  plan: ExactPlanEvidenceBinding,
+  planReview: EvidenceRef,
+  descriptor: ProcedureArtifactDescriptor | undefined
+): boolean {
+  if (!descriptor || !run.run_instance_id || !planReview.artifact_id) return false;
+  let provenance: Record<string, unknown>;
+  try {
+    provenance = assertObject(JSON.parse(descriptor.provenance_json), "Plan-review descriptor provenance");
+  } catch {
+    return false;
+  }
+  const attemptId = provenance.review_attempt_id;
+  const reviewedSourceHead = provenance.reviewed_source_head;
+  if (typeof attemptId !== "string" || !attemptId || typeof reviewedSourceHead !== "string"
+    || !/^[a-f0-9]{40}$/u.test(reviewedSourceHead)) {
+    return false;
+  }
+  if (descriptor.source_run_id !== run.run_id
+    || descriptor.procedure_id !== "plan-review"
+    || descriptor.artifact_id !== planReview.artifact_id
+    || descriptor.reviewed_plan_artifact_id !== plan.artifactId
+    || descriptor.reviewed_plan_content_hash !== plan.contentHash) {
+    return false;
+  }
+  return hasTerminalAutomaticPlanReviewInvocation(run, planReview, attemptId, reviewedSourceHead);
+}
+
+function hasTerminalAutomaticPlanReviewInvocation(
+  run: Run,
+  planReview: EvidenceRef,
+  attemptId: string,
+  reviewedSourceHead: string | undefined
+): boolean {
+  if (!run.run_instance_id || !planReview.artifact_id || !/^[a-f0-9]{40}$/u.test(reviewedSourceHead ?? "")) return false;
+  return (run.review_routing_records ?? []).some((record) => {
+    if (record.record_kind !== "review_invocation" || record.status !== "success") return false;
+    const payload = record.payload;
+    return payload.procedure_id === "plan-review"
+      && payload.run_id === run.run_id
+      && payload.run_instance_id === run.run_instance_id
+      && payload.status === "success"
+      && payload.attempt_id === attemptId
+      && typeof payload.review_claim_id === "string"
+      && payload.review_claim_id.length > 0
+      && typeof payload.review_claim_owner_token_hash === "string"
+      && /^sha256:[a-f0-9]{64}$/u.test(payload.review_claim_owner_token_hash)
+      && payload.terminal_exit_code === 0
+      && payload.artifact_id === planReview.artifact_id
+      && payload.artifact_valid === true
+      && payload.artifact_present === true
+      && payload.termination_policy === "terminal_completion_only"
+      && payload.reviewed_source_head === reviewedSourceHead;
+  });
+}
+
 function resolveExactPlanApprovalBinding(
   targetRoot: string,
   runId: string,
@@ -10650,6 +10725,10 @@ function resolveExactPlanApprovalBinding(
     || descriptor.reviewed_plan_content_hash !== plan.contentHash
   )) {
     throw new Error("Plan approval rejects a missing, cross-run, or mismatched immutable plan-review binding.");
+  }
+  if (!isPrePhaseFVerificationCompatibility(run.phase_id)
+    && !hasTerminalAutomaticPlanReviewProvenance(run, plan, planReview, descriptor)) {
+    throw new Error("PLAN_APPROVAL_TERMINAL_REVIEW_PROVENANCE_MISSING: Phase F and later require the exact terminal automatic plan-review authority chain.");
   }
   const planDescriptor = descriptorLookup?.(run.run_instance_id, plan.procedureId, plan.artifactId);
   if (requiresDurableBinding && descriptorLookup && (!planDescriptor || planDescriptor.source_run_id !== run.run_id
@@ -10880,6 +10959,25 @@ function hasExactDurableDApprovalBinding(
     || approval.reviewed_evidence_artifact_id !== planReview.artifact_id) {
     return false;
   }
+  const bound = runContext.run.implementation_baseline_binding;
+  if (!isPrePhaseFVerificationCompatibility(runContext.run.phase_id)
+    && hasPhaseFDurableImplementationBaseline(runContext.run)
+    && bound?.approval_id === approval.approval_id
+    && bound.plan_artifact_hash === planContentHash
+    && bound.plan_review_artifact_hash === planReview.artifact_id
+    && hasTerminalAutomaticPlanReviewInvocation(
+      runContext.run,
+      planReview,
+      bound.plan_review_artifact_hash === planReview.artifact_id
+        ? String((runContext.run.review_routing_records ?? []).find((record) =>
+          record.record_kind === "review_invocation"
+          && record.payload.procedure_id === "plan-review"
+          && record.payload.artifact_id === planReview.artifact_id)?.payload.attempt_id ?? "")
+        : "",
+      bound.planning_review_source_head
+    )) {
+    return true;
+  }
   try {
     const staging = new RunStagingDatabase(
       runContext.run.repository.root_path,
@@ -10903,6 +11001,21 @@ function hasExactDurableDApprovalBinding(
       || review.reviewed_evidence_artifact_id !== planArtifactId
       || plan.source_run_id !== runContext.run.run_id
       || plan.content_hash !== planContentHash) {
+      return false;
+    }
+    let reviewProvenance: Record<string, unknown>;
+    try {
+      reviewProvenance = assertObject(JSON.parse(review.provenance_json), "Plan-review descriptor provenance");
+    } catch {
+      return false;
+    }
+    if (!isPrePhaseFVerificationCompatibility(runContext.run.phase_id)
+      && !hasTerminalAutomaticPlanReviewInvocation(
+        runContext.run,
+        planReview,
+        String(reviewProvenance.review_attempt_id ?? ""),
+        typeof reviewProvenance.reviewed_source_head === "string" ? reviewProvenance.reviewed_source_head : undefined
+      )) {
       return false;
     }
     staging.readProcedureArtifactBody({
