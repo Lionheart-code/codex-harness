@@ -305,7 +305,15 @@ function readRun(tempRepo) {
 function setRunPhase(tempRepo, phaseId) {
   const roots = stagingModule.resolveHarnessRoots(tempRepo);
   const staging = new stagingModule.RunStagingDatabase(roots.targetRoot, roots.projectRoot, "run-0001");
-  staging.mutateRun("run-0001", (run) => ({ ...run, phase_id: phaseId }));
+  staging.mutateRun("run-0001", (run) => ({
+    ...run,
+    phase_id: phaseId,
+    repository: {
+      ...run.repository,
+      branch: runCommand("git", ["branch", "--show-current"], { cwd: tempRepo }).stdout.trim(),
+      head_sha: readHead(tempRepo)
+    }
+  }));
 }
 
 function readLatestAttempt(tempRepo, procedureId = "implementation-review") {
@@ -314,6 +322,91 @@ function readLatestAttempt(tempRepo, procedureId = "implementation-review") {
   assert.ok(evidence, `expected review-launch-attempt evidence for ${procedureId}`);
   return JSON.parse(fs.readFileSync(path.join(tempRepo, ".harness", "runs", "run-0001", evidence.path), "utf8"));
 }
+
+function readHead(tempRepo) {
+  const result = runCommand("git", ["rev-parse", "HEAD"], { cwd: tempRepo });
+  assertSuccess(result, "read fixture HEAD");
+  return result.stdout.trim();
+}
+
+function bindImplementationBaseline(tempRepo, planPath, approvalId, expectedHead) {
+  return runCli([
+    "run", "bind-implementation-baseline", "--run", "run-0001",
+    "--plan", planPath, "--approval-id", approvalId, "--expected-head", expectedHead
+  ], { cwd: tempRepo });
+}
+
+test("Phase F and later bind the exact approved reviewed source before implementation review", () => {
+  const tempRepo = createB1Repo("codex-harness-phase-f-direct-baseline-");
+  setRunPhase(tempRepo, "24A");
+  prepareApprovedB1Plan(tempRepo);
+  const approved = readRun(tempRepo).approvals.at(-1);
+  const requestPath = writeManualFile(tempRepo, "run-0001", "implementation-review-request.md", "review the approved implementation");
+
+  const beforeBaseline = runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review",
+    "--request", requestPath,
+    "--output", ".harness/runs/run-0001/manual/implementation-review.md"
+  ], { cwd: tempRepo });
+  assertFailure(beforeBaseline, "Phase F implementation review without a baseline");
+  assert.match(beforeBaseline.stderr, /IMPLEMENTATION_BASELINE_REQUIRED/);
+
+  const result = bindImplementationBaseline(
+    tempRepo,
+    ".harness/runs/run-0001/manual/draft-plan.md",
+    approved.approval_id,
+    readHead(tempRepo)
+  );
+  assertSuccess(result, "direct reviewed-source baseline binding");
+  const binding = readRun(tempRepo).implementation_baseline_binding;
+  assert.equal(binding.authority_transition, "reviewed_source");
+  assert.equal(binding.planning_review_source_head, readHead(tempRepo));
+  assert.equal(binding.plan_review_artifact_hash, approved.reviewed_evidence_artifact_id);
+  assert.match(binding.owner_authority_diff_hash, /^sha256:[a-f0-9]{64}$/);
+
+  const operator = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(operator, "operator status after direct baseline binding");
+  assert.match(operator.stdout, /current_stage: IMPLEMENTATION_READY/);
+});
+
+test("Phase F and later preserve an attributable owner-authorized baseline overlay", () => {
+  const tempRepo = createB1Repo("codex-harness-phase-f-overlay-baseline-");
+  const originalReadme = fs.readFileSync(path.join(tempRepo, "README.md"), "utf8");
+  const overlayReadme = "# phase 23.8.6B1 owner-authorized overlay\n";
+  writeText(path.join(tempRepo, "README.md"), overlayReadme);
+  const diff = runCommand("git", ["diff", "--binary", "--", "README.md"], { cwd: tempRepo });
+  assertSuccess(diff, "derive exact overlay diff");
+  writeText(path.join(tempRepo, "README.md"), originalReadme);
+  const overlayHash = require("node:crypto").createHash("sha256").update(diff.stdout).digest("hex");
+  const plan = [
+    "# effective plan", "",
+    "Preapproval owner-authority overlay", "",
+    "- `README.md`", "",
+    "Inspect only", "",
+    `owner-authorized planning authority diff SHA-256 \`${overlayHash}\``, ""
+  ].join("\n");
+
+  setRunPhase(tempRepo, "24A");
+  for (const procedureId of ["task-intake", "task-prompt-writer"]) {
+    recordProcedure(tempRepo, "run-0001", procedureId, `# ${procedureId}\n`);
+  }
+  const planPath = recordProcedure(tempRepo, "run-0001", "draft-plan", plan);
+  recordProcedure(tempRepo, "run-0001", "plan-review", planReviewMarkdown());
+  assertSuccess(runCli([
+    "run", "approve-plan", "--run", "run-0001", "--plan", planPath,
+    "--approver", "owner", "--reason", "Authorize the reviewed overlay plan."
+  ], { cwd: tempRepo }), "approve overlay plan");
+
+  writeText(path.join(tempRepo, "README.md"), overlayReadme);
+  assertSuccess(runCommand("git", ["add", "README.md"], { cwd: tempRepo }), "stage exact overlay");
+  assertSuccess(runCommand("git", ["commit", "-m", "owner authorized overlay"], { cwd: tempRepo }), "commit exact overlay");
+  const approved = readRun(tempRepo).approvals.at(-1);
+  const result = bindImplementationBaseline(tempRepo, planPath, approved.approval_id, readHead(tempRepo));
+  assertSuccess(result, "owner-authorized overlay baseline binding");
+  const binding = readRun(tempRepo).implementation_baseline_binding;
+  assert.equal(binding.authority_transition, "owner_authorized_overlay");
+  assert.equal(binding.owner_authority_diff_hash, `sha256:${overlayHash}`);
+});
 
 test("phase 23.8.6F forbids recursive review launch before a second claim or child", () => {
   const tempRepo = createB1Repo("codex-harness-f-review-recursion-");

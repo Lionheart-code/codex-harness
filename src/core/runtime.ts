@@ -295,10 +295,12 @@ export interface Approval {
 }
 
 export interface ImplementationBaselineBinding {
-  schema_version: 1;
+  schema_version: 1 | 2;
   approval_id: string;
   plan_artifact_hash: string;
+  plan_review_artifact_hash?: string;
   planning_review_source_head: string;
+  authority_transition?: "reviewed_source" | "owner_authorized_overlay";
   owner_authority_diff_hash: string;
   implementation_baseline_head: string;
   implementation_baseline_tree_hash: string;
@@ -2346,7 +2348,7 @@ export function validateRuntimeRun(value: unknown): Run {
       "expected_tree_hash",
       "bound_at",
     ] as const;
-    if (binding.schema_version !== 1) {
+    if (binding.schema_version !== 1 && binding.schema_version !== 2) {
       throw new Error(
         "runtime run implementation_baseline_binding has invalid schema_version.",
       );
@@ -2358,11 +2360,21 @@ export function validateRuntimeRun(value: unknown): Run {
         "runtime run implementation_baseline_binding",
       );
     }
-    implementationBaselineBinding = {
-      schema_version: 1,
+    if (binding.schema_version === 2) {
+      assertRequiredString(binding, "plan_review_artifact_hash", "runtime run implementation_baseline_binding");
+      if (binding.authority_transition !== "reviewed_source" && binding.authority_transition !== "owner_authorized_overlay") {
+        throw new Error("runtime run implementation_baseline_binding has invalid authority_transition.");
+      }
+    }
+    const normalizedBaselineBinding: ImplementationBaselineBinding = {
+      schema_version: binding.schema_version,
       approval_id: String(binding.approval_id),
       plan_artifact_hash: String(binding.plan_artifact_hash),
+      ...(binding.schema_version === 2 ? { plan_review_artifact_hash: String(binding.plan_review_artifact_hash) } : {}),
       planning_review_source_head: String(binding.planning_review_source_head),
+      ...(binding.schema_version === 2 ? {
+        authority_transition: binding.authority_transition as "reviewed_source" | "owner_authorized_overlay"
+      } : {}),
       owner_authority_diff_hash: String(binding.owner_authority_diff_hash),
       implementation_baseline_head: String(
         binding.implementation_baseline_head,
@@ -2373,10 +2385,11 @@ export function validateRuntimeRun(value: unknown): Run {
       expected_tree_hash: String(binding.expected_tree_hash),
       bound_at: String(binding.bound_at),
     };
+    implementationBaselineBinding = normalizedBaselineBinding;
     if (
       typeof record.implementation_baseline_head !== "string" ||
       record.implementation_baseline_head !==
-        implementationBaselineBinding.implementation_baseline_head
+        normalizedBaselineBinding.implementation_baseline_head
     ) {
       throw new Error(
         "runtime run implementation baseline head and binding disagree.",
@@ -4614,15 +4627,17 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
   const approved = [...run.approvals].reverse().find((entry) => entry.title === "Reviewed plan approved" && entry.status === "approved");
   const taskContractRef = run.active_task_path ?? run.task_path;
   const fallbackPlanContent = fs.readFileSync(path.join(targetRoot, taskContractRef));
-  const planArtifact = approved?.reviewed_plan_artifact_id
-    ? run.artifacts.find((entry) => entry.artifact_id === approved.reviewed_plan_artifact_id)
-    : procedureId === "plan-review"
-      ? (() => {
-          const candidate = tryResolveExactPlanEvidenceBinding(run);
-          return candidate
-            ? run.artifacts.find((entry) => entry.artifact_id === candidate.artifactId)
-            : undefined;
-        })()
+  const effectivePlan = procedureId === "plan-review"
+    ? tryResolveExactPlanEvidenceBinding(run)
+    : undefined;
+  const approvedMatchesEffectivePlan = Boolean(
+    approved?.reviewed_plan_artifact_id
+    && (!effectivePlan || approved.reviewed_plan_artifact_id === effectivePlan.artifactId)
+  );
+  const planArtifact = effectivePlan
+    ? run.artifacts.find((entry) => entry.artifact_id === effectivePlan.artifactId)
+    : approvedMatchesEffectivePlan && approved?.reviewed_plan_artifact_id
+      ? run.artifacts.find((entry) => entry.artifact_id === approved.reviewed_plan_artifact_id)
     : run.phase_id === "23.8.6F"
       ? undefined
       : {
@@ -4637,7 +4652,7 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
   const reviewedSourceHead = resolveExactCommit(targetRoot, "HEAD");
   const sourceDirty = getGitStatusPaths(getGitStatusLines(targetRoot)).filter((entry) =>
     !entry.startsWith(".harness/") && !entry.startsWith(".codex/") && entry !== ".DS_Store");
-  if (run.phase_id === "23.9"
+  if (!isPrePhaseFVerificationCompatibility(run.phase_id)
     && ["implementation-review", "fix-pass-review"].includes(procedureId)
     && sourceDirty.length > 0) {
     throw new Error(`REVIEW_SOURCE_DIRTY:${sourceDirty.join(",")}`);
@@ -6170,10 +6185,13 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
       `Review launch requires an active run. Run ${current.run.run_id} is ${current.run.lifecycle_status}.`
     );
   }
-  if (current.run.phase_id === "23.9"
+  if (!isPrePhaseFVerificationCompatibility(current.run.phase_id)
     && ["implementation-review", "fix-pass-review"].includes(options.procedureId)
     && (!current.run.implementation_baseline_head
       || !current.run.implementation_baseline_binding
+      || current.run.implementation_baseline_binding.schema_version !== 2
+      || !current.run.implementation_baseline_binding.plan_review_artifact_hash
+      || !current.run.implementation_baseline_binding.authority_transition
       || current.run.implementation_baseline_head
         !== current.run.implementation_baseline_binding.implementation_baseline_head)) {
     throw new Error(
@@ -7070,7 +7088,7 @@ export function decideRuntimeRoutingPolicy(cwd: string, options: DecideRoutingPo
     : options.decision === "promote" ? "source_application_required"
       : options.decision === "rollback" ? "rollback_source_update_required" : "rejected";
   const payload: Record<string, unknown> = {
-    schema_version: 1,
+    schema_version: 2,
     producer_command: "node bin/ch run decide-routing-policy",
     run_instance_id: current.run.run_instance_id,
     evaluation_id: options.evaluationId,
@@ -7728,7 +7746,7 @@ export async function recordRuntimeProcedure(cwd: string, options: RecordProcedu
       if (review && !duplicateReviewFor(next, review)) {
         next = recordReviewResult(next, review);
       }
-      if (latestRun.phase_id === "23.9"
+      if (!isPrePhaseFVerificationCompatibility(latestRun.phase_id)
         && ["implementation-review", "fix-pass-review"].includes(options.procedureId)
         && review?.status === "PASS") {
         const head = runGitCommand(targetRoot, ["rev-parse", "HEAD"]);
@@ -8070,6 +8088,22 @@ export async function bindRuntimeImplementationBaseline(
       "IMPLEMENTATION_BASELINE_APPROVAL_MISMATCH: exact current reviewed-plan approval is required.",
     );
   }
+  if (!current.run.run_instance_id || !approval.reviewed_evidence_artifact_id) {
+    throw new Error("IMPLEMENTATION_BASELINE_APPROVAL_MISMATCH: exact approval review identity is required.");
+  }
+  const baselineStaging = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
+  const approvalBinding = resolveExactPlanApprovalBinding(
+    targetRoot,
+    current.run.run_id,
+    current.run,
+    `sha256:${planHash}`,
+    (runInstanceId, procedureId, artifactId) => baselineStaging.readProcedureArtifact(
+      runInstanceId, procedureId, artifactId
+    )
+  );
+  if (approvalBinding.planReviewArtifactId !== approval.reviewed_evidence_artifact_id) {
+    throw new Error("IMPLEMENTATION_BASELINE_APPROVAL_REVIEW_MISMATCH: approval is not bound to the exact fresh plan review.");
+  }
 
   const expectedHead = resolveExactCommit(targetRoot, options.expectedHead);
   const currentHead = resolveExactCommit(targetRoot, "HEAD");
@@ -8084,16 +8118,12 @@ export async function bindRuntimeImplementationBaseline(
     "--verify",
     `${expectedHead}^`,
   ]);
-  if (
-    !branch ||
-    branch !== current.run.repository.branch ||
-    !worktreePathExistsInGit(targetRoot, targetRoot) ||
-    !expectedTree ||
-    !expectedParent ||
-    !isCommitAncestor(targetRoot, expectedHead, currentHead)
-  ) {
+  const branchMatches = Boolean(branch && branch === current.run.repository.branch);
+  const worktreeRegistered = worktreePathExistsInGit(targetRoot, targetRoot);
+  const ancestryMatches = isCommitAncestor(targetRoot, expectedHead, currentHead);
+  if (!branchMatches || !worktreeRegistered || !expectedTree || !ancestryMatches) {
     throw new Error(
-      "IMPLEMENTATION_BASELINE_GIT_AUTHORITY_MISMATCH: registered named branch, exact Git objects, and ancestry are required.",
+      `IMPLEMENTATION_BASELINE_GIT_AUTHORITY_MISMATCH: branch=${branchMatches}; worktree=${worktreeRegistered}; tree=${Boolean(expectedTree)}; ancestry=${ancestryMatches}.`,
     );
   }
 
@@ -8101,9 +8131,13 @@ export async function bindRuntimeImplementationBaseline(
     current.run.run_mode === "bootstrap" &&
     current.run.run_id === PHASE_23_9_BOOTSTRAP_BASELINE.runId &&
     current.run.run_instance_id === PHASE_23_9_BOOTSTRAP_BASELINE.runInstanceId;
-  let planningHead = expectedParent;
+  let planningHead = expectedParent ?? expectedHead;
+  let authorityTransition: ImplementationBaselineBinding["authority_transition"] = "owner_authorized_overlay";
   let authorityDiffHash: string;
   if (isBootstrapImport) {
+    if (!expectedParent) {
+      throw new Error("IMPLEMENTATION_BASELINE_BOOTSTRAP_AUTHORITY_MISMATCH: immutable bootstrap authority requires a parent commit.");
+    }
     const changedPaths = runGitCommand(targetRoot, [
       "diff",
       "--name-only",
@@ -8137,8 +8171,8 @@ export async function bindRuntimeImplementationBaseline(
         "IMPLEMENTATION_BASELINE_BOOTSTRAP_AUTHORITY_MISMATCH: run-0001 accepts only the approved authority commit, tree, parent, plan, and path set.",
       );
     }
-    authorityDiffHash = sha256Hex(authorityDiff.stdout);
-    if (authorityDiffHash !== PHASE_23_9_BOOTSTRAP_BASELINE.authorityDiffHash) {
+    authorityDiffHash = `sha256:${sha256Hex(authorityDiff.stdout)}`;
+    if (authorityDiffHash !== `sha256:${PHASE_23_9_BOOTSTRAP_BASELINE.authorityDiffHash}`) {
       throw new Error(
         "IMPLEMENTATION_BASELINE_BOOTSTRAP_DIFF_MISMATCH: authority diff bytes changed.",
       );
@@ -8162,8 +8196,9 @@ export async function bindRuntimeImplementationBaseline(
     const planReviews = current.run.review_results.filter((entry) =>
       entry.status === "PASS"
       && reviewSourceMatchesProcedure(entry.source, "plan-review")
-      && entry.artifact_refs.length === 1);
-    if (planReviews.length === 0) {
+      && entry.artifact_refs.length === 1
+      && entry.artifact_refs[0].artifact_id === approvalBinding.planReviewArtifactId);
+    if (planReviews.length !== 1) {
       throw new Error("IMPLEMENTATION_BASELINE_PLANNING_REVIEW_MISSING");
     }
     const currentPlanReview = planReviews[planReviews.length - 1];
@@ -8180,41 +8215,54 @@ export async function bindRuntimeImplementationBaseline(
       provenance?.reviewed_source_head ?? provenance?.head ?? ""
     );
     if (!descriptor || !/^[a-f0-9]{40}$/u.test(reviewedPlanningHead)
-      || reviewedPlanningHead !== expectedParent) {
+      || descriptor.source_run_id !== current.run.run_id
+      || descriptor.content_hash !== approvalBinding.planReviewArtifactId.slice("sha256:".length)
+      || descriptor.reviewed_plan_artifact_id !== approvalBinding.planArtifactId
+      || descriptor.reviewed_plan_content_hash !== approvalBinding.planContentHash) {
       throw new Error(
-        "IMPLEMENTATION_BASELINE_PARENT_MISMATCH: the sole clean authority commit must directly overlay the exact reviewed planning source."
+        "IMPLEMENTATION_BASELINE_REVIEW_BINDING_MISMATCH: exact approved plan-review provenance is required."
       );
     }
     planningHead = reviewedPlanningHead;
-    const reviewedOverlay = extractReviewedAuthorityOverlay(planMarkdown);
-    const changedPaths = runGitCommand(targetRoot, [
-      "diff", "--name-only", expectedParent, expectedHead, "--"
-    ]);
-    const authorityDiff = runGitCommand(targetRoot, [
-      "diff",
-      "--binary",
-      expectedParent,
-      expectedHead,
-      "--",
-      ...reviewedOverlay.paths,
-    ]);
-    const exactPaths = changedPaths.stdout.split(/\r?\n/u).filter(Boolean).sort();
-    if (changedPaths.status !== 0 || authorityDiff.status !== 0
-      || canonicalJson(exactPaths) !== canonicalJson([...reviewedOverlay.paths].sort())) {
-      throw new Error("IMPLEMENTATION_BASELINE_DIFF_UNAVAILABLE");
-    }
-    authorityDiffHash = sha256Hex(authorityDiff.stdout);
-    if (authorityDiffHash !== reviewedOverlay.diffHash) {
-      throw new Error("IMPLEMENTATION_BASELINE_AUTHORITY_OVERLAY_MISMATCH");
+    if (expectedHead === reviewedPlanningHead) {
+      authorityTransition = "reviewed_source";
+      authorityDiffHash = `sha256:${sha256Hex("")}`;
+    } else {
+      if (expectedParent !== reviewedPlanningHead) {
+        throw new Error("IMPLEMENTATION_BASELINE_PARENT_MISMATCH: an owner-authorized overlay must directly follow the exact reviewed planning source.");
+      }
+      const reviewedOverlay = extractReviewedAuthorityOverlay(planMarkdown);
+      const changedPaths = runGitCommand(targetRoot, [
+        "diff", "--name-only", expectedParent, expectedHead, "--"
+      ]);
+      const authorityDiff = runGitCommand(targetRoot, [
+        "diff",
+        "--binary",
+        expectedParent,
+        expectedHead,
+        "--",
+        ...reviewedOverlay.paths,
+      ]);
+      const exactPaths = changedPaths.stdout.split(/\r?\n/u).filter(Boolean).sort();
+      if (changedPaths.status !== 0 || authorityDiff.status !== 0
+        || canonicalJson(exactPaths) !== canonicalJson([...reviewedOverlay.paths].sort())) {
+        throw new Error("IMPLEMENTATION_BASELINE_DIFF_UNAVAILABLE");
+      }
+      authorityDiffHash = `sha256:${sha256Hex(authorityDiff.stdout)}`;
+      if (authorityDiffHash !== `sha256:${reviewedOverlay.diffHash}`) {
+        throw new Error("IMPLEMENTATION_BASELINE_AUTHORITY_OVERLAY_MISMATCH");
+      }
     }
   }
 
   const timestamp = nowIso();
   const binding: ImplementationBaselineBinding = {
-    schema_version: 1,
+    schema_version: 2,
     approval_id: approval.approval_id,
     plan_artifact_hash: planHash,
+    plan_review_artifact_hash: approvalBinding.planReviewArtifactId,
     planning_review_source_head: planningHead,
+    authority_transition: authorityTransition,
     owner_authority_diff_hash: authorityDiffHash,
     implementation_baseline_head: expectedHead,
     implementation_baseline_tree_hash: expectedTree,
@@ -10566,7 +10614,7 @@ function resolveExactPlanApprovalBinding(
   if (!run.run_instance_id) {
     throw new Error("Plan approval cannot resolve an immutable plan binding without an exact run instance ID.");
   }
-  const requiresDurableBinding = run.phase_id === "23.8.6D";
+  const requiresDurableBinding = !isPrePhaseFVerificationCompatibility(run.phase_id);
   if (candidateArtifactId !== plan.artifactId) {
     throw new Error(
       `Approved plan does not match the exact effective plan evidence. Expected ${plan.artifactId}, got ${candidateArtifactId}.`
@@ -10795,12 +10843,12 @@ function hasApprovedPlan(runContext: OperatorRunContext): boolean {
       if (!matchesApproval) {
         return false;
       }
-      if (runContext.run.phase_id !== "23.8.6D") {
+      if (isPrePhaseFVerificationCompatibility(runContext.run.phase_id)) {
         return true;
       }
       return hasExactDurableDApprovalBinding(runContext, approval, latestEffectivePlanArtifactId, expectedContentHash);
     }
-    if (runContext.run.phase_id === "23.8.6D") {
+    if (!isPrePhaseFVerificationCompatibility(runContext.run.phase_id)) {
       return false;
     }
     return approval.reason?.includes(`effective_plan_artifact_id=${latestEffectivePlanArtifactId}`) ?? false;
@@ -11806,6 +11854,28 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
       forbidden_actions: ["implementation", "closeout"],
       notes: planReviewDecision ? [...context.baseNotes, ...planReviewDecision.notes] : context.baseNotes
     });
+  }
+
+  if (context.runContext && !isPrePhaseFVerificationCompatibility(context.runContext.run.phase_id)) {
+    const binding = context.runContext.run.implementation_baseline_binding;
+    if (!binding
+      || binding.schema_version !== 2
+      || !binding.plan_review_artifact_hash
+      || !binding.authority_transition
+      || context.runContext.run.implementation_baseline_head !== binding.implementation_baseline_head) {
+      return buildOperatorStageDraft({
+        current_stage: "IMPLEMENTATION_BASELINE_REQUIRED",
+        next_procedure_id: "none",
+        required_inputs: ["approved plan", "exact approval ID", "clean reviewed source HEAD"],
+        missing_inputs: [],
+        required_evidence: ["durable implementation baseline binding"],
+        missing_evidence: ["durable implementation baseline binding"],
+        stop_reason: "missing_implementation_baseline",
+        next_allowed_action: "bind the exact approved reviewed source as the implementation baseline before implementation begins",
+        forbidden_actions: ["implementation", "source edits", "implementation-review", "closeout"],
+        notes: [...context.baseNotes, "implementation_baseline_required_for_phase_f_and_later: true"]
+      });
+    }
   }
 
   if (!context.implementationEvidence) {

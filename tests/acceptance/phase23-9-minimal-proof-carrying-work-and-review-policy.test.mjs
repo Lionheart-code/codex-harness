@@ -747,6 +747,19 @@ test("phase 23.9 production planning bundle persists typed failure and one retry
   fs.cpSync(path.join(process.cwd(), "skills", "self-hosting"), path.join(root, "skills", "self-hosting"), {
     recursive: true
   });
+  const executionPolicyPath = path.join(root, "skills", "self-hosting", "procedure-execution-policy.json");
+  const executionPolicy = JSON.parse(fs.readFileSync(executionPolicyPath, "utf8"));
+  for (const procedure of executionPolicy.procedures) {
+    if (!procedure.automatic_launch) continue;
+    procedure.review_launch = {
+      timeout_seconds: 2,
+      stale_after_seconds: 1,
+      timeout_override: { minimum_seconds: 2, maximum_seconds: 5 },
+      stale_after_override: { minimum_seconds: 1, maximum_seconds: 1 },
+      termination_policy: "terminal_completion_only"
+    };
+  }
+  fs.writeFileSync(executionPolicyPath, `${JSON.stringify(executionPolicy, null, 2)}\n`);
   fs.mkdirSync(path.join(root, "schemas"), { recursive: true });
   fs.copyFileSync(
     path.join(process.cwd(), "schemas/planning-review-lens-output.schema.json"),
@@ -815,7 +828,7 @@ test("phase 23.9 production planning bundle persists typed failure and one retry
   const launch = () => launchRuntimePlanningReviewBundle(root, {
     runId: run.run_id, requestPath: ".codex/request.md",
     outputPath: ".harness/runs/run-bundle-runtime/manual/bundle.json",
-    lensManifestPath: ".codex/lenses.json", timeoutSeconds: 1, staleAfterSeconds: 1
+    lensManifestPath: ".codex/lenses.json", timeoutSeconds: 2, staleAfterSeconds: 1
   });
   try {
     await assert.rejects(launch(), /PLANNING_REVIEW_BUNDLE_TIMEOUT/);
