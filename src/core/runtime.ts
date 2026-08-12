@@ -4574,12 +4574,17 @@ function priorReviewArtifactFindings(
   }
   if (review.status === "PASS") return [];
   const findingsSection = /## Findings\s*\n([\s\S]*?)(?=\n## |\s*$)/iu.exec(markdown)?.[1] ?? "";
-  const findingCount = [...findingsSection.matchAll(/^\s*\d+\.\s+/gmu)].length;
-  if (findingCount === 0) {
+  const numberedFindingIds = [...findingsSection.matchAll(/^\s*\d+\.\s+/gmu)]
+    .map((_, index) => `finding-${index + 1}`);
+  const namedFindingIds = [...findingsSection.matchAll(/^###\s+([^\r\n]+)\s*$/gmu)]
+    .map((match) => match[1].trim())
+    .filter((value) => value.length > 0);
+  const findingIds = namedFindingIds.length > 0 ? namedFindingIds : numberedFindingIds;
+  if (findingIds.length === 0) {
     throw new Error("REVIEW_DELTA_PRIOR_FINDINGS_UNAVAILABLE: failed prior review has no parseable finding inventory.");
   }
-  return Array.from({ length: findingCount }, (_, index) => ({
-    finding_id: `${artifact.artifact_id}#finding-${index + 1}`,
+  return findingIds.map((findingId) => ({
+    finding_id: `${artifact.artifact_id}#${findingId}`,
     disposition: "open"
   }));
 }
