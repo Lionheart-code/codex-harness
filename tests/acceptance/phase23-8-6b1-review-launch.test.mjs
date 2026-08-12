@@ -221,6 +221,12 @@ function planReviewMarkdown() {
   ].join("\n");
 }
 
+function markdownFormattedPlanReviewMarkdown() {
+  return planReviewMarkdown()
+    .replace("verdict: PASS", "verdict: `PASS`")
+    .replace("outcome_state: ready_for_implementation", "outcome_state: `ready_for_implementation`");
+}
+
 function amendRequiredPlanReviewMarkdown() {
   return [
     "## Findings",
@@ -648,6 +654,28 @@ test("Phase 24A launches plan review from its exact draft plan before owner appr
   assert.ok(run.evidence.some((entry) => entry.kind === "procedure:draft-plan"));
   assert.ok(run.evidence.some((entry) => entry.kind === "procedure:plan-review"));
   assert.ok(run.review_results.some((entry) => entry.source === "procedure:plan-review" && entry.status === "PASS"));
+});
+
+test("plan-review accepts Markdown-formatted durable decision tokens", () => {
+  const tempRepo = createB1Repo("codex-harness-markdown-plan-decision-");
+  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan"]) {
+    recordProcedure(tempRepo, "run-0001", procedureId, `# ${procedureId}\n`);
+  }
+  const requestPath = writeManualFile(tempRepo, "run-0001", "formatted-plan-review-request.md", "review the plan");
+  const result = runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "plan-review",
+    "--request", requestPath,
+    "--output", ".harness/runs/run-0001/manual/formatted-plan-review.md"
+  ], {
+    cwd: tempRepo,
+    env: {
+      ...createFakeCodexBin(tempRepo, "file"),
+      CODEX_FAKE_REVIEW_CONTENT: markdownFormattedPlanReviewMarkdown()
+    }
+  });
+
+  assertSuccess(result, "Markdown-formatted plan review decision");
+  assert.equal(readRun(tempRepo).review_results.at(-1).status, "PASS");
 });
 
 test("fresh plan-review launch carries named findings from an amended prior review", () => {

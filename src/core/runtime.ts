@@ -10108,7 +10108,11 @@ function parsePlanReviewDecisionRecord(markdown: string): PlanReviewDecisionReco
 }
 
 function normalizeDecisionToken(value: string | undefined): string {
-  return (value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return (value ?? "")
+    .trim()
+    .replace(/^`([^`]+)`$/u, "$1")
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
 }
 
 function hasNamedRequiredAmendments(record: PlanReviewDecisionRecord): boolean {
