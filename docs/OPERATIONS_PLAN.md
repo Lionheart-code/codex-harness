@@ -115,10 +115,17 @@ materialization gap and added proof provenance without selecting providers or
 launching runners. Phase 24A is the active successor. It first owns bounded
 transition correctness for direct task parsing, successor identity semantics,
 phase-neutral successor/bootstrap authority, and reusable delivery provenance,
-then adds deterministic report/export views. The already-recorded 23.9-to-24A
+then adds deterministic report/export views. The live planning gate also
+requires planned-surface-derived plan, architecture, and DB/storage review
+perspectives with exact cohort/approval/baseline binding. Phase 24A.1
+subsequently completes reusable self-hosting review lifecycle, context, and
+cost behavior; Phase 24A.2 then owns executable specification and engineering
+architecture trace discipline; Phase 24B, 25A, 25B, and 26 consume those
+foundations rather than recreating them. The already-recorded 23.9-to-24A
 decision predates corrected identity semantics, so this activation uses the
 existing recovery path; that historical recovery does not claim the corrected
-runtime behavior is already implemented. Phase 30 generalizes experimentation.
+runtime behavior is already implemented. Phase 30 generalizes experimentation
+over these production contracts.
 Phase 31 remains the first general external-runner provider-binding and
 execution boundary.
 

@@ -85,6 +85,18 @@ disagreement, fix-pass count, convergence, input/cached/cache-write/output
 tokens, credits, latency, tool calls, retrieval count, and context
 reconstruction ratio.
 
+Evaluate engineering quality against the stable 24A.1/24A.2 production
+contract: functional correctness, missed requirements/scenarios, invariant and
+DB/storage/lifecycle blocker recall, retry/recovery correctness, regressions,
+unauthorized behavior, unnecessary scope, false acceptance/positives,
+disagreement, fix-pass convergence, lifecycle cost, and context reconstruction.
+Where applicable compare strong initial against bounded repeat review, combined
+against equivalent separate reviews, reused against reconstructed context, and
+higher reasoning against an approved adjacent lower step. Production tests are
+not promotion evidence; reject cheaper candidates that miss critical blockers,
+permit illegal progression, violate independence, or materially increase false
+acceptance.
+
 Fixtures cover clean and amendment-required plans, clean and `FIX_REQUIRED`
 implementations, a subtle authority/lifecycle blocker, and a subtle storage/DB
 blocker. Hard-reject any candidate that misses a confirmed critical blocker,

@@ -190,8 +190,9 @@ the exact reviewed source needed downstream. Exact reviewed tree, baseline,
 review identity, delivery commit/tree relationship, ancestry, and delivery
 facts remain mandatory. Delivery/closeout must not fail only because reusable
 code is gated to `phase_id === "23.9"`. Do not weaken delivery proof or
-generalize the Phase-23.9 planning-review cohort, proof producer, or another
-explicitly Phase-23.9-only mechanism. Add an end-to-end deterministic fixture
+generalize an explicitly Phase-23.9-only proof producer or unrelated mechanism.
+The narrow combined planning-review reuse authorized below is limited to the
+existing self-hosting planning path. Add an end-to-end deterministic fixture
 for the Phase 24A reusable review-to-delivery-to-closeout path.
 
 ### B. Preserve legitimate Phase-23.9-only proof behavior
@@ -203,6 +204,68 @@ exists and must not broaden eligibility merely to manufacture proof or mutate
 historical records. Represent absent/non-applicable/legacy proof through typed
 availability facts. Acceptance covers an accepted exact run with valid proof
 and an accepted bootstrap/legacy run without proof; fabricated proof is banned.
+
+### C. Prerequisite planning-gate lifecycle correctness
+
+Before the broader report/packet slice can begin, complete only the narrow
+planning-gate corrections demonstrated by this live run. This is not a generic
+review runner or routing framework.
+
+1. Derive the required planning-review set deterministically from the active
+   task, exact effective plan, planned implementation surfaces, surface/risk
+   classifications, lifecycle/authority and storage/security implications,
+   review tier, procedure policy, and required independence. Planned surfaces
+   count before an implementation diff exists; a model must not select the
+   reviews that govern its own work. For this Phase 24A plan, the expected
+   perspectives are `plan-review`, `architecture-review`, and
+   `db-storage-review`. Do not hardcode that set by phase name or introduce a
+   second review-routing framework.
+2. Keep owner approval closed until every derived perspective has a current,
+   terminal, acceptable result. Each result must bind to the same exact
+   effective-plan content, reviewed source, task, immutable base, run instance,
+   and exact review cohort (or equivalent complete review-set identity). Missing,
+   stale, malformed, nonterminal, wrong-plan, or mismatched evidence fails
+   closed; a lone `plan-review` PASS is insufficient when another lens is
+   required.
+3. For the existing self-hosting planning path only, narrowly reuse the proven
+   Phase-23.9 combined planning-review capability when compatible independent,
+   read-only required perspectives share the exact plan/source/task/base and a
+   bounded context load. For current 24A it may use one independent invocation
+   to evaluate plan, architecture/lifecycle, and DB/storage correctness, but it
+   must emit and record distinct canonical procedure identities, artifacts, and
+   typed verdicts. Shared invocation never collapses separate judgments. Do not
+   generalize this into a multi-agent system, provider abstraction, unrestricted
+   parallel review, or Phase 31 execution.
+4. Bind final effective plan, complete required cohort, explicit owner approval,
+   exact reviewed clean source, run/worktree/branch/base, and implementation
+   baseline durably through structured evidence. When no genuine post-review,
+   owner-authorized source modification exists, the reviewed clean source HEAD
+   itself is eligible as the baseline; do not manufacture an authority-overlay
+   commit. Preserve exact overlay provenance when such a source change exists.
+   New Phase-F-and-later paths fail closed on ambiguous binding while legitimate
+   historical records remain compatible.
+5. The final owner-review plan is self-contained implementation authority with
+   this task and repository authority. Earlier draft/amend artifacts remain
+   provenance, not operative instructions that a later worker must reconstruct.
+6. Preserve exact authority selection: accepted historical reporting reads
+   accepted/harvested Project Memory, active packet generation reads only the
+   exact active Run/Staging authority, `run_instance_id` is authoritative, and
+   accepted and active records are never silently merged. `ContextCore`,
+   `ContextManifest`, and `ReviewDeltaOverlay` resolve one exact intended
+   run/candidate or fail closed.
+7. Preserve registered execution-policy timeout authority: registered procedure
+   timeout is the managed default; any CLI override is explicit and bounded;
+   timeout and stale/liveness remain distinct; only terminal process completion
+   makes output evidence; genuine timeout remains `REVIEW_PROCESS_TIMEOUT`; and
+   fresh attempts preserve ownership, attempt/output identity, and stale-artifact
+   isolation. Repair obsolete fixtures rather than weakening that policy.
+
+Focused acceptance must prove planned-surface review derivation, complete
+required-cohort approval gating, exact cohort binding, current self-hosting
+combined-review artifacts, clean reviewed-source baseline establishment, and
+the retained timeout/stale/ownership/terminal-output protections. It must not
+implement the optimization/completion work reserved for Phase 24A.1 or the
+engineering-specification discipline reserved for Phase 24A.2.
 
 ## Exact minimal deliverables and authority
 
