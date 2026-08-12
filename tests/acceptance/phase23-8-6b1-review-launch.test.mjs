@@ -543,6 +543,51 @@ test("phase 23.8.6B1 launch-review dry-run validates without spawning or writing
   assert.equal(readRun(tempRepo).evidence.some((entry) => entry.kind.startsWith("review-launch-attempt:")), false);
 });
 
+test("Phase 24A derives its complete planning cohort from planned authority surfaces", () => {
+  const tempRepo = createB1Repo("codex-harness-phase24a-planning-cohort-");
+  setRunPhase(tempRepo, "24A");
+  writeText(path.join(tempRepo, ACTIVE_TASK_PATH), [
+    "# Phase 24A",
+    "",
+    "The planned work changes lifecycle authority and runtime approval boundaries.",
+    "It reads Project Memory and active Run/Staging persistence/storage records.",
+    ""
+  ].join("\n"));
+  writeText(path.join(tempRepo, "docs", "IMPLEMENTATION_ROADMAP.md"), [
+    "## Phase 24A — Lifecycle prerequisite hardening",
+    "",
+    "Task:",
+    `\`${ACTIVE_TASK_PATH}\``,
+    ""
+  ].join("\n"));
+  fs.copyFileSync(
+    path.join(productRoot, "schemas", "planning-review-lens-output.schema.json"),
+    path.join(tempRepo, "schemas", "planning-review-lens-output.schema.json")
+  );
+  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan"]) {
+    recordProcedure(tempRepo, "run-0001", procedureId, `# ${procedureId}\n`);
+  }
+  const operator = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(operator, "Phase 24A cohort derivation status");
+  assert.match(operator.stdout, /current_stage: PLANNING_REVIEW_BUNDLE_REQUIRED/);
+  assert.match(operator.stdout, /required_evidence: \["plan-review","architecture-review","db-storage-review"\]/);
+  assert.match(operator.stdout, /required_planning_review_set: plan-review,architecture-review,db-storage-review/);
+
+  const manifestPath = writeManualFile(tempRepo, "run-0001", "partial-lenses.json", JSON.stringify({
+    schema_version: 1, bundle_kind: "candidate", predecessor_cohort_id: null,
+    required_lens_ids: ["plan-review"], carried_lens_refs: []
+  }));
+  const requestPath = writeManualFile(tempRepo, "run-0001", "planning-bundle-request.md", "Review the exact candidate.\n");
+  const rejected = runCli([
+    "run", "launch-review", "--run", "run-0001", "--bundle", "planning",
+    "--lens-manifest", manifestPath, "--request", requestPath,
+    "--output", ".harness/runs/run-0001/manual/planning-bundle.json", "--dry-run"
+  ], { cwd: tempRepo });
+  assertFailure(rejected, "partial Phase 24A planning cohort manifest");
+  assert.match(rejected.stderr, /planning_review_lens_manifest_required_set_mismatch:plan-review,architecture-review,db-storage-review/);
+  assert.equal(readRun(tempRepo).evidence.some((entry) => entry.kind.startsWith("review-launch-attempt:")), false);
+});
+
 test("registered timing policy supplies defaults, permits bounded overrides, and rejects unsafe overrides", () => {
   const tempRepo = createB1Repo("codex-harness-review-timing-policy-");
   const requestPath = writeManualFile(tempRepo, "run-0001", "implementation-review-request.md", "review this diff");

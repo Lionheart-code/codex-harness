@@ -3751,6 +3751,66 @@ function isPrePhaseFVerificationCompatibility(phaseId: string | undefined): bool
   return !suffix || suffix[0] < "F";
 }
 
+const PLANNING_REVIEW_LENSES = ["plan-review", "architecture-review", "db-storage-review"] as const;
+type PlanningReviewLensId = typeof PLANNING_REVIEW_LENSES[number];
+
+function deriveRequiredPlanningReviewLenses(targetRoot: string, run: Run): PlanningReviewLensId[] {
+  // Preserve the completed Phase 23.9 combined-cohort contract unchanged.
+  if (run.phase_id === "23.9") return [...PLANNING_REVIEW_LENSES];
+  const plan = readPlanScopeMarkdown({ run, runPath: runFilePath(targetRoot, run.run_id), quarantinedPayloadCount: 0, notes: [] }) ?? "";
+  const taskPath = path.join(targetRoot, run.active_task_path ?? run.task_path);
+  const task = readUtf8FileIfExists(taskPath) ?? "";
+  const authority = `${task}\n${plan}`.toLowerCase();
+  const required: PlanningReviewLensId[] = ["plan-review"];
+  // A generic owner-authority reference is not an architecture surface by itself:
+  // plans can use it solely to describe a post-approval overlay.  The dedicated
+  // lens is selected by a planned lifecycle/runtime boundary or by a specifically
+  // identified authority boundary, not by incidental approval prose.
+  const architectureSignals = /\b(architecture|lifecycle|runtime|worktree|branch|source\s*\/\s*runtime|authority\s+(?:boundary|selection|routing|model|path))\b/u;
+  const storageSignals = /\b(project memory|run\s*\/\s*staging|run-staging|persistence|storage|schema|transaction|harvest|replay|idempotency|database|db\/?storage)\b/u;
+  if (architectureSignals.test(authority)) required.push("architecture-review");
+  if (storageSignals.test(authority)) required.push("db-storage-review");
+  return required;
+}
+
+function currentPlanningReviewCohortIsTerminalAndAcceptable(
+  targetRoot: string,
+  projectRoot: string,
+  run: Run,
+  requiredLenses: readonly PlanningReviewLensId[]
+): boolean {
+  const plan = tryResolveExactPlanEvidenceBinding(run);
+  if (!plan || !run.run_instance_id) return false;
+  const staging = new RunStagingDatabase(targetRoot, projectRoot, run.run_id);
+  const attempts = staging.listIndependentRecords("review_attempt", run.run_id) as Array<Record<string, unknown>>;
+  const cohorts = staging.listIndependentRecords("review_cohort", run.run_id) as Array<Record<string, unknown>>;
+  return attempts.some((attempt) => {
+    if (attempt.attempt_kind !== "planning_bundle" || attempt.terminal_status !== "success"
+      || !Array.isArray(attempt.procedure_ids) || canonicalJson(attempt.procedure_ids) !== canonicalJson(requiredLenses)
+      || typeof attempt.cohort_id !== "string") return false;
+    const cohort = cohorts.find((candidate) => candidate.record_id === attempt.cohort_id);
+    if (!cohort || cohort.run_instance_id !== run.run_instance_id || cohort.run_id !== run.run_id
+      || cohort.anchor_plan_sha !== plan.artifactId
+      || canonicalJson(cohort.required_lens_ids) !== canonicalJson(requiredLenses)
+      || cohort.planning_review_source_head !== resolveExactCommit(targetRoot, "HEAD")) return false;
+    const results = Array.isArray(attempt.lens_results) ? attempt.lens_results as Array<Record<string, unknown>> : [];
+    if (results.length !== requiredLenses.length || results.some((result) => result.status !== "recorded" || result.verdict !== "PASS")) return false;
+    return requiredLenses.every((procedureId) => {
+      const result = results.find((entry) => entry.procedure_id === procedureId);
+      if (typeof result?.artifact_id !== "string") return false;
+      const descriptor = staging.readProcedureArtifact(run.run_instance_id!, procedureId, result.artifact_id);
+      if (!descriptor || descriptor.source_run_id !== run.run_id
+        || descriptor.reviewed_plan_artifact_id !== plan.artifactId
+        || descriptor.reviewed_plan_content_hash !== plan.contentHash) return false;
+      try {
+        const provenance = assertObject(JSON.parse(descriptor.provenance_json), "Planning lens provenance");
+        return provenance.review_cohort_id === attempt.cohort_id
+          && provenance.reviewed_source_head === cohort.planning_review_source_head;
+      } catch { return false; }
+    });
+  });
+}
+
 function hasPhaseFDurableImplementationBaseline(run: Run): boolean {
   const binding = run.implementation_baseline_binding;
   return Boolean(
@@ -5661,8 +5721,9 @@ export async function launchRuntimePlanningReviewBundle(
   const targetRoot = roots.targetRoot;
   const dryRun = options.dryRun ?? false;
   const current = loadRunForMutation(targetRoot, dryRun, options.runId);
-  if (current.run.lifecycle_status !== "active" || current.run.phase_id !== "23.9") {
-    throw new Error("planning_review_bundle_requires_active_phase_23_9_run");
+  if (current.run.lifecycle_status !== "active"
+    || (current.run.phase_id !== "23.9" && isPrePhaseFVerificationCompatibility(current.run.phase_id))) {
+    throw new Error("planning_review_bundle_requires_active_phase_23_9_or_later_run");
   }
   const registry = readSelfHostingProcedureRegistry(targetRoot);
   if (!registry) throw new Error("Self-hosting procedure registry not found.");
@@ -5714,7 +5775,15 @@ export async function launchRuntimePlanningReviewBundle(
     || expectedProcedures.some((entry) => !allPlanningLenses.includes(entry))) {
     throw new Error("planning_review_lens_manifest_required_set_invalid");
   }
-  const effectivePlanSha = current.run.approvals[current.run.approvals.length - 1]?.reviewed_plan_artifact_id;
+  const requiredProcedures = deriveRequiredPlanningReviewLenses(targetRoot, current.run);
+  if (canonicalJson(expectedProcedures) !== canonicalJson(requiredProcedures)) {
+    throw new Error(`planning_review_lens_manifest_required_set_mismatch:${requiredProcedures.join(",")}`);
+  }
+  const effectivePlanBinding = tryResolveExactPlanEvidenceBinding(current.run);
+  const effectivePlanSha = effectivePlanBinding?.artifactId
+    ?? (current.run.phase_id === "23.9"
+      ? current.run.approvals[current.run.approvals.length - 1]?.reviewed_plan_artifact_id
+      : undefined);
   if (!effectivePlanSha || !/^sha256:[a-f0-9]{64}$/u.test(effectivePlanSha)) {
     throw new Error("planning_review_bundle_effective_plan_identity_missing");
   }
@@ -6123,21 +6192,57 @@ export async function launchRuntimePlanningReviewBundle(
           base_commit: nextRun.source_snapshot,
           review_attempt_id: attempt.attempt_id,
           review_cohort_id: envelope.bundle_id,
+          reviewed_source_head: envelope.source_head,
           raw_startup_observation_hash: rawStartupObservationHash(rawStartup),
           compatibility_path: artifact.path
-        })
+        }),
+        ...(effectivePlanBinding ? {
+          reviewed_plan_artifact_id: effectivePlanSha,
+          reviewed_plan_content_hash: effectivePlanBinding.contentHash,
+          reviewed_evidence_artifact_id: effectivePlanSha
+        } : {})
       });
       nextRun = recordReviewResult(withUpdatedAt({
         ...nextRun,
         artifacts: [...nextRun.artifacts, artifact],
         evidence: [...nextRun.evidence, evidence]
       }, recordedAt), review);
+      nextRun = {
+        ...nextRun,
+        review_routing_records: [
+          ...(nextRun.review_routing_records ?? []),
+          {
+            record_kind: "review_invocation",
+            record_id: `planning-review-invocation-${attempt.attempt_id}-${procedureId}`,
+            created_at: recordedAt,
+            status: "success",
+            summary: `${procedureId} terminal planning cohort invocation.`,
+            payload: {
+              procedure_id: procedureId,
+              run_id: nextRun.run_id,
+              run_instance_id: nextRun.run_instance_id,
+              status: "success",
+              attempt_id: attempt.attempt_id,
+              review_claim_id: attempt.claim_id,
+              review_claim_owner_token_hash: bundleEventCommon.owner_token_hash,
+              terminal_exit_code: 0,
+              artifact_id: artifact.artifact_id,
+              artifact_valid: true,
+              artifact_present: true,
+              termination_policy: profile.termination_policy,
+              reviewed_source_head: envelope.source_head,
+              reviewed_plan_artifact_id: effectivePlanSha,
+              review_cohort_id: envelope.bundle_id
+            }
+          }
+        ]
+      };
     }
     staging.storeIndependentRecord(database, {
       recordKind: "review_cohort", recordId: envelope.bundle_id,
       runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
       createdAt: recordedAt, status: "terminal",
-      summary: "Exact three-lens planning review cohort.",
+      summary: "Exact required-lens planning review cohort.",
       payload: cohort
     });
     for (const event of bundleEvents) {
@@ -6159,7 +6264,7 @@ export async function launchRuntimePlanningReviewBundle(
       recordKind: "planning_review_bundle", recordId: bundleRecord.record_id,
       runId: latestRun.run_id, phaseId: latestRun.phase_id, taskPath: latestRun.task_path,
       createdAt: recordedAt, status: "terminal",
-      summary: "Three-lens planning review bundle.",
+      summary: "Required-lens planning review bundle.",
       payload: bundleRecord
     });
     return nextRun;
@@ -10730,6 +10835,17 @@ function resolveExactPlanApprovalBinding(
     && !hasTerminalAutomaticPlanReviewProvenance(run, plan, planReview, descriptor)) {
     throw new Error("PLAN_APPROVAL_TERMINAL_REVIEW_PROVENANCE_MISSING: Phase F and later require the exact terminal automatic plan-review authority chain.");
   }
+  const requiredPlanningLenses = deriveRequiredPlanningReviewLenses(targetRoot, run);
+  if (!isPrePhaseFVerificationCompatibility(run.phase_id)
+    && requiredPlanningLenses.length > 1
+    && !currentPlanningReviewCohortIsTerminalAndAcceptable(
+      targetRoot,
+      run.repository.project_root,
+      run,
+      requiredPlanningLenses
+    )) {
+    throw new Error("PLAN_APPROVAL_REQUIRED_REVIEW_COHORT_INCOMPLETE: Phase F and later require the exact current derived planning-review cohort.");
+  }
   const planDescriptor = descriptorLookup?.(run.run_instance_id, plan.procedureId, plan.artifactId);
   if (requiresDurableBinding && descriptorLookup && (!planDescriptor || planDescriptor.source_run_id !== run.run_id
     || planDescriptor.procedure_id !== plan.procedureId
@@ -11759,10 +11875,18 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
   const taskMarkdown = context.taskContext.activeTaskMarkdown;
   const hasPlanReviewEvidence = context.taggedProcedures.has("plan-review");
   const hasPlanAmendEvidence = context.taggedProcedures.has("plan-amend");
-  const requiresPlanningLensBundle = context.runContext.run.phase_id === "23.9"
-    && (context.reviewTier === "high" || context.reviewTier === "extra-high")
-    && !context.planApproved;
-  const missingPlanningLenses = ["plan-review", "architecture-review", "db-storage-review"]
+  const requiredPlanningLenses = deriveRequiredPlanningReviewLenses(
+    context.runContext.run.repository.root_path,
+    context.runContext.run
+  );
+  const requiresPlanningLensBundle = requiredPlanningLenses.length > 1 && !context.planApproved;
+  const completeCurrentPlanningCohort = currentPlanningReviewCohortIsTerminalAndAcceptable(
+    context.runContext.run.repository.root_path,
+    context.runContext.run.repository.project_root,
+    context.runContext.run,
+    requiredPlanningLenses
+  );
+  const missingPlanningLenses = requiredPlanningLenses
     .filter((procedureId) => !context.taggedProcedures!.has(procedureId));
   const durablePlanReviewOutcomeRecorded = hasDurableReviewOutcome(context.latestPlanReviewResult)
     && !!context.latestPlanReviewDecisionRecord;
@@ -11776,18 +11900,24 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
     ? isProcedureEvidenceFreshAfter(context.runContext, "plan-review", "plan-amend")
     : true;
 
-  if (requiresPlanningLensBundle && missingPlanningLenses.length > 0) {
+  if (requiresPlanningLensBundle && !completeCurrentPlanningCohort) {
     return buildOperatorStageDraft({
       current_stage: "PLANNING_REVIEW_BUNDLE_REQUIRED",
-      next_procedure_id: missingPlanningLenses[0],
+      next_procedure_id: "plan-review",
       required_inputs: ["one candidate plan identity", "task artifact", "immutable base", "planning source HEAD"],
       missing_inputs: [],
-      required_evidence: ["plan-review", "architecture-review", "db-storage-review"],
-      missing_evidence: missingPlanningLenses,
+      required_evidence: requiredPlanningLenses,
+      missing_evidence: missingPlanningLenses.length > 0
+        ? missingPlanningLenses
+        : ["current exact terminal planning review cohort"],
       stop_reason: "planning_lens_bundle_incomplete",
-      next_allowed_action: "launch or continue one fresh read-only planning-review bundle; all three lens results must be terminal before amendment or approval",
+      next_allowed_action: "launch or continue one fresh read-only planning-review bundle; every required lens result must be terminal and exact before amendment or approval",
       forbidden_actions: ["plan-amend", "plan approval", "implementation", "closeout"],
-      notes: [...context.baseNotes, "plan_review_pass_is_not_a_prerequisite_for_specialized_lens_launch"]
+      notes: [
+        ...context.baseNotes,
+        `required_planning_review_set: ${requiredPlanningLenses.join(",")}`,
+        "plan_review_pass_is_not_a_prerequisite_for_specialized_lens_launch"
+      ]
     });
   }
 
