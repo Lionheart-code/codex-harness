@@ -11951,6 +11951,15 @@ function hasImplementationEvidence(run: Run, procedureIds: Set<string>, options:
   if (options.allowLiveChangeProbe) {
     try {
       const liveChangeSet = buildChangeSet(run.repository.root_path);
+      const committedHead = resolveExactCommit(run.repository.root_path, "HEAD");
+      const baselineHead = run.implementation_baseline_binding?.implementation_baseline_head;
+      const committedChangeSet = baselineHead && committedHead !== baselineHead
+        ? reviewChangeInventory(run.repository.root_path, baselineHead, committedHead)
+        : undefined;
+      const implementationPaths = [
+        ...liveChangeSet.changed_paths,
+        ...(committedChangeSet?.changedFiles ?? [])
+      ];
       if (
         options.taskMarkdown
         && isDocsTaskPolicyOnlyImplementationScope(options.taskMarkdown, options.effectivePlanMarkdown)
@@ -11962,7 +11971,7 @@ function hasImplementationEvidence(run: Run, procedureIds: Set<string>, options:
           options.activeTaskPath,
           run.phase_id
         );
-        const classifiedPaths = classifyDocsTaskPolicyImplementationPaths(liveChangeSet.changed_paths, scopeRules);
+        const classifiedPaths = classifyDocsTaskPolicyImplementationPaths(implementationPaths, scopeRules);
         if (classifiedPaths.forbiddenPaths.length > 0) {
           return false;
         }
@@ -11970,7 +11979,7 @@ function hasImplementationEvidence(run: Run, procedureIds: Set<string>, options:
         return classifiedPaths.allowedPaths.length > 0;
       }
 
-      if (liveChangeSet.changed_paths.some((relativePath) => isImplementationSourcePath(relativePath))) {
+      if (implementationPaths.some((relativePath) => isImplementationSourcePath(relativePath))) {
         return true;
       }
     } catch {

@@ -68,29 +68,32 @@ export function buildAcceptedContextView(run: Run, packetRecordId: string) {
   });
 }
 
-export function buildImplementationReviewView(run: Run) {
+export function buildImplementationReviewView(run: Run, candidateHead = run.repository.head_sha ?? null) {
   if (!run.run_instance_id || run.lifecycle_status !== "active") throw new Error("ACTIVE_STAGING_RUN_REQUIRED");
   const binding = run.implementation_baseline_binding;
   if (!binding || binding.implementation_baseline_head !== run.implementation_baseline_head) {
     throw new Error("IMPLEMENTATION_BASELINE_REQUIRED");
   }
+  const routingRefs = (run.review_routing_records ?? []).map((v) => v.record_id).sort();
+  const boundedRoutingRefs = routingRefs.slice(-64);
   return identity("implementation_review_view", {
     schema_version: 1, view_kind: "implementation_review_view", authority: "active_run_staging",
     run: { run_instance_id: run.run_instance_id, run_id: run.run_id, phase_id: run.phase_id ?? null,
       task_path: run.active_task_path ?? run.task_path, branch: run.repository.branch ?? null,
       immutable_base: binding.immutable_base ?? null, baseline_head: binding.implementation_baseline_head,
-      candidate_head: run.repository.head_sha ?? null },
+      candidate_head: candidateHead },
     plan: { artifact_id: binding.plan_artifact_hash, approval_id: binding.approval_id,
       planning_cohort_id: binding.planning_cohort_id ?? null },
     procedure: { id: "implementation-review", source_map_ref: "docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md" },
     evidence: { verification_refs: run.verification_results.map((v) => v.verification_result_id).sort(),
       prior_review_refs: run.review_results.map((v) => v.review_result_id).sort(),
-      routing_refs: (run.review_routing_records ?? []).map((v) => v.record_id).sort(), proof: proofAvailability(run) },
+      routing_refs: boundedRoutingRefs, proof: proofAvailability(run) },
     independence: { required: true, builder_transcript_authority: false },
     claims: [{ claim: "exact_implementation_baseline", status: "evidence", evidence_refs: [
       `source:${binding.implementation_baseline_head}`, `approval:${binding.approval_id}`, binding.plan_artifact_hash
     ] }],
     redaction: { applied_before_serialization: true, raw_payloads_exported: false },
-    truncation: { applied: false, omitted_optional_count: 0 }
+    truncation: { applied: routingRefs.length > boundedRoutingRefs.length,
+      omitted_optional_count: routingRefs.length - boundedRoutingRefs.length }
   });
 }

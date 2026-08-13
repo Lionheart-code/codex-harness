@@ -56,7 +56,9 @@ test("Phase 24A implementation review view requires the exact active baseline", 
     required_planning_lens_ids: [], planning_lens_artifacts: [] };
   const active = run({ lifecycle_status: "active", implementation_baseline_head: binding.implementation_baseline_head,
     implementation_baseline_binding: binding });
-  assert.equal(buildImplementationReviewView(active).authority, "active_run_staging");
+  const view = buildImplementationReviewView(active, "7".repeat(40));
+  assert.equal(view.authority, "active_run_staging");
+  assert.equal(view.run.candidate_head, "7".repeat(40));
   assert.throws(() => buildImplementationReviewView({ ...active, implementation_baseline_head: "9".repeat(40) }),
     /IMPLEMENTATION_BASELINE_REQUIRED/);
 });

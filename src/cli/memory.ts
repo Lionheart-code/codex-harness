@@ -14,6 +14,7 @@ import {
 } from "../core/run-staging-db";
 import { getRuntimeStatus } from "../core/runtime";
 import { buildAcceptedContextView, buildHistoricalEvidenceReport, buildImplementationReviewView } from "../core/evidence-views";
+import { execFileSync } from "node:child_process";
 
 type ParsedOptions = Record<string, string | boolean>;
 
@@ -101,7 +102,10 @@ function runPacket(args: string[]): number {
     });
     if (matches.length !== 1) throw new Error("Active exact run instance is ambiguous or missing in Staging.");
     const run = matches[0];
-    lines([canonicalOutput(buildImplementationReviewView(run))]);
+    const candidateHead = execFileSync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+      cwd: roots.targetRoot, encoding: "utf8"
+    }).trim();
+    lines([canonicalOutput(buildImplementationReviewView(run, candidateHead))]);
     return 0;
   }
   throw new Error(`Unknown memory packet kind: ${kind}`);
