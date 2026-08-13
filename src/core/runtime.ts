@@ -10663,8 +10663,31 @@ function readLatestPlanReviewDecisionRecord(
   }
 
   const absolutePath = resolveRunLocalPath(runContext, evidence.path);
-  const markdown = readUtf8FileIfExists(absolutePath);
+  const markdown = readUtf8FileIfExists(absolutePath)
+    ?? readProcedureArtifactBodyIfPresent(runContext, "plan-review", evidence.artifact_id);
   return markdown ? parsePlanReviewDecisionRecord(markdown) : undefined;
+}
+
+function readProcedureArtifactBodyIfPresent(
+  runContext: OperatorRunContext,
+  procedureId: string,
+  artifactId: string | undefined
+): string | undefined {
+  if (!runContext.run.run_instance_id || !artifactId) return undefined;
+  try {
+    return new RunStagingDatabase(
+      runContext.run.repository.root_path,
+      runContext.run.repository.project_root,
+      runContext.run.run_id
+    ).readProcedureArtifactBody({
+      runInstanceId: runContext.run.run_instance_id,
+      sourceRunId: runContext.run.run_id,
+      procedureArtifactId: artifactId,
+      procedureId
+    }).body;
+  } catch {
+    return undefined;
+  }
 }
 
 function readDProcedureArtifactBody(
