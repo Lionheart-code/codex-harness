@@ -69,6 +69,7 @@ import {
   writeCompatibilityRunArtifacts
 } from "./run-staging-db";
 import { CURRENT_SCHEMA_VERSION, buildSchemaMetadata, validateOptionalSchemaMetadata } from "./schema-migrations";
+import { type DatabaseLike } from "./sqlite";
 import {
   indexSelfHostingProceduresById,
   readSelfHostingProcedureRegistry,
@@ -3795,15 +3796,16 @@ function resolveCurrentPlanningReviewCohortDisposition(
   targetRoot: string,
   projectRoot: string,
   run: Run,
-  requiredLenses: readonly PlanningReviewLensId[]
+  requiredLenses: readonly PlanningReviewLensId[],
+  database?: DatabaseLike
 ): PlanningCohortDispositionResult {
   const plan = tryResolveExactPlanEvidenceBinding(run);
   if (!plan || !run.run_instance_id) {
     return { disposition: "INVALID", error_code: "planning_cohort_plan_or_run_identity_missing", missing_lenses: [] };
   }
   const staging = new RunStagingDatabase(targetRoot, projectRoot, run.run_id);
-  const attempts = staging.listIndependentRecords("review_attempt", run.run_id) as Array<Record<string, unknown>>;
-  const cohorts = staging.listIndependentRecords("review_cohort", run.run_id) as Array<Record<string, unknown>>;
+  const attempts = staging.listIndependentRecords("review_attempt", run.run_id, database) as Array<Record<string, unknown>>;
+  const cohorts = staging.listIndependentRecords("review_cohort", run.run_id, database) as Array<Record<string, unknown>>;
   const currentHead = resolveExactCommit(targetRoot, "HEAD");
   const taskPath = path.join(targetRoot, run.active_task_path ?? run.task_path);
   const taskArtifactId = `sha256:${sha256Hex(fs.readFileSync(taskPath))}` as `sha256:${string}`;
@@ -3834,9 +3836,9 @@ function resolveCurrentPlanningReviewCohortDisposition(
   const lenses = requiredLenses.flatMap((procedureId) => {
     const ref = resultRefs.find((entry) => entry.procedure_id === procedureId && entry.status === "recorded");
     if (typeof ref?.artifact_id !== "string" || typeof ref.artifact_hash !== "string") return [];
-    const descriptor = staging.readProcedureArtifact(run.run_instance_id!, procedureId, ref.artifact_id);
+    const descriptor = staging.readProcedureArtifact(run.run_instance_id!, procedureId, ref.artifact_id, database);
     if (!descriptor) return [];
-    const bundle = staging.listIndependentRecords("planning_review_bundle", run.run_id)
+    const bundle = staging.listIndependentRecords("planning_review_bundle", run.run_id, database)
       .find((entry) => (entry as Record<string, unknown>).cohort_id === cohort.record_id) as Record<string, unknown> | undefined;
     if (!bundle || typeof bundle.raw_envelope_utf8 !== "string") return [];
     const envelope = JSON.parse(bundle.raw_envelope_utf8) as { lens_results?: PlanningLensResultV1[] };
@@ -8160,7 +8162,8 @@ export async function approveRuntimePlan(cwd: string, options: ApprovePlanOption
           procedureId,
           procedureArtifactId,
           database
-        )
+        ),
+        database
       );
 
       const latestHasArtifact = latestRun.artifacts.some((entry) => entry.artifact_id === artifact.artifact_id);
@@ -10966,7 +10969,8 @@ function resolveExactPlanApprovalBinding(
   runId: string,
   run: Run,
   candidateArtifactId: string,
-  descriptorLookup?: (runInstanceId: string, procedureId: string, artifactId: string) => ProcedureArtifactDescriptor | undefined
+  descriptorLookup?: (runInstanceId: string, procedureId: string, artifactId: string) => ProcedureArtifactDescriptor | undefined,
+  database?: DatabaseLike
 ): ExactPlanApprovalBinding {
   const plan = tryResolveExactPlanEvidenceBinding(run);
   if (!plan) {
@@ -11015,7 +11019,8 @@ function resolveExactPlanApprovalBinding(
       targetRoot,
       run.repository.project_root,
       run,
-      requiredPlanningLenses
+      requiredPlanningLenses,
+      database
     ).disposition !== "PASS") {
     throw new Error("PLAN_APPROVAL_REQUIRED_REVIEW_COHORT_INCOMPLETE: Phase F and later require the exact current derived planning-review cohort.");
   }

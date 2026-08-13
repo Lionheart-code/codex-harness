@@ -1167,15 +1167,19 @@ export class RunStagingDatabase {
     return row?.payload_json ? JSON.parse(row.payload_json) : undefined;
   }
 
-  listIndependentRecords(recordKind: Phase239IndependentRecordKind, runId: string): unknown[] {
-    const database = this.open();
+  listIndependentRecords(
+    recordKind: Phase239IndependentRecordKind,
+    runId: string,
+    database?: DatabaseLike
+  ): unknown[] {
+    const activeDatabase = database ?? this.open();
     try {
-      const rows = database.prepare(
+      const rows = activeDatabase.prepare(
         "SELECT payload_json FROM records WHERE record_kind = ? AND run_id = ? ORDER BY created_at ASC, record_id ASC"
       ).all(recordKind, runId) as Array<{ payload_json: string }>;
       return rows.map((row) => JSON.parse(row.payload_json));
     } finally {
-      database.close();
+      if (!database) activeDatabase.close();
     }
   }
 

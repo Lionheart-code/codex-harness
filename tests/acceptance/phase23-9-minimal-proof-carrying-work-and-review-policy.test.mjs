@@ -363,6 +363,11 @@ test("phase 23.9 fix attempt persists exact predecessor and diff lineage", () =>
       createdAt: attempt.created_at, status: attempt.terminal_status,
       summary: "fix review attempt", payload: attempt
     });
+    assert.deepEqual(
+      staging.listIndependentRecords("review_attempt", run.run_id, database),
+      [attempt],
+      "transaction-scoped lifecycle reads must reuse the active database instead of opening a competing writer"
+    );
     return current;
   });
   assert.deepEqual(staging.listIndependentRecords("review_attempt", run.run_id), [attempt]);
