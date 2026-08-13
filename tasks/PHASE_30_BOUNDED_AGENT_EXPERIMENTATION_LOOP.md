@@ -27,6 +27,9 @@ telemetry or current-path promotion records.
 Required behavior:
 
 - Keep experimentation human/architect-owned and approval-gated.
+- Remain the owner of systematic model, route, packet, and evaluation
+  experiments. A Phase 24A.2 bounded technical spike or Phase 26 spike proposal
+  does not become a competing promotion/evaluation lifecycle.
 - Add procedure-trigger evals that check:
   - expected self-hosting procedure selection for representative scenarios;
   - wrong-procedure negative cases;

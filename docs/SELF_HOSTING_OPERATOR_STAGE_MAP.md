@@ -1,13 +1,19 @@
 # Self-Hosting Operator Stage Map
 
-## Phase 23.9 planning bundle projection
+## Phase 23.9 planning bundle and active Phase 24A reuse
 
 `PLANNING_REVIEW_BUNDLE_REQUIRED` lists every missing assigned lens and permits
 the fresh bundle to produce them without a prior general-lens PASS.
-`PLAN_AMEND_REQUIRED` is unreachable until every assigned candidate lens is
-terminal. `PLAN_APPROVAL_REQUIRED` is reachable only after current lens PASS
-artifacts and `REVIEW_COVERAGE_COMPLETE` reconciliation. A semantic closure
-blocker stops for an owner decision; it never starts an automatic amendment.
+The existing deterministic review policy derives the exact assigned planning
+set from typed authority facts; active Phase 24A reuses the bounded mechanism.
+An incomplete cohort remains `PLANNING_REVIEW_BUNDLE_REQUIRED`. A complete
+cohort with any `AMEND_REQUIRED` becomes `PLAN_AMEND_REQUIRED`; normal amendment
+is allowed, then the policy re-derives a fresh exact cohort. A complete cohort
+with any `BLOCKED` becomes a typed blocked/human-decision state. Invalid or
+mismatched evidence fails closed. `PLAN_APPROVAL_REQUIRED` is reachable only
+after all current lenses are `PASS`, their structured and canonical verdicts
+agree, and applicable exact coverage/bindings reconcile. A terminal non-PASS
+cohort is not an incomplete cohort.
 
 ## Purpose
 
@@ -32,9 +38,9 @@ Non-procedure transitions belong in `next_allowed_action`.
 | `FEATURE_DECOMPOSITION_REQUIRED` | `feature-decomposition` | run feature-decomposition procedure | broad task/feature request | `task_too_broad_for_direct_plan` | implementation |
 | `TASK_PROMPT_REQUIRED` | `task-prompt-writer` | run task-prompt-writer procedure | normalized task contract or intake result | `missing_task_contract` | implementation |
 | `PLAN_DRAFT_REQUIRED` | `draft-plan` | run draft-plan procedure | task contract, repo context, constraints | `missing_plan` | implementation |
-| `PLAN_REVIEW_REQUIRED` | `plan-review` | run plan-review procedure | draft plan, task contract, review tier | `missing_plan_review` | implementation |
-| `PLAN_AMEND_REQUIRED` | `plan-amend` | run plan-amend procedure | plan review findings | `plan_review_requires_amendment` | implementation |
-| `PLAN_APPROVAL_REQUIRED` | `none` | obtain human approval boundary | reviewed/amended plan | `missing_plan_approval` | implementation |
+| `PLAN_REVIEW_REQUIRED` | `plan-review` | derive typed required planning set and run the registered review surface | exact task/plan/base/run/source plus typed planned surfaces, risks, and review tier | `missing_plan_review` or `planning_lens_bundle_incomplete` | approval, implementation |
+| `PLAN_AMEND_REQUIRED` | `plan-amend` | run plan-amend, re-derive the required set, and run a fresh exact cohort | complete current cohort with one or more `AMEND_REQUIRED` verdicts | `plan_review_requires_amendment` | approval, implementation |
+| `PLAN_APPROVAL_REQUIRED` | `none` | obtain human approval boundary | complete all-PASS cohort with exact matching task/plan/base/run/source/set/artifacts | `missing_plan_approval` | implementation |
 | `REVIEW_LAUNCH_IN_PROGRESS` | `none` | wait for the original launcher to record terminal child exit; otherwise use explicit human recovery and discard the run | exclusive review-launch claim plus terminal launch attempt | `review_launch_owner_active_or_unavailable` | replacement launch, procedure recording, approval, implementation, verification, closeout, harvest |
 | `IMPLEMENTATION_READY` | `none` | builder handoff / implementation prompt | approved plan, task contract, allowed scope | `missing_builder_handoff` | closeout |
 | `IMPLEMENTATION_REVIEW_REQUIRED` | `implementation-review` | run implementation-review procedure | implementation report, diff/changed files, test output | `missing_implementation_evidence` | closeout |

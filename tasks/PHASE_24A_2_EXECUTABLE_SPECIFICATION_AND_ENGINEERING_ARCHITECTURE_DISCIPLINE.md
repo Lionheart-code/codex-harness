@@ -37,8 +37,15 @@ Reuse canonical requirement identity early in intake, planning, plan review,
 architecture and DB/storage review, implementation review, verification, and
 proof. Requirement text remains authoritative in the task.
 
+Every applicable mandatory task requirement must have machine-checkable
+coverage through the minimum sufficient existing or new representation. The
+semantic guarantee is mandatory. A physical `engineering-map.v1` artifact is
+optional only when an existing plan contract is minimally extended to provide
+equivalent exact, machine-checkable guarantees; prose coverage declared "good
+enough" by an implementer is not sufficient.
+
 Add one minimal plan-bound engineering trace map only if existing plan
-structures cannot provide equivalent machine-checkable coverage. It is derived
+structures cannot provide those equivalent guarantees. It is derived
 from exact task authority, bound to one exact effective plan and applicable
 run/base, and is neither a second requirement source nor accepted cross-task
 memory. It identifies requirement inventory; authorized behavior scenarios;
@@ -57,15 +64,29 @@ where practical. Small mechanical work may state that existing invariants hold;
 never invent paper alternatives.
 
 Use the existing staged-to-accepted Project Memory decision lifecycle for
-durable architecture decisions; do not create an ADR directory. Procedures
-must consume this same contract: intake exposes requirement inventory and
-ambiguity; planning creates the minimum authorized traces; amendments preserve
-or explicitly supersede identities; plan review checks coverage and invented
-behavior; architecture and DB/storage reviews retain their distinct judgment;
-implementation/fix review references affected traces; verification maps exact
-evidence; closeout blocks remaining mandatory gaps. A generic semantic PASS
-cannot prove unrelated untraced requirements, and deterministic failure
-outranks semantic PASS.
+durable architecture decisions; do not create an ADR directory. Procedure
+responsibilities over the same contract are explicit:
+
+- `task-intake` identifies canonical mandatory requirements and ambiguity;
+- `task-prompt-writer` preserves those identities and forbids invented behavior;
+- `draft-plan` creates the minimum sufficient scenarios/invariants/traces and
+  verification ownership;
+- `plan-amend` preserves or explicitly supersedes identities and restores
+  coverage after semantic change;
+- `plan-review` checks mandatory coverage, gaps, and invented behavior;
+- `architecture-review` checks material drivers, decisions, invariants, and
+  staged decision lifecycle;
+- `db-storage-review` independently checks persistence, schema, transaction,
+  migration, replay, and recovery obligations;
+- `implementation-review` and `fix-pass-review` bind findings and changed
+  surfaces to affected requirement/trace identities;
+- `verification-review` maps deterministic and named semantic evidence to each
+  applicable obligation;
+- `phase-closeout-review` blocks remaining mandatory gaps and requires exact
+  requirement-specific proof.
+
+A generic semantic PASS cannot prove unrelated untraced requirements, and
+deterministic failure outranks semantic PASS.
 
 Feed trace references into existing ContextCore/Manifest/Overlay only where
 they improve bounded review. Preserve surgical changes, one durable state
@@ -73,16 +94,31 @@ authority, explicit boundaries/transitions/side effects, deterministic policy,
 and compatible recovery/migration reasoning without subjective maintainability
 scores or universal design rules.
 
+### Bounded uncertainty and spike tasks
+
+When a planner cannot responsibly choose an implementation because one
+technical assumption is unresolved, it may require a separate bounded research
+or spike task before production implementation. The spike has one explicit
+question or hypothesis, bounded scope and budget, explicit success/failure
+evidence, and disposable non-authoritative experimental code by default. Spike
+code is never silently promoted into production; an owner-reviewed decision and
+task update are required first. This is not a new autonomous lifecycle or
+general research agent. Phase 26 may propose such bounded tasks, while Phase 30
+remains owner of systematic model, route, and evaluation experiments.
+
 ## Acceptance criteria
 
 Fixtures prove canonical requirement reuse; unauthorized outcomes become
-blockers; scenario/invariant coverage is checkable; mandatory gaps block plan
-acceptance and proof; exact owner approval binds exact plan/map; amendment makes
-stale map fail closed; active versus accepted authority remains exact; retry/
+blockers; the required task-to-scenario/invariant-to-plan-to-surface-to-review/
+verification-to-evidence-to-proof chain is machine-checkable; mandatory gaps
+block plan acceptance and proof; exact owner approval binds the exact plan and
+equivalent map/plan coverage representation; amendment makes stale coverage
+fail closed; active versus accepted authority remains exact; retry/
 idempotency/recovery evidence maps to its requirement; generic PASS cannot
 close unrelated coverage; architecture and DB/storage ownership remain distinct;
 staged decisions are not promoted early; a small non-behavioral task uses the
-minimal direct trace; and no Cucumber/Gherkin/second ADR source appears.
+minimal direct trace; bounded spike proposals preserve their approval boundary;
+and no Cucumber/Gherkin/second ADR source appears.
 
 ## Non-goals
 

@@ -64,6 +64,17 @@ shell interpolation, credentials, network calls, path traversal, generated
 authority, or a new dependency. Any newly discovered behavior outside this
 classification is `BLOCKED_SKILL_RISK_UNCLEAR`.
 
+Active Phase 24A reuses the existing Phase 23.9 planning cohort through typed
+planning-review authority facts and the existing deterministic semantic-review
+policy. Free-text keyword/regex matching is not lifecycle routing authority.
+Each lens keeps its registered procedure contract, canonical document,
+structured verdict, and exact artifact identity; structured and document
+verdicts must agree. Phase 24A.1 owns reusable generalization, including full
+cohort states, exact carry-forward/invalidation, context reuse, and bounded
+infrastructure recovery. Phase 24A.2 owns generic machine-checkable
+requirement/scenario/invariant/plan/evidence/proof coverage. This source map does
+not replace those task contracts or create a second policy layer.
+
 ## 2. Source classes
 
 ### A. Internal authoritative sources

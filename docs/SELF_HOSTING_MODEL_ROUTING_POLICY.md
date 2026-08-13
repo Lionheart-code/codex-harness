@@ -29,6 +29,14 @@ implementation review is excluded. This does not authorize a generic runner,
 provider-host execution framework, defaulted resume, parallel review, or
 automatic approval.
 
+Active Phase 24A may reuse this bounded cohort through explicit typed
+planning-review authority facts and the existing deterministic semantic-review
+policy. Free-text task or plan keywords and regular expressions are not
+steady-state lifecycle routing authority: typed provider-neutral facts are.
+Phase 24A.1 owns reusable completion of this derivation and cohort lifecycle;
+the temporary Codex/model profiles below remain provider bindings, never the
+lifecycle policy itself.
+
 `codex-harness` is not a worker. It is a lightweight supervisor,
 orchestrator, and evaluator shell around external worker agents such as Codex,
 Claude, Gemini, or other reviewed runners. The harness owns lifecycle,
@@ -166,6 +174,7 @@ Route precedence is:
 ```text
 procedure_id
 -> review_tier
+-> planned_surface_classes when planning precedes a diff
 -> changed_surface_classes
 -> risk_classes
 -> deterministic_evidence_state
@@ -174,6 +183,14 @@ procedure_id
 -> context reconstruction cost
 -> budget among safe profiles
 ```
+
+Planning combines task-owned minimum surface/risk facts, exact plan-owned typed
+planned facts, and already-known exact source-change facts before applying the
+same deterministic policy. A plan may add risk but cannot weaken the task
+floor. Arbitrary prose scanning may be advisory migration diagnostics only and
+must never open or close a lifecycle gate or let a model select its own
+reviewers. Active 24A carries typed facts that yield its three planning lenses;
+24A.1 owns the reusable production form.
 
 Budget never weakens a profile floor, safety invariant, or independence
 requirement. A route policy represents `profile_floor`, `reasoning_default`,

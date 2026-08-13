@@ -437,8 +437,8 @@ Required scope:
   product-source registry update, not a runtime migration;
 - update this roadmap with the Phase 23.8.5 -> 23.8.6 -> 23.8.6A -> 23.8.6B ->
   23.8.6B1 -> 23.8.6B2 -> 23.8.6C -> 23.8.6C1 -> 23.8.6C1A ->
-  23.8.6C2 -> 23.8.6C2A -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9 -> 24A -> 24B ->
-  25A -> 25B -> 26 sequence and
+  23.8.6C2 -> 23.8.6C2A -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9 -> 24A ->
+  24A.1 -> 24A.2 -> 24B -> 25A -> 25B -> 26 sequence and
   a direct block before Phase 23.9;
 - separate end-of-old-cycle disposition from start-of-new-cycle materialization:
   closeout records exactly one selected-successor or explicit no-successor
@@ -1248,9 +1248,13 @@ report/packet slice, it owns bounded transition-correctness hardening: direct
 task-contract pointer grammar, distinct decision-source versus task-contract
 identity, phase-neutral successor/bootstrap guarantees, and reusable exact
 implementation-review-to-delivery/closeout provenance. The live planning gate
-also requires planned-surface-derived `plan-review`, `architecture-review`, and
-`db-storage-review` perspectives with exact cohort/approval/baseline binding
-and narrow compatible self-hosting combined-review reuse. This does not expand
+also requires `plan-review`, `architecture-review`, and `db-storage-review`
+perspectives derived through the existing deterministic semantic-review policy
+from typed task minimums, exact plan-owned planned surface/risk facts, and known
+exact source facts. Free-text keyword/regex scanning is not lifecycle authority.
+The cohort has distinct incomplete, all-PASS, `AMEND_REQUIRED`, `BLOCKED`, and
+invalid dispositions and exact task/plan/base/source/run/set/artifact binding,
+with narrow compatible self-hosting combined-review reuse. This does not expand
 into a generic lifecycle rewrite, 24A.1, 24A.2, or Phase 24B.
 
 Scope:
@@ -1312,7 +1316,10 @@ accepted, closed out, and harvested. It reuses ContextCore, ContextManifest,
 and ReviewDeltaOverlay; completes deterministic review-set derivation,
 perspective-preserving combined cohorts, explicit carry-forward, route/reasoning
 independence, bounded downgrade/re-escalation, accepted-binding selection, and
-telemetry. It does not create general external-runner execution, a second
+telemetry. It consolidates typed planned/changed-surface routing, complete cohort
+dispositions and verdict consistency, exact identity/invalidation, and bounded
+owner-authorized infrastructure recovery after exhausted ordinary retry. It
+does not create general external-runner execution, a second
 context system, or executable-specification methodology.
 
 ## Phase 24A.2 — Executable Specification and Engineering Architecture Discipline
@@ -1328,8 +1335,12 @@ Status:
 Planned. Starts only after 24A.1 is independently reviewed, accepted, closed
 out, and harvested. It reuses existing requirement identity, decisions,
 procedures, Project Memory, ContextCore/Manifest/Overlay, evidence, and proof;
-it does not introduce Cucumber/Gherkin requirements, a second requirements or
-ADR store, a generic architecture agent, or external runner execution.
+requires equivalent exact machine-checkable coverage for every applicable
+mandatory requirement; retains explicit responsibilities across intake,
+planning, review, verification, and closeout; and permits only bounded
+owner-reviewed technical spike tasks for genuine uncertainty. It does not
+introduce Cucumber/Gherkin requirements, a second requirements or ADR store, a
+generic architecture agent, or external runner execution.
 
 ## Phase 24B — Expanded Reports and Packets
 

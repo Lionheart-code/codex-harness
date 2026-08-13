@@ -73,8 +73,9 @@ Required behavior preserved from the original Phase 24 task:
 
 ## Future-phase impact check
 
-- Prepares Phase 24B, Phase 25A, and Phase 26 by proving the smallest useful
-  report/packet substrate.
+- Prepares Phase 24A.1, Phase 24A.2, Phase 24B, Phase 25A, and Phase 26 by
+  proving the smallest useful report/packet substrate. The immediate successors
+  are Phase 24A.1 and then Phase 24A.2 before Phase 24B.
 - Must not pre-implement broad packet catalog, proposal drafting, governance
   analytics, domain packs, MCP, or planner execution.
 - Preserves the domain/core boundary by keeping outputs self-hosting/workflow
@@ -211,15 +212,63 @@ Before the broader report/packet slice can begin, complete only the narrow
 planning-gate corrections demonstrated by this live run. This is not a generic
 review runner or routing framework.
 
-1. Derive the required planning-review set deterministically from the active
-   task, exact effective plan, planned implementation surfaces, surface/risk
-   classifications, lifecycle/authority and storage/security implications,
-   review tier, procedure policy, and required independence. Planned surfaces
-   count before an implementation diff exists; a model must not select the
-   reviews that govern its own work. For this Phase 24A plan, the expected
-   perspectives are `plan-review`, `architecture-review`, and
-   `db-storage-review`. Do not hardcode that set by phase name or introduce a
-   second review-routing framework.
+1. Derive the required planning-review set from typed, provider-neutral facts
+   through the existing deterministic review policy and
+   `deriveRequiredSemanticReviews(...)`-equivalent primitive. No
+   lifecycle-authoritative review selection may scan arbitrary task or plan
+   prose for keywords or regular expressions such as `architecture`,
+   `lifecycle`, `runtime`, `authority`, `storage`, `schema`, `transaction`,
+   `harvest`, `replay`, `idempotency`, `worktree`, or `branch`. Such a
+   classifier may be migration diagnostics only; it never opens or closes a
+   lifecycle gate. Reuse the existing `review_tier`,
+   `changed_surface_classes`, `risk_classes`, and
+   `required_semantic_reviews` vocabulary instead of introducing a second
+   review-routing framework.
+
+   Before an implementation diff exists, one exact effective plan must have a
+   minimal typed projection of planned work. The projection binds exact task
+   identity, exact effective-plan identity, review tier, planned surface
+   classes, planned risk classes, immutable base, and current run instance
+   where applicable. Prefer an existing plan/stage/routing contract, then a
+   minimal extension of it, and only if necessary one small plan-bound artifact
+   in the existing evidence lifecycle. It is not a second task source, does not
+   duplicate plan prose, and requires no new durable database.
+
+   The authoritative derivation is:
+
+   ```text
+   task-owned minimum surface/risk facts
+   UNION exact plan-owned typed planned surface/risk facts
+   UNION already-known exact source-change facts where applicable
+   -> existing deterministic semantic-review policy
+   -> required semantic reviews
+   ```
+
+   A plan may add risk but cannot remove the task floor, and a model cannot
+   choose its own governing reviewers through unvalidated prose. This task
+   carries the following typed minimum planning-review authority facts; exact
+   task content identity is calculated from this task artifact rather than
+   copied into this block:
+
+   ```yaml
+   planning_review_authority_contract: planned-review-facts.v1
+   task_id: "24A"
+   task_contract_ref: tasks/PHASE_24A_MINIMAL_EVIDENCE_REPORT_AND_REVIEW_PACKET.md
+   review_tier: extra-high
+   minimum_planned_surface_classes:
+     - authority_docs
+     - runtime
+   minimum_planned_risk_classes:
+     - authority
+     - lifecycle
+     - storage
+   ```
+
+   With procedure `plan-review`, those facts deterministically require the
+   planning-lens subset `plan-review`, `architecture-review`, and
+   `db-storage-review`; no `phase_id === "24A"` check is permitted. Other
+   policy-derived reviews, including docs consistency or Harness audit, remain
+   separate procedures/stages and are not silently absorbed into this cohort.
 2. Keep owner approval closed until every derived perspective has a current,
    terminal, acceptable result. Each result must bind to the same exact
    effective-plan content, reviewed source, task, immutable base, run instance,
@@ -236,9 +285,34 @@ review runner or routing framework.
    typed verdicts. Shared invocation never collapses separate judgments. Do not
    generalize this into a multi-agent system, provider abstraction, unrestricted
    parallel review, or Phase 31 execution.
+   The complete cohort disposition is deterministic:
+
+   - `INCOMPLETE`: planning review remains required and owner approval is
+     closed;
+   - complete and all `PASS`: planning review is satisfied and owner approval
+     may become next only when every other exact binding passes;
+   - complete with one or more `AMEND_REQUIRED`: enter
+     `PLAN_AMEND_REQUIRED`, allow `plan-amend`, forbid approval and
+     implementation, then re-derive and run one fresh exact cohort for the
+     amended plan;
+   - complete with one or more `BLOCKED`: enter a typed blocked/human-decision
+     state rather than pretending another review is missing;
+   - invalid, identity-mismatched, or malformed: fail closed with a typed error
+     and never reinterpret the cohort as `PASS`.
+
+   A terminal non-PASS cohort is not incomplete. For every planning lens, the
+   machine-readable verdict and canonical procedure document must agree on one
+   of `PASS`, `AMEND_REQUIRED`, or `BLOCKED`. Any disagreement fails ingestion,
+   records no canonical PASS artifact, and leaves owner approval closed.
+   Planning verdicts must not pass through an implementation-review
+   `PASS`/`FIX_REQUIRED` compatibility parser.
 4. Bind final effective plan, complete required cohort, explicit owner approval,
    exact reviewed clean source, run/worktree/branch/base, and implementation
-   baseline durably through structured evidence. When no genuine post-review,
+   baseline durably through structured evidence. A current cohort binds exact
+   `run_instance_id`, active task artifact and content identity, effective plan
+   artifact and content identity, immutable base, reviewed source HEAD, required
+   planning-lens set, cohort identity, and exact procedure artifacts. A change
+   to any one invalidates the old cohort for current approval. When no genuine post-review,
    owner-authorized source modification exists, the reviewed clean source HEAD
    itself is eligible as the baseline; do not manufacture an authority-overlay
    commit. Preserve exact overlay provenance when such a source change exists.
@@ -261,11 +335,23 @@ review runner or routing framework.
    isolation. Repair obsolete fixtures rather than weakening that policy.
 
 Focused acceptance must prove planned-surface review derivation, complete
-required-cohort approval gating, exact cohort binding, current self-hosting
-combined-review artifacts, clean reviewed-source baseline establishment, and
-the retained timeout/stale/ownership/terminal-output protections. It must not
+required-cohort approval gating across all-PASS, `AMEND_REQUIRED`, `BLOCKED`,
+incomplete, invalid, and structured/document-verdict-mismatch cases; exact
+task/plan/base/source/run/set/cohort binding; current self-hosting combined-review
+artifacts; clean reviewed-source baseline establishment; and the retained
+timeout/stale/ownership/terminal-output protections. The new contract is
+activated by the typed planning-review authority facts above, preserves the
+historical Phase 23.9 cohort, and does not globally impose this behavior on
+completed Phase 23.8.6F or unrelated task contracts. It must not
 implement the optimization/completion work reserved for Phase 24A.1 or the
 engineering-specification discipline reserved for Phase 24A.2.
+
+Planning-lens decision/trace reconciliation may enforce only authoritative
+required decision/trace IDs that already exist for the exact effective plan.
+Do not pass empty or synthetic inventories to `reconcilePlanningLenses(...)`-style
+logic to claim generic coverage. Phase 23.9 historical coverage remains intact;
+generic requirement/scenario/invariant/plan/proof coverage belongs to Phase
+24A.2.
 
 ## Exact minimal deliverables and authority
 

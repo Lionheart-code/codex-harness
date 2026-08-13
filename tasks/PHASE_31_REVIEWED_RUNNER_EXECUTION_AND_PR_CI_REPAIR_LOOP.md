@@ -34,9 +34,11 @@ external runners remain workers.
 Consume rather than recreate the Phase 24A.1 self-hosting review/context/routing
 contract and Phase 24A.2 requirement/scenario/invariant/decision trace contract.
 Approved external execution packets carry or reference exact task, effective
-plan, engineering-map, applicable trace IDs, verification obligations, required
-review set, and evidence/proof identities. Phase 31 remains the first general
-external-runner execution boundary.
+plan, the exact machine-checkable engineering coverage representation,
+applicable trace IDs, verification obligations, typed required-review and route
+facts, complete cohort disposition, and evidence/proof identities. Phase 31
+remains the first general external-runner execution boundary and must not
+recreate review selection, routing, context reuse, or specification authority.
 
 ## Scope
 
