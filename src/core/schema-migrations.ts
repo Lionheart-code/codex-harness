@@ -44,6 +44,9 @@ export const PRODUCT_SCHEMA_FILE_NAMES = [
   ,"planning-review-lens-output.schema.json"
   ,"review-finding-aggregate.schema.json"
   ,"review-resume-simulation.schema.json"
+  ,"historical-evidence-report.schema.json"
+  ,"context-export-view.schema.json"
+  ,"implementation-review-view.schema.json"
 ] as const;
 
 export type ProductSchemaFileName = (typeof PRODUCT_SCHEMA_FILE_NAMES)[number];

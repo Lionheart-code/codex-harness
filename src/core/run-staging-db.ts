@@ -13,7 +13,7 @@ import {
   getRunJsonRelativePath,
   getRunStagingDbRelativePath
 } from "./paths";
-import { type DatabaseLike, openSqliteDatabase } from "./sqlite";
+import { type DatabaseLike, openSqliteDatabase, openSqliteDatabaseReadOnly } from "./sqlite";
 import { detectGitRepository } from "./git";
 import { canonicalJson } from "./evidence-types";
 import { type Run } from "./runtime";
@@ -1356,6 +1356,15 @@ export class RunStagingDatabase {
     } finally {
       database.close();
     }
+  }
+
+  loadRunReadOnly(runId = this.runId): Run | undefined {
+    if (!this.paths.stagingDbPath) return undefined;
+    const database = openSqliteDatabaseReadOnly(this.paths.stagingDbPath);
+    try {
+      const row = database.prepare("SELECT run_json FROM runs WHERE run_id = ?").get(runId) as { run_json?: string } | undefined;
+      return row ? parseRunJson(row.run_json, runId) : undefined;
+    } finally { database.close(); }
   }
 
   recordDeliveryFacts(runId: string, deliveryFacts: DeliveryFactRecord[]): Run {

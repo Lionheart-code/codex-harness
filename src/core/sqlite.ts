@@ -14,7 +14,16 @@ export interface DatabaseLike {
 }
 
 interface SqliteModuleLike {
-  DatabaseSync?: new (database: string) => DatabaseLike;
+  DatabaseSync?: new (database: string, options?: { readOnly?: boolean }) => DatabaseLike;
+}
+
+export function openSqliteDatabaseReadOnly(databasePath: string): DatabaseLike {
+  if (!fs.existsSync(databasePath)) throw new Error(`SQLite database not found: ${databasePath}`);
+  const probe = probeNodeSqlite();
+  if (!probe.available) throw new Error(`${probe.message}\nSQLite-backed memory commands require a Node runtime with node:sqlite.`);
+  const sqlite = loadNodeSqlite();
+  if (typeof sqlite.DatabaseSync !== "function") throw new Error("node:sqlite loaded, but DatabaseSync is not available.");
+  return new sqlite.DatabaseSync(databasePath, { readOnly: true });
 }
 
 const SQLITE_SPECIFIER = "node:sqlite";

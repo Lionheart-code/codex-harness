@@ -1595,15 +1595,25 @@ function ensureInsideTargetRoot(targetRoot: string, absolutePath: string): void 
   }
 }
 
-function extractActiveTaskPath(taskMarkdown: string): string | undefined {
-  const match = /^Implement only:\s*(.+)$/im.exec(taskMarkdown);
-
-  if (!match) {
+export function extractActiveTaskPath(taskMarkdown: string): string | undefined {
+  const lines = taskMarkdown.split(/\r?\n/u);
+  const directives = lines
+    .map((line) => /^Implement only:[ \t]+([^\s].*)$/u.exec(line))
+    .filter((match): match is RegExpExecArray => Boolean(match));
+  const malformed = lines.some((line) => /^Implement only:[ \t]*$/u.test(line));
+  if (directives.length === 0) {
+    if (malformed) return undefined;
     return undefined;
   }
-
-  const value = match[1].trim();
-  return value.length > 0 ? value : undefined;
+  if (directives.length !== 1) {
+    throw new Error("Task authority contains multiple Implement only pointer directives.");
+  }
+  const value = directives[0][1].trim();
+  if (value.includes(" ") || value.includes("\t") || path.isAbsolute(value)
+    || !value.endsWith(".md") || value.split(/[\\/]/u).includes("..")) {
+    throw new Error("Task pointer must contain one repository-relative Markdown path.");
+  }
+  return value;
 }
 
 function extractMarkdownSection(markdown: string, heading: string): string | undefined {
@@ -1844,6 +1854,9 @@ function resolveTaskReference(targetRoot: string, taskPath: string): {
     ? toRepoRelative(targetRoot, resolvedActiveTaskPath)
     : relativeTaskPath;
   const activeTaskMarkdown = readTaskFile(resolvedActiveTaskPath, referencedTaskPath ?? taskPath);
+  if (referencedTaskPath && extractActiveTaskPath(activeTaskMarkdown)) {
+    throw new Error("Task authority pointer recursion is not permitted.");
+  }
   const phaseId = inferPhaseIdFromText(activeTaskMarkdown) ?? inferPhaseIdFromPath(activeTaskPath);
 
   return {
@@ -1865,7 +1878,22 @@ function bootstrapIssuePhaseId(run: Run): BootstrapIssuePhaseId {
 }
 
 function isMaterializedSuccessor(run: Run): boolean {
-  return ["23.8.6D", "23.8.6E", "23.8.7"].includes(run.phase_id ?? "");
+  if (["23.8.6D", "23.8.6E", "23.8.7"].includes(run.phase_id ?? "")) return true;
+  try {
+    const selected = selectTaskStateForCheckout(
+      run.repository.project_root,
+      run.repository.root_path,
+      run.repository.branch
+    ).task;
+    return Boolean(
+      selected?.task_path
+      && selected.base_commit_sha
+      && normalizeRepoRelativePath(selected.task_path)
+        === normalizeRepoRelativePath(run.active_task_path ?? run.task_path)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function requiresCommitBackedBaseAuthority(run: Run): boolean {
@@ -9456,6 +9484,7 @@ export async function recordRuntimeNextTask(cwd: string, options: RecordNextTask
   }
 
   const artifactHash = sha256Hex(sourceMarkdown);
+  const taskContractIdentity = `sha256:${sha256Hex(fs.readFileSync(path.join(targetRoot, nextTaskPath)))}`;
   const artifact: ArtifactRef = {
     artifact_id: `sha256:${artifactHash}`,
     path: toPortablePath(path.join("evidence", `next-task-source-${artifactHash.slice(0, 12)}.md`)),
@@ -9467,13 +9496,15 @@ export async function recordRuntimeNextTask(cwd: string, options: RecordNextTask
       source_run_instance_id: current.run.run_instance_id,
       task_path: nextTaskPath,
       base_commit_sha: baseCommitSha,
-      source_artifact_identity: artifact.artifact_id,
+      decision_source_artifact_identity: artifact.artifact_id,
+      task_contract_identity: taskContractIdentity,
       decision_record_identity: null
     }))}`,
     source_run_instance_id: current.run.run_instance_id ?? "",
     task_path: nextTaskPath,
     base_commit_sha: baseCommitSha,
-    source_artifact_identity: artifact.artifact_id,
+    decision_source_artifact_identity: artifact.artifact_id,
+    task_contract_identity: taskContractIdentity,
     decision_record_identity: null,
     ...(options.baseRef ? { base_ref: options.baseRef } : {})
   };
@@ -9497,7 +9528,8 @@ export async function recordRuntimeNextTask(cwd: string, options: RecordNextTask
     next_task: {
       task_path: nextTaskPath,
       base_commit_sha: baseCommitSha,
-      source_artifact_identity: artifact.artifact_id as `sha256:${string}`
+      decision_source_artifact_identity: artifact.artifact_id as `sha256:${string}`,
+      task_contract_identity: taskContractIdentity as `sha256:${string}`
     },
     no_successor: null
   });
@@ -9705,7 +9737,7 @@ export async function materializeRuntimeNextTask(
           branch: options.branch,
           baseCommitSha: record.base_commit_sha,
           taskPath: nextTaskPath,
-          sourceArtifactIdentity: record.source_artifact_identity as `sha256:${string}`,
+          taskContractIdentity: record.task_contract_identity as `sha256:${string}`,
           pointerContents: buildNextTaskPointerMarkdown(nextTaskPath),
           dryRun
         });
@@ -11250,7 +11282,8 @@ interface NextTaskDecisionRecord {
   source_run_instance_id: string;
   task_path: string;
   base_commit_sha: string;
-  source_artifact_identity: string;
+  decision_source_artifact_identity: string;
+  task_contract_identity: string;
   decision_record_identity: string | null;
   base_ref?: string;
 }
@@ -11263,7 +11296,10 @@ function parseNextTaskDecisionRecord(decision: Decision): NextTaskDecisionRecord
       || typeof parsed.source_run_instance_id !== "string"
       || typeof parsed.task_path !== "string"
       || typeof parsed.base_commit_sha !== "string"
-      || typeof parsed.source_artifact_identity !== "string"
+      || (typeof parsed.decision_source_artifact_identity !== "string"
+        && typeof parsed.source_artifact_identity !== "string")
+      || (parsed.task_contract_identity !== undefined
+        && typeof parsed.task_contract_identity !== "string")
       || (parsed.decision_record_identity !== null && typeof parsed.decision_record_identity !== "string")
       || (parsed.base_ref !== undefined && typeof parsed.base_ref !== "string")
     ) {
@@ -11275,7 +11311,12 @@ function parseNextTaskDecisionRecord(decision: Decision): NextTaskDecisionRecord
       source_run_instance_id: parsed.source_run_instance_id,
       task_path: parsed.task_path,
       base_commit_sha: parsed.base_commit_sha,
-      source_artifact_identity: parsed.source_artifact_identity,
+      decision_source_artifact_identity: String(
+        parsed.decision_source_artifact_identity ?? parsed.source_artifact_identity
+      ),
+      task_contract_identity: typeof parsed.task_contract_identity === "string"
+        ? parsed.task_contract_identity
+        : "",
       decision_record_identity: parsed.decision_record_identity,
       ...(parsed.base_ref ? { base_ref: parsed.base_ref } : {})
     };

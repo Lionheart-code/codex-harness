@@ -102,7 +102,7 @@ test("phase 23.9 zero-owner materialization creates one exact owner and replays"
   const input = {
     projectRoot, worktreePath: worktree, branch: "codex/phase-24",
     baseCommitSha: "a".repeat(40), taskPath: "tasks/NEXT.md",
-    sourceArtifactIdentity: sha("# next task\n"),
+    taskContractIdentity: sha("# next task\n"),
     pointerContents: "# Current Task\n\n`tasks/NEXT.md`\n"
   };
   fs.mkdirSync(path.join(worktree, "tasks"));
@@ -142,7 +142,7 @@ test("phase 23.9 zero-owner materialization compensates absent and existing poin
       assert.throws(() => materializeZeroOwnerTaskState({
         projectRoot, worktreePath: worktree, branch: `codex/rollback-${existingPointer}`,
         baseCommitSha: "a".repeat(40), taskPath: "tasks/NEXT.md",
-        sourceArtifactIdentity: sha("# next\n"), pointerContents: "# replacement\n"
+        taskContractIdentity: sha("# next\n"), pointerContents: "# replacement\n"
       }));
       assert.equal(openVerifiedTaskStateStore(projectRoot).enumerate().length, 0);
       assert.equal(fs.existsSync(pointerPath), existingPointer);
@@ -158,7 +158,8 @@ test("phase 23.9 successor disposition rejects a conflicting authority", () => {
   const selected = buildSuccessorDisposition({
     source_run_instance_id: "instance", disposition: "selected_successor",
     next_task_decision_id: sha("decision"),
-    next_task: { task_path: "tasks/NEXT.md", base_commit_sha: "a".repeat(40), source_artifact_identity: sha("task") },
+    next_task: { task_path: "tasks/NEXT.md", base_commit_sha: "a".repeat(40),
+      decision_source_artifact_identity: sha("decision"), task_contract_identity: sha("task") },
     no_successor: null
   });
   const none = buildSuccessorDisposition({

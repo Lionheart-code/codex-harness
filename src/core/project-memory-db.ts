@@ -14,7 +14,7 @@ import {
   resolveMemoryDbPaths,
   type DatabaseStatus
 } from "./run-staging-db";
-import { type DatabaseLike, openSqliteDatabase } from "./sqlite";
+import { type DatabaseLike, openSqliteDatabase, openSqliteDatabaseReadOnly } from "./sqlite";
 import { type Run } from "./runtime";
 import { canonicalJson } from "./evidence-types";
 import { indexSelfHostingProceduresById, readSelfHostingProcedureRegistry } from "./self-hosting-procedures";
@@ -1232,6 +1232,23 @@ export class ProjectMemoryDatabase {
     } finally {
       database.close();
     }
+  }
+
+  getRunByInstanceIdReadOnly(runInstanceId: string): Run | undefined {
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      const row = database.prepare("SELECT run_json FROM project_run_instances WHERE run_instance_id = ?")
+        .get(runInstanceId) as { run_json?: string } | undefined;
+      return row?.run_json ? JSON.parse(row.run_json) as Run : undefined;
+    } finally { database.close(); }
+  }
+
+  listRunsByDisplayRunIdReadOnly(runId: string): Run[] {
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      return (database.prepare("SELECT run_json FROM project_run_instances WHERE run_id = ? ORDER BY updated_at DESC")
+        .all(runId) as Array<{ run_json?: string }>).flatMap((row) => row.run_json ? [JSON.parse(row.run_json) as Run] : []);
+    } finally { database.close(); }
   }
 
   markRunLifecycle(runId: string, lifecycleStatus: LifecycleStatus): void {

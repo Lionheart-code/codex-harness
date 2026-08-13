@@ -13,6 +13,7 @@ import {
   resolveMemoryDbPaths
 } from "../core/run-staging-db";
 import { getRuntimeStatus } from "../core/runtime";
+import { buildAcceptedContextView, buildHistoricalEvidenceReport, buildImplementationReviewView } from "../core/evidence-views";
 
 type ParsedOptions = Record<string, string | boolean>;
 
@@ -29,6 +30,9 @@ function printMemoryHelp(): void {
     "  node bin/ch memory harvest --help",
     "  node bin/ch memory harvest --run <run-id> [--dry-run]",
     "  node bin/ch memory replay-eligibility --run-instance <exact-run-instance-id> [--packet-record <sha256:id>]",
+    "  node bin/ch memory report --run-instance <exact-run-instance-id>",
+    "  node bin/ch memory packet context --run-instance <exact-run-instance-id> --packet-record <sha256:id>",
+    "  node bin/ch memory packet implementation-review --run-instance <exact-run-instance-id>",
     "  node bin/ch memory delivery-facts --help",
     "  node bin/ch memory delivery-facts import --run <run-id> --file <path> [--dry-run]",
     "  node bin/ch memory rebuild [--dry-run]",
@@ -36,6 +40,71 @@ function printMemoryHelp(): void {
     "  node bin/ch memory show <run-id>",
     "  node bin/ch memory export --dry-run"
   ]);
+}
+
+function printReportHelp(): void {
+  lines(["Usage:", "  node bin/ch memory report --run-instance <exact-run-instance-id>",
+    "  node bin/ch memory report --run <unambiguous-accepted-display-run-id>"]);
+}
+
+function printPacketHelp(): void {
+  lines(["Usage:", "  node bin/ch memory packet context --run-instance <exact-run-instance-id> --packet-record <sha256:id>",
+    "  node bin/ch memory packet implementation-review --run-instance <exact-run-instance-id>"]);
+}
+
+function resolveAcceptedRun(options: ParsedOptions) {
+  const roots = resolveHarnessRoots(process.cwd());
+  const memory = new ProjectMemoryDatabase(roots.targetRoot, roots.projectRoot);
+  const instance = stringOption(options, "run-instance");
+  const display = stringOption(options, "run");
+  if (Boolean(instance) === Boolean(display)) throw new Error("Specify exactly one of --run-instance or --run.");
+  const run = instance ? memory.getRunByInstanceIdReadOnly(instance) : (() => {
+    const matches = memory.listRunsByDisplayRunIdReadOnly(display!);
+    if (matches.length !== 1) throw new Error(`Accepted display run id is ambiguous or missing: ${display}.`);
+    return matches[0];
+  })();
+  if (!run) throw new Error("Accepted exact run instance not found.");
+  return run;
+}
+
+function runReport(args: string[]): number {
+  if (args.length === 0 || args[0] === "--help" || args[0] === "-h") { printReportHelp(); return 0; }
+  const options = parseOptions(args, new Set(["run-instance", "run"]));
+  lines([canonicalOutput(buildHistoricalEvidenceReport(resolveAcceptedRun(options)))]);
+  return 0;
+}
+
+function canonicalOutput(value: unknown): string { return JSON.stringify(value, null, 2); }
+
+function runPacket(args: string[]): number {
+  const [kind, ...rest] = args;
+  if (!kind || kind === "--help" || kind === "-h" || kind === "help") { printPacketHelp(); return 0; }
+  if (kind === "context") {
+    const options = parseOptions(rest, new Set(["run-instance", "run", "packet-record"]));
+    const packet = stringOption(options, "packet-record");
+    if (!packet) throw new Error("--packet-record is required.");
+    lines([canonicalOutput(buildAcceptedContextView(resolveAcceptedRun(options), packet))]);
+    return 0;
+  }
+  if (kind === "implementation-review") {
+    const options = parseOptions(rest, new Set(["run-instance"]));
+    const instance = stringOption(options, "run-instance");
+    if (!instance) throw new Error("--run-instance is required.");
+    const roots = resolveHarnessRoots(process.cwd());
+    const runIds = fs.existsSync(path.join(roots.targetRoot, ".harness", "runs"))
+      ? fs.readdirSync(path.join(roots.targetRoot, ".harness", "runs"), { withFileTypes: true })
+        .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
+      : [];
+    const matches = runIds.flatMap((runId) => {
+      const candidate = new RunStagingDatabase(roots.targetRoot, roots.projectRoot, runId).loadRunReadOnly();
+      return candidate?.run_instance_id === instance ? [candidate] : [];
+    });
+    if (matches.length !== 1) throw new Error("Active exact run instance is ambiguous or missing in Staging.");
+    const run = matches[0];
+    lines([canonicalOutput(buildImplementationReviewView(run))]);
+    return 0;
+  }
+  throw new Error(`Unknown memory packet kind: ${kind}`);
 }
 
 function printProjectHelp(): void {
@@ -532,6 +601,10 @@ export async function runMemory(args: string[]): Promise<number> {
         return await runHarvest(subcommandArgs);
       case "replay-eligibility":
         return await runReplayEligibility(subcommandArgs);
+      case "report":
+        return runReport(subcommandArgs);
+      case "packet":
+        return runPacket(subcommandArgs);
       case "delivery-facts":
         return await runDeliveryFacts(subcommandArgs);
       case "rebuild":
