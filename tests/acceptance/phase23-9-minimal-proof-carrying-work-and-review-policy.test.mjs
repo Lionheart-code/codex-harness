@@ -43,7 +43,7 @@ import { importDeliveryFacts } from "../../dist/core/delivery-facts.js";
 import {
   buildRuntimeRun, extractEffectiveValidationCommands, extractReviewedAuthorityOverlay,
   launchRuntimePlanningReviewBundle, createCloseoutReceipt, validatePlanningLensDocumentVerdict,
-  validateRuntimeRun
+  planningReviewIsFreshForEffectivePlan, validateRuntimeRun
 } from "../../dist/core/runtime.js";
 import { harvestRun } from "../../dist/core/harvest.js";
 
@@ -569,6 +569,15 @@ test("planning structured verdict must equal each canonical document verdict", (
   assert.throws(() => validatePlanningLensDocumentVerdict("PASS", storage("BLOCKED"), "db-storage-review"), /PLANNING_REVIEW_VERDICT_MISMATCH/);
   assert.throws(() => validatePlanningLensDocumentVerdict("AMEND_REQUIRED", architecture("PASS"), "architecture-review"), /PLANNING_REVIEW_VERDICT_MISMATCH/);
   assert.throws(() => validatePlanningLensDocumentVerdict("BLOCKED", planReview("PASS"), "plan-review"), /PLANNING_REVIEW_VERDICT_MISMATCH/);
+});
+
+test("exact current cohort PASS outranks legacy file-mtime freshness for an effective plan-amend", () => {
+  const disposition = (value) => ({ disposition: value, missing_lenses: [] });
+  assert.equal(planningReviewIsFreshForEffectivePlan(true, disposition("PASS"), false), true);
+  assert.equal(planningReviewIsFreshForEffectivePlan(true, disposition("INCOMPLETE"), false), false);
+  assert.equal(planningReviewIsFreshForEffectivePlan(true, disposition("AMEND_REQUIRED"), false), false);
+  assert.equal(planningReviewIsFreshForEffectivePlan(false, disposition("INCOMPLETE"), false), true);
+  assert.equal(planningReviewIsFreshForEffectivePlan(true, disposition("INCOMPLETE"), true), true);
 });
 
 test("phase 23.9 proof is rejected until baseline review and delivery exist", () => {

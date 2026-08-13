@@ -10754,6 +10754,16 @@ function isProcedureEvidenceFreshAfter(
   return laterTimestamp > earlierTimestamp;
 }
 
+export function planningReviewIsFreshForEffectivePlan(
+  hasPlanAmendEvidence: boolean,
+  planningCohortDisposition: PlanningCohortDispositionResult,
+  legacyTimestampFresh: boolean
+): boolean {
+  if (!hasPlanAmendEvidence) return true;
+  if (planningCohortDisposition.disposition === "PASS") return true;
+  return legacyTimestampFresh;
+}
+
 function isPlanApproval(approval: Approval): boolean {
   if (approval.status !== "approved") {
     return false;
@@ -12038,9 +12048,11 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
   const freshPlanAmendForLatestPlanReview = planReviewDecision?.route === "amend"
     ? isProcedureEvidenceFreshAfter(context.runContext, "plan-amend", "plan-review")
     : false;
-  const freshPlanReviewForLatestAmend = hasPlanAmendEvidence
-    ? isProcedureEvidenceFreshAfter(context.runContext, "plan-review", "plan-amend")
-    : true;
+  const freshPlanReviewForLatestAmend = planningReviewIsFreshForEffectivePlan(
+    hasPlanAmendEvidence,
+    planningCohortDisposition,
+    isProcedureEvidenceFreshAfter(context.runContext, "plan-review", "plan-amend")
+  );
 
   if (requiresPlanningLensBundle && planningCohortDisposition.disposition === "INVALID") {
     return buildOperatorStageDraft({
