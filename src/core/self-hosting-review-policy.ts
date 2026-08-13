@@ -145,6 +145,168 @@ export interface ReviewRouteDecision {
   authoritative_inputs_hash: string;
 }
 
+export interface TaskPlanningReviewAuthorityFactsV1 {
+  contract: "planned-review-facts.v1";
+  task_id: string;
+  task_contract_ref: string;
+  review_tier: "standard" | "high" | "extra-high";
+  minimum_planned_surface_classes: string[];
+  minimum_planned_risk_classes: string[];
+}
+
+export interface PlanBoundPlanningReviewFactsV1 {
+  contract: "planned-review-facts.v1";
+  review_tier: "standard" | "high" | "extra-high";
+  planned_surface_classes: string[];
+  planned_risk_classes: string[];
+}
+
+export interface ResolvedPlanningReviewFactsV1 {
+  contract: "planned-review-facts.v1";
+  task_artifact_id: `sha256:${string}`;
+  task_contract_ref: string;
+  effective_plan_artifact_id: `sha256:${string}`;
+  run_instance_id: string;
+  immutable_base: string;
+  review_tier: "standard" | "high" | "extra-high";
+  planned_surface_classes: string[];
+  risk_classes: string[];
+  required_semantic_reviews: string[];
+  required_planning_lenses: Array<"plan-review" | "architecture-review" | "db-storage-review">;
+}
+
+const REVIEW_TIERS = ["standard", "high", "extra-high"] as const;
+const PLANNING_LENSES = ["plan-review", "architecture-review", "db-storage-review"] as const;
+
+function readStructuredReviewFactsBlock(markdown: string, contractKey: string): Map<string, string | string[]> | undefined {
+  const blocks = [...markdown.matchAll(/```yaml[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```/giu)].map((match) => match[1]);
+  const block = blocks.find((candidate) => new RegExp(`^\\s*${contractKey}:\\s*planned-review-facts\\.v1\\s*$`, "mu").test(candidate));
+  if (!block) return undefined;
+  const values = new Map<string, string | string[]>();
+  let arrayKey: string | undefined;
+  for (const rawLine of block.split(/\r?\n/u)) {
+    const trimmed = rawLine.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    if (trimmed.startsWith("- ") && arrayKey) {
+      (values.get(arrayKey) as string[]).push(trimmed.slice(2).trim());
+      continue;
+    }
+    const separator = trimmed.indexOf(":");
+    if (separator < 1) throw new Error(`planning_review_facts_invalid:${contractKey}`);
+    const key = trimmed.slice(0, separator).trim();
+    const rawValue = trimmed.slice(separator + 1).trim();
+    if (!rawValue) {
+      values.set(key, []);
+      arrayKey = key;
+      continue;
+    }
+    values.set(key, rawValue.replace(/^(["'])(.*)\1$/u, "$2"));
+    arrayKey = undefined;
+  }
+  if (values.get(contractKey) === "planned-review-facts.v1") return values;
+  return undefined;
+}
+
+function requireStructuredString(values: Map<string, string | string[]>, key: string): string {
+  const value = values.get(key);
+  if (typeof value !== "string" || !value.trim()) throw new Error(`planning_review_facts_field_invalid:${key}`);
+  return value;
+}
+
+function requireStructuredStringArray(values: Map<string, string | string[]>, key: string): string[] {
+  const value = values.get(key);
+  if (!Array.isArray(value) || value.length === 0 || value.some((entry) => !entry.trim())
+    || new Set(value).size !== value.length) {
+    throw new Error(`planning_review_facts_field_invalid:${key}`);
+  }
+  return [...value];
+}
+
+function requireReviewTier(value: string): "standard" | "high" | "extra-high" {
+  if (!REVIEW_TIERS.includes(value as typeof REVIEW_TIERS[number])) {
+    throw new Error("planning_review_facts_review_tier_invalid");
+  }
+  return value as typeof REVIEW_TIERS[number];
+}
+
+export function parseTaskPlanningReviewAuthorityFacts(markdown: string): TaskPlanningReviewAuthorityFactsV1 | undefined {
+  const values = readStructuredReviewFactsBlock(markdown, "planning_review_authority_contract");
+  if (!values) return undefined;
+  return {
+    contract: "planned-review-facts.v1",
+    task_id: requireStructuredString(values, "task_id"),
+    task_contract_ref: requireStructuredString(values, "task_contract_ref"),
+    review_tier: requireReviewTier(requireStructuredString(values, "review_tier")),
+    minimum_planned_surface_classes: requireStructuredStringArray(values, "minimum_planned_surface_classes"),
+    minimum_planned_risk_classes: requireStructuredStringArray(values, "minimum_planned_risk_classes")
+  };
+}
+
+export function parsePlanBoundPlanningReviewFacts(markdown: string): PlanBoundPlanningReviewFactsV1 | undefined {
+  const values = readStructuredReviewFactsBlock(markdown, "planning_review_facts_contract");
+  if (!values) return undefined;
+  return {
+    contract: "planned-review-facts.v1",
+    review_tier: requireReviewTier(requireStructuredString(values, "review_tier")),
+    planned_surface_classes: requireStructuredStringArray(values, "planned_surface_classes"),
+    planned_risk_classes: requireStructuredStringArray(values, "planned_risk_classes")
+  };
+}
+
+export function resolvePlanningReviewFacts(input: {
+  taskMarkdown: string;
+  planMarkdown: string;
+  taskArtifactId: `sha256:${string}`;
+  activeTaskPath: string;
+  phaseId: string;
+  effectivePlanArtifactId: `sha256:${string}`;
+  runInstanceId: string;
+  immutableBase: string;
+  knownChangedSurfaceClasses?: string[];
+  knownRiskClasses?: string[];
+}): ResolvedPlanningReviewFactsV1 | undefined {
+  const task = parseTaskPlanningReviewAuthorityFacts(input.taskMarkdown);
+  if (!task) return undefined;
+  const plan = parsePlanBoundPlanningReviewFacts(input.planMarkdown);
+  if (!plan) throw new Error("planning_review_plan_facts_missing");
+  if (task.task_id !== input.phaseId || task.task_contract_ref !== input.activeTaskPath) {
+    throw new Error("planning_review_task_facts_identity_mismatch");
+  }
+  if (!/^sha256:[a-f0-9]{64}$/u.test(input.taskArtifactId)
+    || !/^sha256:[a-f0-9]{64}$/u.test(input.effectivePlanArtifactId)
+    || !input.runInstanceId.trim() || !/^[a-f0-9]{40}$/u.test(input.immutableBase)) {
+    throw new Error("planning_review_facts_binding_invalid");
+  }
+  const reviewTier = REVIEW_TIERS[Math.max(REVIEW_TIERS.indexOf(task.review_tier), REVIEW_TIERS.indexOf(plan.review_tier))];
+  const plannedSurfaceClasses = [...new Set([
+    ...task.minimum_planned_surface_classes,
+    ...plan.planned_surface_classes,
+    ...(input.knownChangedSurfaceClasses ?? [])
+  ])].sort();
+  const riskClasses = [...new Set([
+    ...task.minimum_planned_risk_classes,
+    ...plan.planned_risk_classes,
+    ...(input.knownRiskClasses ?? [])
+  ])].sort();
+  const requiredSemanticReviews = deriveRequiredSemanticReviews(
+    "plan-review", reviewTier, plannedSurfaceClasses, riskClasses
+  );
+  const requiredPlanningLenses = PLANNING_LENSES.filter((lens) => requiredSemanticReviews.includes(lens));
+  return {
+    contract: "planned-review-facts.v1",
+    task_artifact_id: input.taskArtifactId,
+    task_contract_ref: input.activeTaskPath,
+    effective_plan_artifact_id: input.effectivePlanArtifactId,
+    run_instance_id: input.runInstanceId,
+    immutable_base: input.immutableBase,
+    review_tier: reviewTier,
+    planned_surface_classes: plannedSurfaceClasses,
+    risk_classes: riskClasses,
+    required_semantic_reviews: requiredSemanticReviews,
+    required_planning_lenses: requiredPlanningLenses
+  };
+}
+
 export function deriveRequiredSemanticReviews(
   procedureId: string,
   reviewTier: "standard" | "high" | "extra-high",

@@ -16,7 +16,14 @@ import {
   buildReviewAttempt, buildReviewAttemptEvent, buildReviewCohort,
   buildPlanningReviewBundleRecord, parseRawReviewStartupObservation, assertPlanningBundleIdentity
 } from "../../dist/core/review-cohort.js";
-import { aggregatePlanBlockers, reconcilePlanningLenses, validatePlanningLensResult } from "../../dist/core/plan-contract.js";
+import {
+  aggregatePlanBlockers, reconcilePlanningLenses, resolvePlanningCohortDisposition,
+  validatePlanningLensResult
+} from "../../dist/core/plan-contract.js";
+import {
+  parsePlanBoundPlanningReviewFacts, parseTaskPlanningReviewAuthorityFacts,
+  resolvePlanningReviewFacts
+} from "../../dist/core/self-hosting-review-policy.js";
 import { buildProofRecord, extractTaskRequirements, parseProofDerivationRequest } from "../../dist/core/proof-record.js";
 import {
   buildInstallerOwnershipCatalog,
@@ -35,7 +42,8 @@ import { ProjectMemoryDatabase } from "../../dist/core/project-memory-db.js";
 import { importDeliveryFacts } from "../../dist/core/delivery-facts.js";
 import {
   buildRuntimeRun, extractEffectiveValidationCommands, extractReviewedAuthorityOverlay,
-  launchRuntimePlanningReviewBundle, createCloseoutReceipt, validateRuntimeRun
+  launchRuntimePlanningReviewBundle, createCloseoutReceipt, validatePlanningLensDocumentVerdict,
+  validateRuntimeRun
 } from "../../dist/core/runtime.js";
 import { harvestRun } from "../../dist/core/harvest.js";
 
@@ -417,6 +425,150 @@ test("phase 23.9 reconciliation aggregates blockers only and requires coverage",
   assert.throws(() => validatePlanningLensResult({
     ...make("plan-review"), source_head: "requested"
   }), /planning_lens_result_contract_invalid/);
+});
+
+test("Phase 24A typed planned facts derive the three planning lenses and ignore arbitrary prose", () => {
+  const task = fs.readFileSync(path.join(
+    process.cwd(), "tasks/PHASE_24A_MINIMAL_EVIDENCE_REPORT_AND_REVIEW_PACKET.md"
+  ), "utf8");
+  const plan = [
+    "Unrelated prose says nothing authoritative about architecture, storage, branch, schema, or runtime.",
+    "```yaml",
+    "planning_review_facts_contract: planned-review-facts.v1",
+    "review_tier: extra-high",
+    "planned_surface_classes:",
+    "  - runtime",
+    "planned_risk_classes:",
+    "  - authority",
+    "  - lifecycle",
+    "  - storage",
+    "```"
+  ].join("\n");
+  assert.equal(parseTaskPlanningReviewAuthorityFacts(task).task_id, "24A");
+  assert.deepEqual(parsePlanBoundPlanningReviewFacts(plan).planned_risk_classes, ["authority", "lifecycle", "storage"]);
+  const input = {
+    taskMarkdown: task,
+    planMarkdown: plan,
+    taskArtifactId: sha(task),
+    activeTaskPath: "tasks/PHASE_24A_MINIMAL_EVIDENCE_REPORT_AND_REVIEW_PACKET.md",
+    phaseId: "24A",
+    effectivePlanArtifactId: sha(plan),
+    runInstanceId: "phase24a-instance",
+    immutableBase: "a".repeat(40),
+    knownChangedSurfaceClasses: [],
+    knownRiskClasses: []
+  };
+  const first = resolvePlanningReviewFacts(input);
+  const noisy = resolvePlanningReviewFacts({
+    ...input,
+    planMarkdown: `database harvest worktree schema architecture\n${plan}`
+  });
+  assert.deepEqual(first.required_planning_lenses, ["plan-review", "architecture-review", "db-storage-review"]);
+  assert.deepEqual(noisy.required_planning_lenses, first.required_planning_lenses);
+  assert.ok(first.required_semantic_reviews.includes("docs-consistency-review"));
+  assert.equal(first.required_planning_lenses.includes("docs-consistency-review"), false);
+  assert.equal(resolvePlanningReviewFacts({ ...input, taskMarkdown: "architecture storage schema" }), undefined);
+});
+
+test("planning cohort disposition is exact across PASS amendment blocker partial and identity drift", () => {
+  const shared = {
+    schema_version: "phase-23.9.planning-lens-result.v1", bundle_kind: "candidate",
+    plan_sha: sha("plan"), source_head: "b".repeat(40), task_artifact_id: sha("task"),
+    immutable_base: "a".repeat(40), verdict: "PASS", findings: [],
+    covered_decision_ids: [], covered_trace_ids: [], output_contract_id: "contract"
+  };
+  const required = ["plan-review", "architecture-review", "db-storage-review"];
+  const lens = (procedure_id, verdict = "PASS") => {
+    const artifact = sha(`${procedure_id}:${verdict}`);
+    return {
+      procedure_id,
+      result: { ...shared, procedure_id, verdict },
+      artifact_id: artifact,
+      artifact_content_hash: artifact,
+      descriptor: {
+        run_instance_id: "instance", run_id: "run", procedure_id, artifact_id: artifact,
+        content_hash: artifact.slice("sha256:".length), reviewed_plan_artifact_id: shared.plan_sha,
+        reviewed_plan_content_hash: shared.plan_sha.slice("sha256:".length),
+        provenance: { review_cohort_id: sha("cohort"), reviewed_source_head: shared.source_head,
+          task_artifact_id: shared.task_artifact_id, immutable_base: shared.immutable_base }
+      }
+    };
+  };
+  const base = {
+    run_instance_id: "instance", run_id: "run", task_artifact_id: shared.task_artifact_id,
+    effective_plan_artifact_id: shared.plan_sha,
+    effective_plan_content_hash: shared.plan_sha.slice("sha256:".length),
+    immutable_base: shared.immutable_base, reviewed_source_head: shared.source_head,
+    required_lens_ids: required, cohort_required_lens_ids: required,
+    attempt_required_lens_ids: required,
+    cohort_id: sha("cohort"), terminal_status: "success",
+    lenses: required.map((entry) => lens(entry))
+  };
+  assert.equal(resolvePlanningCohortDisposition(base).disposition, "PASS");
+  for (const procedure of required) {
+    const amended = { ...base, lenses: required.map((entry) => lens(entry, entry === procedure ? "AMEND_REQUIRED" : "PASS")) };
+    assert.equal(resolvePlanningCohortDisposition(amended).disposition, "AMEND_REQUIRED");
+  }
+  for (const procedure of ["architecture-review", "db-storage-review"]) {
+    const blocked = { ...base, lenses: required.map((entry) => lens(entry, entry === procedure ? "BLOCKED" : "PASS")) };
+    assert.equal(resolvePlanningCohortDisposition(blocked).disposition, "BLOCKED");
+  }
+  assert.equal(resolvePlanningCohortDisposition({
+    ...base, terminal_status: "pending", lenses: base.lenses.slice(0, 2)
+  }).disposition, "INCOMPLETE");
+  assert.equal(resolvePlanningCohortDisposition({ ...base, lenses: base.lenses.slice(0, 2) }).disposition, "INVALID");
+  const drifts = [
+    { run_instance_id: "foreign" }, { run_id: "foreign" }, { task_artifact_id: sha("foreign-task") },
+    { effective_plan_artifact_id: sha("foreign-plan") }, { immutable_base: "c".repeat(40) },
+    { reviewed_source_head: "d".repeat(40) }, { required_lens_ids: required.slice(0, 2) },
+    { attempt_required_lens_ids: required.slice(0, 2) },
+    { cohort_id: sha("foreign-cohort") }
+  ];
+  for (const drift of drifts) {
+    assert.equal(resolvePlanningCohortDisposition({ ...base, ...drift }).disposition, "INVALID");
+  }
+  const wrongProcedure = structuredClone(base);
+  wrongProcedure.lenses[0].descriptor.procedure_id = "architecture-review";
+  assert.equal(resolvePlanningCohortDisposition(wrongProcedure).disposition, "INVALID");
+  const wrongArtifact = structuredClone(base);
+  wrongArtifact.lenses[0].descriptor.artifact_id = sha("foreign-artifact");
+  assert.equal(resolvePlanningCohortDisposition(wrongArtifact).disposition, "INVALID");
+});
+
+test("planning structured verdict must equal each canonical document verdict", () => {
+  const identity = `${sha("plan")}\n${"b".repeat(40)}\n${sha("task")}\n${"a".repeat(40)}`;
+  const architecture = (verdict) => `${identity}\n## Keep Or Defer Decision\n\n${verdict}\n`;
+  const storage = (verdict) => `${identity}\n## Recommendation\n\n${verdict}\n`;
+  const planReview = (verdict) => {
+    const fields = verdict === "PASS" ? {
+      outcome: "ready_for_implementation", blockers: "none", amendments: "none",
+      next: "obtain explicit human approval"
+    } : verdict === "AMEND_REQUIRED" ? {
+      outcome: "needs_contract_surface_update", blockers: "PR24A-TEST",
+      amendments: "address PR24A-TEST", next: "run plan-amend"
+    } : {
+      outcome: "blocked", blockers: "PR24A-TEST", amendments: "none",
+      next: "obtain an owner decision"
+    };
+    return [
+      identity, "## Durable Decision Record", "", `verdict: ${verdict}`,
+      `outcome_state: ${fields.outcome}`, `blocking_findings: ${fields.blockers}`,
+      `required_amendments: ${fields.amendments}`, "accepted_defaults: none",
+      "real_operator_choices: none", `next_allowed_action: ${fields.next}`,
+      "validation_required: npm run build", "source_trace: exact identities",
+      "future_phase_deferrals: 24A.1 and 24A.2", "", "## Recommendation", "", verdict, ""
+    ].join("\n");
+  };
+  assert.equal(validatePlanningLensDocumentVerdict("PASS", architecture("PASS"), "architecture-review"), "PASS");
+  assert.equal(validatePlanningLensDocumentVerdict("AMEND_REQUIRED", storage("AMEND_REQUIRED"), "db-storage-review"), "AMEND_REQUIRED");
+  assert.equal(validatePlanningLensDocumentVerdict("BLOCKED", architecture("BLOCKED"), "architecture-review"), "BLOCKED");
+  for (const verdict of ["PASS", "AMEND_REQUIRED", "BLOCKED"]) {
+    assert.equal(validatePlanningLensDocumentVerdict(verdict, planReview(verdict), "plan-review"), verdict);
+  }
+  assert.throws(() => validatePlanningLensDocumentVerdict("PASS", architecture("AMEND_REQUIRED"), "architecture-review"), /PLANNING_REVIEW_VERDICT_MISMATCH/);
+  assert.throws(() => validatePlanningLensDocumentVerdict("PASS", storage("BLOCKED"), "db-storage-review"), /PLANNING_REVIEW_VERDICT_MISMATCH/);
+  assert.throws(() => validatePlanningLensDocumentVerdict("AMEND_REQUIRED", architecture("PASS"), "architecture-review"), /PLANNING_REVIEW_VERDICT_MISMATCH/);
+  assert.throws(() => validatePlanningLensDocumentVerdict("BLOCKED", planReview("PASS"), "plan-review"), /PLANNING_REVIEW_VERDICT_MISMATCH/);
 });
 
 test("phase 23.9 proof is rejected until baseline review and delivery exist", () => {

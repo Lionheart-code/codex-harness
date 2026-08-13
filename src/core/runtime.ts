@@ -79,6 +79,8 @@ import {
 import {
   decideReviewRoute,
   deriveRequiredSemanticReviews,
+  parseTaskPlanningReviewAuthorityFacts,
+  resolvePlanningReviewFacts,
   readCodexReferenceBinding,
   readProcedureExecutionPolicy,
   readReviewRoutePolicy,
@@ -133,7 +135,9 @@ import {
 } from "./review-cohort";
 import {
   aggregatePlanBlockers,
+  resolvePlanningCohortDisposition,
   validatePlanningLensResult,
+  type PlanningCohortDispositionResult,
   type PlanningLensResultV1
 } from "./plan-contract";
 import {
@@ -3757,57 +3761,123 @@ type PlanningReviewLensId = typeof PLANNING_REVIEW_LENSES[number];
 function deriveRequiredPlanningReviewLenses(targetRoot: string, run: Run): PlanningReviewLensId[] {
   // Preserve the completed Phase 23.9 combined-cohort contract unchanged.
   if (run.phase_id === "23.9") return [...PLANNING_REVIEW_LENSES];
-  const plan = readPlanScopeMarkdown({ run, runPath: runFilePath(targetRoot, run.run_id), quarantinedPayloadCount: 0, notes: [] }) ?? "";
-  const taskPath = path.join(targetRoot, run.active_task_path ?? run.task_path);
-  const task = readUtf8FileIfExists(taskPath) ?? "";
-  const authority = `${task}\n${plan}`.toLowerCase();
-  const required: PlanningReviewLensId[] = ["plan-review"];
-  // A generic owner-authority reference is not an architecture surface by itself:
-  // plans can use it solely to describe a post-approval overlay.  The dedicated
-  // lens is selected by a planned lifecycle/runtime boundary or by a specifically
-  // identified authority boundary, not by incidental approval prose.
-  const architectureSignals = /\b(architecture|lifecycle|runtime|worktree|branch|source\s*\/\s*runtime|authority\s+(?:boundary|selection|routing|model|path))\b/u;
-  const storageSignals = /\b(project memory|run\s*\/\s*staging|run-staging|persistence|storage|schema|transaction|harvest|replay|idempotency|database|db\/?storage)\b/u;
-  if (architectureSignals.test(authority)) required.push("architecture-review");
-  if (storageSignals.test(authority)) required.push("db-storage-review");
-  return required;
+  const activeTaskPath = run.active_task_path ?? run.task_path;
+  const taskAbsolutePath = path.join(targetRoot, activeTaskPath);
+  const taskMarkdown = readUtf8FileIfExists(taskAbsolutePath) ?? "";
+  // Pre-contract runs keep their historical single-lens behavior. Only an
+  // explicit task-owned typed floor activates planned-facts derivation.
+  if (!parseTaskPlanningReviewAuthorityFacts(taskMarkdown)) return ["plan-review"];
+  const planBinding = tryResolveExactPlanEvidenceBinding(run);
+  if (!planBinding || !run.run_instance_id) return ["plan-review"];
+  const planArtifact = run.artifacts.find((entry) => entry.artifact_id === planBinding.artifactId);
+  const planMarkdown = planArtifact?.path
+    ? readUtf8FileIfExists(path.join(runDirectory(targetRoot, run.run_id), planArtifact.path)) ?? ""
+    : "";
+  const immutableBase = run.bootstrap_facts?.find((fact) => fact.label === "base_commit")?.value ?? run.source_snapshot;
+  if (!immutableBase) throw new Error("planning_review_bundle_immutable_base_missing");
+  const knownSourceFacts = reviewChangeInventory(targetRoot, immutableBase, resolveExactCommit(targetRoot, "HEAD"));
+  const facts = resolvePlanningReviewFacts({
+    taskMarkdown,
+    planMarkdown,
+    taskArtifactId: `sha256:${sha256Hex(fs.readFileSync(taskAbsolutePath))}`,
+    activeTaskPath,
+    phaseId: run.phase_id ?? "",
+    effectivePlanArtifactId: planBinding.artifactId as `sha256:${string}`,
+    runInstanceId: run.run_instance_id,
+    immutableBase,
+    knownChangedSurfaceClasses: knownSourceFacts.changedSurfaceClasses,
+    knownRiskClasses: knownSourceFacts.riskClasses
+  });
+  return facts?.required_planning_lenses ?? ["plan-review"];
 }
 
-function currentPlanningReviewCohortIsTerminalAndAcceptable(
+function resolveCurrentPlanningReviewCohortDisposition(
   targetRoot: string,
   projectRoot: string,
   run: Run,
   requiredLenses: readonly PlanningReviewLensId[]
-): boolean {
+): PlanningCohortDispositionResult {
   const plan = tryResolveExactPlanEvidenceBinding(run);
-  if (!plan || !run.run_instance_id) return false;
+  if (!plan || !run.run_instance_id) {
+    return { disposition: "INVALID", error_code: "planning_cohort_plan_or_run_identity_missing", missing_lenses: [] };
+  }
   const staging = new RunStagingDatabase(targetRoot, projectRoot, run.run_id);
   const attempts = staging.listIndependentRecords("review_attempt", run.run_id) as Array<Record<string, unknown>>;
   const cohorts = staging.listIndependentRecords("review_cohort", run.run_id) as Array<Record<string, unknown>>;
-  return attempts.some((attempt) => {
-    if (attempt.attempt_kind !== "planning_bundle" || attempt.terminal_status !== "success"
-      || !Array.isArray(attempt.procedure_ids) || canonicalJson(attempt.procedure_ids) !== canonicalJson(requiredLenses)
-      || typeof attempt.cohort_id !== "string") return false;
-    const cohort = cohorts.find((candidate) => candidate.record_id === attempt.cohort_id);
-    if (!cohort || cohort.run_instance_id !== run.run_instance_id || cohort.run_id !== run.run_id
-      || cohort.anchor_plan_sha !== plan.artifactId
-      || canonicalJson(cohort.required_lens_ids) !== canonicalJson(requiredLenses)
-      || cohort.planning_review_source_head !== resolveExactCommit(targetRoot, "HEAD")) return false;
-    const results = Array.isArray(attempt.lens_results) ? attempt.lens_results as Array<Record<string, unknown>> : [];
-    if (results.length !== requiredLenses.length || results.some((result) => result.status !== "recorded" || result.verdict !== "PASS")) return false;
-    return requiredLenses.every((procedureId) => {
-      const result = results.find((entry) => entry.procedure_id === procedureId);
-      if (typeof result?.artifact_id !== "string") return false;
-      const descriptor = staging.readProcedureArtifact(run.run_instance_id!, procedureId, result.artifact_id);
-      if (!descriptor || descriptor.source_run_id !== run.run_id
-        || descriptor.reviewed_plan_artifact_id !== plan.artifactId
-        || descriptor.reviewed_plan_content_hash !== plan.contentHash) return false;
-      try {
-        const provenance = assertObject(JSON.parse(descriptor.provenance_json), "Planning lens provenance");
-        return provenance.review_cohort_id === attempt.cohort_id
-          && provenance.reviewed_source_head === cohort.planning_review_source_head;
-      } catch { return false; }
-    });
+  const currentHead = resolveExactCommit(targetRoot, "HEAD");
+  const taskPath = path.join(targetRoot, run.active_task_path ?? run.task_path);
+  const taskArtifactId = `sha256:${sha256Hex(fs.readFileSync(taskPath))}` as `sha256:${string}`;
+  const immutableBase = run.bootstrap_facts?.find((fact) => fact.label === "base_commit")?.value ?? run.source_snapshot;
+  if (!immutableBase) return { disposition: "INVALID", error_code: "planning_cohort_base_missing", missing_lenses: [] };
+  const currentCohorts = cohorts.filter((cohort) => cohort.run_instance_id === run.run_instance_id
+    && cohort.run_id === run.run_id && cohort.anchor_plan_sha === plan.artifactId
+    && cohort.task_artifact_id === taskArtifactId && cohort.immutable_base === immutableBase
+    && cohort.planning_review_source_head === currentHead);
+  if (currentCohorts.length > 1) {
+    return { disposition: "INVALID", error_code: "planning_cohort_identity_ambiguous", missing_lenses: [] };
+  }
+  const cohort = currentCohorts[0];
+  if (!cohort || typeof cohort.record_id !== "string") {
+    return { disposition: "INCOMPLETE", missing_lenses: [...requiredLenses] };
+  }
+  const matchingAttempts = attempts.filter((attempt) => attempt.attempt_kind === "planning_bundle"
+    && attempt.cohort_id === cohort.record_id
+    && attempt.run_instance_id === run.run_instance_id
+    && attempt.run_id === run.run_id);
+  const successfulAttempts = matchingAttempts.filter((attempt) => attempt.terminal_status === "success");
+  if (successfulAttempts.length > 1) {
+    return { disposition: "INVALID", error_code: "planning_cohort_success_ambiguous", missing_lenses: [] };
+  }
+  const attempt = successfulAttempts[0];
+  if (!attempt) return { disposition: "INCOMPLETE", missing_lenses: [...requiredLenses] };
+  const resultRefs = Array.isArray(attempt.lens_results) ? attempt.lens_results as Array<Record<string, unknown>> : [];
+  const lenses = requiredLenses.flatMap((procedureId) => {
+    const ref = resultRefs.find((entry) => entry.procedure_id === procedureId && entry.status === "recorded");
+    if (typeof ref?.artifact_id !== "string" || typeof ref.artifact_hash !== "string") return [];
+    const descriptor = staging.readProcedureArtifact(run.run_instance_id!, procedureId, ref.artifact_id);
+    if (!descriptor) return [];
+    const bundle = staging.listIndependentRecords("planning_review_bundle", run.run_id)
+      .find((entry) => (entry as Record<string, unknown>).cohort_id === cohort.record_id) as Record<string, unknown> | undefined;
+    if (!bundle || typeof bundle.raw_envelope_utf8 !== "string") return [];
+    const envelope = JSON.parse(bundle.raw_envelope_utf8) as { lens_results?: PlanningLensResultV1[] };
+    const result = envelope.lens_results?.find((entry) => entry.procedure_id === procedureId);
+    if (!result) return [];
+    let provenance: Record<string, unknown>;
+    try { provenance = assertObject(JSON.parse(descriptor.provenance_json), "Planning lens provenance"); }
+    catch { return []; }
+    return [{
+      procedure_id: procedureId,
+      result,
+      artifact_id: ref.artifact_id as `sha256:${string}`,
+      artifact_content_hash: ref.artifact_hash as `sha256:${string}`,
+      descriptor: {
+        run_instance_id: descriptor.run_instance_id,
+        run_id: descriptor.source_run_id,
+        procedure_id: descriptor.procedure_id,
+        artifact_id: descriptor.artifact_id,
+        content_hash: descriptor.content_hash,
+        reviewed_plan_artifact_id: descriptor.reviewed_plan_artifact_id,
+        reviewed_plan_content_hash: descriptor.reviewed_plan_content_hash,
+        provenance
+      }
+    }];
+  });
+  return resolvePlanningCohortDisposition({
+    run_instance_id: run.run_instance_id,
+    run_id: run.run_id,
+    task_artifact_id: taskArtifactId,
+    effective_plan_artifact_id: plan.artifactId as `sha256:${string}`,
+    effective_plan_content_hash: plan.contentHash,
+    immutable_base: immutableBase,
+    reviewed_source_head: currentHead,
+    required_lens_ids: [...requiredLenses],
+    cohort_required_lens_ids: Array.isArray(cohort.required_lens_ids)
+      ? cohort.required_lens_ids as PlanningReviewLensId[] : [],
+    attempt_required_lens_ids: Array.isArray(attempt.procedure_ids)
+      ? attempt.procedure_ids as PlanningReviewLensId[] : [],
+    cohort_id: cohort.record_id as `sha256:${string}`,
+    terminal_status: String(attempt.terminal_status),
+    lenses
   });
 }
 
@@ -5768,8 +5838,8 @@ export async function launchRuntimePlanningReviewBundle(
     || !Array.isArray(lensManifest.carried_lens_refs)) {
     throw new Error("planning_review_lens_manifest_invalid");
   }
-  const expectedProcedures = lensManifest.required_lens_ids.map(String);
-  const allPlanningLenses = ["plan-review", "architecture-review", "db-storage-review"];
+  const expectedProcedures = lensManifest.required_lens_ids.map(String) as PlanningReviewLensId[];
+  const allPlanningLenses: PlanningReviewLensId[] = ["plan-review", "architecture-review", "db-storage-review"];
   if (expectedProcedures.length < 1 || expectedProcedures.length > 3
     || new Set(expectedProcedures).size !== expectedProcedures.length
     || expectedProcedures.some((entry) => !allPlanningLenses.includes(entry))) {
@@ -6052,6 +6122,7 @@ export async function launchRuntimePlanningReviewBundle(
       || result.output_contract_id !== expectedOutputContracts[procedureId]) {
       throw new Error(`planning_review_bundle_document_identity_invalid:${procedureId}`);
     }
+    validatePlanningLensDocumentVerdict(result.verdict, document, procedureId);
     if (procedureId === "plan-review") validatePlanReviewArtifact(document);
     else if (!buildProcedureReviewResult(current.run, procedureId, {
       artifact_id: `sha256:${sha256Hex(document)}`,
@@ -6193,6 +6264,8 @@ export async function launchRuntimePlanningReviewBundle(
           review_attempt_id: attempt.attempt_id,
           review_cohort_id: envelope.bundle_id,
           reviewed_source_head: envelope.source_head,
+          task_artifact_id: envelope.task_artifact_id,
+          immutable_base: envelope.immutable_base,
           raw_startup_observation_hash: rawStartupObservationHash(rawStartup),
           compatibility_path: artifact.path
         }),
@@ -9615,6 +9688,7 @@ function normalizeReviewRecommendationLine(
 }
 
 type CombinedArchitectureDbReviewVerdict = "PASS" | "FIX_REQUIRED";
+type PlanningReviewVerdict = "PASS" | "AMEND_REQUIRED" | "BLOCKED";
 
 interface CombinedArchitectureDbReviewVerdicts {
   architectureAuthority: CombinedArchitectureDbReviewVerdict;
@@ -9662,11 +9736,49 @@ function parseCombinedArchitectureDbReviewVerdicts(markdown: string): CombinedAr
 function parsePlanningLensVerdict(
   markdown: string,
   procedureId: "architecture-review" | "db-storage-review"
-): CombinedArchitectureDbReviewVerdict | undefined {
+): PlanningReviewVerdict | undefined {
   const heading = procedureId === "architecture-review"
     ? "Keep Or Defer Decision"
     : "Recommendation";
-  return parseCombinedReviewVerdictSection(markdown, heading);
+  const sectionPattern = new RegExp(
+    `^##\\s+${escapeRegExpPattern(heading)}\\s*\\n([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`,
+    "im"
+  );
+  const lines = sectionPattern.exec(markdown)?.[1]?.split(/\r?\n/u)
+    .map((line) => line.trim()).filter(Boolean) ?? [];
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const token = lines[index].replace(/^\*\*(.+)\*\*$/u, "$1").trim().toUpperCase();
+    if (["PASS", "AMEND_REQUIRED", "BLOCKED"].includes(token)) return token as PlanningReviewVerdict;
+  }
+  return undefined;
+}
+
+export function parsePlanningLensDocumentVerdict(
+  markdown: string,
+  procedureId: PlanningReviewLensId
+): PlanningReviewVerdict {
+  if (procedureId === "plan-review") {
+    const validated = validatePlanReviewArtifact(markdown);
+    if (!["PASS", "AMEND_REQUIRED", "BLOCKED"].includes(validated.recommendation)) {
+      throw new Error("planning_review_document_verdict_invalid:plan-review");
+    }
+    return validated.recommendation as PlanningReviewVerdict;
+  }
+  const verdict = parsePlanningLensVerdict(markdown, procedureId);
+  if (!verdict) throw new Error(`planning_review_document_verdict_invalid:${procedureId}`);
+  return verdict;
+}
+
+export function validatePlanningLensDocumentVerdict(
+  structuredVerdict: PlanningReviewVerdict,
+  markdown: string,
+  procedureId: PlanningReviewLensId
+): PlanningReviewVerdict {
+  const documentVerdict = parsePlanningLensDocumentVerdict(markdown, procedureId);
+  if (documentVerdict !== structuredVerdict) {
+    throw new Error(`PLANNING_REVIEW_VERDICT_MISMATCH:${procedureId}:${structuredVerdict}:${documentVerdict}`);
+  }
+  return documentVerdict;
 }
 
 function validatePlanReviewArtifact(markdown: string): {
@@ -9876,9 +9988,9 @@ function buildProcedureReviewResult(
 
   const combinedVerdicts = parseCombinedArchitectureDbReviewVerdicts(markdown);
   const combinedVerdict = procedureId === "architecture-review"
-    ? combinedVerdicts?.architectureAuthority ?? parsePlanningLensVerdict(markdown, "architecture-review")
+    ? combinedVerdicts?.architectureAuthority
     : procedureId === "db-storage-review"
-      ? combinedVerdicts?.persistedStorage ?? parsePlanningLensVerdict(markdown, "db-storage-review")
+      ? combinedVerdicts?.persistedStorage
       : undefined;
 
   if (combinedVerdict) {
@@ -9892,6 +10004,24 @@ function buildProcedureReviewResult(
       summary: combinedVerdict === "PASS" ? `${label} passed` : `${label} requires follow-up`,
       source: `procedure:${procedureId}`,
       blockers: combinedVerdict === "PASS" ? [] : [`${label} requires follow-up`],
+      artifact_refs: [artifact]
+    };
+  }
+
+  const planningVerdict = procedureId === "architecture-review" || procedureId === "db-storage-review"
+    ? parsePlanningLensVerdict(markdown, procedureId)
+    : undefined;
+  if (planningVerdict) {
+    const label = procedureId === "architecture-review"
+      ? "Architecture / authority review"
+      : "Persisted storage / no-storage-change review";
+    return {
+      review_result_id: nextId("review", run.review_results.length),
+      status: planningVerdict === "PASS" ? "PASS" : "FIX_REQUIRED",
+      created_at: timestamp,
+      summary: planningVerdict === "PASS" ? `${label} passed` : `${label} requires follow-up`,
+      source: `procedure:${procedureId}`,
+      blockers: planningVerdict === "PASS" ? [] : [`${label} requires follow-up`],
       artifact_refs: [artifact]
     };
   }
@@ -10848,12 +10978,12 @@ function resolveExactPlanApprovalBinding(
   const requiredPlanningLenses = deriveRequiredPlanningReviewLenses(targetRoot, run);
   if (!isPrePhaseFVerificationCompatibility(run.phase_id)
     && requiredPlanningLenses.length > 1
-    && !currentPlanningReviewCohortIsTerminalAndAcceptable(
+    && resolveCurrentPlanningReviewCohortDisposition(
       targetRoot,
       run.repository.project_root,
       run,
       requiredPlanningLenses
-    )) {
+    ).disposition !== "PASS") {
     throw new Error("PLAN_APPROVAL_REQUIRED_REVIEW_COHORT_INCOMPLETE: Phase F and later require the exact current derived planning-review cohort.");
   }
   const planDescriptor = descriptorLookup?.(run.run_instance_id, plan.procedureId, plan.artifactId);
@@ -11890,12 +12020,14 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
     context.runContext.run
   );
   const requiresPlanningLensBundle = requiredPlanningLenses.length > 1 && !context.planApproved;
-  const completeCurrentPlanningCohort = currentPlanningReviewCohortIsTerminalAndAcceptable(
-    context.runContext.run.repository.root_path,
-    context.runContext.run.repository.project_root,
-    context.runContext.run,
-    requiredPlanningLenses
-  );
+  const planningCohortDisposition = requiresPlanningLensBundle
+    ? resolveCurrentPlanningReviewCohortDisposition(
+        context.runContext.run.repository.root_path,
+        context.runContext.run.repository.project_root,
+        context.runContext.run,
+        requiredPlanningLenses
+      )
+    : { disposition: "INCOMPLETE" as const, missing_lenses: [] };
   const missingPlanningLenses = requiredPlanningLenses
     .filter((procedureId) => !context.taggedProcedures!.has(procedureId));
   const durablePlanReviewOutcomeRecorded = hasDurableReviewOutcome(context.latestPlanReviewResult)
@@ -11910,15 +12042,61 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
     ? isProcedureEvidenceFreshAfter(context.runContext, "plan-review", "plan-amend")
     : true;
 
-  if (requiresPlanningLensBundle && !completeCurrentPlanningCohort) {
+  if (requiresPlanningLensBundle && planningCohortDisposition.disposition === "INVALID") {
+    return buildOperatorStageDraft({
+      current_stage: "BLOCKED",
+      next_procedure_id: "none",
+      required_inputs: ["exact valid planning cohort identity and artifacts"],
+      missing_inputs: [],
+      required_evidence: requiredPlanningLenses,
+      missing_evidence: [],
+      stop_reason: planningCohortDisposition.error_code ?? "planning_cohort_invalid",
+      next_allowed_action: "resolve the typed planning-cohort contract failure without adopting or rewriting artifacts",
+      forbidden_actions: ["plan-amend", "plan approval", "implementation", "closeout"],
+      notes: [...context.baseNotes, `required_planning_review_set: ${requiredPlanningLenses.join(",")}`]
+    });
+  }
+
+  if (requiresPlanningLensBundle && planningCohortDisposition.disposition === "BLOCKED") {
+    return buildOperatorStageDraft({
+      current_stage: "BLOCKED",
+      next_procedure_id: "none",
+      required_inputs: ["owner decision for the complete blocked planning cohort"],
+      missing_inputs: [],
+      required_evidence: requiredPlanningLenses,
+      missing_evidence: [],
+      stop_reason: "planning_review_cohort_blocked",
+      next_allowed_action: "resolve the recorded planning blocker through an explicit owner decision",
+      forbidden_actions: ["plan-amend", "plan approval", "implementation", "closeout"],
+      notes: [...context.baseNotes, `required_planning_review_set: ${requiredPlanningLenses.join(",")}`]
+    });
+  }
+
+  if (requiresPlanningLensBundle && planningCohortDisposition.disposition === "AMEND_REQUIRED") {
+    return buildOperatorStageDraft({
+      current_stage: "PLAN_AMEND_REQUIRED",
+      next_procedure_id: "plan-amend",
+      required_inputs: ["complete current planning cohort findings"],
+      missing_inputs: [],
+      required_evidence: ["fresh plan-amend after the current exact cohort"],
+      missing_evidence: ["fresh plan-amend after the current exact cohort"],
+      stop_reason: "planning_review_cohort_requires_amendment",
+      next_allowed_action: "run plan-amend, then derive and launch a fresh exact planning cohort",
+      forbidden_actions: ["plan approval", "implementation", "closeout"],
+      notes: [...context.baseNotes, `required_planning_review_set: ${requiredPlanningLenses.join(",")}`]
+    });
+  }
+
+  if (requiresPlanningLensBundle && planningCohortDisposition.disposition === "INCOMPLETE") {
     return buildOperatorStageDraft({
       current_stage: "PLANNING_REVIEW_BUNDLE_REQUIRED",
       next_procedure_id: "plan-review",
       required_inputs: ["one candidate plan identity", "task artifact", "immutable base", "planning source HEAD"],
       missing_inputs: [],
       required_evidence: requiredPlanningLenses,
-      missing_evidence: missingPlanningLenses.length > 0
-        ? missingPlanningLenses
+      missing_evidence: planningCohortDisposition.missing_lenses.length > 0
+        ? planningCohortDisposition.missing_lenses
+        : missingPlanningLenses.length > 0 ? missingPlanningLenses
         : ["current exact terminal planning review cohort"],
       stop_reason: "planning_lens_bundle_incomplete",
       next_allowed_action: "launch or continue one fresh read-only planning-review bundle; every required lens result must be terminal and exact before amendment or approval",

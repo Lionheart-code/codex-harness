@@ -551,6 +551,20 @@ test("Phase 24A derives its complete planning cohort from planned authority surf
     "",
     "The planned work changes lifecycle authority and runtime approval boundaries.",
     "It reads Project Memory and active Run/Staging persistence/storage records.",
+    "",
+    "```yaml",
+    "planning_review_authority_contract: planned-review-facts.v1",
+    "task_id: 24A",
+    `task_contract_ref: ${ACTIVE_TASK_PATH}`,
+    "review_tier: extra-high",
+    "minimum_planned_surface_classes:",
+    "  - authority_docs",
+    "  - runtime",
+    "minimum_planned_risk_classes:",
+    "  - authority",
+    "  - lifecycle",
+    "  - storage",
+    "```",
     ""
   ].join("\n"));
   writeText(path.join(tempRepo, "docs", "IMPLEMENTATION_ROADMAP.md"), [
@@ -565,7 +579,13 @@ test("Phase 24A derives its complete planning cohort from planned authority surf
     path.join(tempRepo, "schemas", "planning-review-lens-output.schema.json")
   );
   for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan"]) {
-    recordProcedure(tempRepo, "run-0001", procedureId, `# ${procedureId}\n`);
+    const body = procedureId === "draft-plan" ? [
+      "# draft-plan", "", "```yaml",
+      "planning_review_facts_contract: planned-review-facts.v1",
+      "review_tier: extra-high", "planned_surface_classes:", "  - runtime",
+      "planned_risk_classes:", "  - authority", "  - lifecycle", "  - storage", "```", ""
+    ].join("\n") : `# ${procedureId}\n`;
+    recordProcedure(tempRepo, "run-0001", procedureId, body);
   }
   const operator = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
   assertSuccess(operator, "Phase 24A cohort derivation status");

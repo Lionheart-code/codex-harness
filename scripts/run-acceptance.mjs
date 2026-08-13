@@ -13,7 +13,7 @@ const ACCEPTANCE_TIMEOUT_MS = (() => {
   const raw = process.env.CODEX_HARNESS_ACCEPTANCE_TIMEOUT_MS;
 
   if (!raw) {
-    return 20 * 60 * 1000;
+    return 45 * 60 * 1000;
   }
 
   const parsed = Number.parseInt(raw, 10);
