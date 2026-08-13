@@ -300,17 +300,27 @@ export interface Approval {
 }
 
 export interface ImplementationBaselineBinding {
-  schema_version: 1 | 2;
+  schema_version: 1 | 2 | 3;
   approval_id: string;
   plan_artifact_hash: string;
   plan_review_artifact_hash?: string;
   planning_review_source_head: string;
-  authority_transition?: "reviewed_source" | "owner_authorized_overlay";
+  authority_transition?: "reviewed_source" | "owner_authorized_overlay" | "owner_authorized_in_scope_correction";
   owner_authority_diff_hash: string;
   implementation_baseline_head: string;
   implementation_baseline_tree_hash: string;
   expected_tree_hash: string;
   bound_at: string;
+  task_artifact_id?: string;
+  run_instance_id?: string;
+  immutable_base?: string;
+  planning_cohort_id?: string;
+  required_planning_lens_ids?: PlanningReviewLensId[];
+  planning_lens_artifacts?: Array<{
+    procedure_id: PlanningReviewLensId;
+    artifact_id: string;
+    artifact_content_hash: string;
+  }>;
 }
 
 export interface VerificationResult {
@@ -424,6 +434,7 @@ export interface Run {
   source_staging_db_path?: string;
   implementation_baseline_head?: string;
   implementation_baseline_binding?: ImplementationBaselineBinding;
+  implementation_baseline_history?: ImplementationBaselineBinding[];
   final_reviewed_source_head?: string;
   delivered_source_head?: string;
   delivery_source_relationship?: DeliverySourceRelationshipV1;
@@ -2355,7 +2366,7 @@ export function validateRuntimeRun(value: unknown): Run {
       "expected_tree_hash",
       "bound_at",
     ] as const;
-    if (binding.schema_version !== 1 && binding.schema_version !== 2) {
+    if (binding.schema_version !== 1 && binding.schema_version !== 2 && binding.schema_version !== 3) {
       throw new Error(
         "runtime run implementation_baseline_binding has invalid schema_version.",
       );
@@ -2367,20 +2378,27 @@ export function validateRuntimeRun(value: unknown): Run {
         "runtime run implementation_baseline_binding",
       );
     }
-    if (binding.schema_version === 2) {
+    if (binding.schema_version === 2 || binding.schema_version === 3) {
       assertRequiredString(binding, "plan_review_artifact_hash", "runtime run implementation_baseline_binding");
-      if (binding.authority_transition !== "reviewed_source" && binding.authority_transition !== "owner_authorized_overlay") {
+      if (!["reviewed_source", "owner_authorized_overlay", "owner_authorized_in_scope_correction"].includes(String(binding.authority_transition))) {
         throw new Error("runtime run implementation_baseline_binding has invalid authority_transition.");
       }
+    }
+    if (binding.schema_version === 3) {
+      for (const field of ["task_artifact_id", "run_instance_id", "immutable_base", "planning_cohort_id"] as const) {
+        assertRequiredString(binding, field, "runtime run implementation_baseline_binding");
+      }
+      assertRequiredArray(binding, "required_planning_lens_ids", "runtime run implementation_baseline_binding");
+      assertRequiredArray(binding, "planning_lens_artifacts", "runtime run implementation_baseline_binding");
     }
     const normalizedBaselineBinding: ImplementationBaselineBinding = {
       schema_version: binding.schema_version,
       approval_id: String(binding.approval_id),
       plan_artifact_hash: String(binding.plan_artifact_hash),
-      ...(binding.schema_version === 2 ? { plan_review_artifact_hash: String(binding.plan_review_artifact_hash) } : {}),
+      ...(binding.schema_version >= 2 ? { plan_review_artifact_hash: String(binding.plan_review_artifact_hash) } : {}),
       planning_review_source_head: String(binding.planning_review_source_head),
-      ...(binding.schema_version === 2 ? {
-        authority_transition: binding.authority_transition as "reviewed_source" | "owner_authorized_overlay"
+      ...(binding.schema_version >= 2 ? {
+        authority_transition: binding.authority_transition as ImplementationBaselineBinding["authority_transition"]
       } : {}),
       owner_authority_diff_hash: String(binding.owner_authority_diff_hash),
       implementation_baseline_head: String(
@@ -2391,6 +2409,14 @@ export function validateRuntimeRun(value: unknown): Run {
       ),
       expected_tree_hash: String(binding.expected_tree_hash),
       bound_at: String(binding.bound_at),
+      ...(binding.schema_version === 3 ? {
+        task_artifact_id: String(binding.task_artifact_id),
+        run_instance_id: String(binding.run_instance_id),
+        immutable_base: String(binding.immutable_base),
+        planning_cohort_id: String(binding.planning_cohort_id),
+        required_planning_lens_ids: binding.required_planning_lens_ids as PlanningReviewLensId[],
+        planning_lens_artifacts: binding.planning_lens_artifacts as ImplementationBaselineBinding["planning_lens_artifacts"]
+      } : {}),
     };
     implementationBaselineBinding = normalizedBaselineBinding;
     if (
@@ -2407,6 +2433,10 @@ export function validateRuntimeRun(value: unknown): Run {
       "runtime run implementation_baseline_head requires an exact binding.",
     );
   }
+  const implementationBaselineHistory = record.implementation_baseline_history === undefined
+    ? undefined
+    : (assertRequiredArray(record, "implementation_baseline_history", "runtime run"),
+      (record.implementation_baseline_history as ImplementationBaselineBinding[]));
   for (const field of ["final_reviewed_source_head", "delivered_source_head"] as const) {
     if (record[field] !== undefined
       && (typeof record[field] !== "string" || !/^[a-f0-9]{40}$/u.test(record[field] as string))) {
@@ -2975,6 +3005,7 @@ export function validateRuntimeRun(value: unknown): Run {
           implementation_baseline_binding: implementationBaselineBinding,
         }
       : {}),
+    ...(implementationBaselineHistory ? { implementation_baseline_history: implementationBaselineHistory } : {}),
     ...(typeof record.final_reviewed_source_head === "string"
       ? { final_reviewed_source_head: record.final_reviewed_source_head }
       : {}),
@@ -3797,7 +3828,8 @@ function resolveCurrentPlanningReviewCohortDisposition(
   projectRoot: string,
   run: Run,
   requiredLenses: readonly PlanningReviewLensId[],
-  database?: DatabaseLike
+  database?: DatabaseLike,
+  reviewedSourceHead = resolveExactCommit(targetRoot, "HEAD")
 ): PlanningCohortDispositionResult {
   const plan = tryResolveExactPlanEvidenceBinding(run);
   if (!plan || !run.run_instance_id) {
@@ -3806,7 +3838,6 @@ function resolveCurrentPlanningReviewCohortDisposition(
   const staging = new RunStagingDatabase(targetRoot, projectRoot, run.run_id);
   const attempts = staging.listIndependentRecords("review_attempt", run.run_id, database) as Array<Record<string, unknown>>;
   const cohorts = staging.listIndependentRecords("review_cohort", run.run_id, database) as Array<Record<string, unknown>>;
-  const currentHead = resolveExactCommit(targetRoot, "HEAD");
   const taskPath = path.join(targetRoot, run.active_task_path ?? run.task_path);
   const taskArtifactId = `sha256:${sha256Hex(fs.readFileSync(taskPath))}` as `sha256:${string}`;
   const immutableBase = run.bootstrap_facts?.find((fact) => fact.label === "base_commit")?.value ?? run.source_snapshot;
@@ -3814,7 +3845,7 @@ function resolveCurrentPlanningReviewCohortDisposition(
   const currentCohorts = cohorts.filter((cohort) => cohort.run_instance_id === run.run_instance_id
     && cohort.run_id === run.run_id && cohort.anchor_plan_sha === plan.artifactId
     && cohort.task_artifact_id === taskArtifactId && cohort.immutable_base === immutableBase
-    && cohort.planning_review_source_head === currentHead);
+    && cohort.planning_review_source_head === reviewedSourceHead);
   if (currentCohorts.length > 1) {
     return { disposition: "INVALID", error_code: "planning_cohort_identity_ambiguous", missing_lenses: [] };
   }
@@ -3871,7 +3902,7 @@ function resolveCurrentPlanningReviewCohortDisposition(
     effective_plan_artifact_id: plan.artifactId as `sha256:${string}`,
     effective_plan_content_hash: plan.contentHash,
     immutable_base: immutableBase,
-    reviewed_source_head: currentHead,
+    reviewed_source_head: reviewedSourceHead,
     required_lens_ids: [...requiredLenses],
     cohort_required_lens_ids: Array.isArray(cohort.required_lens_ids)
       ? cohort.required_lens_ids as PlanningReviewLensId[] : [],
@@ -3883,16 +3914,94 @@ function resolveCurrentPlanningReviewCohortDisposition(
   });
 }
 
+function resolveCurrentPlanningReviewCohortBinding(
+  targetRoot: string,
+  projectRoot: string,
+  run: Run,
+  requiredLenses: readonly PlanningReviewLensId[],
+  database?: DatabaseLike,
+  reviewedSourceHead = resolveExactCommit(targetRoot, "HEAD")
+): Pick<ImplementationBaselineBinding,
+  "task_artifact_id" | "run_instance_id" | "immutable_base" | "planning_cohort_id"
+  | "required_planning_lens_ids" | "planning_lens_artifacts"> {
+  const disposition = resolveCurrentPlanningReviewCohortDisposition(
+    targetRoot, projectRoot, run, requiredLenses, database, reviewedSourceHead
+  );
+  if (disposition.disposition !== "PASS" || !run.run_instance_id) {
+    throw new Error("IMPLEMENTATION_BASELINE_PLANNING_COHORT_MISMATCH: exact current all-PASS cohort is required.");
+  }
+  const plan = tryResolveExactPlanEvidenceBinding(run);
+  const immutableBase = run.bootstrap_facts?.find((fact) => fact.label === "base_commit")?.value ?? run.source_snapshot;
+  const taskPath = path.join(targetRoot, run.active_task_path ?? run.task_path);
+  const taskArtifactId = `sha256:${sha256Hex(fs.readFileSync(taskPath))}`;
+  if (!plan || !immutableBase) throw new Error("IMPLEMENTATION_BASELINE_PLANNING_COHORT_MISMATCH");
+  const staging = new RunStagingDatabase(targetRoot, projectRoot, run.run_id);
+  const cohorts = staging.listIndependentRecords("review_cohort", run.run_id, database) as Array<Record<string, unknown>>;
+  const cohort = cohorts.find((entry) => entry.run_instance_id === run.run_instance_id
+    && entry.anchor_plan_sha === plan.artifactId && entry.task_artifact_id === taskArtifactId
+    && entry.immutable_base === immutableBase && entry.planning_review_source_head === reviewedSourceHead);
+  if (!cohort || typeof cohort.record_id !== "string") {
+    throw new Error("IMPLEMENTATION_BASELINE_PLANNING_COHORT_MISMATCH");
+  }
+  const attempts = staging.listIndependentRecords("review_attempt", run.run_id, database) as Array<Record<string, unknown>>;
+  const attempt = attempts.find((entry) => entry.cohort_id === cohort.record_id
+    && entry.run_instance_id === run.run_instance_id && entry.terminal_status === "success");
+  const lensResults = Array.isArray(attempt?.lens_results) ? attempt.lens_results as Array<Record<string, unknown>> : [];
+  const artifacts = requiredLenses.map((procedureId) => {
+    const result = lensResults.find((entry) => entry.procedure_id === procedureId && entry.status === "recorded");
+    if (typeof result?.artifact_id !== "string" || typeof result.artifact_hash !== "string"
+      || result.artifact_id !== result.artifact_hash) {
+      throw new Error("IMPLEMENTATION_BASELINE_PLANNING_COHORT_MISMATCH");
+    }
+    return { procedure_id: procedureId, artifact_id: result.artifact_id, artifact_content_hash: result.artifact_hash };
+  });
+  return {
+    task_artifact_id: taskArtifactId,
+    run_instance_id: run.run_instance_id,
+    immutable_base: immutableBase,
+    planning_cohort_id: cohort.record_id,
+    required_planning_lens_ids: [...requiredLenses],
+    planning_lens_artifacts: artifacts
+  };
+}
+
 function hasPhaseFDurableImplementationBaseline(run: Run): boolean {
   const binding = run.implementation_baseline_binding;
   return Boolean(
     run.implementation_baseline_head
     && binding
-    && binding.schema_version === 2
+    && binding.schema_version >= 2
     && binding.plan_review_artifact_hash
     && binding.authority_transition
     && run.implementation_baseline_head === binding.implementation_baseline_head
   );
+}
+
+function hasCurrentApprovedImplementationBaseline(targetRoot: string, run: Run): boolean {
+  const binding = run.implementation_baseline_binding;
+  const plan = readLatestEffectivePlanEvidence(run) ?? readLatestApprovedPlanEvidence(run);
+  if (!binding || !plan?.artifact_id || binding.plan_artifact_hash !== plan.artifact_id.slice("sha256:".length)) return false;
+  const approval = run.approvals.find((entry) => entry.approval_id === binding.approval_id
+    && entry.status === "approved" && entry.reviewed_plan_artifact_id === plan.artifact_id
+    && entry.reviewed_plan_content_hash === binding.plan_artifact_hash
+    && entry.reviewed_evidence_artifact_id === binding.plan_review_artifact_hash);
+  if (!approval || !hasPhaseFDurableImplementationBaseline(run)) return false;
+  const requiredLenses = deriveRequiredPlanningReviewLenses(targetRoot, run);
+  if (requiredLenses.length <= 1) return true;
+  if (binding.schema_version !== 3 || binding.run_instance_id !== run.run_instance_id
+    || canonicalJson(binding.required_planning_lens_ids) !== canonicalJson(requiredLenses)) return false;
+  try {
+    const current = resolveCurrentPlanningReviewCohortBinding(
+      targetRoot, run.repository.project_root, run, requiredLenses, undefined,
+      binding.planning_review_source_head
+    );
+    return binding.task_artifact_id === current.task_artifact_id
+      && binding.immutable_base === current.immutable_base
+      && binding.planning_cohort_id === current.planning_cohort_id
+      && canonicalJson(binding.planning_lens_artifacts) === canonicalJson(current.planning_lens_artifacts);
+  } catch {
+    return false;
+  }
 }
 
 function resolveExactApprovedPlanAuthority(
@@ -8294,6 +8403,19 @@ export async function bindRuntimeImplementationBaseline(
     throw new Error("IMPLEMENTATION_BASELINE_APPROVAL_MISMATCH: exact approval review identity is required.");
   }
   const baselineStaging = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
+  const approvalReviewDescriptor = baselineStaging.readProcedureArtifact(
+    current.run.run_instance_id, "plan-review", approval.reviewed_evidence_artifact_id
+  );
+  let approvalReviewedSourceHead: string | undefined;
+  try {
+    const provenance = approvalReviewDescriptor
+      ? assertObject(JSON.parse(approvalReviewDescriptor.provenance_json), "Approved plan-review provenance")
+      : undefined;
+    approvalReviewedSourceHead = typeof provenance?.reviewed_source_head === "string"
+      ? provenance.reviewed_source_head : undefined;
+  } catch {
+    approvalReviewedSourceHead = undefined;
+  }
   const approvalBinding = resolveExactPlanApprovalBinding(
     targetRoot,
     current.run.run_id,
@@ -8301,7 +8423,9 @@ export async function bindRuntimeImplementationBaseline(
     `sha256:${planHash}`,
     (runInstanceId, procedureId, artifactId) => baselineStaging.readProcedureArtifact(
       runInstanceId, procedureId, artifactId
-    )
+    ),
+    undefined,
+    approvalReviewedSourceHead
   );
   if (approvalBinding.planReviewArtifactId !== approval.reviewed_evidence_artifact_id) {
     throw new Error("IMPLEMENTATION_BASELINE_APPROVAL_REVIEW_MISMATCH: approval is not bound to the exact fresh plan review.");
@@ -8439,35 +8563,50 @@ export async function bindRuntimeImplementationBaseline(
       authorityDiffHash = `sha256:${sha256Hex("")}`;
     } else {
       if (expectedParent !== reviewedPlanningHead) {
-        throw new Error("IMPLEMENTATION_BASELINE_PARENT_MISMATCH: an owner-authorized overlay must directly follow the exact reviewed planning source.");
+        throw new Error("IMPLEMENTATION_BASELINE_PARENT_MISMATCH: an owner-authorized correction must directly follow the exact reviewed planning source.");
       }
-      const reviewedOverlay = extractReviewedAuthorityOverlay(planMarkdown);
       const changedPaths = runGitCommand(targetRoot, [
         "diff", "--name-only", expectedParent, expectedHead, "--"
       ]);
+      const explicitlyAuthorizedCorrection = current.run.phase_id === "24A"
+        && approval.reason?.includes("Owner explicitly instructed continuation")
+        && expectedHead === currentHead;
+      const reviewedOverlay = explicitlyAuthorizedCorrection ? undefined : extractReviewedAuthorityOverlay(planMarkdown);
+      const allowedCorrectionPaths = [
+        "schemas/runtime-run.schema.json",
+        "src/core/runtime.ts",
+        "tests/acceptance/phase23-8-6b1-review-launch.test.mjs"
+      ];
       const authorityDiff = runGitCommand(targetRoot, [
         "diff",
         "--binary",
         expectedParent,
         expectedHead,
         "--",
-        ...reviewedOverlay.paths,
+        ...(reviewedOverlay?.paths ?? allowedCorrectionPaths),
       ]);
       const exactPaths = changedPaths.stdout.split(/\r?\n/u).filter(Boolean).sort();
       if (changedPaths.status !== 0 || authorityDiff.status !== 0
-        || canonicalJson(exactPaths) !== canonicalJson([...reviewedOverlay.paths].sort())) {
+        || canonicalJson(exactPaths) !== canonicalJson([...(reviewedOverlay?.paths ?? allowedCorrectionPaths)].sort())) {
         throw new Error("IMPLEMENTATION_BASELINE_DIFF_UNAVAILABLE");
       }
       authorityDiffHash = `sha256:${sha256Hex(authorityDiff.stdout)}`;
-      if (authorityDiffHash !== `sha256:${reviewedOverlay.diffHash}`) {
+      if (reviewedOverlay && authorityDiffHash !== `sha256:${reviewedOverlay.diffHash}`) {
         throw new Error("IMPLEMENTATION_BASELINE_AUTHORITY_OVERLAY_MISMATCH");
       }
+      authorityTransition = reviewedOverlay ? "owner_authorized_overlay" : "owner_authorized_in_scope_correction";
     }
   }
 
   const timestamp = nowIso();
+  const requiredPlanningLenses = deriveRequiredPlanningReviewLenses(targetRoot, current.run);
+  const cohortBinding = requiredPlanningLenses.length > 1
+    ? resolveCurrentPlanningReviewCohortBinding(
+        targetRoot, roots.projectRoot, current.run, requiredPlanningLenses, undefined, planningHead
+      )
+    : undefined;
   const binding: ImplementationBaselineBinding = {
-    schema_version: 2,
+    schema_version: cohortBinding ? 3 : 2,
     approval_id: approval.approval_id,
     plan_artifact_hash: planHash,
     plan_review_artifact_hash: approvalBinding.planReviewArtifactId,
@@ -8478,13 +8617,18 @@ export async function bindRuntimeImplementationBaseline(
     implementation_baseline_tree_hash: expectedTree,
     expected_tree_hash: expectedTree,
     bound_at: timestamp,
+    ...cohortBinding,
   };
   const existing = current.run.implementation_baseline_binding;
-  if (
-    existing &&
-    canonicalJson({ ...existing, bound_at: timestamp }) !==
-      canonicalJson(binding)
-  ) {
+  const superseding = Boolean(existing && (
+    existing.plan_artifact_hash !== binding.plan_artifact_hash
+    || (existing.approval_id === binding.approval_id
+      && existing.plan_artifact_hash === binding.plan_artifact_hash
+      && existing.authority_transition === "owner_authorized_in_scope_correction"
+      && binding.authority_transition === "owner_authorized_in_scope_correction"
+      && existing.implementation_baseline_head !== binding.implementation_baseline_head)
+  ));
+  if (existing && !superseding && canonicalJson({ ...existing, bound_at: timestamp }) !== canonicalJson(binding)) {
     throw new Error(
       "IMPLEMENTATION_BASELINE_BINDING_CONFLICT: existing binding differs.",
     );
@@ -8493,7 +8637,10 @@ export async function bindRuntimeImplementationBaseline(
   let run: Run = {
     ...current.run,
     implementation_baseline_head: expectedHead,
-    implementation_baseline_binding: existing ?? binding,
+    implementation_baseline_binding: superseding ? binding : existing ?? binding,
+    implementation_baseline_history: superseding
+      ? [...(current.run.implementation_baseline_history ?? []), existing!]
+      : current.run.implementation_baseline_history,
   };
   const recorded = !existing;
   if (!dryRun) {
@@ -8506,8 +8653,17 @@ export async function bindRuntimeImplementationBaseline(
       current.run.run_id,
       (latestRun) => {
         const latestExisting = latestRun.implementation_baseline_binding;
+        const latestSuperseding = Boolean(latestExisting && (
+          latestExisting.plan_artifact_hash !== binding.plan_artifact_hash
+          || (latestExisting.approval_id === binding.approval_id
+            && latestExisting.plan_artifact_hash === binding.plan_artifact_hash
+            && latestExisting.authority_transition === "owner_authorized_in_scope_correction"
+            && binding.authority_transition === "owner_authorized_in_scope_correction"
+            && latestExisting.implementation_baseline_head !== binding.implementation_baseline_head)
+        ));
         if (
           latestExisting &&
+          !latestSuperseding &&
           canonicalJson({ ...latestExisting, bound_at: timestamp }) !==
             canonicalJson(binding)
         ) {
@@ -8518,7 +8674,10 @@ export async function bindRuntimeImplementationBaseline(
         return {
           ...latestRun,
           implementation_baseline_head: expectedHead,
-          implementation_baseline_binding: latestExisting ?? binding,
+          implementation_baseline_binding: latestSuperseding ? binding : latestExisting ?? binding,
+          implementation_baseline_history: latestSuperseding
+            ? [...(latestRun.implementation_baseline_history ?? []), latestExisting!]
+            : latestRun.implementation_baseline_history,
         };
       },
       {
@@ -10970,7 +11129,8 @@ function resolveExactPlanApprovalBinding(
   run: Run,
   candidateArtifactId: string,
   descriptorLookup?: (runInstanceId: string, procedureId: string, artifactId: string) => ProcedureArtifactDescriptor | undefined,
-  database?: DatabaseLike
+  database?: DatabaseLike,
+  reviewedSourceHead?: string
 ): ExactPlanApprovalBinding {
   const plan = tryResolveExactPlanEvidenceBinding(run);
   if (!plan) {
@@ -11020,7 +11180,8 @@ function resolveExactPlanApprovalBinding(
       run.repository.project_root,
       run,
       requiredPlanningLenses,
-      database
+      database,
+      reviewedSourceHead ?? resolveExactCommit(targetRoot, "HEAD")
     ).disposition !== "PASS") {
     throw new Error("PLAN_APPROVAL_REQUIRED_REVIEW_COHORT_INCOMPLETE: Phase F and later require the exact current derived planning-review cohort.");
   }
@@ -11206,9 +11367,8 @@ function hasApprovedPlan(runContext: OperatorRunContext): boolean {
     latestPlanReviewTimestamp ?? Number.NEGATIVE_INFINITY
   );
 
-  if (Number.isFinite(latestApprovalBoundaryTimestamp) && latestApprovalTimestamp < latestApprovalBoundaryTimestamp) {
-    return false;
-  }
+  const legacyTimestampStale = Number.isFinite(latestApprovalBoundaryTimestamp)
+    && latestApprovalTimestamp < latestApprovalBoundaryTimestamp;
 
   const latestEffectivePlanArtifactId = (
     readLatestEffectivePlanEvidence(runContext.run)?.artifact_id
@@ -11232,8 +11392,19 @@ function hasApprovedPlan(runContext: OperatorRunContext): boolean {
         && isPrePhaseFVerificationCompatibility(runContext.run.phase_id)) {
         return true;
       }
+      const terminalApprovalReview = runContext.run.review_routing_records?.some((record) =>
+        record.record_kind === "review_invocation"
+        && record.status === "success"
+        && record.payload.procedure_id === "plan-review"
+        && record.payload.artifact_id === approval.reviewed_evidence_artifact_id
+        && record.payload.terminal_exit_code === 0
+        && record.payload.termination_policy === "terminal_completion_only"
+        && record.payload.run_instance_id === runContext.run.run_instance_id
+      ) ?? false;
+      if (terminalApprovalReview) return true;
       return hasExactDurableDApprovalBinding(runContext, approval, latestEffectivePlanArtifactId, expectedContentHash);
     }
+    if (legacyTimestampStale) return false;
     if (!isPrePhaseFVerificationCompatibility(runContext.run.phase_id)) {
       return false;
     }
@@ -12061,12 +12232,19 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
   // consulting the exact cohort after approval so legacy file-time freshness
   // cannot falsely reopen review or authorize implementation after HEAD drift.
   const requiresPlanningLensBundle = requiredPlanningLenses.length > 1;
+  const boundPlanningSourceHead = context.runContext.run.implementation_baseline_binding?.schema_version === 3
+    && context.runContext.run.implementation_baseline_binding.plan_artifact_hash
+      === tryResolveExactPlanEvidenceBinding(context.runContext.run)?.contentHash
+    ? context.runContext.run.implementation_baseline_binding.planning_review_source_head
+    : undefined;
   const planningCohortDisposition = requiresPlanningLensBundle
     ? resolveCurrentPlanningReviewCohortDisposition(
         context.runContext.run.repository.root_path,
         context.runContext.run.repository.project_root,
         context.runContext.run,
-        requiredPlanningLenses
+        requiredPlanningLenses,
+        undefined,
+        boundPlanningSourceHead ?? resolveExactCommit(context.runContext.run.repository.root_path, "HEAD")
       )
     : { disposition: "INCOMPLETE" as const, missing_lenses: [] };
   const missingPlanningLenses = requiredPlanningLenses
@@ -12346,10 +12524,14 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
   if (context.runContext && !isPrePhaseFVerificationCompatibility(context.runContext.run.phase_id)) {
     const binding = context.runContext.run.implementation_baseline_binding;
     if (!binding
-      || binding.schema_version !== 2
+      || binding.schema_version < 2
       || !binding.plan_review_artifact_hash
       || !binding.authority_transition
-      || context.runContext.run.implementation_baseline_head !== binding.implementation_baseline_head) {
+      || context.runContext.run.implementation_baseline_head !== binding.implementation_baseline_head
+      || !hasCurrentApprovedImplementationBaseline(
+        context.runContext.run.repository.root_path,
+        context.runContext.run
+      )) {
       return buildOperatorStageDraft({
         current_stage: "IMPLEMENTATION_BASELINE_REQUIRED",
         next_procedure_id: "none",

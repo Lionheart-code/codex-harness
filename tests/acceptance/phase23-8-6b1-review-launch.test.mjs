@@ -941,6 +941,64 @@ test("Phase 24A automatic terminal plan review binds approval and direct baselin
   }), "implementation review after exact automatic review baseline");
 });
 
+test("a later approved plan supersedes its predecessor baseline through the registered binder", () => {
+  const tempRepo = createB1Repo("codex-harness-later-plan-baseline-");
+  const planEnv = createFakeCodexBin(tempRepo, "file");
+  assertSuccess(runCommand("git", ["add", "fake-bin"], { cwd: tempRepo }), "stage reviewer");
+  assertSuccess(runCommand("git", ["commit", "-m", "fixture reviewer"], { cwd: tempRepo }), "commit reviewer");
+  setRunPhase(tempRepo, "24A");
+  for (const procedureId of ["task-intake", "task-prompt-writer"]) {
+    recordProcedure(tempRepo, "run-0001", procedureId, `# ${procedureId}\n`);
+  }
+  const firstPlan = recordProcedure(tempRepo, "run-0001", "draft-plan", "# first plan\n");
+  const firstRequest = writeManualFile(tempRepo, "run-0001", "first-review.md", "review first plan");
+  assertSuccess(runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "plan-review",
+    "--request", firstRequest, "--output", ".harness/runs/run-0001/manual/first-review-output.md"
+  ], { cwd: tempRepo, env: { ...planEnv, CODEX_FAKE_REVIEW_CONTENT: planReviewMarkdown() } }), "review first plan");
+  assertSuccess(runCli([
+    "run", "approve-plan", "--run", "run-0001", "--plan", firstPlan,
+    "--approver", "owner", "--reason", "approve first plan"
+  ], { cwd: tempRepo }), "approve first plan");
+  const firstApproval = readRun(tempRepo).approvals.at(-1);
+  assertSuccess(bindImplementationBaseline(tempRepo, firstPlan, firstApproval.approval_id, readHead(tempRepo)), "bind first baseline");
+  const predecessor = structuredClone(readRun(tempRepo).implementation_baseline_binding);
+
+  const laterPlan = recordProcedure(tempRepo, "run-0001", "plan-amend", "# later effective plan\n");
+  const laterRequest = writeManualFile(tempRepo, "run-0001", "later-review.md", "review later plan");
+  assertSuccess(runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "plan-review",
+    "--request", laterRequest, "--output", ".harness/runs/run-0001/manual/later-review-output.md"
+  ], { cwd: tempRepo, env: {
+    ...planEnv,
+    CODEX_FAKE_REVIEW_CONTENT: planReviewMarkdown().replace(
+      "source_trace: TASK.md -> active B1 task",
+      "source_trace: TASK.md -> later effective plan"
+    )
+  } }), "review later plan");
+  assertSuccess(runCli([
+    "run", "approve-plan", "--run", "run-0001", "--plan", laterPlan,
+    "--approver", "owner", "--reason", "approve later plan"
+  ], { cwd: tempRepo }), "approve later plan");
+  const laterApproval = readRun(tempRepo).approvals.at(-1);
+
+  const beforeRebind = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(beforeRebind, "operator requires later-plan baseline");
+  assert.match(beforeRebind.stdout, /current_stage: IMPLEMENTATION_BASELINE_REQUIRED/);
+  const wrongApproval = bindImplementationBaseline(tempRepo, laterPlan, firstApproval.approval_id, readHead(tempRepo));
+  assertFailure(wrongApproval, "predecessor approval cannot supersede baseline");
+  assert.match(wrongApproval.stderr, /IMPLEMENTATION_BASELINE_APPROVAL_MISMATCH/);
+
+  assertSuccess(bindImplementationBaseline(tempRepo, laterPlan, laterApproval.approval_id, readHead(tempRepo)), "supersede exact later baseline");
+  const rebound = readRun(tempRepo);
+  assert.equal(rebound.implementation_baseline_binding.approval_id, laterApproval.approval_id);
+  assert.equal(rebound.implementation_baseline_history.length, 1);
+  assert.deepEqual(rebound.implementation_baseline_history[0], predecessor);
+  const ready = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(ready, "operator after superseding baseline");
+  assert.match(ready.stdout, /current_stage: IMPLEMENTATION_READY/);
+});
+
 test("plan-review accepts Markdown-formatted durable decision tokens", () => {
   const tempRepo = createB1Repo("codex-harness-markdown-plan-decision-");
   for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan"]) {
