@@ -12057,7 +12057,10 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
     context.runContext.run.repository.root_path,
     context.runContext.run
   );
-  const requiresPlanningLensBundle = requiredPlanningLenses.length > 1 && !context.planApproved;
+  // Approval does not make the source-bound planning cohort irrelevant. Keep
+  // consulting the exact cohort after approval so legacy file-time freshness
+  // cannot falsely reopen review or authorize implementation after HEAD drift.
+  const requiresPlanningLensBundle = requiredPlanningLenses.length > 1;
   const planningCohortDisposition = requiresPlanningLensBundle
     ? resolveCurrentPlanningReviewCohortDisposition(
         context.runContext.run.repository.root_path,
