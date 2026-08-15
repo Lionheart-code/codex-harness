@@ -12,6 +12,7 @@ import { canonicalJson } from "../../dist/core/evidence-types.js";
 import { buildContextCore, buildContextManifest, buildReviewDeltaOverlay } from "../../dist/core/self-hosting-review-context.js";
 import { buildRuntimeRun, extractActiveTaskPath } from "../../dist/core/runtime.js";
 import { openSqliteDatabase, openSqliteDatabaseReadOnly } from "../../dist/core/sqlite.js";
+import { parseAuthoritativeProcedureProvenance } from "../../dist/core/run-staging-db.js";
 
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -187,6 +188,15 @@ test("Phase 24A read-only SQLite snapshot reads WAL state without mutating DB, W
     writable.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("Phase 24A fix-pass readback accepts exact semantic-review provenance and rejects legacy-field substitution", () => {
+  const provenance = { phase_id: "24A", task_path: "tasks/PHASE_24A.md", worktree: "/repo",
+    branch: "codex/phase-24a", reviewed_source_head: "7".repeat(40), reviewed_diff_hash: "sha256:" + "8".repeat(64),
+    review_attempt_id: "attempt-1", compatibility_path: "evidence/implementation-review.md" };
+  assert.deepEqual(parseAuthoritativeProcedureProvenance(JSON.stringify(provenance), "implementation-review"), provenance);
+  assert.throws(() => parseAuthoritativeProcedureProvenance(JSON.stringify({ ...provenance,
+    reviewed_source_head: undefined, head: "7".repeat(40) }), "implementation-review"), /reviewed_source_head/);
 });
 
 test("Phase 24A schemas reject ungoverned top-level fields and type the material evidence contracts", () => {

@@ -6589,23 +6589,40 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
           entry.kind === "review-request-packet"
           && entry.content_hash === predecessorInvocation.request_artifact_hash)
       : [];
+    const overlayPayloads = Array.isArray(predecessorInvocation.payload_refs)
+      ? (predecessorInvocation.payload_refs as Array<Record<string, unknown>>).filter((entry) =>
+          entry.kind === "review-delta-overlay")
+      : [];
     if (requestPayloads.length !== 1) {
       throw new Error("FIX_PASS_PREDECESSOR_REQUEST_IDENTITY_MISMATCH");
     }
-    const predecessorBody = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id)
-      .readProcedureArtifactBody({
+    if (overlayPayloads.length !== 1) throw new Error("FIX_PASS_PREDECESSOR_OVERLAY_IDENTITY_MISMATCH");
+    const predecessorStaging = new RunStagingDatabase(targetRoot, roots.projectRoot, current.run.run_id);
+    predecessorStaging.readProcedureArtifactBody({
         runInstanceId: current.run.run_instance_id,
         sourceRunId: current.run.run_id,
         procedureArtifactId: descriptor.artifact_id,
         procedureId: "implementation-review"
-      }).body;
-    const requestedHead = new RegExp(
-      `${current.run.implementation_baseline_head}\\.\\.([a-f0-9]{40})`,
-      "iu"
-    ).exec(predecessorBody)?.[1];
-    if (!requestedHead) throw new Error("FIX_PASS_PREDECESSOR_REVIEWED_HEAD_UNAVAILABLE");
-    if (!predecessorBody.includes(requestedHead)
-      || !predecessorBody.includes(`${current.run.implementation_baseline_head}..${requestedHead}`)) {
+      });
+    const requestedHead = typeof predecessorProvenance.reviewed_source_head === "string"
+      ? predecessorProvenance.reviewed_source_head
+      : undefined;
+    if (!requestedHead || requestedHead !== predecessorInvocation.reviewed_source_head
+      || predecessorProvenance.reviewed_diff_hash !== predecessorInvocation.reviewed_diff_hash) {
+      throw new Error("FIX_PASS_PREDECESSOR_REVIEWED_HEAD_UNAVAILABLE");
+    }
+    const requestPayload = predecessorStaging.readPayloadBodyReadOnly(String(requestPayloads[0].payload_id ?? ""));
+    const overlayPayload = predecessorStaging.readPayloadBodyReadOnly(String(overlayPayloads[0].payload_id ?? ""));
+    const overlayBody = overlayPayload?.body && typeof overlayPayload.body === "object" && !Array.isArray(overlayPayload.body)
+      ? overlayPayload.body as Record<string, unknown>
+      : undefined;
+    if (!requestPayload || requestPayload.kind !== "review-request-packet" || typeof requestPayload.body !== "string"
+      || requestPayload.content_hash !== requestPayloads[0].content_hash
+      || !overlayPayload || overlayPayload.kind !== "review-delta-overlay"
+      || overlayPayload.content_hash !== overlayPayloads[0].content_hash
+      || !overlayBody || overlayBody.delta_overlay_id !== predecessorInvocation.delta_overlay_id
+      || !Array.isArray(overlayBody.diff_refs)
+      || !overlayBody.diff_refs.includes(`git-diff:${current.run.implementation_baseline_head}..${requestedHead}`)) {
       throw new Error("FIX_PASS_PREDECESSOR_ARTIFACT_SOURCE_BINDING_MISMATCH");
     }
     const reviewedSourceHead = resolveExactCommit(targetRoot, "HEAD");

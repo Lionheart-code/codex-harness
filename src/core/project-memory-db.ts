@@ -11,6 +11,7 @@ import {
 import {
   PROJECT_MEMORY_DB_WARNING_THRESHOLD_BYTES,
   initializeMemoryDatabase,
+  parseAuthoritativeProcedureProvenance,
   readStoredPayloadBody,
   resolveMemoryDbPaths,
   type ReadOnlyStoredPayload,
@@ -175,25 +176,6 @@ function stringify(value: unknown): string {
 
 function sha256Hex(value: Buffer): string {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function parseAuthoritativeProcedureProvenance(value: string): Record<string, unknown> {
-  let provenance: unknown;
-  try {
-    provenance = JSON.parse(value) as unknown;
-  } catch {
-    throw new Error("Authoritative procedure-artifact provenance is malformed.");
-  }
-  if (!provenance || typeof provenance !== "object" || Array.isArray(provenance)) {
-    throw new Error("Authoritative procedure-artifact provenance must be an object.");
-  }
-  const record = provenance as Record<string, unknown>;
-  for (const field of ["phase_id", "task_path", "worktree", "branch", "head", "source_snapshot", "base_commit", "compatibility_path"]) {
-    if (typeof record[field] !== "string" || record[field].trim().length === 0) {
-      throw new Error(`Authoritative procedure-artifact provenance is missing ${field}.`);
-    }
-  }
-  return record;
 }
 
 function openProjectDatabase(projectDbPath: string): DatabaseLike {
@@ -1176,7 +1158,7 @@ export class ProjectMemoryDatabase {
         || (row.reviewed_plan_artifact_id !== null && row.reviewed_plan_content_hash !== row.reviewed_plan_artifact_id.slice("sha256:".length))) {
         throw new Error("Authoritative procedure-artifact reviewed-plan binding is malformed.");
       }
-      const provenance = parseAuthoritativeProcedureProvenance(row.provenance_json);
+      const provenance = parseAuthoritativeProcedureProvenance(row.provenance_json, row.procedure_id);
       if (row.procedure_id === "plan-review" && (row.reviewed_plan_artifact_id || provenance.phase_id === "23.8.6D")) {
         if (!row.reviewed_plan_artifact_id || !row.reviewed_plan_content_hash) {
           throw new Error("Authoritative plan-review readback requires an exact reviewed-plan binding.");

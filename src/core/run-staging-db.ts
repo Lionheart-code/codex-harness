@@ -191,7 +191,7 @@ function sha256Hex(value: Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function assertAuthoritativeProcedureProvenance(value: string): void {
+export function parseAuthoritativeProcedureProvenance(value: string, procedureId: string): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
@@ -201,11 +201,21 @@ function assertAuthoritativeProcedureProvenance(value: string): void {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Authoritative procedure-artifact provenance must be an object.");
   }
-  for (const field of ["phase_id", "task_path", "worktree", "branch", "head", "source_snapshot", "base_commit", "compatibility_path"]) {
-    if (typeof (parsed as Record<string, unknown>)[field] !== "string" || !(parsed as Record<string, string>)[field].trim()) {
+  const record = parsed as Record<string, unknown>;
+  const reviewProcedure = ["plan-review", "implementation-review", "fix-pass-review"].includes(procedureId);
+  const required = reviewProcedure
+    ? ["phase_id", "task_path", "worktree", "branch", "reviewed_source_head", "reviewed_diff_hash", "review_attempt_id", "compatibility_path"]
+    : ["phase_id", "task_path", "worktree", "branch", "head", "source_snapshot", "base_commit", "compatibility_path"];
+  for (const field of required) {
+    if (typeof record[field] !== "string" || !(record[field] as string).trim()) {
       throw new Error(`Authoritative procedure-artifact provenance is missing ${field}.`);
     }
   }
+  if (reviewProcedure && (!/^[a-f0-9]{40}$/u.test(String(record.reviewed_source_head))
+    || !/^sha256:[a-f0-9]{64}$/u.test(String(record.reviewed_diff_hash)))) {
+    throw new Error("Authoritative review procedure-artifact provenance has invalid source or diff identity.");
+  }
+  return record;
 }
 
 function toPortablePath(targetPath: string): string {
@@ -992,7 +1002,7 @@ export class RunStagingDatabase {
         || !proceduresById.has(row.procedure_id) || (input.procedureId && row.procedure_id !== input.procedureId)) {
         throw new Error("Authoritative procedure-artifact staging descriptor is malformed or mismatched.");
       }
-      assertAuthoritativeProcedureProvenance(row.provenance_json);
+      parseAuthoritativeProcedureProvenance(row.provenance_json, row.procedure_id);
       if (row.procedure_id === "plan-review") {
         if (!row.reviewed_plan_artifact_id || !row.reviewed_plan_content_hash
           || row.reviewed_plan_content_hash !== row.reviewed_plan_artifact_id.slice("sha256:".length)
