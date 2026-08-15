@@ -50,11 +50,41 @@ function strings(value: unknown, label: string): string[] {
 
 function identity<T extends Record<string, unknown>>(kind: string, body: T): T & { view_id: string } {
   const view = { ...body, view_id: `sha256:${sha256Hex(canonicalJson({ kind, ...body }))}` };
-  assertViewContract(view, kind);
+  validateEvidenceView(view);
   return view;
 }
 
-function assertViewContract(view: Record<string, unknown>, kind: string): void {
+function requireKeys(record: Record<string, unknown>, required: string[], label: string, exact = true): void {
+  const missing = required.filter((field) => record[field] === undefined);
+  const extra = exact ? Object.keys(record).filter((field) => !required.includes(field)) : [];
+  if (missing.length || extra.length) throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:${label}:${[...missing, ...extra].join(",")}`);
+}
+
+function requireString(record: Record<string, unknown>, field: string, label: string, nullable = false): void {
+  if ((nullable && record[field] === null) || (typeof record[field] === "string" && Boolean((record[field] as string).trim()))) return;
+  throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:${label}:${field}`);
+}
+
+function requireStringArray(value: unknown, label: string): void {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:${label}`);
+}
+
+function validatePayloadRefs(value: unknown, label: string): void {
+  if (!Array.isArray(value)) throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:${label}`);
+  for (const entry of value) {
+    const ref = object(entry, label);
+    requireKeys(ref, ["payload_id", "kind", "content_hash", "raw_size_bytes", "redaction_status", "retention_class"], label);
+    for (const field of ["payload_id", "kind", "content_hash", "redaction_status", "retention_class"]) requireString(ref, field, label);
+    if (!Number.isInteger(ref.raw_size_bytes) || Number(ref.raw_size_bytes) < 0) throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:${label}:raw_size_bytes`);
+  }
+}
+
+export function validateEvidenceView(value: unknown): void {
+  const view = object(value, "EVIDENCE_VIEW");
+  const kind = String(view.view_kind ?? "");
+  if (!["historical_evidence_report", "accepted_context_view", "implementation_review_view"].includes(kind)) {
+    throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:${kind || "missing_kind"}`);
+  }
   const authority = kind === "historical_evidence_report" || kind === "accepted_context_view"
     ? "accepted_project_memory"
     : "active_run_staging";
@@ -63,10 +93,110 @@ function assertViewContract(view: Record<string, unknown>, kind: string): void {
     : kind === "accepted_context_view"
       ? ["run_instance_id", "packet_record_id", "context", "ordered_payload_refs", "claims", "transport", "retrieval", "redaction", "truncation"]
       : ["run", "plan", "procedure", "context", "delta", "evidence", "route", "transport", "budget", "independence", "claims", "redaction", "truncation"];
-  if (view.schema_version !== 1 || view.view_kind !== kind || view.authority !== authority
+  requireKeys(view, ["schema_version", "view_kind", "authority", ...required, "view_id"], kind);
+  if (!required.length || view.schema_version !== 1 || view.authority !== authority
     || typeof view.view_id !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(view.view_id)
     || required.some((field) => view[field] === undefined)) {
     throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:${kind}`);
+  }
+  if (!Array.isArray(view.claims)) throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:${kind}:claims`);
+  for (const candidate of view.claims) {
+    const claim = object(candidate, "CLAIM");
+    requireKeys(claim, ["claim", "status", "evidence_refs"], "CLAIM");
+    requireString(claim, "claim", "CLAIM");
+    if (!["evidence", "inference", "missing"].includes(String(claim.status))) throw new Error("EVIDENCE_VIEW_SCHEMA_INVALID:CLAIM:status");
+    requireStringArray(claim.evidence_refs, "CLAIM:evidence_refs");
+  }
+  if (kind === "historical_evidence_report") {
+    const run = object(view.run, "HISTORICAL_RUN");
+    requireKeys(run, ["run_instance_id", "run_id", "phase_id", "task_path", "lifecycle_status", "source_head", "source_snapshot",
+      "implementation_baseline_head", "final_reviewed_source_head", "delivered_source_head"], "HISTORICAL_RUN");
+    for (const field of ["run_instance_id", "run_id", "task_path", "lifecycle_status"]) requireString(run, field, "HISTORICAL_RUN");
+    for (const field of ["verification", "reviews", "delivery", "remote_checks", "gaps", "inferences", "unknowns"]) {
+      if (!Array.isArray(view[field])) throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:HISTORICAL:${field}`);
+    }
+    for (const candidate of view.verification as unknown[]) {
+      const verification = object(candidate, "HISTORICAL_VERIFICATION");
+      requireKeys(verification, ["id", "status", "source", "created_at", "artifact_refs", "commands"], "HISTORICAL_VERIFICATION");
+      for (const field of ["id", "status", "source", "created_at"]) requireString(verification, field, "HISTORICAL_VERIFICATION");
+      requireStringArray(verification.artifact_refs, "HISTORICAL_VERIFICATION:artifact_refs");
+      if (!Array.isArray(verification.commands)) throw new Error("EVIDENCE_VIEW_SCHEMA_INVALID:HISTORICAL_VERIFICATION:commands");
+      for (const commandCandidate of verification.commands) {
+        const command = object(commandCandidate, "HISTORICAL_COMMAND");
+        requireKeys(command, ["id", "command", "status", "exit_code", "artifact_refs"], "HISTORICAL_COMMAND");
+        for (const field of ["id", "command", "status"]) requireString(command, field, "HISTORICAL_COMMAND");
+        if (command.exit_code !== null && !Number.isInteger(command.exit_code)) throw new Error("EVIDENCE_VIEW_SCHEMA_INVALID:HISTORICAL_COMMAND:exit_code");
+        requireStringArray(command.artifact_refs, "HISTORICAL_COMMAND:artifact_refs");
+      }
+    }
+    for (const candidate of view.remote_checks as unknown[]) {
+      const remote = object(candidate, "HISTORICAL_REMOTE_CHECK");
+      requireKeys(remote, ["id", "gate_id", "name", "required", "status", "recorded_at", "provider", "url", "url_hash",
+        "external_run_id", "external_run_id_hash"], "HISTORICAL_REMOTE_CHECK");
+      for (const field of ["id", "gate_id", "name", "status", "recorded_at", "provider"]) requireString(remote, field, "HISTORICAL_REMOTE_CHECK");
+      if (typeof remote.required !== "boolean") throw new Error("EVIDENCE_VIEW_SCHEMA_INVALID:HISTORICAL_REMOTE_CHECK:required");
+    }
+    const proof = object(view.proof, "PROOF_AVAILABILITY");
+    requireKeys(proof, ["status", "refs", "acceptance", "gap_refs", "reason"], "PROOF_AVAILABILITY");
+    requireStringArray(proof.refs, "PROOF_AVAILABILITY:refs");
+    requireStringArray(proof.gap_refs, "PROOF_AVAILABILITY:gap_refs");
+    requireString(proof, "reason", "PROOF_AVAILABILITY");
+    const routing = object(view.routing, "HISTORICAL_ROUTING");
+    requireKeys(routing, ["refs", "records", "usage_refs"], "HISTORICAL_ROUTING");
+    requireStringArray(routing.refs, "HISTORICAL_ROUTING:refs");
+    requireStringArray(routing.usage_refs, "HISTORICAL_ROUTING:usage_refs");
+    if (!Array.isArray(routing.records)) throw new Error("EVIDENCE_VIEW_SCHEMA_INVALID:HISTORICAL_ROUTING:records");
+    for (const candidate of routing.records) {
+      const record = object(candidate, "HISTORICAL_ROUTING_RECORD");
+      requireKeys(record, ["record_id", "record_kind", "status", "created_at", "procedure_id", "route_decision_id", "route_class",
+        "policy_version", "binding_version", "binding_profile_id", "context_core_id", "context_manifest_id", "delta_overlay_id", "usage_ref"],
+      "HISTORICAL_ROUTING_RECORD");
+      for (const field of ["record_id", "record_kind", "status", "created_at"]) requireString(record, field, "HISTORICAL_ROUTING_RECORD");
+    }
+  } else if (kind === "accepted_context_view") {
+    requireString(view, "run_instance_id", kind);
+    requireString(view, "packet_record_id", kind);
+    const context = object(view.context, "ACCEPTED_CONTEXT");
+    requireKeys(context, ["core_id", "core_hash", "manifest_id", "manifest_hash", "overlay_id", "core", "manifest"], "ACCEPTED_CONTEXT");
+    rebuildManifest(context.manifest, rebuildCore(context.core));
+    validatePayloadRefs(view.ordered_payload_refs, "ACCEPTED_CONTEXT_PAYLOAD_REF");
+    const retrieval = object(view.retrieval, "ACCEPTED_CONTEXT_RETRIEVAL");
+    requireKeys(retrieval, ["mode", "capabilities", "canonical_bytes", "mandatory_blocks_present"], "ACCEPTED_CONTEXT_RETRIEVAL");
+    requireStringArray(retrieval.capabilities, "ACCEPTED_CONTEXT_RETRIEVAL:capabilities");
+    requireStringArray(retrieval.mandatory_blocks_present, "ACCEPTED_CONTEXT_RETRIEVAL:mandatory_blocks_present");
+  } else if (kind === "implementation_review_view") {
+    const run = object(view.run, "IMPLEMENTATION_RUN");
+    requireKeys(run, ["run_instance_id", "run_id", "phase_id", "task_path", "branch", "immutable_base", "baseline_head",
+      "baseline_tree_hash", "candidate_head", "reviewed_candidate_id", "source_snapshot"], "IMPLEMENTATION_RUN");
+    for (const field of ["run_instance_id", "run_id", "task_path", "baseline_head", "baseline_tree_hash", "candidate_head", "reviewed_candidate_id"]) {
+      requireString(run, field, "IMPLEMENTATION_RUN");
+    }
+    const context = object(view.context, "IMPLEMENTATION_CONTEXT");
+    requireKeys(context, ["packet_record_id", "core_id", "core_hash", "manifest_id", "manifest_hash", "core", "manifest", "payload_refs"], "IMPLEMENTATION_CONTEXT");
+    const core = rebuildCore(context.core);
+    rebuildManifest(context.manifest, core);
+    validatePayloadRefs(context.payload_refs, "IMPLEMENTATION_CONTEXT_PAYLOAD_REF");
+    const delta = object(view.delta, "IMPLEMENTATION_DELTA");
+    requireKeys(delta, ["overlay_id", "overlay_hash", "changed_files", "diff_refs", "payload_refs", "changed_authority_surfaces",
+      "changed_architecture_surfaces", "risks", "findings", "verification_refs", "missing_evidence", "escalation_reasons",
+      "canonical_byte_count", "size_budget_bytes"], "IMPLEMENTATION_DELTA");
+    for (const field of ["changed_files", "diff_refs", "payload_refs", "changed_authority_surfaces", "changed_architecture_surfaces",
+      "risks", "verification_refs", "missing_evidence", "escalation_reasons"]) requireStringArray(delta[field], `IMPLEMENTATION_DELTA:${field}`);
+    if (!Array.isArray(delta.findings)) throw new Error("EVIDENCE_VIEW_SCHEMA_INVALID:IMPLEMENTATION_DELTA:findings");
+    for (const candidate of delta.findings) {
+      const finding = object(candidate, "IMPLEMENTATION_FINDING");
+      requireKeys(finding, ["finding_id", "disposition"], "IMPLEMENTATION_FINDING");
+      requireString(finding, "finding_id", "IMPLEMENTATION_FINDING");
+      if (!["open", "claimed_fixed", "closed", "superseded"].includes(String(finding.disposition))) {
+        throw new Error("EVIDENCE_VIEW_SCHEMA_INVALID:IMPLEMENTATION_FINDING:disposition");
+      }
+    }
+    const route = object(view.route, "IMPLEMENTATION_ROUTE");
+    requireKeys(route, ["decision_id", "route_class", "policy_version", "binding_version", "binding_profile_id", "review_tier",
+      "risk_classes", "required_semantic_reviews"], "IMPLEMENTATION_ROUTE");
+    for (const field of ["decision_id", "route_class", "policy_version", "binding_version", "binding_profile_id", "review_tier"]) requireString(route, field, "IMPLEMENTATION_ROUTE");
+    requireStringArray(route.risk_classes, "IMPLEMENTATION_ROUTE:risk_classes");
+    requireStringArray(route.required_semantic_reviews, "IMPLEMENTATION_ROUTE:required_semantic_reviews");
   }
 }
 
@@ -199,6 +329,18 @@ function validateContext(run: Run, packetRecordId: string, payloads: ReadOnlySto
   for (const payload of payloads) {
     if (payloadById.has(payload.payload_id)) throw new Error(`CONTEXT_PAYLOAD_AMBIGUOUS:${payload.payload_id}`);
     payloadById.set(payload.payload_id, payload);
+  }
+  const expectedParent = `review-launch-attempt:${attemptId}`;
+  for (const payloadId of payloadIds) {
+    const payload = payloadById.get(payloadId);
+    const kind = Object.entries(kinds).find(([, id]) => id === payloadId)?.[0];
+    if (!payload || !kind || payload.kind !== kind) throw new Error(`CONTEXT_PAYLOAD_BINDING_MISMATCH:${payloadId}`);
+    if (![expectedParent, `${run.run_instance_id}:${expectedParent}`].includes(payload.parent_record_id)) {
+      throw new Error(`CONTEXT_PAYLOAD_PARENT_MISMATCH:${payloadId}`);
+    }
+    if (![run.run_id, run.run_instance_id].includes(payload.source_run_id)) {
+      throw new Error(`CONTEXT_PAYLOAD_RUN_MISMATCH:${payloadId}`);
+    }
   }
   const resolved = new Map<string, ReadOnlyStoredPayload>();
   for (const kind of ["context-core", "context-manifest", ...(requireOverlay ? ["review-delta-overlay"] : [])]) {

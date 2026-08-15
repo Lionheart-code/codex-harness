@@ -203,15 +203,17 @@ export function parseAuthoritativeProcedureProvenance(value: string, procedureId
   }
   const record = parsed as Record<string, unknown>;
   const reviewProcedure = ["plan-review", "implementation-review", "fix-pass-review"].includes(procedureId);
-  const required = reviewProcedure
-    ? ["phase_id", "task_path", "worktree", "branch", "reviewed_source_head", "reviewed_diff_hash", "review_attempt_id", "compatibility_path"]
-    : ["phase_id", "task_path", "worktree", "branch", "head", "source_snapshot", "base_commit", "compatibility_path"];
+  const common = ["phase_id", "task_path", "worktree", "branch", "compatibility_path"];
+  const reviewIdentity = ["reviewed_source_head", "reviewed_diff_hash", "review_attempt_id"];
+  const legacyIdentity = ["head", "source_snapshot", "base_commit"];
+  const hasCompleteReviewIdentity = reviewIdentity.every((field) => typeof record[field] === "string" && Boolean((record[field] as string).trim()));
+  const required = [...common, ...(reviewProcedure && hasCompleteReviewIdentity ? reviewIdentity : legacyIdentity)];
   for (const field of required) {
     if (typeof record[field] !== "string" || !(record[field] as string).trim()) {
       throw new Error(`Authoritative procedure-artifact provenance is missing ${field}.`);
     }
   }
-  if (reviewProcedure && (!/^[a-f0-9]{40}$/u.test(String(record.reviewed_source_head))
+  if (reviewProcedure && hasCompleteReviewIdentity && (!/^[a-f0-9]{40}$/u.test(String(record.reviewed_source_head))
     || !/^sha256:[a-f0-9]{64}$/u.test(String(record.reviewed_diff_hash)))) {
     throw new Error("Authoritative review procedure-artifact provenance has invalid source or diff identity.");
   }

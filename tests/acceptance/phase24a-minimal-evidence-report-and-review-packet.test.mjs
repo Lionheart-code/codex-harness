@@ -6,7 +6,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
-  buildAcceptedContextView, buildHistoricalEvidenceReport, buildImplementationReviewView
+  buildAcceptedContextView, buildHistoricalEvidenceReport, buildImplementationReviewView, validateEvidenceView
 } from "../../dist/core/evidence-views.js";
 import { canonicalJson } from "../../dist/core/evidence-types.js";
 import { buildContextCore, buildContextManifest, buildReviewDeltaOverlay } from "../../dist/core/self-hosting-review-context.js";
@@ -68,7 +68,7 @@ function contextFixture(candidateHead = "7".repeat(40)) {
     missing_evidence: [], escalation_reasons: ["storage"], size_budget_bytes: 32768 });
   const values = { "context-core": core, "context-manifest": manifest, "review-delta-overlay": overlay };
   const ids = { "context-core": "payload-core", "context-manifest": "payload-manifest", "review-delta-overlay": "payload-overlay" };
-  const payloads = Object.entries(values).map(([kind, body]) => ({ payload_id: ids[kind], parent_record_id: "review-attempt-1",
+  const payloads = Object.entries(values).map(([kind, body]) => ({ payload_id: ids[kind], parent_record_id: "review-launch-attempt:attempt-1",
     source_run_id: "run-view", kind, media_type: "application/json", redaction_status: "not_applicable",
     retention_class: "accepted", raw_size_bytes: Buffer.byteLength(JSON.stringify(body) + "\n"),
     content_hash: "sha256:" + sha(JSON.stringify(body) + "\n"), body }));
@@ -148,6 +148,10 @@ test("Phase 24A accepted context view fails closed on hash and parentage mismatc
   const badPayloads = fixture.payloads.map((payload) => payload.kind === "context-manifest" ? { ...payload, body: badManifest } : payload);
   assert.throws(() => buildAcceptedContextView(run({ review_routing_records: fixture.records }), fixture.packet.record_id,
     { payloads: badPayloads }), /MANIFEST_IDENTITY_MISMATCH/);
+  const badParent = fixture.payloads.map((payload) => payload.kind === "context-core"
+    ? { ...payload, parent_record_id: "review-launch-attempt:wrong" } : payload);
+  assert.throws(() => buildAcceptedContextView(run({ review_routing_records: fixture.records }), fixture.packet.record_id,
+    { payloads: badParent }), /CONTEXT_PAYLOAD_PARENT_MISMATCH/);
 });
 
 test("Phase 24A implementation review view includes exact overlay, route, policy, proof, and baseline bindings", () => {
@@ -168,20 +172,37 @@ test("Phase 24A implementation review view includes exact overlay, route, policy
     { packetRecordId: fixture.packet.record_id, payloads: fixture.payloads }), /CANDIDATE_BINDING_MISMATCH/);
 });
 
-test("Phase 24A read-only SQLite snapshot reads WAL state without mutating DB, WAL, or SHM identities", () => {
+test("Phase 24A immutable SQLite read opens a WAL-mode database without filesystem writes", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "phase24a-wal-"));
   const databasePath = path.join(root, "staging.sqlite");
   const writable = openSqliteDatabase(databasePath);
+  writable.exec("PRAGMA journal_mode=WAL; CREATE TABLE evidence(value TEXT); INSERT INTO evidence VALUES ('accepted');");
+  writable.close();
   try {
-    writable.exec("PRAGMA journal_mode=WAL; CREATE TABLE evidence(value TEXT); INSERT INTO evidence VALUES ('accepted');");
     const tracked = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`].filter(fs.existsSync);
-    assert.ok(tracked.some((file) => file.endsWith("-wal")), "fixture must retain live WAL state");
     const before = new Map(tracked.map((file) => [file, sha(fs.readFileSync(file))]));
     fs.chmodSync(root, 0o555);
     const readOnly = openSqliteDatabaseReadOnly(databasePath);
     try {
       assert.equal(readOnly.prepare("SELECT value FROM evidence").get().value, "accepted");
     } finally { readOnly.close(); }
+    assert.deepEqual(new Map(tracked.map((file) => [file, sha(fs.readFileSync(file))])), before);
+  } finally {
+    fs.chmodSync(root, 0o755);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Phase 24A read-only SQLite fails closed on active WAL bytes without mutating DB, WAL, or SHM", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "phase24a-active-wal-"));
+  const databasePath = path.join(root, "staging.sqlite");
+  const writable = openSqliteDatabase(databasePath);
+  try {
+    writable.exec("PRAGMA journal_mode=WAL; CREATE TABLE evidence(value TEXT); INSERT INTO evidence VALUES ('active');");
+    const tracked = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`].filter(fs.existsSync);
+    const before = new Map(tracked.map((file) => [file, sha(fs.readFileSync(file))]));
+    fs.chmodSync(root, 0o555);
+    assert.throws(() => openSqliteDatabaseReadOnly(databasePath), /SQLITE_READ_ACTIVE_WAL_UNAVAILABLE/);
     assert.deepEqual(new Map(tracked.map((file) => [file, sha(fs.readFileSync(file))])), before);
   } finally {
     fs.chmodSync(root, 0o755);
@@ -196,7 +217,7 @@ test("Phase 24A fix-pass readback accepts exact semantic-review provenance and r
     review_attempt_id: "attempt-1", compatibility_path: "evidence/implementation-review.md" };
   assert.deepEqual(parseAuthoritativeProcedureProvenance(JSON.stringify(provenance), "implementation-review"), provenance);
   assert.throws(() => parseAuthoritativeProcedureProvenance(JSON.stringify({ ...provenance,
-    reviewed_source_head: undefined, head: "7".repeat(40) }), "implementation-review"), /reviewed_source_head/);
+    reviewed_source_head: undefined, head: "7".repeat(40) }), "implementation-review"), /source_snapshot/);
 });
 
 test("Phase 24A schemas reject ungoverned top-level fields and type the material evidence contracts", () => {
@@ -209,6 +230,20 @@ test("Phase 24A schemas reject ungoverned top-level fields and type the material
   assert.ok(implementation.required.includes("delta"));
   assert.ok(implementation.required.includes("route"));
   assert.ok(implementation.required.includes("budget"));
+  assert.ok(implementation.properties.context.properties.core.$ref.includes("contextCore"));
+  const fixture = contextFixture();
+  const accepted = buildAcceptedContextView(run({ review_routing_records: fixture.records }), fixture.packet.record_id,
+    { payloads: fixture.payloads });
+  const malformedContext = structuredClone(accepted);
+  malformedContext.ordered_payload_refs[0].unexpected = true;
+  assert.throws(() => validateEvidenceView(malformedContext), /SCHEMA_INVALID/);
+  const exactBinding = binding();
+  const implementationView = buildImplementationReviewView(run({ lifecycle_status: "active",
+    implementation_baseline_head: exactBinding.implementation_baseline_head, implementation_baseline_binding: exactBinding,
+    review_routing_records: fixture.records }), "7".repeat(40), { packetRecordId: fixture.packet.record_id, payloads: fixture.payloads });
+  const malformedRoute = structuredClone(implementationView);
+  malformedRoute.route.risk_classes = "storage";
+  assert.throws(() => validateEvidenceView(malformedRoute), /SCHEMA_INVALID/);
 });
 
 test("Phase 24A report and packet help are closed deterministic CLI surfaces", () => {

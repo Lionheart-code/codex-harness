@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 
 export interface StatementLike {
   run(...params: unknown[]): unknown;
@@ -15,7 +15,7 @@ export interface DatabaseLike {
 }
 
 interface SqliteModuleLike {
-  DatabaseSync?: new (database: string, options?: { readOnly?: boolean }) => DatabaseLike;
+  DatabaseSync?: new (database: string | URL, options?: { readOnly?: boolean }) => DatabaseLike;
 }
 
 export function openSqliteDatabaseReadOnly(databasePath: string): DatabaseLike {
@@ -24,11 +24,6 @@ export function openSqliteDatabaseReadOnly(databasePath: string): DatabaseLike {
   if (!probe.available) throw new Error(`${probe.message}\nSQLite-backed memory commands require a Node runtime with node:sqlite.`);
   const sqlite = loadNodeSqlite();
   if (typeof sqlite.DatabaseSync !== "function") throw new Error("node:sqlite loaded, but DatabaseSync is not available.");
-  // SQLite may need to create or update WAL/SHM sidecars even for a logical read.
-  // Never give a report/packet command that capability in the authoritative DB
-  // directory. Materialize a consistency-checked private snapshot instead.
-  const snapshotRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-harness-sqlite-read-"));
-  const snapshotPath = path.join(snapshotRoot, path.basename(databasePath));
   const sourcePaths = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`];
   const fingerprint = (sourcePath: string): string => {
     if (!fs.existsSync(sourcePath)) return "missing";
@@ -36,29 +31,25 @@ export function openSqliteDatabaseReadOnly(databasePath: string): DatabaseLike {
     return [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
   };
   const before = sourcePaths.map(fingerprint);
-  try {
-    for (const sourcePath of sourcePaths) {
-      if (fs.existsSync(sourcePath)) {
-        fs.copyFileSync(sourcePath, path.join(snapshotRoot, path.basename(sourcePath)));
-      }
-    }
-    const after = sourcePaths.map(fingerprint);
-    if (before.some((value, index) => value !== after[index])) {
-      throw new Error(`SQLITE_READ_SNAPSHOT_CHANGED:${databasePath}`);
-    }
-    const snapshot = new sqlite.DatabaseSync(snapshotPath, { readOnly: true });
-    return {
-      exec: (sql) => snapshot.exec(sql),
-      prepare: (sql) => snapshot.prepare(sql),
-      close: () => {
-        try { snapshot.close(); }
-        finally { fs.rmSync(snapshotRoot, { recursive: true, force: true }); }
-      }
-    };
-  } catch (error) {
-    fs.rmSync(snapshotRoot, { recursive: true, force: true });
-    throw error;
+  const walPath = `${databasePath}-wal`;
+  if (fs.existsSync(walPath) && fs.statSync(walPath).size > 32) {
+    throw new Error(`SQLITE_READ_ACTIVE_WAL_UNAVAILABLE:${databasePath}`);
   }
+  const immutableUrl = pathToFileURL(databasePath);
+  immutableUrl.searchParams.set("mode", "ro");
+  immutableUrl.searchParams.set("immutable", "1");
+  const immutable = new sqlite.DatabaseSync(immutableUrl, { readOnly: true });
+  return {
+    exec: (sql) => immutable.exec(sql),
+    prepare: (sql) => immutable.prepare(sql),
+    close: () => {
+      immutable.close();
+      const after = sourcePaths.map(fingerprint);
+      if (before.some((value, index) => value !== after[index])) {
+        throw new Error(`SQLITE_READ_SNAPSHOT_CHANGED:${databasePath}`);
+      }
+    }
+  };
 }
 
 const SQLITE_SPECIFIER = "node:sqlite";
