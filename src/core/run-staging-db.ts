@@ -127,6 +127,62 @@ interface NormalizedRecordRow {
   retentionClass: string;
 }
 
+export interface ReadOnlyStoredPayload {
+  payload_id: string;
+  parent_record_id: string;
+  source_run_id: string;
+  kind: string;
+  media_type: string;
+  redaction_status: string;
+  retention_class: string;
+  raw_size_bytes: number;
+  content_hash: string;
+  body: unknown;
+}
+
+export function readStoredPayloadBody(
+  database: DatabaseLike,
+  storedPayloadId: string,
+  exposedPayloadId = storedPayloadId
+): ReadOnlyStoredPayload | undefined {
+  const row = database.prepare([
+    "SELECT parent_record_id, source_run_id, kind, media_type, redaction_status, retention_class,",
+    "compression_status, chunk_count, raw_size_bytes, content_hash FROM payload_index WHERE payload_id = ?"
+  ].join(" ")).get(storedPayloadId) as Record<string, unknown> | undefined;
+  if (!row) return undefined;
+  const chunks = database.prepare(
+    "SELECT chunk_order, chunk_bytes FROM payload_chunks WHERE payload_id = ? ORDER BY chunk_order ASC"
+  ).all(storedPayloadId) as Array<{ chunk_order: number; chunk_bytes: Uint8Array }>;
+  const expectedChunkCount = Number(row.chunk_count);
+  if (chunks.length !== expectedChunkCount || chunks.some((entry, index) => entry.chunk_order !== index)) {
+    throw new Error(`PAYLOAD_CHUNKS_INVALID:${exposedPayloadId}`);
+  }
+  const stored = Buffer.concat(chunks.map((entry) => Buffer.from(entry.chunk_bytes)));
+  const raw = row.compression_status === "gzip" ? gunzipSync(stored) : stored;
+  const expectedHash = String(row.content_hash);
+  if (raw.byteLength !== Number(row.raw_size_bytes)
+    || createHash("sha256").update(raw).digest("hex") !== expectedHash) {
+    throw new Error(`PAYLOAD_HASH_MISMATCH:${exposedPayloadId}`);
+  }
+  let body: unknown = raw.toString("utf8");
+  if (String(row.media_type) === "application/json") {
+    try { body = JSON.parse(String(body)); }
+    catch { throw new Error(`PAYLOAD_JSON_INVALID:${exposedPayloadId}`); }
+  }
+  return {
+    payload_id: exposedPayloadId,
+    parent_record_id: String(row.parent_record_id),
+    source_run_id: String(row.source_run_id),
+    kind: String(row.kind),
+    media_type: String(row.media_type),
+    redaction_status: String(row.redaction_status),
+    retention_class: String(row.retention_class),
+    raw_size_bytes: Number(row.raw_size_bytes),
+    content_hash: `sha256:${expectedHash}`,
+    body
+  };
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -841,6 +897,32 @@ export class RunStagingDatabase {
     } finally {
       database.close();
     }
+  }
+
+  readPayloadBodyReadOnly(payloadId: string): ReadOnlyStoredPayload | undefined {
+    return this.readPayloadBodiesReadOnly([payloadId])[0];
+  }
+
+  readPayloadBodiesReadOnly(payloadIds: string[]): ReadOnlyStoredPayload[] {
+    if (!this.paths.stagingDbPath) return [];
+    if (new Set(payloadIds).size !== payloadIds.length) throw new Error("PAYLOAD_READ_IDS_AMBIGUOUS");
+    const database = openSqliteDatabaseReadOnly(this.paths.stagingDbPath);
+    try { return payloadIds.flatMap((payloadId) => {
+      const payload = readStoredPayloadBody(database, payloadId);
+      return payload ? [payload] : [];
+    }); }
+    finally { database.close(); }
+  }
+
+  listIndependentRecordsReadOnly(recordKind: Phase239IndependentRecordKind, runId: string): unknown[] {
+    if (!this.paths.stagingDbPath) return [];
+    const database = openSqliteDatabaseReadOnly(this.paths.stagingDbPath);
+    try {
+      const rows = database.prepare(
+        "SELECT payload_json FROM records WHERE record_kind = ? AND run_id = ? ORDER BY created_at ASC, record_id ASC"
+      ).all(recordKind, runId) as Array<{ payload_json: string }>;
+      return rows.map((row) => JSON.parse(row.payload_json));
+    } finally { database.close(); }
   }
 
   readProcedureArtifact(

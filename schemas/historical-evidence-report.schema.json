@@ -1,1 +1,44 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"HistoricalEvidenceReportV1","type":"object","required":["schema_version","view_kind","authority","run","claims","verification","reviews","delivery","proof","routing_refs","redaction","truncation","view_id"],"properties":{"schema_version":{"const":1},"view_kind":{"const":"historical_evidence_report"},"authority":{"const":"accepted_project_memory"},"view_id":{"type":"string","pattern":"^sha256:[a-f0-9]{64}$"}},"additionalProperties":true}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HistoricalEvidenceReportV1",
+  "type": "object",
+  "required": ["schema_version", "view_kind", "authority", "run", "claims", "verification", "reviews", "delivery", "remote_checks", "proof", "gaps", "inferences", "unknowns", "routing", "redaction", "truncation", "view_id"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "view_kind": { "const": "historical_evidence_report" },
+    "authority": { "const": "accepted_project_memory" },
+    "run": {
+      "type": "object",
+      "required": ["run_instance_id", "run_id", "phase_id", "task_path", "lifecycle_status", "source_head", "source_snapshot", "implementation_baseline_head", "final_reviewed_source_head", "delivered_source_head"],
+      "properties": {
+        "run_instance_id": { "type": "string", "minLength": 1 }, "run_id": { "type": "string", "minLength": 1 },
+        "phase_id": { "type": ["string", "null"] }, "task_path": { "type": "string", "minLength": 1 },
+        "lifecycle_status": { "const": "harvested" }, "source_head": { "$ref": "#/$defs/nullableCommit" },
+        "source_snapshot": { "$ref": "#/$defs/nullableCommit" }, "implementation_baseline_head": { "$ref": "#/$defs/nullableCommit" },
+        "final_reviewed_source_head": { "$ref": "#/$defs/nullableCommit" }, "delivered_source_head": { "$ref": "#/$defs/nullableCommit" }
+      },
+      "additionalProperties": false
+    },
+    "claims": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+    "verification": { "type": "array", "items": { "type": "object", "required": ["id", "status", "source", "created_at", "artifact_refs", "commands"], "properties": { "id": { "type": "string" }, "status": { "type": "string" }, "source": { "type": "string" }, "created_at": { "type": "string" }, "artifact_refs": { "$ref": "#/$defs/stringArray" }, "commands": { "type": "array", "items": { "type": "object" } } }, "additionalProperties": false } },
+    "reviews": { "type": "array", "items": { "type": "object", "required": ["id", "status", "source", "created_at", "disposition", "blockers", "artifact_refs"], "properties": { "id": { "type": "string" }, "status": { "type": "string" }, "source": { "type": "string" }, "created_at": { "type": "string" }, "disposition": { "enum": ["current", "superseded"] }, "blockers": { "$ref": "#/$defs/stringArray" }, "artifact_refs": { "$ref": "#/$defs/stringArray" } }, "additionalProperties": false } },
+    "delivery": { "type": "array", "items": { "$ref": "#/$defs/externalFact" } },
+    "remote_checks": { "type": "array", "items": { "type": "object" } },
+    "proof": { "type": "object", "required": ["status", "refs", "acceptance", "gap_refs", "reason"], "properties": { "status": { "enum": ["recorded", "not_applicable", "missing"] }, "refs": { "$ref": "#/$defs/stringArray" }, "acceptance": { "enum": ["accepted", "not_applicable", "missing"] }, "gap_refs": { "$ref": "#/$defs/stringArray" }, "reason": { "type": "string" } }, "additionalProperties": false },
+    "gaps": { "$ref": "#/$defs/stringArray" }, "inferences": { "type": "array" }, "unknowns": { "$ref": "#/$defs/stringArray" },
+    "routing": { "type": "object", "required": ["refs", "records", "usage_refs"], "properties": { "refs": { "$ref": "#/$defs/stringArray" }, "records": { "type": "array", "items": { "type": "object" } }, "usage_refs": { "$ref": "#/$defs/stringArray" } }, "additionalProperties": false },
+    "budget": { "type": "object", "required": ["output_bytes", "limit_bytes"], "properties": { "output_bytes": { "type": "integer", "minimum": 0 }, "limit_bytes": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
+    "redaction": { "$ref": "#/$defs/redaction" }, "truncation": { "$ref": "#/$defs/truncation" },
+    "view_id": { "$ref": "#/$defs/contentId" }
+  },
+  "$defs": {
+    "contentId": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "nullableCommit": { "type": ["string", "null"], "pattern": "^[a-f0-9]{40}$" },
+    "stringArray": { "type": "array", "items": { "type": "string" } },
+    "claim": { "type": "object", "required": ["claim", "status", "evidence_refs"], "properties": { "claim": { "type": "string" }, "status": { "enum": ["evidence", "inference", "missing"] }, "evidence_refs": { "$ref": "#/$defs/stringArray" } }, "additionalProperties": false },
+    "externalFact": { "type": "object", "required": ["id", "kind", "source", "status", "recorded_at", "commit_sha", "url", "url_hash", "external_run_id", "external_run_id_hash"], "properties": { "id": { "type": "string" }, "kind": { "type": "string" }, "source": { "type": "string" }, "status": { "type": "string" }, "recorded_at": { "type": "string" }, "commit_sha": { "type": ["string", "null"] }, "url": { "type": ["string", "null"] }, "url_hash": { "anyOf": [{ "$ref": "#/$defs/contentId" }, { "type": "null" }] }, "external_run_id": { "type": ["string", "null"] }, "external_run_id_hash": { "anyOf": [{ "$ref": "#/$defs/contentId" }, { "type": "null" }] } }, "additionalProperties": false },
+    "redaction": { "type": "object", "required": ["applied_before_serialization", "raw_payloads_exported", "redacted_field_count", "strategy"], "properties": { "applied_before_serialization": { "const": true }, "raw_payloads_exported": { "const": false }, "redacted_field_count": { "type": "integer", "minimum": 0 }, "strategy": { "type": "string" } }, "additionalProperties": false },
+    "truncation": { "type": "object", "required": ["applied", "omitted_optional_count"], "properties": { "applied": { "type": "boolean" }, "omitted_optional_count": { "type": "integer", "minimum": 0 } }, "additionalProperties": false }
+  },
+  "additionalProperties": false
+}

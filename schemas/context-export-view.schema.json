@@ -1,1 +1,20 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"AcceptedContextViewV1","type":"object","required":["schema_version","view_kind","authority","run_instance_id","packet_record_id","context_core_ref","context_manifest_ref","claims","redaction","truncation","view_id"],"properties":{"schema_version":{"const":1},"view_kind":{"const":"accepted_context_view"},"authority":{"const":"accepted_project_memory"},"view_id":{"type":"string","pattern":"^sha256:[a-f0-9]{64}$"}},"additionalProperties":true}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AcceptedContextViewV1",
+  "type": "object",
+  "required": ["schema_version", "view_kind", "authority", "run_instance_id", "packet_record_id", "context", "ordered_payload_refs", "claims", "transport", "retrieval", "redaction", "truncation", "view_id"],
+  "properties": {
+    "schema_version": { "const": 1 }, "view_kind": { "const": "accepted_context_view" }, "authority": { "const": "accepted_project_memory" },
+    "run_instance_id": { "type": "string", "minLength": 1 }, "packet_record_id": { "$ref": "#/$defs/contentId" },
+    "context": { "type": "object", "required": ["core_id", "core_hash", "manifest_id", "manifest_hash", "overlay_id", "core", "manifest"], "properties": { "core_id": { "type": "string", "pattern": "^context-core-[a-f0-9]{64}$" }, "core_hash": { "$ref": "#/$defs/contentId" }, "manifest_id": { "type": "string", "pattern": "^context-manifest-[a-f0-9]{64}$" }, "manifest_hash": { "$ref": "#/$defs/contentId" }, "overlay_id": { "type": ["string", "null"] }, "core": { "type": "object" }, "manifest": { "type": "object" } }, "additionalProperties": false },
+    "ordered_payload_refs": { "type": "array", "items": { "type": "object", "required": ["payload_id", "kind", "content_hash", "raw_size_bytes", "redaction_status", "retention_class"], "properties": { "payload_id": { "type": "string" }, "kind": { "type": "string" }, "content_hash": { "$ref": "#/$defs/contentId" }, "raw_size_bytes": { "type": "integer", "minimum": 0 }, "redaction_status": { "type": "string" }, "retention_class": { "type": "string" } }, "additionalProperties": false } },
+    "claims": { "type": "array", "items": { "type": "object", "required": ["claim", "status", "evidence_refs"], "properties": { "claim": { "type": "string" }, "status": { "enum": ["evidence", "inference", "missing"] }, "evidence_refs": { "$ref": "#/$defs/stringArray" } }, "additionalProperties": false } },
+    "transport": { "type": "object", "required": ["mode", "reuse", "procedure_id"], "properties": { "mode": {}, "reuse": {}, "procedure_id": { "type": ["string", "null"] } }, "additionalProperties": false },
+    "retrieval": { "type": "object", "required": ["mode", "capabilities", "canonical_bytes", "mandatory_blocks_present"], "properties": { "mode": { "const": "read_only_exact_payload_reconstruction" }, "capabilities": { "$ref": "#/$defs/stringArray" }, "canonical_bytes": { "type": "object", "required": ["core", "manifest"], "properties": { "core": { "type": "integer", "minimum": 0 }, "manifest": { "type": "integer", "minimum": 0 } }, "additionalProperties": false }, "mandatory_blocks_present": { "$ref": "#/$defs/stringArray" } }, "additionalProperties": false },
+    "redaction": { "type": "object", "required": ["applied_before_serialization", "raw_payloads_exported", "source_redactions"], "properties": { "applied_before_serialization": { "const": true }, "raw_payloads_exported": { "const": false }, "source_redactions": { "$ref": "#/$defs/stringArray" } }, "additionalProperties": false },
+    "truncation": { "type": "object", "required": ["applied", "omitted_optional_count", "reasons"], "properties": { "applied": { "type": "boolean" }, "omitted_optional_count": { "type": "integer", "minimum": 0 }, "reasons": { "$ref": "#/$defs/stringArray" } }, "additionalProperties": false },
+    "view_id": { "$ref": "#/$defs/contentId" }
+  },
+  "$defs": { "contentId": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "stringArray": { "type": "array", "items": { "type": "string" } } },
+  "additionalProperties": false
+}

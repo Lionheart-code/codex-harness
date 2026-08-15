@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 export interface StatementLike {
@@ -23,7 +24,41 @@ export function openSqliteDatabaseReadOnly(databasePath: string): DatabaseLike {
   if (!probe.available) throw new Error(`${probe.message}\nSQLite-backed memory commands require a Node runtime with node:sqlite.`);
   const sqlite = loadNodeSqlite();
   if (typeof sqlite.DatabaseSync !== "function") throw new Error("node:sqlite loaded, but DatabaseSync is not available.");
-  return new sqlite.DatabaseSync(databasePath, { readOnly: true });
+  // SQLite may need to create or update WAL/SHM sidecars even for a logical read.
+  // Never give a report/packet command that capability in the authoritative DB
+  // directory. Materialize a consistency-checked private snapshot instead.
+  const snapshotRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-harness-sqlite-read-"));
+  const snapshotPath = path.join(snapshotRoot, path.basename(databasePath));
+  const sourcePaths = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`];
+  const fingerprint = (sourcePath: string): string => {
+    if (!fs.existsSync(sourcePath)) return "missing";
+    const stat = fs.statSync(sourcePath, { bigint: true });
+    return [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
+  };
+  const before = sourcePaths.map(fingerprint);
+  try {
+    for (const sourcePath of sourcePaths) {
+      if (fs.existsSync(sourcePath)) {
+        fs.copyFileSync(sourcePath, path.join(snapshotRoot, path.basename(sourcePath)));
+      }
+    }
+    const after = sourcePaths.map(fingerprint);
+    if (before.some((value, index) => value !== after[index])) {
+      throw new Error(`SQLITE_READ_SNAPSHOT_CHANGED:${databasePath}`);
+    }
+    const snapshot = new sqlite.DatabaseSync(snapshotPath, { readOnly: true });
+    return {
+      exec: (sql) => snapshot.exec(sql),
+      prepare: (sql) => snapshot.prepare(sql),
+      close: () => {
+        try { snapshot.close(); }
+        finally { fs.rmSync(snapshotRoot, { recursive: true, force: true }); }
+      }
+    };
+  } catch (error) {
+    fs.rmSync(snapshotRoot, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 const SQLITE_SPECIFIER = "node:sqlite";

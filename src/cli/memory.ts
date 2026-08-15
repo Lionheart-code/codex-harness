@@ -53,7 +53,7 @@ function printPacketHelp(): void {
     "  node bin/ch memory packet implementation-review --run-instance <exact-run-instance-id>"]);
 }
 
-function resolveAcceptedRun(options: ParsedOptions) {
+function resolveAcceptedAuthority(options: ParsedOptions) {
   const roots = resolveHarnessRoots(process.cwd());
   const memory = new ProjectMemoryDatabase(roots.targetRoot, roots.projectRoot);
   const instance = stringOption(options, "run-instance");
@@ -65,13 +65,25 @@ function resolveAcceptedRun(options: ParsedOptions) {
     return matches[0];
   })();
   if (!run) throw new Error("Accepted exact run instance not found.");
-  return run;
+  return { run, memory };
+}
+
+function packetPayloadIds(run: { review_routing_records?: Array<{ record_id: string; payload: Record<string, unknown> }> }, packetRecordId: string): string[] {
+  const packet = run.review_routing_records?.find((record) => record.record_id === packetRecordId);
+  if (!packet || !Array.isArray(packet.payload.payload_ids)
+    || packet.payload.payload_ids.some((entry) => typeof entry !== "string")) {
+    throw new Error("Exact review packet payload inventory is unavailable.");
+  }
+  return packet.payload.payload_ids as string[];
 }
 
 function runReport(args: string[]): number {
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") { printReportHelp(); return 0; }
   const options = parseOptions(args, new Set(["run-instance", "run"]));
-  lines([canonicalOutput(buildHistoricalEvidenceReport(resolveAcceptedRun(options)))]);
+  const { run, memory } = resolveAcceptedAuthority(options);
+  lines([canonicalOutput(buildHistoricalEvidenceReport(run, {
+    proofRecords: memory.listAcceptedProofRecordsReadOnly(run.run_instance_id!)
+  }))]);
   return 0;
 }
 
@@ -84,7 +96,9 @@ function runPacket(args: string[]): number {
     const options = parseOptions(rest, new Set(["run-instance", "run", "packet-record"]));
     const packet = stringOption(options, "packet-record");
     if (!packet) throw new Error("--packet-record is required.");
-    lines([canonicalOutput(buildAcceptedContextView(resolveAcceptedRun(options), packet))]);
+    const { run, memory } = resolveAcceptedAuthority(options);
+    const payloads = memory.readPayloadBodiesReadOnly(run.run_instance_id!, packetPayloadIds(run, packet));
+    lines([canonicalOutput(buildAcceptedContextView(run, packet, { payloads }))]);
     return 0;
   }
   if (kind === "implementation-review") {
@@ -97,15 +111,25 @@ function runPacket(args: string[]): number {
         .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
       : [];
     const matches = runIds.flatMap((runId) => {
-      const candidate = new RunStagingDatabase(roots.targetRoot, roots.projectRoot, runId).loadRunReadOnly();
-      return candidate?.run_instance_id === instance ? [candidate] : [];
+      const staging = new RunStagingDatabase(roots.targetRoot, roots.projectRoot, runId);
+      const candidate = staging.loadRunReadOnly();
+      return candidate?.run_instance_id === instance ? [{ run: candidate, staging }] : [];
     });
     if (matches.length !== 1) throw new Error("Active exact run instance is ambiguous or missing in Staging.");
-    const run = matches[0];
+    const { run, staging } = matches[0];
     const candidateHead = execFileSync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
       cwd: roots.targetRoot, encoding: "utf8"
     }).trim();
-    lines([canonicalOutput(buildImplementationReviewView(run, candidateHead))]);
+    const packet = [...(run.review_routing_records ?? [])].reverse().find((record) =>
+      record.record_kind === "review_replay_packet"
+      && ["implementation-review", "fix-pass-review"].includes(String(record.payload.procedure_id ?? "")));
+    if (!packet) throw new Error("Exact implementation review packet is unavailable in active Staging.");
+    const payloads = staging.readPayloadBodiesReadOnly(packetPayloadIds(run, packet.record_id));
+    lines([canonicalOutput(buildImplementationReviewView(run, candidateHead, {
+      packetRecordId: packet.record_id,
+      payloads,
+      proofRecords: staging.listIndependentRecordsReadOnly("proof_record", run.run_id)
+    }))]);
     return 0;
   }
   throw new Error(`Unknown memory packet kind: ${kind}`);

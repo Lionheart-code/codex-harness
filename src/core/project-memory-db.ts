@@ -11,7 +11,9 @@ import {
 import {
   PROJECT_MEMORY_DB_WARNING_THRESHOLD_BYTES,
   initializeMemoryDatabase,
+  readStoredPayloadBody,
   resolveMemoryDbPaths,
+  type ReadOnlyStoredPayload,
   type DatabaseStatus
 } from "./run-staging-db";
 import { type DatabaseLike, openSqliteDatabase, openSqliteDatabaseReadOnly } from "./sqlite";
@@ -1248,6 +1250,32 @@ export class ProjectMemoryDatabase {
     try {
       return (database.prepare("SELECT run_json FROM project_run_instances WHERE run_id = ? ORDER BY updated_at DESC")
         .all(runId) as Array<{ run_json?: string }>).flatMap((row) => row.run_json ? [JSON.parse(row.run_json) as Run] : []);
+    } finally { database.close(); }
+  }
+
+  listAcceptedProofRecordsReadOnly(runInstanceId: string): unknown[] {
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      const rows = database.prepare([
+        "SELECT payload_json FROM records WHERE record_kind = 'proof_record' AND run_id = ?",
+        "ORDER BY created_at ASC, record_id ASC"
+      ].join(" ")).all(runInstanceId) as Array<{ payload_json: string }>;
+      return rows.map((row) => JSON.parse(row.payload_json));
+    } finally { database.close(); }
+  }
+
+  readPayloadBodyReadOnly(runInstanceId: string, payloadId: string): ReadOnlyStoredPayload | undefined {
+    return this.readPayloadBodiesReadOnly(runInstanceId, [payloadId])[0];
+  }
+
+  readPayloadBodiesReadOnly(runInstanceId: string, payloadIds: string[]): ReadOnlyStoredPayload[] {
+    if (new Set(payloadIds).size !== payloadIds.length) throw new Error("PAYLOAD_READ_IDS_AMBIGUOUS");
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      return payloadIds.flatMap((payloadId) => {
+        const payload = readStoredPayloadBody(database, namespaceProjectRowId(runInstanceId, payloadId), payloadId);
+        return payload ? [payload] : [];
+      });
     } finally { database.close(); }
   }
 
