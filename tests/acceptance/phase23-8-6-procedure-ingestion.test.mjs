@@ -5036,6 +5036,31 @@ test("phase 23.8.6 materialize-next-task enters a registered existing worktree w
   assert.match(dirtyWorktree.stderr, /worktree is dirty/i);
   assertSuccess(runCommand("git", ["checkout", "--", "README.md"], { cwd: worktreePath }), "restore entered-existing worktree");
 
+  const pointerBeforeConflict = fs.readFileSync(path.join(worktreePath, "TASK.md"));
+  const ownerBeforeConflict = JSON.parse(fs.readFileSync(taskStatePath, "utf8"));
+  const conflictingOwner = { ...ownerBeforeConflict, base_commit_sha: "f".repeat(40) };
+  writeText(taskStatePath, `${JSON.stringify(conflictingOwner, null, 2)}\n`);
+  const stateBytesBeforeFailure = fs.readFileSync(taskStatePath);
+  const gitHeadBeforeFailure = gitHead(worktreePath);
+  const gitStatusBeforeFailure = runCommand("git", ["status", "--porcelain=v1"], { cwd: worktreePath }).stdout;
+  const conflictingBase = runCli(
+    [
+      "run", "materialize-next-task", "--run", run.run_id, "--decision-id", decisionId,
+      "--task", nextTaskPath, "--branch", branch, "--worktree", worktreePath, "--enter-existing"
+    ],
+    { cwd: tempRepo }
+  );
+  assertFailure(conflictingBase, "enter existing worktree with conflicting owner base");
+  assert.match(conflictingBase.stderr, /already records immutable base_commit_sha/i);
+  assert.deepEqual(fs.readFileSync(path.join(worktreePath, "TASK.md")), pointerBeforeConflict,
+    "normal materialization failure preserves exact TASK.md bytes");
+  assert.deepEqual(fs.readFileSync(taskStatePath), stateBytesBeforeFailure,
+    "normal materialization failure preserves owner authority");
+  assert.equal(gitHead(worktreePath), gitHeadBeforeFailure);
+  assert.equal(runCommand("git", ["status", "--porcelain=v1"], { cwd: worktreePath }).stdout, gitStatusBeforeFailure);
+  assert.equal(fs.existsSync(path.join(worktreePath, ".harness", "runs", "current.json")), false);
+  writeText(taskStatePath, `${JSON.stringify(ownerBeforeConflict, null, 2)}\n`);
+
   const materialize = runCli(
     [
       "run",

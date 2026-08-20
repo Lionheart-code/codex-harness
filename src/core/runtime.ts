@@ -1211,12 +1211,12 @@ function selectTaskStateForCheckout(projectRoot: string, targetRoot: string, bra
   return { noLiveMatch: true };
 }
 
-function persistMaterializedTaskBaseAuthority(
+function validateMaterializedTaskBaseAuthority(
   projectRoot: string,
   worktreePath: string,
   branch: string,
   baseCommitSha: string
-): void {
+): TaskState {
   if (!detectInstalledLayer(projectRoot)) {
     throw new Error("Materialized task base authority requires an installed Harness task-state owner.");
   }
@@ -1245,6 +1245,16 @@ function persistMaterializedTaskBaseAuthority(
   if (task.base_commit_sha && task.base_commit_sha !== baseCommitSha) {
     throw new Error(`Installed task ${task.task_id} already records immutable base_commit_sha ${task.base_commit_sha}.`);
   }
+  return task;
+}
+
+function persistMaterializedTaskBaseAuthority(
+  projectRoot: string,
+  worktreePath: string,
+  branch: string,
+  baseCommitSha: string
+): void {
+  const task = validateMaterializedTaskBaseAuthority(projectRoot, worktreePath, branch, baseCommitSha);
   if (!task.base_commit_sha) {
     writeTaskState(projectRoot, task.task_id, {
       ...task,
@@ -1597,20 +1607,27 @@ function ensureInsideTargetRoot(targetRoot: string, absolutePath: string): void 
 
 export function extractActiveTaskPath(taskMarkdown: string): string | undefined {
   const lines = taskMarkdown.split(/\r?\n/u);
-  let fenced = false;
+  let fence: { marker: "`" | "~"; length: number } | undefined;
   let inCurrentTask = false;
   const authorityLines: string[] = [];
   for (const line of lines) {
-    if (/^[ \t]*(```|~~~)/u.test(line)) {
-      fenced = !fenced;
+    const fenceMarker = /^[ \t]*(`{3,}|~{3,})(?:[^`~]*)$/u.exec(line)?.[1];
+    if (fenceMarker) {
+      const marker = fenceMarker[0] as "`" | "~";
+      if (!fence) {
+        fence = { marker, length: fenceMarker.length };
+      } else if (marker === fence.marker && fenceMarker.length >= fence.length
+        && /^[ \t]*(`{3,}|~{3,})[ \t]*$/u.test(line)) {
+        fence = undefined;
+      }
       continue;
     }
-    if (fenced || /^[ \t]*>/u.test(line)) continue;
+    if (fence || /^[ \t]*>/u.test(line)) continue;
     const heading = /^(#{1,6})[ \t]+(.+?)[ \t]*$/u.exec(line);
     if (heading?.[1].length === 1) inCurrentTask = heading[2].trim().toLowerCase() === "current task";
     if (inCurrentTask) authorityLines.push(line);
   }
-  if (fenced) throw new Error("Task authority contains an unterminated fenced code block.");
+  if (fence) throw new Error("Task authority contains an unterminated or mismatched fenced code block.");
   if (authorityLines.length === 0) return undefined;
   const directives = authorityLines
     .map((line) => /^Implement only:[ \t]+([^\s].*)$/u.exec(line))
@@ -3853,6 +3870,41 @@ function isPrePhaseFVerificationCompatibility(phaseId: string | undefined): bool
 const PLANNING_REVIEW_LENSES = ["plan-review", "architecture-review", "db-storage-review"] as const;
 type PlanningReviewLensId = typeof PLANNING_REVIEW_LENSES[number];
 
+function resolveTypedReviewAuthority(
+  targetRoot: string,
+  run: Run,
+  options: { knownChangedSurfaceClasses?: string[]; knownRiskClasses?: string[] } = {}
+): ReturnType<typeof resolvePlanningReviewFacts> {
+  const activeTaskPath = run.active_task_path ?? run.task_path;
+  const taskAbsolutePath = path.join(targetRoot, activeTaskPath);
+  const taskMarkdown = readUtf8FileIfExists(taskAbsolutePath) ?? "";
+  if (!parseTaskPlanningReviewAuthorityFacts(taskMarkdown)) return undefined;
+  const planBinding = tryResolveExactPlanEvidenceBinding(run);
+  if (!planBinding) throw new Error("planning_review_plan_facts_missing");
+  const planArtifact = run.artifacts.find((entry) => entry.artifact_id === planBinding.artifactId);
+  if (!planArtifact?.path) throw new Error("planning_review_plan_artifact_missing");
+  const planPath = path.join(runDirectory(targetRoot, run.run_id), planArtifact.path);
+  const planMarkdown = readUtf8FileIfExists(planPath);
+  if (planMarkdown === undefined || `sha256:${sha256Hex(planMarkdown)}` !== planBinding.artifactId) {
+    throw new Error("planning_review_plan_artifact_identity_mismatch");
+  }
+  if (!run.run_instance_id) throw new Error("planning_review_run_identity_missing");
+  const immutableBase = run.bootstrap_facts?.find((fact) => fact.label === "base_commit")?.value ?? run.source_snapshot;
+  if (!immutableBase) throw new Error("planning_review_bundle_immutable_base_missing");
+  return resolvePlanningReviewFacts({
+    taskMarkdown,
+    planMarkdown,
+    taskArtifactId: `sha256:${sha256Hex(fs.readFileSync(taskAbsolutePath))}`,
+    activeTaskPath,
+    phaseId: run.phase_id ?? "",
+    effectivePlanArtifactId: planBinding.artifactId as `sha256:${string}`,
+    runInstanceId: run.run_instance_id,
+    immutableBase,
+    knownChangedSurfaceClasses: options.knownChangedSurfaceClasses,
+    knownRiskClasses: options.knownRiskClasses
+  });
+}
+
 function deriveRequiredPlanningReviewLenses(targetRoot: string, run: Run): PlanningReviewLensId[] {
   // Preserve the completed Phase 23.9 combined-cohort contract unchanged.
   if (run.phase_id === "23.9") return [...PLANNING_REVIEW_LENSES];
@@ -3862,24 +3914,10 @@ function deriveRequiredPlanningReviewLenses(targetRoot: string, run: Run): Plann
   // Pre-contract runs keep their historical single-lens behavior. Only an
   // explicit task-owned typed floor activates planned-facts derivation.
   if (!parseTaskPlanningReviewAuthorityFacts(taskMarkdown)) return ["plan-review"];
-  const planBinding = tryResolveExactPlanEvidenceBinding(run);
-  if (!planBinding || !run.run_instance_id) return ["plan-review"];
-  const planArtifact = run.artifacts.find((entry) => entry.artifact_id === planBinding.artifactId);
-  const planMarkdown = planArtifact?.path
-    ? readUtf8FileIfExists(path.join(runDirectory(targetRoot, run.run_id), planArtifact.path)) ?? ""
-    : "";
   const immutableBase = run.bootstrap_facts?.find((fact) => fact.label === "base_commit")?.value ?? run.source_snapshot;
   if (!immutableBase) throw new Error("planning_review_bundle_immutable_base_missing");
   const knownSourceFacts = reviewChangeInventory(targetRoot, immutableBase, resolveExactCommit(targetRoot, "HEAD"));
-  const facts = resolvePlanningReviewFacts({
-    taskMarkdown,
-    planMarkdown,
-    taskArtifactId: `sha256:${sha256Hex(fs.readFileSync(taskAbsolutePath))}`,
-    activeTaskPath,
-    phaseId: run.phase_id ?? "",
-    effectivePlanArtifactId: planBinding.artifactId as `sha256:${string}`,
-    runInstanceId: run.run_instance_id,
-    immutableBase,
+  const facts = resolveTypedReviewAuthority(targetRoot, run, {
     knownChangedSurfaceClasses: knownSourceFacts.changedSurfaceClasses,
     knownRiskClasses: knownSourceFacts.riskClasses
   });
@@ -4945,9 +4983,7 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
   const approved = [...run.approvals].reverse().find((entry) => entry.title === "Reviewed plan approved" && entry.status === "approved");
   const taskContractRef = run.active_task_path ?? run.task_path;
   const fallbackPlanContent = fs.readFileSync(path.join(targetRoot, taskContractRef));
-  const effectivePlan = procedureId === "plan-review"
-    ? tryResolveExactPlanEvidenceBinding(run)
-    : undefined;
+  const effectivePlan = tryResolveExactPlanEvidenceBinding(run);
   const approvedMatchesEffectivePlan = Boolean(
     approved?.reviewed_plan_artifact_id
     && (!effectivePlan || approved.reviewed_plan_artifact_id === effectivePlan.artifactId)
@@ -4966,7 +5002,6 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
         };
   if (!planArtifact) throw new Error("CONTEXT_MANDATORY_BLOCK_MISSING: effective approved plan artifact is unavailable.");
   const immutableBase = run.bootstrap_facts?.find((fact) => fact.label === "base_commit")?.value ?? run.source_snapshot;
-  const reviewTier = fs.readFileSync(path.join(targetRoot, taskContractRef), "utf8").includes("`extra-high`") ? "extra-high" : "high";
   const reviewedSourceHead = resolveExactCommit(targetRoot, "HEAD");
   const sourceDirty = getGitStatusPaths(getGitStatusLines(targetRoot)).filter((entry) =>
     !entry.startsWith(".harness/") && !entry.startsWith(".codex/") && entry !== ".DS_Store");
@@ -4985,6 +5020,14 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
     throw new Error("FIX_PASS_DIFF_BASE_MISSING");
   }
   const inventory = reviewChangeInventory(targetRoot, exactDiffBase, reviewedSourceHead);
+  const typedReviewAuthority = resolveTypedReviewAuthority(targetRoot, run, {
+    knownChangedSurfaceClasses: inventory.changedSurfaceClasses,
+    knownRiskClasses: inventory.riskClasses
+  });
+  const reviewTier = typedReviewAuthority?.review_tier
+    ?? classifyOperatorReviewTier(fs.readFileSync(path.join(targetRoot, taskContractRef), "utf8")).tier;
+  const changedSurfaceClasses = typedReviewAuthority?.planned_surface_classes ?? inventory.changedSurfaceClasses;
+  const riskClasses = typedReviewAuthority?.risk_classes ?? inventory.riskClasses;
   const latestVerification = run.verification_results[run.verification_results.length - 1];
   const verificationComplete = procedureId === "plan-review"
     ? false
@@ -5004,8 +5047,8 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
       "skills/self-hosting/review-route-policy.json"
     ],
     review_tier: reviewTier,
-    changed_surface_classes: inventory.changedSurfaceClasses,
-    risk_classes: inventory.riskClasses,
+    changed_surface_classes: changedSurfaceClasses,
+    risk_classes: riskClasses,
     run_id: run.run_id,
     run_instance_id: run.run_instance_id,
     branch: run.repository.branch,
@@ -9804,17 +9847,31 @@ export async function materializeRuntimeNextTask(
         });
         normalTaskStateId = materialized.task_state_id;
       } else if (!dryRun) {
-        fs.writeFileSync(
-          path.join(absoluteWorktreePath, "TASK.md"),
-          buildNextTaskPointerMarkdown(nextTaskPath),
-          "utf8"
+        const owner = validateMaterializedTaskBaseAuthority(
+          roots.projectRoot, absoluteWorktreePath, options.branch, record.base_commit_sha
         );
-        persistMaterializedTaskBaseAuthority(
-          roots.projectRoot,
-          absoluteWorktreePath,
-          options.branch,
-          record.base_commit_sha
-        );
+        const pointerPath = path.join(absoluteWorktreePath, "TASK.md");
+        const priorPointer = fs.existsSync(pointerPath) ? fs.readFileSync(pointerPath) : undefined;
+        let ownerChanged = false;
+        try {
+          if (!owner.base_commit_sha) {
+            writeTaskState(roots.projectRoot, owner.task_id, {
+              ...owner,
+              base_commit_sha: record.base_commit_sha,
+              updated_at: nowIso()
+            });
+            ownerChanged = true;
+          }
+          fs.writeFileSync(pointerPath, buildNextTaskPointerMarkdown(nextTaskPath), "utf8");
+        } catch (error) {
+          if (priorPointer === undefined) {
+            if (fs.existsSync(pointerPath)) fs.unlinkSync(pointerPath);
+          } else {
+            fs.writeFileSync(pointerPath, priorPointer);
+          }
+          if (ownerChanged) writeTaskState(roots.projectRoot, owner.task_id, owner);
+          throw error;
+        }
       }
     } else if (!dryRun) {
       persistMaterializedTaskBaseAuthority(
@@ -13057,9 +13114,18 @@ function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string,
     };
   }
 
-  const { tier, notes } = classifyOperatorReviewTier(taskContext.activeTaskMarkdown);
   const roadmapTaskPath = readRoadmapTaskPathForPhase(targetRoot, taskContext.phaseId);
   const runContext = loadOperatorRunContext(targetRoot, projectRoot, options.runId, options.runOverride);
+  const typedTaskFacts = parseTaskPlanningReviewAuthorityFacts(taskContext.activeTaskMarkdown);
+  const typedReviewAuthority = runContext && typedTaskFacts
+    ? resolveTypedReviewAuthority(targetRoot, runContext.run)
+    : undefined;
+  const legacyClassification = typedTaskFacts ? undefined : classifyOperatorReviewTier(taskContext.activeTaskMarkdown);
+  const tier = typedReviewAuthority?.review_tier ?? typedTaskFacts?.review_tier ?? legacyClassification?.tier ?? "standard";
+  const notes = typedTaskFacts
+    ? ["review_tier_reason: exact typed planned-review-facts.v1 authority",
+        "review_tier_controls: anti_slop, design_invariant, scope_legality, evidence_gap, docs_consistency, future_phase_leakage"]
+    : legacyClassification?.notes ?? [];
   const taggedProcedures = runContext ? collectTaggedProcedureEvidence(runContext.run, procedureIds) : undefined;
   const latestCloseoutReceipt = runContext?.closeoutReceipt
     ?? (runContext && runContext.run.closeout_receipts.length > 0

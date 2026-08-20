@@ -11,8 +11,14 @@ import {
 import type { ReadOnlyStoredPayload } from "./run-staging-db";
 import type { Run, ReviewOperationalRecord } from "./runtime";
 import type { HarvestRecord } from "./lifecycle-types";
+import type {
+  AcceptedDeliveryFactDescriptor,
+  AcceptedPayloadDescriptor,
+  AcceptedProcedureArtifactDescriptor,
+  AcceptedRecordDescriptor
+} from "./project-memory-db";
 
-export type ClaimStatus = "evidence" | "inference" | "missing";
+export type ClaimStatus = "evidence" | "inference" | "missing" | "not_applicable";
 export interface EvidenceClaim { claim: string; status: ClaimStatus; evidence_refs: string[]; }
 
 export interface EvidenceViewInputs {
@@ -20,6 +26,10 @@ export interface EvidenceViewInputs {
   packetRecordId?: string;
   payloads?: ReadOnlyStoredPayload[];
   harvestRecord?: HarvestRecord;
+  acceptedRecordDescriptors?: AcceptedRecordDescriptor[];
+  acceptedDeliveryFactDescriptors?: AcceptedDeliveryFactDescriptor[];
+  acceptedProcedureArtifactDescriptors?: AcceptedProcedureArtifactDescriptor[];
+  acceptedPayloadDescriptors?: AcceptedPayloadDescriptor[];
   outputBudgetBytes?: number;
 }
 
@@ -112,12 +122,22 @@ function validateExternalFact(value: unknown, remote: boolean): void {
   const label = remote ? "HISTORICAL_REMOTE_CHECK" : "HISTORICAL_DELIVERY";
   const fact = object(value, label);
   const fields = remote
-    ? ["id", "gate_id", "name", "required", "status", "recorded_at", "provider", "url", "url_hash", "external_run_id", "external_run_id_hash"]
-    : ["id", "kind", "source", "status", "recorded_at", "commit_sha", "url", "url_hash", "external_run_id", "external_run_id_hash"];
+    ? ["id", "gate_id", "name", "required", "status", "recorded_at", "provider", "url", "url_hash", "external_run_id", "external_run_id_hash",
+        "commit_sha", "conclusion", "check_conclusions", "accepted_record_id", "evidence_ref", "failure_excerpt", "failure_excerpt_hash", "redaction_status"]
+    : ["id", "kind", "source", "status", "recorded_at", "commit_sha", "url", "url_hash", "external_run_id", "external_run_id_hash",
+        "accepted_record_id", "excerpt_payload_ref"];
   requireKeys(fact, fields, label);
   for (const field of remote ? ["id", "gate_id", "name", "status", "recorded_at", "provider"]
     : ["id", "kind", "source", "status", "recorded_at"]) requireString(fact, field, label);
   if (remote) requireBoolean(fact, "required", label);
+  if (remote) {
+    if (!Array.isArray(fact.check_conclusions)) throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:${label}:check_conclusions`);
+    for (const candidate of fact.check_conclusions) {
+      const conclusion = object(candidate, `${label}:check_conclusion`);
+      requireKeys(conclusion, ["kind", "id", "status"], `${label}:check_conclusion`);
+      for (const field of ["kind", "id", "status"]) requireString(conclusion, field, `${label}:check_conclusion`);
+    }
+  }
 }
 
 function validatePayloadRefs(value: unknown, label: string): void {
@@ -140,7 +160,7 @@ export function validateEvidenceView(value: unknown): void {
     ? "accepted_project_memory"
     : "active_run_staging";
   const required = kind === "historical_evidence_report"
-    ? ["run", "plan", "claims", "verification", "reviews", "delivery", "remote_checks", "proof", "gaps", "inferences", "unknowns", "routing", "delivery_relationship", "closeout", "harvest", "budget", "redaction", "truncation"]
+    ? ["run", "plan", "claims", "verification", "reviews", "delivery", "remote_checks", "proof", "gaps", "inferences", "unknowns", "routing", "provenance", "delivery_relationship", "closeout", "harvest", "budget", "redaction", "truncation"]
     : kind === "accepted_context_view"
       ? ["run_instance_id", "packet_record_id", "acceptance", "context", "ordered_payload_refs", "claims", "transport", "retrieval", "redaction", "truncation"]
       : ["run", "plan", "procedure", "context", "delta", "evidence", "route", "transport", "budget", "independence", "claims", "redaction", "truncation"];
@@ -155,7 +175,7 @@ export function validateEvidenceView(value: unknown): void {
     const claim = object(candidate, "CLAIM");
     requireKeys(claim, ["claim", "status", "evidence_refs"], "CLAIM");
     requireString(claim, "claim", "CLAIM");
-    if (!["evidence", "inference", "missing"].includes(String(claim.status))) throw new Error("EVIDENCE_VIEW_SCHEMA_INVALID:CLAIM:status");
+    if (!["evidence", "inference", "missing", "not_applicable"].includes(String(claim.status))) throw new Error("EVIDENCE_VIEW_SCHEMA_INVALID:CLAIM:status");
     requireStringArray(claim.evidence_refs, "CLAIM:evidence_refs");
   }
   if (kind === "historical_evidence_report") {
@@ -184,10 +204,11 @@ export function validateEvidenceView(value: unknown): void {
     for (const candidate of view.remote_checks as unknown[]) validateExternalFact(candidate, true);
     for (const candidate of view.reviews as unknown[]) {
       const review = object(candidate, "HISTORICAL_REVIEW");
-      requireKeys(review, ["id", "status", "source", "created_at", "disposition", "blockers", "artifact_refs"], "HISTORICAL_REVIEW");
+      requireKeys(review, ["id", "status", "source", "created_at", "disposition", "blockers", "artifact_refs", "procedure_artifact_refs"], "HISTORICAL_REVIEW");
       for (const field of ["id", "status", "source", "created_at", "disposition"]) requireString(review, field, "HISTORICAL_REVIEW");
       requireStringArray(review.blockers, "HISTORICAL_REVIEW:blockers");
       requireStringArray(review.artifact_refs, "HISTORICAL_REVIEW:artifact_refs");
+      requireStringArray(review.procedure_artifact_refs, "HISTORICAL_REVIEW:procedure_artifact_refs");
     }
     const plan = object(view.plan, "HISTORICAL_PLAN");
     requireKeys(plan, ["approval_id", "reviewed_plan_artifact_id", "reviewed_plan_content_hash", "reviewed_evidence_artifact_id"], "HISTORICAL_PLAN");
@@ -234,6 +255,31 @@ export function validateEvidenceView(value: unknown): void {
         requireStringArray(record[field], `HISTORICAL_ROUTING_RECORD:${field}`);
       }
     }
+    const provenance = object(view.provenance, "HISTORICAL_PROVENANCE");
+    requireKeys(provenance, ["accepted_record_refs", "delivery_fact_refs", "procedure_artifacts", "payloads", "procedure_contract_refs"], "HISTORICAL_PROVENANCE");
+    requireStringArray(provenance.accepted_record_refs, "HISTORICAL_PROVENANCE:accepted_record_refs");
+    requireStringArray(provenance.delivery_fact_refs, "HISTORICAL_PROVENANCE:delivery_fact_refs");
+    requireStringArray(provenance.procedure_contract_refs, "HISTORICAL_PROVENANCE:procedure_contract_refs");
+    if (!Array.isArray(provenance.procedure_artifacts) || !Array.isArray(provenance.payloads)) {
+      throw new Error("EVIDENCE_VIEW_SCHEMA_INVALID:HISTORICAL_PROVENANCE:descriptors");
+    }
+    for (const candidate of provenance.procedure_artifacts) {
+      const descriptor = object(candidate, "HISTORICAL_PROCEDURE_ARTIFACT");
+      requireKeys(descriptor, ["procedure_id", "artifact_id", "payload_ref", "content_hash", "recorded_at",
+        "reviewed_plan_artifact_id", "reviewed_plan_content_hash", "reviewed_evidence_artifact_id"], "HISTORICAL_PROCEDURE_ARTIFACT");
+      for (const field of ["procedure_id", "artifact_id", "payload_ref", "content_hash", "recorded_at"]) {
+        requireString(descriptor, field, "HISTORICAL_PROCEDURE_ARTIFACT");
+      }
+    }
+    for (const candidate of provenance.payloads) {
+      const descriptor = object(candidate, "HISTORICAL_PAYLOAD");
+      requireKeys(descriptor, ["payload_id", "parent_record_id", "kind", "content_hash", "raw_size_bytes",
+        "redaction_status", "retention_class"], "HISTORICAL_PAYLOAD");
+      for (const field of ["payload_id", "parent_record_id", "kind", "content_hash", "redaction_status", "retention_class"]) {
+        requireString(descriptor, field, "HISTORICAL_PAYLOAD");
+      }
+      requireInteger(descriptor, "raw_size_bytes", "HISTORICAL_PAYLOAD");
+    }
   } else if (kind === "accepted_context_view") {
     requireString(view, "run_instance_id", kind);
     requireString(view, "packet_record_id", kind);
@@ -253,9 +299,10 @@ export function validateEvidenceView(value: unknown): void {
     }
     validatePayloadRefs(view.ordered_payload_refs, "ACCEPTED_CONTEXT_PAYLOAD_REF");
     const retrieval = object(view.retrieval, "ACCEPTED_CONTEXT_RETRIEVAL");
-    requireKeys(retrieval, ["mode", "capabilities", "canonical_bytes", "mandatory_blocks_present"], "ACCEPTED_CONTEXT_RETRIEVAL");
+    requireKeys(retrieval, ["mode", "capabilities", "canonical_bytes", "mandatory_blocks_present", "source_manifest_omissions"], "ACCEPTED_CONTEXT_RETRIEVAL");
     requireStringArray(retrieval.capabilities, "ACCEPTED_CONTEXT_RETRIEVAL:capabilities");
     requireStringArray(retrieval.mandatory_blocks_present, "ACCEPTED_CONTEXT_RETRIEVAL:mandatory_blocks_present");
+    requireStringArray(retrieval.source_manifest_omissions, "ACCEPTED_CONTEXT_RETRIEVAL:source_manifest_omissions");
     const canonicalBytes = object(retrieval.canonical_bytes, "ACCEPTED_CONTEXT_BYTES");
     requireKeys(canonicalBytes, ["core", "manifest"], "ACCEPTED_CONTEXT_BYTES");
     requireInteger(canonicalBytes, "core", "ACCEPTED_CONTEXT_BYTES");
@@ -414,9 +461,14 @@ function withOutputBudget<T extends Record<string, unknown>>(body: T, limitBytes
   };
   let result = measure();
   while (result.budget.output_bytes > limitBytes && (mutable.routing?.records?.length ?? 0) > 0) {
-    const removed = mutable.routing!.records!.pop() as { record_id?: unknown } | undefined;
+    const removed = mutable.routing!.records!.shift() as { record_id?: unknown; usage_ref?: unknown } | undefined;
     if (typeof removed?.record_id === "string" && mutable.routing?.refs) {
       mutable.routing.refs = mutable.routing.refs.filter((ref) => ref !== removed.record_id);
+    }
+    if (typeof removed?.usage_ref === "string" && mutable.routing?.usage_refs
+      && !mutable.routing.records!.some((candidate) =>
+        object(candidate, "ROUTING_TRUNCATION_RECORD").usage_ref === removed.usage_ref)) {
+      mutable.routing.usage_refs = mutable.routing.usage_refs.filter((ref) => ref !== removed.usage_ref);
     }
     if (mutable.truncation) {
       mutable.truncation.applied = true;
@@ -461,7 +513,11 @@ function safeIdentifier(value: unknown): string | null {
 function requirePromotedHarvest(run: Run, record: HarvestRecord | undefined): HarvestRecord {
   if (!run.run_instance_id || run.lifecycle_status !== "harvested" || !record || record.status !== "promoted"
     || record.project_run_id !== run.run_instance_id || record.run_id !== run.run_id
-    || record.source_snapshot !== run.source_snapshot) {
+    || record.source_snapshot !== run.source_snapshot
+    || record.source_task_path !== (run.active_task_path ?? run.task_path)
+    || !record.harvest_id || !record.promoted_at || !record.details || typeof record.details !== "object"
+    || [record.accepted_count, record.discarded_count, record.quarantined_count, record.redacted_count, record.unresolved_count]
+      .some((value) => !Number.isInteger(value) || value < 0)) {
     throw new Error("ACCEPTED_PROJECT_MEMORY_REQUIRED");
   }
   return record;
@@ -582,8 +638,99 @@ function validateContext(run: Run, packetRecordId: string, payloads: ReadOnlySto
   };
 }
 
+function exactAcceptedRef(runInstanceId: string, sourceId: string, candidates: string[], label: string): string | null {
+  const matches = candidates.filter((candidate) => candidate === `${runInstanceId}:${sourceId}`);
+  if (matches.length > 1) throw new Error(`ACCEPTED_PROJECT_MEMORY_PROVENANCE_AMBIGUOUS:${label}`);
+  return matches[0] ?? null;
+}
+
+function resolveHistoricalPlanAuthority(run: Run): {
+  approval_id: string | null;
+  reviewed_plan_artifact_id: string | null;
+  reviewed_plan_content_hash: string | null;
+  reviewed_evidence_artifact_id: string | null;
+} {
+  const binding = run.implementation_baseline_binding;
+  if (binding) {
+    const artifactId = binding.plan_artifact_hash.startsWith("sha256:")
+      ? binding.plan_artifact_hash : `sha256:${binding.plan_artifact_hash}`;
+    const contentHash = artifactId.slice("sha256:".length);
+    const matches = run.approvals.filter((entry) => entry.approval_id === binding.approval_id);
+    if (matches.length !== 1) throw new Error("HISTORICAL_PLAN_APPROVAL_BINDING_MISMATCH");
+    const approval = matches[0];
+    if (approval.status !== "approved" || approval.reviewed_plan_artifact_id !== artifactId
+      || approval.reviewed_plan_content_hash !== contentHash
+      || (binding.plan_review_artifact_hash !== undefined
+        && approval.reviewed_evidence_artifact_id !== binding.plan_review_artifact_hash)
+      || !run.artifacts.some((artifact) => artifact.artifact_id === artifactId)) {
+      throw new Error("HISTORICAL_PLAN_APPROVAL_BINDING_MISMATCH");
+    }
+    return { approval_id: approval.approval_id, reviewed_plan_artifact_id: artifactId,
+      reviewed_plan_content_hash: contentHash, reviewed_evidence_artifact_id: approval.reviewed_evidence_artifact_id ?? null };
+  }
+  const candidates = run.approvals.filter((entry) => entry.status === "approved" && entry.reviewed_plan_artifact_id);
+  if (candidates.length > 1) throw new Error("HISTORICAL_PLAN_APPROVAL_AMBIGUOUS");
+  const approval = candidates[0];
+  return { approval_id: approval?.approval_id ?? null,
+    reviewed_plan_artifact_id: approval?.reviewed_plan_artifact_id ?? null,
+    reviewed_plan_content_hash: approval?.reviewed_plan_content_hash ?? null,
+    reviewed_evidence_artifact_id: approval?.reviewed_evidence_artifact_id ?? null };
+}
+
+function projectedConclusions(metadata: Record<string, unknown> | undefined): Array<{ kind: string; id: string; status: string }> {
+  const output: Array<{ kind: string; id: string; status: string }> = [];
+  for (const kind of ["jobs", "checks", "steps"] as const) {
+    const values = metadata?.[kind];
+    if (!Array.isArray(values)) continue;
+    for (const candidate of values) {
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+      const record = candidate as Record<string, unknown>;
+      const status = safeIdentifier(record.conclusion ?? record.status);
+      const id = redactExternal(typeof record.id === "string" ? record.id
+        : typeof record.name === "string" ? record.name : undefined);
+      if (status) output.push({ kind: kind.slice(0, -1), id: id.value ?? "[NO_EXTERNAL_ID]", status });
+    }
+  }
+  return output.sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id));
+}
+
 export function buildHistoricalEvidenceReport(run: Run, inputs: EvidenceViewInputs = {}) {
   const harvest = requirePromotedHarvest(run, inputs.harvestRecord);
+  const runInstanceId = run.run_instance_id!;
+  const acceptedRecords = [...(inputs.acceptedRecordDescriptors ?? [])];
+  const acceptedDeliveryFacts = [...(inputs.acceptedDeliveryFactDescriptors ?? [])];
+  const acceptedProcedureArtifacts = [...(inputs.acceptedProcedureArtifactDescriptors ?? [])];
+  const acceptedPayloads = [...(inputs.acceptedPayloadDescriptors ?? [])];
+  const selectedTaskPath = run.active_task_path ?? run.task_path;
+  for (const descriptor of acceptedRecords) {
+    if (!descriptor.record_id.startsWith(`${runInstanceId}:`) || !descriptor.record_kind
+      || descriptor.task_path !== selectedTaskPath) {
+      throw new Error("ACCEPTED_PROJECT_MEMORY_PROVENANCE_INVALID:record");
+    }
+  }
+  for (const descriptor of acceptedDeliveryFacts) {
+    if (!descriptor.delivery_fact_id.startsWith(`${runInstanceId}:`) || !descriptor.fact_kind) {
+      throw new Error("ACCEPTED_PROJECT_MEMORY_PROVENANCE_INVALID:delivery");
+    }
+  }
+  for (const descriptor of acceptedProcedureArtifacts) {
+    if (!/^sha256:[a-f0-9]{64}$/u.test(descriptor.artifact_id)
+      || descriptor.content_hash !== descriptor.artifact_id.slice("sha256:".length)
+      || !descriptor.payload_id.startsWith(`${runInstanceId}:`)
+      || (descriptor.reviewed_plan_artifact_id === null) !== (descriptor.reviewed_plan_content_hash === null)
+      || (descriptor.reviewed_plan_artifact_id !== null
+        && descriptor.reviewed_plan_content_hash !== descriptor.reviewed_plan_artifact_id.slice("sha256:".length))) {
+      throw new Error("ACCEPTED_PROJECT_MEMORY_PROVENANCE_INVALID:procedure_artifact");
+    }
+  }
+  for (const descriptor of acceptedPayloads) {
+    if (!descriptor.payload_id.startsWith(`${runInstanceId}:`) || !descriptor.parent_record_id.startsWith(`${runInstanceId}:`)
+      || !/^[a-f0-9]{64}$/u.test(descriptor.content_hash) || descriptor.raw_size_bytes < 0) {
+      throw new Error("ACCEPTED_PROJECT_MEMORY_PROVENANCE_INVALID:payload");
+    }
+  }
+  const acceptedDeliveryIds = acceptedDeliveryFacts.map((entry) => entry.delivery_fact_id);
+  const payloadBySourceId = new Map(acceptedPayloads.map((entry) => [entry.payload_id.slice(`${runInstanceId}:`.length), entry]));
   const reviews = [...run.review_results].sort((a, b) => a.created_at.localeCompare(b.created_at));
   const reviewLineage = (source: string) => /(?:^|:)fix-pass-review$/u.test(source)
     || /(?:^|:)implementation-review$/u.test(source) ? "implementation" : source;
@@ -596,9 +743,12 @@ export function buildHistoricalEvidenceReport(run: Run, inputs: EvidenceViewInpu
     redactedFieldCount += Number(url.redacted) + Number(external.redacted);
     const source = redactFreeText(fact.source);
     redactedFieldCount += Number(source.redacted);
+    const acceptedRecordId = exactAcceptedRef(runInstanceId, fact.delivery_fact_id, acceptedDeliveryIds, "delivery");
+    const excerptPayloadRef = fact.excerpt_payload_id ? payloadBySourceId.get(fact.excerpt_payload_id)?.payload_id ?? null : null;
     return { id: fact.delivery_fact_id, kind: fact.fact_kind, source: source.value, status: fact.status,
       recorded_at: fact.recorded_at, commit_sha: fact.commit_sha ?? null,
-      url: url.value, url_hash: url.hash, external_run_id: external.value, external_run_id_hash: external.hash };
+      url: url.value, url_hash: url.hash, external_run_id: external.value, external_run_id_hash: external.hash,
+      accepted_record_id: acceptedRecordId, excerpt_payload_ref: excerptPayloadRef };
   });
   const remoteChecks = [...run.remote_checks].sort((a, b) => a.check_result_id.localeCompare(b.check_result_id)).map((check) => {
     const url = redactExternal(check.ci_run.url);
@@ -606,16 +756,28 @@ export function buildHistoricalEvidenceReport(run: Run, inputs: EvidenceViewInpu
     redactedFieldCount += Number(url.redacted) + Number(external.redacted);
     const name = redactFreeText(check.name);
     redactedFieldCount += Number(name.redacted);
+    const acceptedRecordId = exactAcceptedRef(runInstanceId, check.check_result_id, acceptedDeliveryIds, "remote_ci");
+    const deliveryDescriptor = acceptedDeliveryFacts.find((entry) => entry.delivery_fact_id === acceptedRecordId);
+    const payload = deliveryDescriptor?.excerpt_payload_id ? payloadBySourceId.get(deliveryDescriptor.excerpt_payload_id) : undefined;
+    const excerpt = redactFreeText(payload?.bounded_excerpt ?? undefined);
+    redactedFieldCount += Number(excerpt.redacted);
+    const commitSha = typeof check.metadata?.commit_sha === "string" && /^[a-f0-9]{40}$/u.test(check.metadata.commit_sha)
+      ? check.metadata.commit_sha : deliveryDescriptor?.commit_sha ?? null;
     return { id: check.check_result_id, gate_id: check.gate_id, name: name.value, required: check.required,
       status: check.status, recorded_at: check.recorded_at, provider: safeIdentifier(check.ci_run.provider) ?? "[REDACTED_IDENTIFIER]",
-      url: url.value, url_hash: url.hash, external_run_id: external.value, external_run_id_hash: external.hash };
+      url: url.value, url_hash: url.hash, external_run_id: external.value, external_run_id_hash: external.hash,
+      commit_sha: commitSha, conclusion: safeIdentifier(check.metadata?.conclusion) ?? check.status,
+      check_conclusions: projectedConclusions(check.metadata), accepted_record_id: acceptedRecordId,
+      evidence_ref: payload?.payload_id ?? acceptedRecordId, failure_excerpt: excerpt.value,
+      failure_excerpt_hash: excerpt.hash, redaction_status: payload?.redaction_status ?? "not_recorded" };
   });
   const proof = proofAvailability(run, inputs.proofRecords);
   const claims: EvidenceClaim[] = [
     { claim: "run_identity", status: "evidence", evidence_refs: [`run:${run.run_instance_id}`] },
     { claim: "verification", status: verification.length ? "evidence" : "missing", evidence_refs: verification.map((v) => `verification:${v.verification_result_id}`) },
     { claim: "delivery", status: delivery.length ? "evidence" : "missing", evidence_refs: delivery.map((v) => `delivery:${v.id}`) },
-    { claim: "proof", status: proof.status === "recorded" ? "evidence" : "missing", evidence_refs: proof.refs }
+    { claim: "proof", status: proof.status === "recorded" ? "evidence"
+      : proof.status === "not_applicable" ? "not_applicable" : "missing", evidence_refs: proof.refs }
   ];
   const gaps = claims.filter((claim) => claim.status === "missing").map((claim) => claim.claim);
   const routingRecords = (run.review_routing_records ?? []).map((record) => ({
@@ -645,7 +807,7 @@ export function buildHistoricalEvidenceReport(run: Run, inputs: EvidenceViewInpu
     observed_model: safeIdentifier(record.payload.observed_model ?? record.payload.model),
     observed_reasoning_effort: safeIdentifier(record.payload.observed_reasoning_effort ?? record.payload.reasoning_effort)
   })).sort((left, right) => left.created_at.localeCompare(right.created_at) || left.record_id.localeCompare(right.record_id));
-  const approval = [...run.approvals].reverse().find((entry) => entry.status === "approved");
+  const planAuthority = resolveHistoricalPlanAuthority(run);
   const closeouts = [...run.closeout_receipts].sort((a, b) => a.created_at.localeCompare(b.created_at));
   const closeout = closeouts[closeouts.length - 1];
   return identity("historical_evidence_report", withOutputBudget({
@@ -655,10 +817,7 @@ export function buildHistoricalEvidenceReport(run: Run, inputs: EvidenceViewInpu
       source_head: run.repository.head_sha ?? null, source_snapshot: run.source_snapshot ?? null,
       implementation_baseline_head: run.implementation_baseline_head ?? null,
       final_reviewed_source_head: run.final_reviewed_source_head ?? null, delivered_source_head: run.delivered_source_head ?? null },
-    plan: { approval_id: approval?.approval_id ?? null,
-      reviewed_plan_artifact_id: approval?.reviewed_plan_artifact_id ?? null,
-      reviewed_plan_content_hash: approval?.reviewed_plan_content_hash ?? null,
-      reviewed_evidence_artifact_id: approval?.reviewed_evidence_artifact_id ?? null },
+    plan: planAuthority,
     claims,
     verification: verification.map((result) => {
       const source = redactFreeText(result.source); redactedFieldCount += Number(source.redacted);
@@ -670,7 +829,10 @@ export function buildHistoricalEvidenceReport(run: Run, inputs: EvidenceViewInpu
       source: safeIdentifier(review.source) ?? "[REDACTED_IDENTIFIER]",
       created_at: review.created_at, disposition: latestReviewByLineage.get(reviewLineage(review.source)) === review.review_result_id ? "current" : "superseded",
       blockers: review.blockers.map((blocker) => { const redacted = redactFreeText(blocker); redactedFieldCount += Number(redacted.redacted); return redacted.value; }),
-      artifact_refs: review.artifact_refs.map((ref) => ref.artifact_id).sort() })),
+      artifact_refs: review.artifact_refs.map((ref) => ref.artifact_id).sort(),
+      procedure_artifact_refs: acceptedProcedureArtifacts.filter((descriptor) =>
+        review.artifact_refs.some((ref) => ref.artifact_id === descriptor.artifact_id))
+        .map((descriptor) => `${descriptor.procedure_id}:${descriptor.artifact_id}`).sort() })),
     delivery, remote_checks: remoteChecks, proof, gaps, inferences: [],
     delivery_relationship: run.delivery_source_relationship ?? null,
     closeout: closeout ? { receipt_id: closeout.receipt_id, status: closeout.status, created_at: closeout.created_at,
@@ -686,6 +848,23 @@ export function buildHistoricalEvidenceReport(run: Run, inputs: EvidenceViewInpu
     routing: { refs: (run.review_routing_records ?? []).map((record) => record.record_id).sort(), records: routingRecords,
       usage_refs: [...new Set((run.review_routing_records ?? []).flatMap((record) =>
         typeof record.payload.usage_ref === "string" ? [record.payload.usage_ref] : []))].sort() },
+    provenance: {
+      accepted_record_refs: acceptedRecords.map((descriptor) => descriptor.record_id).sort(),
+      delivery_fact_refs: acceptedDeliveryFacts.map((descriptor) => descriptor.delivery_fact_id).sort(),
+      procedure_artifacts: acceptedProcedureArtifacts.map((descriptor) => ({
+        procedure_id: descriptor.procedure_id, artifact_id: descriptor.artifact_id,
+        payload_ref: descriptor.payload_id, content_hash: `sha256:${descriptor.content_hash}`,
+        recorded_at: descriptor.recorded_at, reviewed_plan_artifact_id: descriptor.reviewed_plan_artifact_id,
+        reviewed_plan_content_hash: descriptor.reviewed_plan_content_hash,
+        reviewed_evidence_artifact_id: descriptor.reviewed_evidence_artifact_id
+      })),
+      payloads: acceptedPayloads.map((descriptor) => ({
+        payload_id: descriptor.payload_id, parent_record_id: descriptor.parent_record_id, kind: descriptor.kind,
+        content_hash: `sha256:${descriptor.content_hash}`, raw_size_bytes: descriptor.raw_size_bytes,
+        redaction_status: descriptor.redaction_status, retention_class: descriptor.retention_class
+      })),
+      procedure_contract_refs: ["docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md", "skills/self-hosting/procedure-registry.json"]
+    },
     redaction: { applied_before_serialization: true, raw_payloads_exported: false,
       redacted_field_count: redactedFieldCount, strategy: "external_values_replaced_with_hash_bound_markers" },
     truncation: { applied: false, omitted_optional_count: 0, reasons: [] }
@@ -711,11 +890,12 @@ export function buildAcceptedContextView(run: Run, packetRecordId: string, input
       procedure_id: safeIdentifier(context.packet.payload.procedure_id) },
     retrieval: { mode: "read_only_exact_payload_reconstruction", capabilities: context.manifest.retrieval_capabilities,
       canonical_bytes: { core: context.core.canonical_byte_count, manifest: context.manifest.canonical_byte_count },
-      mandatory_blocks_present: context.manifest.mandatory_blocks_present },
+      mandatory_blocks_present: context.manifest.mandatory_blocks_present,
+      source_manifest_omissions: [...context.manifest.omissions] },
     redaction: { applied_before_serialization: true, raw_payloads_exported: false,
       source_redactions: [...context.manifest.redactions] },
     truncation: { applied: context.manifest.truncations.length > 0,
-      omitted_optional_count: context.manifest.omissions.length, reasons: [...context.manifest.truncations] }
+      omitted_optional_count: context.manifest.truncations.length, reasons: [...context.manifest.truncations] }
   });
 }
 
@@ -735,6 +915,11 @@ export function buildImplementationReviewView(run: Run, candidateHead = run.repo
   const proof = proofAvailability(run, inputs.proofRecords);
   const routingRefs = (run.review_routing_records ?? []).map((record) => record.record_id).sort();
   const boundedRoutingRefs = routingRefs.slice(-64);
+  const truncationReasons = [...new Set([
+    ...(routingRefs.length > boundedRoutingRefs.length ? ["bounded_routing_history_limit"] : []),
+    ...context.manifest.truncations,
+    ...(overlay.truncations ?? [])
+  ])].sort();
   return identity("implementation_review_view", {
     schema_version: 1, view_kind: "implementation_review_view", authority: "active_run_staging",
     run: { run_instance_id: run.run_instance_id, run_id: run.run_id, phase_id: run.phase_id ?? null,
@@ -784,8 +969,9 @@ export function buildImplementationReviewView(run: Run, candidateHead = run.repo
       context.core.context_core_id, context.manifest.context_manifest_id, overlay.delta_overlay_id] }],
     redaction: { applied_before_serialization: true, raw_payloads_exported: false,
       source_redactions: [...context.manifest.redactions] },
-    truncation: { applied: routingRefs.length > boundedRoutingRefs.length || context.manifest.truncations.length > 0,
-      omitted_optional_count: routingRefs.length - boundedRoutingRefs.length + context.manifest.omissions.length,
-      reasons: [...context.manifest.truncations, ...(overlay.truncations ?? [])] }
+    truncation: { applied: truncationReasons.length > 0,
+      omitted_optional_count: routingRefs.length - boundedRoutingRefs.length
+        + context.manifest.truncations.length + (overlay.truncations ?? []).length,
+      reasons: truncationReasons }
   });
 }

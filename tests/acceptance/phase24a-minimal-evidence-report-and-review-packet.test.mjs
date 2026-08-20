@@ -11,6 +11,8 @@ import {
 import { canonicalJson } from "../../dist/core/evidence-types.js";
 import { buildContextCore, buildContextManifest, buildReviewDeltaOverlay } from "../../dist/core/self-hosting-review-context.js";
 import { buildRuntimeRun, extractActiveTaskPath, resolveTaskReference, validateRuntimeRun } from "../../dist/core/runtime.js";
+import { deriveRequiredSemanticReviews, resolvePlanningReviewFacts } from "../../dist/core/self-hosting-review-policy.js";
+import { ProjectMemoryDatabase } from "../../dist/core/project-memory-db.js";
 import { openSqliteDatabase, openSqliteDatabaseReadOnly } from "../../dist/core/sqlite.js";
 import { parseAuthoritativeProcedureProvenance } from "../../dist/core/run-staging-db.js";
 
@@ -58,7 +60,7 @@ function acceptedProofRecord() {
   return { ...body, record_id: "sha256:" + sha(canonicalJson(identity)), content_hash: "sha256:" + sha(canonicalJson(body)) };
 }
 
-function contextFixture(candidateHead = "7".repeat(40)) {
+function contextFixture(candidateHead = "7".repeat(40), manifestOptions = {}) {
   const core = buildContextCore({ task_id: "24A", task_pointer_ref: "TASK.md", task_contract_ref: "tasks/PHASE_24A.md",
     approved_plan_ref: "evidence/plan.md#sha256:" + "1".repeat(64), procedure_contract_refs: ["skills/review/SKILL.md"],
     review_tier: "high", changed_surface_classes: ["runtime", "storage"], risk_classes: ["storage"],
@@ -67,7 +69,7 @@ function contextFixture(candidateHead = "7".repeat(40)) {
     non_goals: ["no mutation"], acceptance_refs: ["tasks/PHASE_24A.md"], verification_refs: ["npm test"],
     source_provenance: [{ path: "TASK.md", content_hash: "sha256:" + "2".repeat(64), byte_count: 10,
       required: true, retrieval_mode: "read_only_reference" }], size_budget_bytes: 65536 });
-  const manifest = buildContextManifest(core, { retrieval_capabilities: ["repo_read_only", "packet_plus_retrieval"] });
+  const manifest = buildContextManifest(core, { retrieval_capabilities: ["repo_read_only", "packet_plus_retrieval"], ...manifestOptions });
   const overlay = buildReviewDeltaOverlay({ context_core_id: core.context_core_id,
     reviewed_candidate_id: "sha256:" + "3".repeat(64), changed_files: ["src/core/evidence-views.ts"],
     diff_refs: [`git-diff:${"a".repeat(40)}..${candidateHead}`], payload_refs: [], findings: [],
@@ -133,12 +135,23 @@ test("Phase 24A historical proof availability cannot be inferred from routing re
   assert.deepEqual(report.proof.refs, []);
 });
 
+test("Phase 24A bootstrap proof is honestly not applicable and creates no missing-proof gap", () => {
+  const input = run({ run_mode: "bootstrap" });
+  const report = buildHistoricalEvidenceReport(input, { harvestRecord: promotedHarvest(input) });
+  assert.equal(report.proof.status, "not_applicable");
+  assert.equal(report.claims.find((claim) => claim.claim === "proof").status, "not_applicable");
+  assert.equal(report.gaps.includes("proof"), false);
+});
+
 test("Phase 24A accepted Project Memory requires an exact promoted harvest disposition", () => {
   const input = run();
   assert.throws(() => buildHistoricalEvidenceReport(input, { harvestRecord: promotedHarvest(input, "discarded") }),
     /ACCEPTED_PROJECT_MEMORY_REQUIRED/);
   assert.throws(() => buildHistoricalEvidenceReport(input), /ACCEPTED_PROJECT_MEMORY_REQUIRED/);
   assert.equal(buildHistoricalEvidenceReport(input, { harvestRecord: promotedHarvest(input) }).harvest.status, "promoted");
+  assert.throws(() => buildHistoricalEvidenceReport(input, { harvestRecord: {
+    ...promotedHarvest(input), source_task_path: "tasks/WRONG.md"
+  } }), /ACCEPTED_PROJECT_MEMORY_REQUIRED/);
 });
 
 test("Phase 24A review lineage supersedes implementation FIX_REQUIRED with fix-pass PASS", () => {
@@ -167,9 +180,86 @@ test("Phase 24A historical output truncates only stable optional routing and fai
   assert.ok(first.budget.output_bytes <= first.budget.limit_bytes);
   assert.ok(Buffer.byteLength(canonicalJson(first)) <= first.budget.limit_bytes);
   assert.equal(first.run.run_instance_id, input.run_instance_id);
+  assert.ok(first.routing.records.some((record) => record.record_id === "route-119"));
+  assert.ok(first.routing.usage_refs.every((usageRef) =>
+    first.routing.records.some((record) => record.usage_ref === usageRef)));
   assert.throws(() => buildHistoricalEvidenceReport(input, {
     harvestRecord: promotedHarvest(input), outputBudgetBytes: 256
   }), /EVIDENCE_VIEW_MANDATORY_BUDGET_EXCEEDED/);
+});
+
+test("Phase 24A historical plan authority stays bound to the exact implementation baseline approval", () => {
+  const exactPlan = "sha256:" + "c".repeat(64);
+  const exactReview = "sha256:" + "d".repeat(64);
+  const exactBinding = { ...binding(), plan_artifact_hash: exactPlan, plan_review_artifact_hash: exactReview };
+  const input = run({ implementation_baseline_head: exactBinding.implementation_baseline_head,
+    implementation_baseline_binding: exactBinding,
+    artifacts: [{ artifact_id: exactPlan, path: "evidence/exact-plan.md", kind: "procedure-artifact:plan-amend", description: "exact" }],
+    approvals: [{ approval_id: "approval-1", title: "Reviewed plan approved", status: "approved",
+      created_at: "2026-01-01T00:00:00.000Z", approver: "owner", reason: "exact",
+      reviewed_plan_artifact_id: exactPlan, reviewed_plan_content_hash: "c".repeat(64), reviewed_evidence_artifact_id: exactReview },
+    { approval_id: "approval-later", title: "Reviewed plan approved", status: "approved",
+      created_at: "2026-01-02T00:00:00.000Z", approver: "owner", reason: "unrelated",
+      reviewed_plan_artifact_id: "sha256:" + "e".repeat(64), reviewed_plan_content_hash: "e".repeat(64),
+      reviewed_evidence_artifact_id: "sha256:" + "f".repeat(64) }] });
+  const report = buildHistoricalEvidenceReport(input, { harvestRecord: promotedHarvest(input) });
+  assert.equal(report.plan.approval_id, "approval-1");
+  assert.equal(report.plan.reviewed_plan_artifact_id, exactPlan);
+  assert.throws(() => buildHistoricalEvidenceReport({ ...input,
+    approvals: input.approvals.map((approval) => approval.approval_id === "approval-1"
+      ? { ...approval, reviewed_evidence_artifact_id: "sha256:" + "0".repeat(64) } : approval)
+  }, { harvestRecord: promotedHarvest(input) }), /HISTORICAL_PLAN_APPROVAL_BINDING_MISMATCH/);
+});
+
+test("Phase 24A remote CI and accepted provenance projection is bounded, exact, and secret-safe", () => {
+  const artifactId = "sha256:" + "4".repeat(64);
+  const input = run({
+    review_results: [{ review_result_id: "review-provenance", status: "PASS", created_at: "2026-01-01T00:00:01.000Z",
+      summary: "pass", source: "procedure:implementation-review", blockers: [],
+      artifact_refs: [{ artifact_id: artifactId, path: "evidence/review.md", kind: "review", description: "review" }] }],
+    remote_checks: [{ check_result_id: "check-1", gate_id: "ci", name: "CI", required: true, status: "failed",
+      recorded_at: "2026-01-01T00:00:02.000Z", ci_run: { provider: "github", run_id: "SECRET_SENTINEL", url: "https://SECRET_SENTINEL" },
+      metadata: { commit_sha: "5".repeat(40), conclusion: "failed",
+        jobs: [{ id: "SECRET_SENTINEL", conclusion: "failed" }], steps: [{ name: "SECRET_SENTINEL", status: "failed" }] } }]
+  });
+  const report = buildHistoricalEvidenceReport(input, { harvestRecord: promotedHarvest(input),
+    acceptedRecordDescriptors: [{ record_id: "instance-24a:review-record", record_kind: "review_result",
+      task_path: input.active_task_path, created_at: "2026-01-01T00:00:01.000Z", status: "accepted", source_step_id: null, source_command: null }],
+    acceptedDeliveryFactDescriptors: [{ delivery_fact_id: "instance-24a:check-1", fact_kind: "remote_ci",
+      recorded_at: "2026-01-01T00:00:02.000Z", commit_sha: "5".repeat(40), excerpt_payload_id: "payload-ci" }],
+    acceptedProcedureArtifactDescriptors: [{ procedure_id: "implementation-review", artifact_id: artifactId,
+      payload_id: "instance-24a:payload-review", content_hash: "4".repeat(64), recorded_at: "2026-01-01T00:00:01.000Z",
+      reviewed_plan_artifact_id: null, reviewed_plan_content_hash: null, reviewed_evidence_artifact_id: null }],
+    acceptedPayloadDescriptors: [
+      { payload_id: "instance-24a:payload-ci", parent_record_id: "instance-24a:delivery-fact:check-1", kind: "delivery_excerpt",
+        bounded_excerpt: "SECRET_SENTINEL failed log", redaction_status: "redacted", retention_class: "audit",
+        raw_size_bytes: 26, content_hash: "6".repeat(64), created_at: "2026-01-01T00:00:02.000Z" },
+      { payload_id: "instance-24a:payload-review", parent_record_id: "instance-24a:review-record", kind: "procedure-artifact-body:implementation-review",
+        bounded_excerpt: null, redaction_status: "not_applicable", retention_class: "accepted",
+        raw_size_bytes: 10, content_hash: "4".repeat(64), created_at: "2026-01-01T00:00:01.000Z" }
+    ] });
+  assert.equal(JSON.stringify(report).includes("SECRET_SENTINEL"), false);
+  assert.equal(report.remote_checks[0].commit_sha, "5".repeat(40));
+  assert.equal(report.remote_checks[0].accepted_record_id, "instance-24a:check-1");
+  assert.equal(report.remote_checks[0].evidence_ref, "instance-24a:payload-ci");
+  assert.deepEqual(report.reviews[0].procedure_artifact_refs, [`implementation-review:${artifactId}`]);
+  assert.ok(report.provenance.payloads.some((entry) => entry.payload_id === "instance-24a:payload-ci"));
+});
+
+test("Phase 24A accepted Project Memory read-only run selectors reject corrupt persisted RuntimeRun JSON", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "phase24a-project-memory-corrupt-"));
+  try {
+    const memory = new ProjectMemoryDatabase(root, root);
+    const accepted = run();
+    memory.saveAcceptedRun(accepted, [], promotedHarvest(accepted));
+    assert.equal(memory.getRunByInstanceIdReadOnly(accepted.run_instance_id).run_instance_id, accepted.run_instance_id);
+    const database = openSqliteDatabase(memory.projectDbPath);
+    database.prepare("UPDATE project_run_instances SET run_json = ? WHERE run_instance_id = ?")
+      .run(JSON.stringify({ run_id: accepted.run_id }), accepted.run_instance_id);
+    database.close();
+    assert.throws(() => memory.getRunByInstanceIdReadOnly(accepted.run_instance_id), /runtime run|ACCEPTED_RUNTIME_RUN/i);
+    assert.throws(() => memory.listRunsByDisplayRunIdReadOnly(accepted.run_id), /runtime run|ACCEPTED_RUNTIME_RUN/i);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test("Phase 24A pointer grammar distinguishes one inline pointer from a multiline direct scope", () => {
@@ -180,6 +270,39 @@ test("Phase 24A pointer grammar distinguishes one inline pointer from a multilin
   assert.throws(() => extractActiveTaskPath("# Current Task\n\nImplement only: ../NEXT.md\n"), /repository-relative/);
   assert.throws(() => extractActiveTaskPath("# Current Task\n\nImplement only: tasks/A.md\nImplement only: tasks/B.md\n"), /multiple/);
   assert.throws(() => extractActiveTaskPath("# Current Task\n\nImplement only:\n"), /malformed/);
+});
+
+test("Phase 24A pointer grammar keeps mixed and short Markdown fences non-authoritative", () => {
+  for (const markdown of [
+    "# Current Task\n\n```text\n~~~\nImplement only: tasks/EVIL.md\n",
+    "# Current Task\n\n~~~text\n```\nImplement only: tasks/EVIL.md\n",
+    "# Current Task\n\n````text\n```\nImplement only: tasks/EVIL.md\n"
+  ]) {
+    assert.throws(() => extractActiveTaskPath(markdown), /unterminated or mismatched/);
+  }
+  assert.equal(extractActiveTaskPath("# Current Task\n\n````text\n```\nImplement only: tasks/EVIL.md\n````\n"), undefined);
+});
+
+test("Phase 24A typed review authority is invariant under adversarial prose and Markdown formatting", () => {
+  const taskBlock = ["```yaml", "planning_review_authority_contract: planned-review-facts.v1", "task_id: 24A",
+    "task_contract_ref: tasks/PHASE_24A.md", "review_tier: extra-high", "minimum_planned_surface_classes:",
+    "  - runtime", "minimum_planned_risk_classes:", "  - lifecycle", "```"].join("\n");
+  const planBlock = ["```yaml", "planning_review_facts_contract: planned-review-facts.v1", "review_tier: high",
+    "planned_surface_classes:", "  - schemas", "planned_risk_classes:", "  - storage", "```"].join("\n");
+  const resolve = (taskMarkdown, planMarkdown) => resolvePlanningReviewFacts({ taskMarkdown, planMarkdown,
+    taskArtifactId: "sha256:" + "1".repeat(64), activeTaskPath: "tasks/PHASE_24A.md", phaseId: "24A",
+    effectivePlanArtifactId: "sha256:" + "2".repeat(64), runInstanceId: "instance",
+    immutableBase: "3".repeat(40), knownChangedSurfaceClasses: ["runtime"], knownRiskClasses: ["authority"] });
+  const baseline = resolve(taskBlock, planBlock);
+  const adversarial = resolve(`${taskBlock}\nProse storage authority lifecycle and \`extra-high\`.`,
+    `${planBlock}\nFormatting says extra-high without typed authority.`);
+  assert.deepEqual(adversarial, baseline);
+  assert.deepEqual(deriveRequiredSemanticReviews("implementation-review", baseline.review_tier,
+    baseline.planned_surface_classes, baseline.risk_classes),
+  deriveRequiredSemanticReviews("implementation-review", adversarial.review_tier,
+    adversarial.planned_surface_classes, adversarial.risk_classes));
+  const runtimeSource = fs.readFileSync("src/core/runtime.ts", "utf8");
+  assert.doesNotMatch(runtimeSource, /taskContractRef[^\n]*includes\([^\n]*extra-high/);
 });
 
 test("Phase 24A task authority rejects unreadable, out-of-repository, and recursive targets", () => {
@@ -211,6 +334,16 @@ test("Phase 24A accepted context view reconstructs exact payload identities, mem
   const missing = fixture.payloads.filter((payload) => payload.kind !== "context-manifest");
   assert.throws(() => buildAcceptedContextView(acceptedRun, fixture.packet.record_id,
     { payloads: missing, harvestRecord: promotedHarvest(acceptedRun) }), /CONTEXT_PAYLOAD_BINDING_MISMATCH/);
+});
+
+test("Phase 24A accepted context distinguishes source manifest omissions from output truncation", () => {
+  const fixture = contextFixture("7".repeat(40), { omissions: ["optional historical note unavailable"] });
+  const acceptedRun = run({ review_routing_records: fixture.records });
+  const view = buildAcceptedContextView(acceptedRun, fixture.packet.record_id,
+    { payloads: fixture.payloads, harvestRecord: promotedHarvest(acceptedRun) });
+  assert.deepEqual(view.retrieval.source_manifest_omissions, ["optional historical note unavailable"]);
+  assert.equal(view.truncation.applied, false);
+  assert.equal(view.truncation.omitted_optional_count, 0);
 });
 
 test("Phase 24A accepted context view fails closed on hash and parentage mismatches", () => {
@@ -247,6 +380,22 @@ test("Phase 24A implementation review view includes exact overlay, route, policy
     { packetRecordId: fixture.packet.record_id, payloads: fixture.payloads }), /IMPLEMENTATION_BASELINE_REQUIRED/);
   assert.throws(() => buildImplementationReviewView(active, "6".repeat(40),
     { packetRecordId: fixture.packet.record_id, payloads: fixture.payloads }), /CANDIDATE_BINDING_MISMATCH/);
+});
+
+test("Phase 24A implementation review bounded history reports truthful truncation", () => {
+  const candidate = "7".repeat(40);
+  const fixture = contextFixture(candidate);
+  const exactBinding = binding();
+  const history = Array.from({ length: 70 }, (_, index) => ({ record_kind: "routing_evaluation",
+    record_id: `history-${String(index).padStart(3, "0")}`, created_at: `2025-12-31T23:${String(index % 60).padStart(2, "0")}:00.000Z`,
+    status: "accepted", summary: "history", payload: {} }));
+  const active = run({ lifecycle_status: "active", implementation_baseline_head: exactBinding.implementation_baseline_head,
+    implementation_baseline_binding: exactBinding, review_routing_records: [...history, ...fixture.records] });
+  const view = buildImplementationReviewView(active, candidate,
+    { packetRecordId: fixture.packet.record_id, payloads: fixture.payloads });
+  assert.equal(view.truncation.applied, true);
+  assert.ok(view.truncation.omitted_optional_count > 0);
+  assert.ok(view.truncation.reasons.includes("bounded_routing_history_limit"));
 });
 
 test("Phase 24A immutable SQLite read opens a WAL-mode database without filesystem writes", () => {
@@ -350,6 +499,7 @@ test("Phase 24A schemas reject ungoverned top-level fields and type the material
     (view) => { view.verification[0].commands = {}; },
     (view) => { view.harvest.accepted_count = -1; },
     (view) => { view.routing.records = {}; },
+    (view) => { view.provenance.procedure_artifacts = {}; },
     (view) => { view.budget.limit_bytes = 0; }
   ]) {
     const malformed = structuredClone(historical); mutate(malformed);

@@ -92,7 +92,11 @@ function runReport(args: string[]): number {
   const options = parseOptions(args, new Set(["run-instance", "run"]));
   const { run, memory, harvestRecord } = resolveAcceptedAuthority(options);
   lines([canonicalOutput(buildHistoricalEvidenceReport(run, {
-    proofRecords: memory.listAcceptedProofRecordsReadOnly(run.run_instance_id!), harvestRecord
+    proofRecords: memory.listAcceptedProofRecordsReadOnly(run.run_instance_id!), harvestRecord,
+    acceptedRecordDescriptors: memory.listAcceptedRecordDescriptorsReadOnly(run.run_instance_id!),
+    acceptedDeliveryFactDescriptors: memory.listAcceptedDeliveryFactDescriptorsReadOnly(run.run_instance_id!),
+    acceptedProcedureArtifactDescriptors: memory.listAcceptedProcedureArtifactDescriptorsReadOnly(run.run_instance_id!),
+    acceptedPayloadDescriptors: memory.listAcceptedPayloadDescriptorsReadOnly(run.run_instance_id!)
   }))]);
   return 0;
 }
