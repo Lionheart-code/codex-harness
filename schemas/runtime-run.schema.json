@@ -255,5 +255,25 @@
       }
     }
   ],
+  "allOf": [
+    {
+      "if": {
+        "required": ["implementation_baseline_binding"],
+        "properties": {
+          "implementation_baseline_binding": {
+            "required": ["schema_version"],
+            "properties": { "schema_version": { "const": 3 } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "implementation_baseline_binding": {
+            "required": ["task_artifact_id", "run_instance_id", "immutable_base", "planning_cohort_id", "required_planning_lens_ids", "planning_lens_artifacts"]
+          }
+        }
+      }
+    }
+  ],
   "additionalProperties": true
 }

@@ -60,12 +60,22 @@ function resolveAcceptedAuthority(options: ParsedOptions) {
   const display = stringOption(options, "run");
   if (Boolean(instance) === Boolean(display)) throw new Error("Specify exactly one of --run-instance or --run.");
   const run = instance ? memory.getRunByInstanceIdReadOnly(instance) : (() => {
-    const matches = memory.listRunsByDisplayRunIdReadOnly(display!);
-    if (matches.length !== 1) throw new Error(`Accepted display run id is ambiguous or missing: ${display}.`);
+    const matches = memory.listRunsByDisplayRunIdReadOnly(display!).filter((candidate) => {
+      const harvest = candidate.run_instance_id
+        ? memory.getHarvestRecordByRunInstanceIdReadOnly(candidate.run_instance_id) : undefined;
+      return harvest?.status === "promoted" && harvest.project_run_id === candidate.run_instance_id
+        && harvest.run_id === candidate.run_id;
+    });
+    if (matches.length !== 1) throw new Error(`Accepted promoted display run id is ambiguous or missing: ${display}.`);
     return matches[0];
   })();
   if (!run) throw new Error("Accepted exact run instance not found.");
-  return { run, memory };
+  const harvestRecord = memory.getHarvestRecordByRunInstanceIdReadOnly(run.run_instance_id!);
+  if (!harvestRecord || harvestRecord.status !== "promoted"
+    || harvestRecord.project_run_id !== run.run_instance_id || harvestRecord.run_id !== run.run_id) {
+    throw new Error("ACCEPTED_PROJECT_MEMORY_REQUIRED: exact run lacks a promoted HarvestRecord.");
+  }
+  return { run, memory, harvestRecord };
 }
 
 function packetPayloadIds(run: { review_routing_records?: Array<{ record_id: string; payload: Record<string, unknown> }> }, packetRecordId: string): string[] {
@@ -80,9 +90,9 @@ function packetPayloadIds(run: { review_routing_records?: Array<{ record_id: str
 function runReport(args: string[]): number {
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") { printReportHelp(); return 0; }
   const options = parseOptions(args, new Set(["run-instance", "run"]));
-  const { run, memory } = resolveAcceptedAuthority(options);
+  const { run, memory, harvestRecord } = resolveAcceptedAuthority(options);
   lines([canonicalOutput(buildHistoricalEvidenceReport(run, {
-    proofRecords: memory.listAcceptedProofRecordsReadOnly(run.run_instance_id!)
+    proofRecords: memory.listAcceptedProofRecordsReadOnly(run.run_instance_id!), harvestRecord
   }))]);
   return 0;
 }
@@ -96,9 +106,9 @@ function runPacket(args: string[]): number {
     const options = parseOptions(rest, new Set(["run-instance", "run", "packet-record"]));
     const packet = stringOption(options, "packet-record");
     if (!packet) throw new Error("--packet-record is required.");
-    const { run, memory } = resolveAcceptedAuthority(options);
+    const { run, memory, harvestRecord } = resolveAcceptedAuthority(options);
     const payloads = memory.readPayloadBodiesReadOnly(run.run_instance_id!, packetPayloadIds(run, packet));
-    lines([canonicalOutput(buildAcceptedContextView(run, packet, { payloads }))]);
+    lines([canonicalOutput(buildAcceptedContextView(run, packet, { payloads, harvestRecord }))]);
     return 0;
   }
   if (kind === "implementation-review") {

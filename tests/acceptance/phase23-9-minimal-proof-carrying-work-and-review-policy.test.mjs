@@ -618,7 +618,7 @@ test("phase 23.9 proof is rejected until baseline review and delivery exist", ()
   assert.match(proof.record_id, /^sha256:[a-f0-9]{64}$/);
 });
 
-test("phase 23.9 delivery import persists exact-tree source authority and closeout rejects drift", () => {
+test("Phase 24A reusable review-to-delivery-to-closeout path persists exact-tree authority and rejects drift", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ch-delivery-source-"));
   const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
   git("init", "-q");
@@ -636,14 +636,14 @@ test("phase 23.9 delivery import persists exact-tree source authority and closeo
     ...buildRuntimeRun({
       runId,
       taskPath: "TASK.md",
-      phaseId: "23.9",
+      phaseId: "24A",
       repository: { root_path: root, project_root: root, dirty: false },
       requiredGates: []
     }),
     final_reviewed_source_head: reviewedHead,
     verification_results: [{
       verification_result_id: "verification-1", status: "pass",
-      created_at: new Date(0).toISOString(), summary: "pass", source: "test",
+      created_at: new Date(0).toISOString(), summary: "pass", source: "procedure:fix-pass-review",
       artifact_refs: [], command_results: []
     }],
     review_results: [{

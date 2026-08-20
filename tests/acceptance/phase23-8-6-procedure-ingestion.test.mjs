@@ -5137,14 +5137,30 @@ test("phase 23.8.6 recovers a clean committed successor activation into one task
   assert.match(beforeActivation.stderr, /requires a clean successor activation chain descending from recorded base/i);
 
   writeText(path.join(worktreePath, "TASK.md"), `# Current Task\n\nImplement only: ${nextTaskPath}\n\nDo not implement later phases.\n`);
-  fs.appendFileSync(path.join(worktreePath, nextTaskPath), "\nActivation authority.\n", "utf8");
   fs.appendFileSync(path.join(worktreePath, "docs", "IMPLEMENTATION_ROADMAP.md"), "\nRecovery activation authority.\n", "utf8");
   fs.appendFileSync(path.join(worktreePath, "docs", "OPERATIONS_PLAN.md"), "\nRecovery activation authority.\n", "utf8");
   assertSuccess(
-    runCommand("git", ["add", "TASK.md", nextTaskPath, "docs/IMPLEMENTATION_ROADMAP.md", "docs/OPERATIONS_PLAN.md"], { cwd: worktreePath }),
+    runCommand("git", ["add", "TASK.md", "docs/IMPLEMENTATION_ROADMAP.md", "docs/OPERATIONS_PLAN.md"], { cwd: worktreePath }),
     "git add committed recovery activation"
   );
   assertSuccess(runCommand("git", ["commit", "-m", "commit recovery activation authority"], { cwd: worktreePath }), "git commit recovery activation authority");
+
+  fs.appendFileSync(path.join(worktreePath, nextTaskPath), "\nChanged after decision.\n", "utf8");
+  assertSuccess(runCommand("git", ["add", nextTaskPath], { cwd: worktreePath }), "git add changed recovery task contract");
+  assertSuccess(runCommand("git", ["commit", "-m", "change recovery task contract"], { cwd: worktreePath }), "git commit changed recovery task contract");
+  const mismatchedIdentity = runCli(
+    [
+      "run", "materialize-next-task", "--run", run.run_id, "--decision-id", decisionId,
+      "--task", nextTaskPath, "--branch", branch, "--worktree", worktreePath,
+      "--enter-existing", "--recover-existing-activation"
+    ],
+    { cwd: tempRepo }
+  );
+  assertFailure(mismatchedIdentity, "recover after selected task bytes changed");
+  assert.match(mismatchedIdentity.stderr, /TASK_CONTRACT_IDENTITY_MISMATCH/);
+  assert.equal(fs.existsSync(path.join(tempRepo, ".harness", "tasks")), false,
+    "identity mismatch must fail before task-state materialization");
+  assertSuccess(runCommand("git", ["revert", "--no-edit", "HEAD"], { cwd: worktreePath }), "restore exact selected task bytes");
 
   const recoveryPreview = runCli(
     [

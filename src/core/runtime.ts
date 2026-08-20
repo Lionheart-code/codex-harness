@@ -1339,7 +1339,7 @@ function assertRecoverableExistingActivation(
 
   const activationCommit = firstCommitAfterBase(worktreePath, baseCommitSha);
   const changedPaths = activationCommit ? changedPathsInCommit(worktreePath, activationCommit) : undefined;
-  const requiredPaths = ["TASK.md", taskPath, "docs/IMPLEMENTATION_ROADMAP.md", "docs/OPERATIONS_PLAN.md"];
+  const requiredPaths = ["TASK.md", "docs/IMPLEMENTATION_ROADMAP.md", "docs/OPERATIONS_PLAN.md"];
   const missingPaths = changedPaths
     ? requiredPaths.filter((entry) => !changedPaths.includes(entry))
     : requiredPaths;
@@ -1597,12 +1597,27 @@ function ensureInsideTargetRoot(targetRoot: string, absolutePath: string): void 
 
 export function extractActiveTaskPath(taskMarkdown: string): string | undefined {
   const lines = taskMarkdown.split(/\r?\n/u);
-  const directives = lines
+  let fenced = false;
+  let inCurrentTask = false;
+  const authorityLines: string[] = [];
+  for (const line of lines) {
+    if (/^[ \t]*(```|~~~)/u.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced || /^[ \t]*>/u.test(line)) continue;
+    const heading = /^(#{1,6})[ \t]+(.+?)[ \t]*$/u.exec(line);
+    if (heading?.[1].length === 1) inCurrentTask = heading[2].trim().toLowerCase() === "current task";
+    if (inCurrentTask) authorityLines.push(line);
+  }
+  if (fenced) throw new Error("Task authority contains an unterminated fenced code block.");
+  if (authorityLines.length === 0) return undefined;
+  const directives = authorityLines
     .map((line) => /^Implement only:[ \t]+([^\s].*)$/u.exec(line))
     .filter((match): match is RegExpExecArray => Boolean(match));
-  const malformed = lines.some((line) => /^Implement only:[ \t]*$/u.test(line));
+  const malformed = authorityLines.some((line) => /^Implement only:[ \t]*$/u.test(line));
   if (directives.length === 0) {
-    if (malformed) return undefined;
+    if (malformed) throw new Error("Current Task authority contains a malformed Implement only pointer directive.");
     return undefined;
   }
   if (directives.length !== 1) {
@@ -1818,7 +1833,7 @@ function inferPhaseIdFromPath(taskPath: string): string | undefined {
   return match[1].split("_").join(".");
 }
 
-function resolveTaskReference(targetRoot: string, taskPath: string): {
+export function resolveTaskReference(targetRoot: string, taskPath: string): {
   taskPath: string;
   activeTaskPath?: string;
   phaseId?: string;
@@ -2418,6 +2433,26 @@ export function validateRuntimeRun(value: unknown): Run {
       }
       assertRequiredArray(binding, "required_planning_lens_ids", "runtime run implementation_baseline_binding");
       assertRequiredArray(binding, "planning_lens_artifacts", "runtime run implementation_baseline_binding");
+      const requiredLensIds = binding.required_planning_lens_ids as unknown[];
+      const lensArtifacts = binding.planning_lens_artifacts as unknown[];
+      if (requiredLensIds.length === 0 || new Set(requiredLensIds).size !== requiredLensIds.length
+        || requiredLensIds.some((lens) => !["plan-review", "architecture-review", "db-storage-review"].includes(String(lens)))) {
+        throw new Error("runtime run implementation_baseline_binding has invalid required_planning_lens_ids.");
+      }
+      if (lensArtifacts.length !== requiredLensIds.length) {
+        throw new Error("runtime run implementation_baseline_binding has incomplete planning_lens_artifacts.");
+      }
+      for (const candidate of lensArtifacts) {
+        const artifact = assertObject(candidate, "runtime run implementation_baseline_binding planning_lens_artifact");
+        for (const field of ["procedure_id", "artifact_id", "artifact_content_hash"] as const) {
+          assertRequiredString(artifact, field, "runtime run implementation_baseline_binding planning_lens_artifact");
+        }
+        if (!requiredLensIds.includes(artifact.procedure_id)
+          || !/^sha256:[a-f0-9]{64}$/u.test(String(artifact.artifact_id))
+          || !/^sha256:[a-f0-9]{64}$/u.test(String(artifact.artifact_content_hash))) {
+          throw new Error("runtime run implementation_baseline_binding has invalid planning_lens_artifact.");
+        }
+      }
     }
     const normalizedBaselineBinding: ImplementationBaselineBinding = {
       schema_version: binding.schema_version,
@@ -9712,6 +9747,15 @@ export async function materializeRuntimeNextTask(
     const absoluteTaskContractPath = path.join(absoluteWorktreePath, nextTaskPath);
     if (!fs.existsSync(absoluteTaskContractPath) || !fs.statSync(absoluteTaskContractPath).isFile()) {
       throw new Error(`Next task contract is missing in the materialized worktree: ${nextTaskPath}`);
+    }
+    if (!record.task_contract_identity || !/^sha256:[a-f0-9]{64}$/u.test(record.task_contract_identity)) {
+      throw new Error("TASK_CONTRACT_IDENTITY_REQUIRED: new successor materialization requires the exact selected task-contract identity.");
+    }
+    const selectedTaskContractIdentity = `sha256:${sha256Hex(fs.readFileSync(absoluteTaskContractPath))}`;
+    if (selectedTaskContractIdentity !== record.task_contract_identity) {
+      throw new Error(
+        `TASK_CONTRACT_IDENTITY_MISMATCH: selected task bytes do not match ${record.task_contract_identity}.`
+      );
     }
 
     if (recoverExistingActivation) {

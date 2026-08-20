@@ -1227,6 +1227,16 @@ export class ProjectMemoryDatabase {
     } finally { database.close(); }
   }
 
+  getHarvestRecordByRunInstanceIdReadOnly(runInstanceId: string): HarvestRecord | undefined {
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      const row = database.prepare(
+        "SELECT harvest_json FROM project_harvest_records_exact WHERE run_instance_id = ?"
+      ).get(runInstanceId) as { harvest_json?: string } | undefined;
+      return row?.harvest_json ? JSON.parse(row.harvest_json) as HarvestRecord : undefined;
+    } finally { database.close(); }
+  }
+
   listRunsByDisplayRunIdReadOnly(runId: string): Run[] {
     const database = openSqliteDatabaseReadOnly(this.projectDbPath);
     try {

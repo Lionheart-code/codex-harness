@@ -10,7 +10,7 @@ import {
 } from "../../dist/core/evidence-views.js";
 import { canonicalJson } from "../../dist/core/evidence-types.js";
 import { buildContextCore, buildContextManifest, buildReviewDeltaOverlay } from "../../dist/core/self-hosting-review-context.js";
-import { buildRuntimeRun, extractActiveTaskPath } from "../../dist/core/runtime.js";
+import { buildRuntimeRun, extractActiveTaskPath, resolveTaskReference, validateRuntimeRun } from "../../dist/core/runtime.js";
 import { openSqliteDatabase, openSqliteDatabaseReadOnly } from "../../dist/core/sqlite.js";
 import { parseAuthoritativeProcedureProvenance } from "../../dist/core/run-staging-db.js";
 
@@ -23,6 +23,13 @@ function run(overrides = {}) {
         head_sha: "b".repeat(40), dirty: false }, timestamp: "2026-01-01T00:00:00.000Z" }),
     run_instance_id: "instance-24a", lifecycle_status: "harvested", source_snapshot: "a".repeat(40), ...overrides
   };
+}
+
+function promotedHarvest(sourceRun = run(), status = "promoted") {
+  return { harvest_id: "harvest-24a", run_id: sourceRun.run_id, project_run_id: sourceRun.run_instance_id,
+    status, promoted_at: "2026-01-01T00:10:00.000Z", accepted_count: 1, discarded_count: 0,
+    quarantined_count: 0, redacted_count: 0, unresolved_count: 0,
+    source_task_path: sourceRun.active_task_path, source_snapshot: sourceRun.source_snapshot, details: {} };
 }
 
 function binding() {
@@ -95,63 +102,133 @@ function contextFixture(candidateHead = "7".repeat(40)) {
 
 test("Phase 24A historical report redacts external secrets before deterministic serialization and uses exact proof records", () => {
   const input = run({ verification_results: [{ verification_result_id: "verify-1", status: "PASS",
-    created_at: "2026-01-01T00:00:01.000Z", summary: "ok", source: "run verify", artifact_refs: [], command_results: [] }],
+    created_at: "2026-01-01T00:00:01.000Z", summary: "ok", source: "SECRET_SENTINEL source", artifact_refs: [],
+    command_results: [{ command_result_id: "command-1", command: "echo SECRET_SENTINEL", status: "PASS",
+      exit_code: 0, artifact_refs: [] }] }],
+    review_results: [{ review_result_id: "review-1", status: "FIX_REQUIRED", created_at: "2026-01-01T00:00:02.000Z",
+      summary: "fix", source: "procedure:implementation-review", blockers: ["SECRET_SENTINEL blocker"], artifact_refs: [] }],
+    remote_checks: [{ check_result_id: "check-1", gate_id: "ci", name: "SECRET_SENTINEL check", required: true,
+      status: "pass", recorded_at: "2026-01-01T00:00:03.000Z", ci_run: { provider: "SECRET_SENTINEL",
+        run_id: "SECRET_SENTINEL", url: "https://example.test/SECRET_SENTINEL" } }],
     delivery_facts: [{ delivery_fact_id: "delivery-1", run_id: "run-view", fact_kind: "pr", source: "github",
       status: "created", recorded_at: "2026-01-01T00:00:03.000Z", summary: "created",
       url: "https://example.test/SECRET_SENTINEL?token=SECRET_SENTINEL", external_run_id: "SECRET_SENTINEL" }] });
   const proof = acceptedProofRecord();
-  const first = buildHistoricalEvidenceReport(input, { proofRecords: [proof] });
-  const second = buildHistoricalEvidenceReport(input, { proofRecords: [proof] });
+  const harvestRecord = promotedHarvest(input);
+  const first = buildHistoricalEvidenceReport(input, { proofRecords: [proof], harvestRecord });
+  const second = buildHistoricalEvidenceReport(input, { proofRecords: [proof], harvestRecord });
   assert.deepEqual(first, second);
   assert.equal(JSON.stringify(first).includes("SECRET_SENTINEL"), false);
   assert.equal(first.proof.status, "recorded");
-  assert.equal(first.redaction.redacted_field_count, 2);
+  assert.ok(first.redaction.redacted_field_count >= 2);
   assert.equal(first.redaction.raw_payloads_exported, false);
 });
 
 test("Phase 24A historical proof availability cannot be inferred from routing records", () => {
-  const report = buildHistoricalEvidenceReport(run({ review_routing_records: [{ record_kind: "routing_evaluation",
+  const input = run({ review_routing_records: [{ record_kind: "routing_evaluation",
     record_id: "route-proof", created_at: "2026-01-01T00:00:01.000Z", status: "accepted", summary: "looks like proof",
-    payload: { record_kind: "proof_record" } }] }));
+    payload: { record_kind: "proof_record" } }] });
+  const report = buildHistoricalEvidenceReport(input, { harvestRecord: promotedHarvest(input) });
   assert.equal(report.proof.status, "missing");
   assert.deepEqual(report.proof.refs, []);
+});
+
+test("Phase 24A accepted Project Memory requires an exact promoted harvest disposition", () => {
+  const input = run();
+  assert.throws(() => buildHistoricalEvidenceReport(input, { harvestRecord: promotedHarvest(input, "discarded") }),
+    /ACCEPTED_PROJECT_MEMORY_REQUIRED/);
+  assert.throws(() => buildHistoricalEvidenceReport(input), /ACCEPTED_PROJECT_MEMORY_REQUIRED/);
+  assert.equal(buildHistoricalEvidenceReport(input, { harvestRecord: promotedHarvest(input) }).harvest.status, "promoted");
+});
+
+test("Phase 24A review lineage supersedes implementation FIX_REQUIRED with fix-pass PASS", () => {
+  const input = run({ review_results: [
+    { review_result_id: "implementation-fix", status: "FIX_REQUIRED", created_at: "2026-01-01T00:00:01.000Z",
+      summary: "fix", source: "procedure:implementation-review", blockers: ["SECRET_SENTINEL"], artifact_refs: [] },
+    { review_result_id: "fix-pass", status: "PASS", created_at: "2026-01-01T00:00:02.000Z",
+      summary: "pass", source: "procedure:fix-pass-review", blockers: [], artifact_refs: [] }
+  ] });
+  const report = buildHistoricalEvidenceReport(input, { harvestRecord: promotedHarvest(input) });
+  assert.equal(report.reviews.find((entry) => entry.id === "implementation-fix").disposition, "superseded");
+  assert.equal(report.reviews.find((entry) => entry.id === "fix-pass").disposition, "current");
+  assert.equal(JSON.stringify(report).includes("SECRET_SENTINEL"), false);
+});
+
+test("Phase 24A historical output truncates only stable optional routing and fails when mandatory core cannot fit", () => {
+  const routing = Array.from({ length: 120 }, (_, index) => ({ record_kind: "routing_evaluation",
+    record_id: `route-${String(index).padStart(3, "0")}`, created_at: `2026-01-01T00:${String(index % 60).padStart(2, "0")}:00.000Z`,
+    status: "accepted", summary: "optional", payload: { route_class: "critical_independent", usage_ref: `usage-${index}` } }));
+  const input = run({ review_routing_records: routing });
+  const first = buildHistoricalEvidenceReport(input, { harvestRecord: promotedHarvest(input), outputBudgetBytes: 12_000 });
+  const second = buildHistoricalEvidenceReport(input, { harvestRecord: promotedHarvest(input), outputBudgetBytes: 12_000 });
+  assert.deepEqual(first, second);
+  assert.equal(first.truncation.applied, true);
+  assert.ok(first.truncation.omitted_optional_count > 0);
+  assert.ok(first.budget.output_bytes <= first.budget.limit_bytes);
+  assert.ok(Buffer.byteLength(canonicalJson(first)) <= first.budget.limit_bytes);
+  assert.equal(first.run.run_instance_id, input.run_instance_id);
+  assert.throws(() => buildHistoricalEvidenceReport(input, {
+    harvestRecord: promotedHarvest(input), outputBudgetBytes: 256
+  }), /EVIDENCE_VIEW_MANDATORY_BUDGET_EXCEEDED/);
 });
 
 test("Phase 24A pointer grammar distinguishes one inline pointer from a multiline direct scope", () => {
   assert.equal(extractActiveTaskPath("# Current Task\n\nImplement only: tasks/NEXT.md\n"), "tasks/NEXT.md");
   assert.equal(extractActiveTaskPath("# Task\n\nImplement only:\n\n- one bounded change\n"), undefined);
-  assert.throws(() => extractActiveTaskPath("Implement only: ../NEXT.md\n"), /repository-relative/);
-  assert.throws(() => extractActiveTaskPath("Implement only: tasks/A.md\nImplement only: tasks/B.md\n"), /multiple/);
+  assert.equal(extractActiveTaskPath("# Phase 24A\n\nImplement only:\n\n- one bounded change\n\n```md\nImplement only: tasks/EVIL.md\n```\n\nExample: `Implement only: tasks/ALSO-EVIL.md`\n"), undefined);
+  assert.equal(extractActiveTaskPath("# Phase 24A\n\nImplement only:\n\n- direct scope\n\nLater example:\nImplement only: tasks/EXAMPLE.md\n"), undefined);
+  assert.throws(() => extractActiveTaskPath("# Current Task\n\nImplement only: ../NEXT.md\n"), /repository-relative/);
+  assert.throws(() => extractActiveTaskPath("# Current Task\n\nImplement only: tasks/A.md\nImplement only: tasks/B.md\n"), /multiple/);
+  assert.throws(() => extractActiveTaskPath("# Current Task\n\nImplement only:\n"), /malformed/);
+});
+
+test("Phase 24A task authority rejects unreadable, out-of-repository, and recursive targets", () => {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "phase24a-task-grammar-")));
+  try {
+    fs.mkdirSync(path.join(root, "tasks"));
+    fs.writeFileSync(path.join(root, "TASK.md"), "# Current Task\n\nImplement only: tasks/MISSING.md\n");
+    assert.throws(() => resolveTaskReference(root, "TASK.md"), /not a readable regular file/);
+    fs.writeFileSync(path.join(root, "tasks", "RECURSIVE.md"), "# Current Task\n\nImplement only: tasks/OTHER.md\n");
+    fs.writeFileSync(path.join(root, "tasks", "OTHER.md"), "# Phase X\n");
+    fs.writeFileSync(path.join(root, "TASK.md"), "# Current Task\n\nImplement only: tasks/RECURSIVE.md\n");
+    assert.throws(() => resolveTaskReference(root, "TASK.md"), /recursion/);
+    fs.writeFileSync(path.join(root, "TASK.md"), "# Current Task\n\nImplement only: ../OUTSIDE.md\n");
+    assert.throws(() => resolveTaskReference(root, "TASK.md"), /repository-relative/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test("Phase 24A accepted context view reconstructs exact payload identities, membership, parentage, and ordered refs", () => {
   const fixture = contextFixture();
-  const view = buildAcceptedContextView(run({ review_routing_records: fixture.records }), fixture.packet.record_id,
-    { payloads: fixture.payloads });
+  const acceptedRun = run({ review_routing_records: fixture.records });
+  const view = buildAcceptedContextView(acceptedRun, fixture.packet.record_id,
+    { payloads: fixture.payloads, harvestRecord: promotedHarvest(acceptedRun) });
   assert.equal(view.context.core_id, fixture.core.context_core_id);
+  assert.equal(view.acceptance.status, "promoted");
   assert.equal(view.context.manifest.context_core_id, fixture.core.context_core_id);
   assert.deepEqual(view.ordered_payload_refs.map((entry) => entry.payload_id), fixture.packet.payload.payload_ids);
-  assert.throws(() => buildAcceptedContextView(run({ review_routing_records: fixture.records }), "wrong",
-    { payloads: fixture.payloads }), /CONTEXT_PACKET/);
+  assert.throws(() => buildAcceptedContextView(acceptedRun, "wrong",
+    { payloads: fixture.payloads, harvestRecord: promotedHarvest(acceptedRun) }), /CONTEXT_PACKET/);
   const missing = fixture.payloads.filter((payload) => payload.kind !== "context-manifest");
-  assert.throws(() => buildAcceptedContextView(run({ review_routing_records: fixture.records }), fixture.packet.record_id,
-    { payloads: missing }), /CONTEXT_PAYLOAD_BINDING_MISMATCH/);
+  assert.throws(() => buildAcceptedContextView(acceptedRun, fixture.packet.record_id,
+    { payloads: missing, harvestRecord: promotedHarvest(acceptedRun) }), /CONTEXT_PAYLOAD_BINDING_MISMATCH/);
 });
 
 test("Phase 24A accepted context view fails closed on hash and parentage mismatches", () => {
   const fixture = contextFixture();
+  const acceptedRun = run({ review_routing_records: fixture.records });
   const badPacketPayload = { ...fixture.packet.payload, context_core_hash: "sha256:" + "9".repeat(64) };
   const badPacket = { ...fixture.packet, record_id: "sha256:" + sha(canonicalJson(badPacketPayload)), payload: badPacketPayload };
-  assert.throws(() => buildAcceptedContextView(run({ review_routing_records: [fixture.invocation, badPacket] }), badPacket.record_id,
-    { payloads: fixture.payloads }), /OBJECT_IDENTITY_MISMATCH/);
+  const badPacketRun = run({ review_routing_records: [fixture.invocation, badPacket] });
+  assert.throws(() => buildAcceptedContextView(badPacketRun, badPacket.record_id,
+    { payloads: fixture.payloads, harvestRecord: promotedHarvest(badPacketRun) }), /OBJECT_IDENTITY_MISMATCH/);
   const badManifest = { ...fixture.manifest, context_core_id: "context-core-" + "8".repeat(64) };
   const badPayloads = fixture.payloads.map((payload) => payload.kind === "context-manifest" ? { ...payload, body: badManifest } : payload);
-  assert.throws(() => buildAcceptedContextView(run({ review_routing_records: fixture.records }), fixture.packet.record_id,
-    { payloads: badPayloads }), /MANIFEST_IDENTITY_MISMATCH/);
+  assert.throws(() => buildAcceptedContextView(acceptedRun, fixture.packet.record_id,
+    { payloads: badPayloads, harvestRecord: promotedHarvest(acceptedRun) }), /MANIFEST_IDENTITY_MISMATCH/);
   const badParent = fixture.payloads.map((payload) => payload.kind === "context-core"
     ? { ...payload, parent_record_id: "review-launch-attempt:wrong" } : payload);
-  assert.throws(() => buildAcceptedContextView(run({ review_routing_records: fixture.records }), fixture.packet.record_id,
-    { payloads: badParent }), /CONTEXT_PAYLOAD_PARENT_MISMATCH/);
+  assert.throws(() => buildAcceptedContextView(acceptedRun, fixture.packet.record_id,
+    { payloads: badParent, harvestRecord: promotedHarvest(acceptedRun) }), /CONTEXT_PAYLOAD_PARENT_MISMATCH/);
 });
 
 test("Phase 24A implementation review view includes exact overlay, route, policy, proof, and baseline bindings", () => {
@@ -232,11 +309,21 @@ test("Phase 24A schemas reject ungoverned top-level fields and type the material
   assert.ok(implementation.required.includes("budget"));
   assert.ok(implementation.properties.context.properties.core.$ref.includes("contextCore"));
   const fixture = contextFixture();
-  const accepted = buildAcceptedContextView(run({ review_routing_records: fixture.records }), fixture.packet.record_id,
-    { payloads: fixture.payloads });
+  const acceptedRun = run({ review_routing_records: fixture.records });
+  const accepted = buildAcceptedContextView(acceptedRun, fixture.packet.record_id,
+    { payloads: fixture.payloads, harvestRecord: promotedHarvest(acceptedRun) });
   const malformedContext = structuredClone(accepted);
   malformedContext.ordered_payload_refs[0].unexpected = true;
   assert.throws(() => validateEvidenceView(malformedContext), /SCHEMA_INVALID/);
+  for (const mutate of [
+    (view) => { view.retrieval.canonical_bytes.core = "bad"; },
+    (view) => { view.transport.mode = []; },
+    (view) => { view.redaction.source_redactions = "bad"; },
+    (view) => { view.truncation.omitted_optional_count = -1; }
+  ]) {
+    const malformed = structuredClone(accepted); mutate(malformed);
+    assert.throws(() => validateEvidenceView(malformed), /SCHEMA_INVALID/);
+  }
   const exactBinding = binding();
   const implementationView = buildImplementationReviewView(run({ lifecycle_status: "active",
     implementation_baseline_head: exactBinding.implementation_baseline_head, implementation_baseline_binding: exactBinding,
@@ -244,6 +331,73 @@ test("Phase 24A schemas reject ungoverned top-level fields and type the material
   const malformedRoute = structuredClone(implementationView);
   malformedRoute.route.risk_classes = "storage";
   assert.throws(() => validateEvidenceView(malformedRoute), /SCHEMA_INVALID/);
+  for (const mutate of [
+    (view) => { view.plan.lens_artifacts = {}; },
+    (view) => { view.procedure.source_map_ref = null; },
+    (view) => { view.evidence.verification_refs = "bad"; },
+    (view) => { view.transport.context_reuse = []; },
+    (view) => { view.budget.core_bytes = -1; },
+    (view) => { view.independence.required = false; },
+    (view) => { view.delta.findings = [{ finding_id: "x", disposition: "invalid" }]; }
+  ]) {
+    const malformed = structuredClone(implementationView); mutate(malformed);
+    assert.throws(() => validateEvidenceView(malformed), /SCHEMA_INVALID/);
+  }
+  const historicalRun = run({ verification_results: [{ verification_result_id: "verify", status: "PASS",
+    created_at: "2026-01-01T00:00:01.000Z", summary: "ok", source: "test", artifact_refs: [], command_results: [] }] });
+  const historical = buildHistoricalEvidenceReport(historicalRun, { harvestRecord: promotedHarvest(historicalRun) });
+  for (const mutate of [
+    (view) => { view.verification[0].commands = {}; },
+    (view) => { view.harvest.accepted_count = -1; },
+    (view) => { view.routing.records = {}; },
+    (view) => { view.budget.limit_bytes = 0; }
+  ]) {
+    const malformed = structuredClone(historical); mutate(malformed);
+    assert.throws(() => validateEvidenceView(malformed), /SCHEMA_INVALID/);
+  }
+});
+
+test("Phase 24A validators recompute view identity for every view kind", () => {
+  const acceptedRun = run({ review_routing_records: contextFixture().records });
+  const fixture = contextFixture();
+  acceptedRun.review_routing_records = fixture.records;
+  const historical = buildHistoricalEvidenceReport(acceptedRun, { harvestRecord: promotedHarvest(acceptedRun) });
+  const accepted = buildAcceptedContextView(acceptedRun, fixture.packet.record_id,
+    { payloads: fixture.payloads, harvestRecord: promotedHarvest(acceptedRun) });
+  const exactBinding = binding();
+  const active = run({ lifecycle_status: "active", implementation_baseline_head: exactBinding.implementation_baseline_head,
+    implementation_baseline_binding: exactBinding, review_routing_records: fixture.records });
+  const implementation = buildImplementationReviewView(active, "7".repeat(40),
+    { packetRecordId: fixture.packet.record_id, payloads: fixture.payloads });
+  for (const view of [historical, accepted, implementation]) {
+    const tampered = structuredClone(view);
+    tampered.claims[0].claim = "tampered_material_claim";
+    assert.throws(() => validateEvidenceView(tampered), /EVIDENCE_VIEW_ID_MISMATCH/);
+  }
+});
+
+test("Phase 24A runtime v3 schema and parser require complete exact cohort authority while v1 and v2 remain readable", () => {
+  const base = run({ lifecycle_status: "active" });
+  const common = { approval_id: "approval", plan_artifact_hash: "sha256:" + "1".repeat(64),
+    planning_review_source_head: "2".repeat(40), owner_authority_diff_hash: "sha256:" + "3".repeat(64),
+    implementation_baseline_head: "4".repeat(40), implementation_baseline_tree_hash: "5".repeat(40),
+    expected_tree_hash: "5".repeat(40), bound_at: "2026-01-01T00:00:00.000Z" };
+  assert.doesNotThrow(() => validateRuntimeRun({ ...base, implementation_baseline_head: common.implementation_baseline_head,
+    implementation_baseline_binding: { schema_version: 1, ...common } }));
+  assert.doesNotThrow(() => validateRuntimeRun({ ...base, implementation_baseline_head: common.implementation_baseline_head,
+    implementation_baseline_binding: { schema_version: 2, ...common, plan_review_artifact_hash: "sha256:" + "6".repeat(64),
+      authority_transition: "reviewed_source" } }));
+  const v3 = { schema_version: 3, ...common, plan_review_artifact_hash: "sha256:" + "6".repeat(64),
+    authority_transition: "reviewed_source", task_artifact_id: "sha256:" + "7".repeat(64), run_instance_id: base.run_instance_id,
+    immutable_base: "8".repeat(40), planning_cohort_id: "sha256:" + "9".repeat(64), required_planning_lens_ids: ["plan-review"],
+    planning_lens_artifacts: [{ procedure_id: "plan-review", artifact_id: "sha256:" + "a".repeat(64),
+      artifact_content_hash: "sha256:" + "b".repeat(64) }] };
+  assert.doesNotThrow(() => validateRuntimeRun({ ...base, implementation_baseline_head: common.implementation_baseline_head,
+    implementation_baseline_binding: v3 }));
+  assert.throws(() => validateRuntimeRun({ ...base, implementation_baseline_head: common.implementation_baseline_head,
+    implementation_baseline_binding: { ...v3, planning_lens_artifacts: [] } }), /incomplete planning_lens_artifacts/);
+  const schema = JSON.parse(fs.readFileSync("schemas/runtime-run.schema.json", "utf8"));
+  assert.ok(schema.allOf.some((entry) => entry.if?.properties?.implementation_baseline_binding?.properties?.schema_version?.const === 3));
 });
 
 test("Phase 24A report and packet help are closed deterministic CLI surfaces", () => {
