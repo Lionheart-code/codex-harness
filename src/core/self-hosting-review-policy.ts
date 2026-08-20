@@ -177,11 +177,25 @@ export interface ResolvedPlanningReviewFactsV1 {
 
 const REVIEW_TIERS = ["standard", "high", "extra-high"] as const;
 const PLANNING_LENSES = ["plan-review", "architecture-review", "db-storage-review"] as const;
+const REVIEW_SURFACE_CLASSES = [
+  "acceptance", "authority", "authority_docs", "docs", "docs_task_only", "harness", "policy",
+  "procedure_policy", "runtime", "schema", "schemas", "storage", "task"
+] as const;
+const REVIEW_RISK_CLASSES = [
+  "adapter", "architecture", "authority", "conflicting_evidence", "database", "db", "harness", "lifecycle",
+  "provider", "retention", "schema", "security", "storage", "weak_evidence"
+] as const;
 
-function readStructuredReviewFactsBlock(markdown: string, contractKey: string): Map<string, string | string[]> | undefined {
+function readStructuredReviewFactsBlock(
+  markdown: string,
+  contractKey: string,
+  allowedKeys: readonly string[]
+): Map<string, string | string[]> | undefined {
   const blocks = [...markdown.matchAll(/```yaml[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```/giu)].map((match) => match[1]);
-  const block = blocks.find((candidate) => new RegExp(`^\\s*${contractKey}:\\s*planned-review-facts\\.v1\\s*$`, "mu").test(candidate));
-  if (!block) return undefined;
+  const matching = blocks.filter((candidate) => new RegExp(`^\\s*${contractKey}:\\s*planned-review-facts\\.v1\\s*$`, "mu").test(candidate));
+  if (matching.length === 0) return undefined;
+  if (matching.length !== 1) throw new Error(`planning_review_facts_ambiguous:${contractKey}`);
+  const block = matching[0];
   const values = new Map<string, string | string[]>();
   let arrayKey: string | undefined;
   for (const rawLine of block.split(/\r?\n/u)) {
@@ -194,6 +208,7 @@ function readStructuredReviewFactsBlock(markdown: string, contractKey: string): 
     const separator = trimmed.indexOf(":");
     if (separator < 1) throw new Error(`planning_review_facts_invalid:${contractKey}`);
     const key = trimmed.slice(0, separator).trim();
+    if (!allowedKeys.includes(key) || values.has(key)) throw new Error(`planning_review_facts_field_invalid:${key}`);
     const rawValue = trimmed.slice(separator + 1).trim();
     if (!rawValue) {
       values.set(key, []);
@@ -229,27 +244,45 @@ function requireReviewTier(value: string): "standard" | "high" | "extra-high" {
   return value as typeof REVIEW_TIERS[number];
 }
 
+function requireReviewClasses(values: string[], vocabulary: readonly string[], field: string): string[] {
+  if (values.some((value) => !vocabulary.includes(value))) {
+    throw new Error(`planning_review_facts_field_invalid:${field}`);
+  }
+  return values;
+}
+
 export function parseTaskPlanningReviewAuthorityFacts(markdown: string): TaskPlanningReviewAuthorityFactsV1 | undefined {
-  const values = readStructuredReviewFactsBlock(markdown, "planning_review_authority_contract");
+  const values = readStructuredReviewFactsBlock(markdown, "planning_review_authority_contract", [
+    "planning_review_authority_contract", "task_id", "task_contract_ref", "review_tier",
+    "minimum_planned_surface_classes", "minimum_planned_risk_classes"
+  ]);
   if (!values) return undefined;
   return {
     contract: "planned-review-facts.v1",
     task_id: requireStructuredString(values, "task_id"),
     task_contract_ref: requireStructuredString(values, "task_contract_ref"),
     review_tier: requireReviewTier(requireStructuredString(values, "review_tier")),
-    minimum_planned_surface_classes: requireStructuredStringArray(values, "minimum_planned_surface_classes"),
-    minimum_planned_risk_classes: requireStructuredStringArray(values, "minimum_planned_risk_classes")
+    minimum_planned_surface_classes: requireReviewClasses(
+      requireStructuredStringArray(values, "minimum_planned_surface_classes"), REVIEW_SURFACE_CLASSES,
+      "minimum_planned_surface_classes"),
+    minimum_planned_risk_classes: requireReviewClasses(
+      requireStructuredStringArray(values, "minimum_planned_risk_classes"), REVIEW_RISK_CLASSES,
+      "minimum_planned_risk_classes")
   };
 }
 
 export function parsePlanBoundPlanningReviewFacts(markdown: string): PlanBoundPlanningReviewFactsV1 | undefined {
-  const values = readStructuredReviewFactsBlock(markdown, "planning_review_facts_contract");
+  const values = readStructuredReviewFactsBlock(markdown, "planning_review_facts_contract", [
+    "planning_review_facts_contract", "review_tier", "planned_surface_classes", "planned_risk_classes"
+  ]);
   if (!values) return undefined;
   return {
     contract: "planned-review-facts.v1",
     review_tier: requireReviewTier(requireStructuredString(values, "review_tier")),
-    planned_surface_classes: requireStructuredStringArray(values, "planned_surface_classes"),
-    planned_risk_classes: requireStructuredStringArray(values, "planned_risk_classes")
+    planned_surface_classes: requireReviewClasses(
+      requireStructuredStringArray(values, "planned_surface_classes"), REVIEW_SURFACE_CLASSES, "planned_surface_classes"),
+    planned_risk_classes: requireReviewClasses(
+      requireStructuredStringArray(values, "planned_risk_classes"), REVIEW_RISK_CLASSES, "planned_risk_classes")
   };
 }
 
@@ -277,6 +310,8 @@ export function resolvePlanningReviewFacts(input: {
     || !input.runInstanceId.trim() || !/^[a-f0-9]{40}$/u.test(input.immutableBase)) {
     throw new Error("planning_review_facts_binding_invalid");
   }
+  requireReviewClasses(input.knownChangedSurfaceClasses ?? [], REVIEW_SURFACE_CLASSES, "knownChangedSurfaceClasses");
+  requireReviewClasses(input.knownRiskClasses ?? [], REVIEW_RISK_CLASSES, "knownRiskClasses");
   const reviewTier = REVIEW_TIERS[Math.max(REVIEW_TIERS.indexOf(task.review_tier), REVIEW_TIERS.indexOf(plan.review_tier))];
   const plannedSurfaceClasses = [...new Set([
     ...task.minimum_planned_surface_classes,

@@ -14,6 +14,7 @@ import type { HarvestRecord } from "./lifecycle-types";
 import type {
   AcceptedDeliveryFactDescriptor,
   AcceptedPayloadDescriptor,
+  AcceptedPayloadLinkDescriptor,
   AcceptedProcedureArtifactDescriptor,
   AcceptedRecordDescriptor
 } from "./project-memory-db";
@@ -30,6 +31,7 @@ export interface EvidenceViewInputs {
   acceptedDeliveryFactDescriptors?: AcceptedDeliveryFactDescriptor[];
   acceptedProcedureArtifactDescriptors?: AcceptedProcedureArtifactDescriptor[];
   acceptedPayloadDescriptors?: AcceptedPayloadDescriptor[];
+  acceptedPayloadLinkDescriptors?: AcceptedPayloadLinkDescriptor[];
   outputBudgetBytes?: number;
 }
 
@@ -92,6 +94,21 @@ function requireInteger(record: Record<string, unknown>, field: string, label: s
   }
 }
 
+function requireNullableString(record: Record<string, unknown>, field: string, label: string): void {
+  requireString(record, field, label, true);
+}
+
+function requirePattern(record: Record<string, unknown>, field: string, label: string, pattern: RegExp, nullable = false): void {
+  if (nullable && record[field] === null) return;
+  if (typeof record[field] !== "string" || !pattern.test(record[field] as string)) {
+    throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:${label}:${field}`);
+  }
+}
+
+const COMMIT_PATTERN = /^[a-f0-9]{40}$/u;
+const CONTENT_ID_PATTERN = /^sha256:[a-f0-9]{64}$/u;
+const RAW_HASH_PATTERN = /^[a-f0-9]{64}$/u;
+
 function validateRedaction(value: unknown, label: string): void {
   const redaction = object(value, label);
   if (redaction.applied_before_serialization !== true || redaction.raw_payloads_exported !== false) {
@@ -130,7 +147,15 @@ function validateExternalFact(value: unknown, remote: boolean): void {
   for (const field of remote ? ["id", "gate_id", "name", "status", "recorded_at", "provider"]
     : ["id", "kind", "source", "status", "recorded_at"]) requireString(fact, field, label);
   if (remote) requireBoolean(fact, "required", label);
+  requirePattern(fact, "commit_sha", label, COMMIT_PATTERN, true);
+  for (const field of ["url", "external_run_id"] as const) requireNullableString(fact, field, label);
+  requireString(fact, "accepted_record_id", label);
+  for (const field of ["url_hash", "external_run_id_hash"] as const) requirePattern(fact, field, label, CONTENT_ID_PATTERN, true);
+  if (!remote) requireNullableString(fact, "excerpt_payload_ref", label);
   if (remote) {
+    for (const field of ["conclusion", "failure_excerpt", "redaction_status"]) requireString(fact, field, label);
+    requireString(fact, "evidence_ref", label);
+    requirePattern(fact, "failure_excerpt_hash", label, CONTENT_ID_PATTERN, true);
     if (!Array.isArray(fact.check_conclusions)) throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:${label}:check_conclusions`);
     for (const candidate of fact.check_conclusions) {
       const conclusion = object(candidate, `${label}:check_conclusion`);
@@ -145,7 +170,8 @@ function validatePayloadRefs(value: unknown, label: string): void {
   for (const entry of value) {
     const ref = object(entry, label);
     requireKeys(ref, ["payload_id", "kind", "content_hash", "raw_size_bytes", "redaction_status", "retention_class"], label);
-    for (const field of ["payload_id", "kind", "content_hash", "redaction_status", "retention_class"]) requireString(ref, field, label);
+    for (const field of ["payload_id", "kind", "redaction_status", "retention_class"]) requireString(ref, field, label);
+    requirePattern(ref, "content_hash", label, CONTENT_ID_PATTERN);
     if (!Number.isInteger(ref.raw_size_bytes) || Number(ref.raw_size_bytes) < 0) throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:${label}:raw_size_bytes`);
   }
 }
@@ -183,6 +209,9 @@ export function validateEvidenceView(value: unknown): void {
     requireKeys(run, ["run_instance_id", "run_id", "phase_id", "task_path", "lifecycle_status", "source_head", "source_snapshot",
       "implementation_baseline_head", "final_reviewed_source_head", "delivered_source_head"], "HISTORICAL_RUN");
     for (const field of ["run_instance_id", "run_id", "task_path", "lifecycle_status"]) requireString(run, field, "HISTORICAL_RUN");
+    requireNullableString(run, "phase_id", "HISTORICAL_RUN");
+    for (const field of ["source_head", "source_snapshot", "implementation_baseline_head", "final_reviewed_source_head",
+      "delivered_source_head"]) requirePattern(run, field, "HISTORICAL_RUN", COMMIT_PATTERN, true);
     for (const field of ["verification", "reviews", "delivery", "remote_checks", "gaps", "inferences", "unknowns"]) {
       if (!Array.isArray(view[field])) throw new Error(`EVIDENCE_VIEW_SCHEMA_INVALID:HISTORICAL:${field}`);
     }
@@ -212,9 +241,10 @@ export function validateEvidenceView(value: unknown): void {
     }
     const plan = object(view.plan, "HISTORICAL_PLAN");
     requireKeys(plan, ["approval_id", "reviewed_plan_artifact_id", "reviewed_plan_content_hash", "reviewed_evidence_artifact_id"], "HISTORICAL_PLAN");
-    for (const field of ["approval_id", "reviewed_plan_artifact_id", "reviewed_plan_content_hash", "reviewed_evidence_artifact_id"]) {
-      if (plan[field] !== null) requireString(plan, field, "HISTORICAL_PLAN");
-    }
+    requireNullableString(plan, "approval_id", "HISTORICAL_PLAN");
+    requirePattern(plan, "reviewed_plan_artifact_id", "HISTORICAL_PLAN", CONTENT_ID_PATTERN, true);
+    requirePattern(plan, "reviewed_plan_content_hash", "HISTORICAL_PLAN", RAW_HASH_PATTERN, true);
+    requirePattern(plan, "reviewed_evidence_artifact_id", "HISTORICAL_PLAN", CONTENT_ID_PATTERN, true);
     if (view.closeout !== null) {
       const closeout = object(view.closeout, "HISTORICAL_CLOSEOUT");
       requireKeys(closeout, ["receipt_id", "status", "created_at", "blocker_count"], "HISTORICAL_CLOSEOUT");
@@ -251,6 +281,14 @@ export function validateEvidenceView(value: unknown): void {
         "output_tokens", "latency_ms", "observed_provider", "observed_model", "observed_reasoning_effort"],
       "HISTORICAL_ROUTING_RECORD");
       for (const field of ["record_id", "record_kind", "status", "created_at"]) requireString(record, field, "HISTORICAL_ROUTING_RECORD");
+      for (const field of ["procedure_id", "route_decision_id", "route_class", "policy_version", "binding_version", "binding_profile_id",
+        "context_core_id", "context_manifest_id", "delta_overlay_id", "usage_ref", "deterministic_evidence_state", "independence_mode",
+        "context_mode", "context_reuse", "observed_provider", "observed_model", "observed_reasoning_effort"]) {
+        requireNullableString(record, field, "HISTORICAL_ROUTING_RECORD");
+      }
+      for (const field of ["request_bytes", "core_bytes", "delta_bytes", "input_tokens", "cached_input_tokens", "output_tokens", "latency_ms"]) {
+        if (record[field] !== null) requireInteger(record, field, "HISTORICAL_ROUTING_RECORD");
+      }
       for (const field of ["changed_surface_classes", "risk_classes", "required_semantic_reviews"]) {
         requireStringArray(record[field], `HISTORICAL_ROUTING_RECORD:${field}`);
       }
@@ -270,6 +308,11 @@ export function validateEvidenceView(value: unknown): void {
       for (const field of ["procedure_id", "artifact_id", "payload_ref", "content_hash", "recorded_at"]) {
         requireString(descriptor, field, "HISTORICAL_PROCEDURE_ARTIFACT");
       }
+      requirePattern(descriptor, "artifact_id", "HISTORICAL_PROCEDURE_ARTIFACT", CONTENT_ID_PATTERN);
+      requirePattern(descriptor, "content_hash", "HISTORICAL_PROCEDURE_ARTIFACT", CONTENT_ID_PATTERN);
+      requirePattern(descriptor, "reviewed_plan_artifact_id", "HISTORICAL_PROCEDURE_ARTIFACT", CONTENT_ID_PATTERN, true);
+      requirePattern(descriptor, "reviewed_plan_content_hash", "HISTORICAL_PROCEDURE_ARTIFACT", RAW_HASH_PATTERN, true);
+      requirePattern(descriptor, "reviewed_evidence_artifact_id", "HISTORICAL_PROCEDURE_ARTIFACT", CONTENT_ID_PATTERN, true);
     }
     for (const candidate of provenance.payloads) {
       const descriptor = object(candidate, "HISTORICAL_PAYLOAD");
@@ -279,6 +322,7 @@ export function validateEvidenceView(value: unknown): void {
         requireString(descriptor, field, "HISTORICAL_PAYLOAD");
       }
       requireInteger(descriptor, "raw_size_bytes", "HISTORICAL_PAYLOAD");
+      requirePattern(descriptor, "content_hash", "HISTORICAL_PAYLOAD", CONTENT_ID_PATTERN);
     }
   } else if (kind === "accepted_context_view") {
     requireString(view, "run_instance_id", kind);
@@ -297,6 +341,9 @@ export function validateEvidenceView(value: unknown): void {
       || context.manifest_id !== manifest.context_manifest_id || context.manifest_hash !== manifest.content_hash) {
       throw new Error("EVIDENCE_VIEW_SCHEMA_INVALID:ACCEPTED_CONTEXT:identity");
     }
+    requirePattern(context, "core_hash", "ACCEPTED_CONTEXT", CONTENT_ID_PATTERN);
+    requirePattern(context, "manifest_hash", "ACCEPTED_CONTEXT", CONTENT_ID_PATTERN);
+    if (context.overlay_id !== null) requireString(context, "overlay_id", "ACCEPTED_CONTEXT");
     validatePayloadRefs(view.ordered_payload_refs, "ACCEPTED_CONTEXT_PAYLOAD_REF");
     const retrieval = object(view.retrieval, "ACCEPTED_CONTEXT_RETRIEVAL");
     requireKeys(retrieval, ["mode", "capabilities", "canonical_bytes", "mandatory_blocks_present", "source_manifest_omissions"], "ACCEPTED_CONTEXT_RETRIEVAL");
@@ -310,6 +357,7 @@ export function validateEvidenceView(value: unknown): void {
     const transport = object(view.transport, "ACCEPTED_CONTEXT_TRANSPORT");
     requireKeys(transport, ["mode", "reuse", "procedure_id"], "ACCEPTED_CONTEXT_TRANSPORT");
     for (const field of ["mode", "reuse"]) requireString(transport, field, "ACCEPTED_CONTEXT_TRANSPORT");
+    requireNullableString(transport, "procedure_id", "ACCEPTED_CONTEXT_TRANSPORT");
   } else if (kind === "implementation_review_view") {
     const run = object(view.run, "IMPLEMENTATION_RUN");
     requireKeys(run, ["run_instance_id", "run_id", "phase_id", "task_path", "branch", "immutable_base", "baseline_head",
@@ -317,6 +365,10 @@ export function validateEvidenceView(value: unknown): void {
     for (const field of ["run_instance_id", "run_id", "task_path", "baseline_head", "baseline_tree_hash", "candidate_head", "reviewed_candidate_id"]) {
       requireString(run, field, "IMPLEMENTATION_RUN");
     }
+    for (const field of ["phase_id", "branch"]) requireNullableString(run, field, "IMPLEMENTATION_RUN");
+    for (const field of ["immutable_base", "source_snapshot"]) requirePattern(run, field, "IMPLEMENTATION_RUN", COMMIT_PATTERN, true);
+    for (const field of ["baseline_head", "baseline_tree_hash", "candidate_head"]) requirePattern(run, field, "IMPLEMENTATION_RUN", COMMIT_PATTERN);
+    requirePattern(run, "reviewed_candidate_id", "IMPLEMENTATION_RUN", CONTENT_ID_PATTERN);
     const context = object(view.context, "IMPLEMENTATION_CONTEXT");
     requireKeys(context, ["packet_record_id", "core_id", "core_hash", "manifest_id", "manifest_hash", "core", "manifest", "payload_refs"], "IMPLEMENTATION_CONTEXT");
     const core = rebuildCore(context.core);
@@ -351,12 +403,17 @@ export function validateEvidenceView(value: unknown): void {
     requireKeys(plan, ["artifact_id", "approval_id", "task_artifact_id", "planning_cohort_id", "required_lens_ids", "lens_artifacts"], "IMPLEMENTATION_PLAN");
     requireString(plan, "artifact_id", "IMPLEMENTATION_PLAN");
     requireString(plan, "approval_id", "IMPLEMENTATION_PLAN");
+    requirePattern(plan, "artifact_id", "IMPLEMENTATION_PLAN", CONTENT_ID_PATTERN);
+    requirePattern(plan, "task_artifact_id", "IMPLEMENTATION_PLAN", CONTENT_ID_PATTERN, true);
+    requirePattern(plan, "planning_cohort_id", "IMPLEMENTATION_PLAN", CONTENT_ID_PATTERN, true);
     requireStringArray(plan.required_lens_ids, "IMPLEMENTATION_PLAN:required_lens_ids");
     if (!Array.isArray(plan.lens_artifacts)) throw new Error("EVIDENCE_VIEW_SCHEMA_INVALID:IMPLEMENTATION_PLAN:lens_artifacts");
     for (const candidate of plan.lens_artifacts) {
       const artifact = object(candidate, "IMPLEMENTATION_LENS_ARTIFACT");
       requireKeys(artifact, ["procedure_id", "artifact_id", "artifact_content_hash"], "IMPLEMENTATION_LENS_ARTIFACT");
       for (const field of ["procedure_id", "artifact_id", "artifact_content_hash"]) requireString(artifact, field, "IMPLEMENTATION_LENS_ARTIFACT");
+      requirePattern(artifact, "artifact_id", "IMPLEMENTATION_LENS_ARTIFACT", CONTENT_ID_PATTERN);
+      requirePattern(artifact, "artifact_content_hash", "IMPLEMENTATION_LENS_ARTIFACT", CONTENT_ID_PATTERN);
     }
     const procedure = object(view.procedure, "IMPLEMENTATION_PROCEDURE");
     requireKeys(procedure, ["id", "source_map_ref", "execution_policy_ref", "route_policy_ref", "binding_ref"], "IMPLEMENTATION_PROCEDURE");
@@ -368,6 +425,7 @@ export function validateEvidenceView(value: unknown): void {
     const transport = object(view.transport, "IMPLEMENTATION_TRANSPORT");
     requireKeys(transport, ["context_mode", "context_reuse", "retention_class", "redaction_status", "retrieval", "usage_ref"], "IMPLEMENTATION_TRANSPORT");
     for (const field of ["context_mode", "context_reuse", "retention_class", "redaction_status", "retrieval"]) requireString(transport, field, "IMPLEMENTATION_TRANSPORT");
+    requireNullableString(transport, "usage_ref", "IMPLEMENTATION_TRANSPORT");
     const budget = object(view.budget, "IMPLEMENTATION_BUDGET");
     requireKeys(budget, ["class", "core_bytes", "core_limit_bytes", "delta_bytes", "delta_limit_bytes"], "IMPLEMENTATION_BUDGET");
     requireString(budget, "class", "IMPLEMENTATION_BUDGET");
@@ -677,8 +735,12 @@ function resolveHistoricalPlanAuthority(run: Run): {
     reviewed_evidence_artifact_id: approval?.reviewed_evidence_artifact_id ?? null };
 }
 
-function projectedConclusions(metadata: Record<string, unknown> | undefined): Array<{ kind: string; id: string; status: string }> {
+function projectedConclusions(metadata: Record<string, unknown> | undefined): {
+  values: Array<{ kind: string; id: string; status: string }>;
+  redactedCount: number;
+} {
   const output: Array<{ kind: string; id: string; status: string }> = [];
+  let redactedCount = 0;
   for (const kind of ["jobs", "checks", "steps"] as const) {
     const values = metadata?.[kind];
     if (!Array.isArray(values)) continue;
@@ -688,10 +750,11 @@ function projectedConclusions(metadata: Record<string, unknown> | undefined): Ar
       const status = safeIdentifier(record.conclusion ?? record.status);
       const id = redactExternal(typeof record.id === "string" ? record.id
         : typeof record.name === "string" ? record.name : undefined);
+      redactedCount += Number(id.redacted);
       if (status) output.push({ kind: kind.slice(0, -1), id: id.value ?? "[NO_EXTERNAL_ID]", status });
     }
   }
-  return output.sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id));
+  return { values: output.sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id)), redactedCount };
 }
 
 export function buildHistoricalEvidenceReport(run: Run, inputs: EvidenceViewInputs = {}) {
@@ -701,6 +764,7 @@ export function buildHistoricalEvidenceReport(run: Run, inputs: EvidenceViewInpu
   const acceptedDeliveryFacts = [...(inputs.acceptedDeliveryFactDescriptors ?? [])];
   const acceptedProcedureArtifacts = [...(inputs.acceptedProcedureArtifactDescriptors ?? [])];
   const acceptedPayloads = [...(inputs.acceptedPayloadDescriptors ?? [])];
+  const acceptedPayloadLinks = [...(inputs.acceptedPayloadLinkDescriptors ?? [])];
   const selectedTaskPath = run.active_task_path ?? run.task_path;
   for (const descriptor of acceptedRecords) {
     if (!descriptor.record_id.startsWith(`${runInstanceId}:`) || !descriptor.record_kind
@@ -729,6 +793,35 @@ export function buildHistoricalEvidenceReport(run: Run, inputs: EvidenceViewInpu
       throw new Error("ACCEPTED_PROJECT_MEMORY_PROVENANCE_INVALID:payload");
     }
   }
+  if (new Set(acceptedPayloads.map((entry) => entry.payload_id)).size !== acceptedPayloads.length
+    || new Set(acceptedProcedureArtifacts.map((entry) => `${entry.procedure_id}:${entry.artifact_id}`)).size !== acceptedProcedureArtifacts.length
+    || new Set(acceptedPayloadLinks.map((entry) => `${entry.payload_id}:${entry.parent_record_id}:${entry.link_role}`)).size !== acceptedPayloadLinks.length) {
+    throw new Error("ACCEPTED_PROJECT_MEMORY_PROVENANCE_AMBIGUOUS:graph");
+  }
+  if (acceptedPayloadLinks.some((link) => !link.payload_id.startsWith(`${runInstanceId}:`)
+    || !link.parent_record_id.startsWith(`${runInstanceId}:`) || !link.link_role.trim())) {
+    throw new Error("ACCEPTED_PROJECT_MEMORY_PROVENANCE_INVALID:payload_link");
+  }
+  const payloadsById = new Map(acceptedPayloads.map((entry) => [entry.payload_id, entry]));
+  for (const artifact of acceptedProcedureArtifacts) {
+    const payload = payloadsById.get(artifact.payload_id);
+    const expectedParent = `${runInstanceId}:${artifact.artifact_id}`;
+    const expectedKind = `procedure-artifact-body:${artifact.procedure_id}`;
+    const linked = acceptedPayloadLinks.filter((link) => link.payload_id === artifact.payload_id
+      && link.parent_record_id === expectedParent && link.link_role === expectedKind);
+    if (!payload || payload.content_hash !== artifact.content_hash
+      || !((payload.parent_record_id === expectedParent && payload.kind === expectedKind) || linked.length === 1)) {
+      throw new Error("ACCEPTED_PROJECT_MEMORY_PROVENANCE_INVALID:procedure_payload_graph");
+    }
+    if (linked.length > 1) throw new Error("ACCEPTED_PROJECT_MEMORY_PROVENANCE_AMBIGUOUS:procedure_payload_graph");
+  }
+  for (const link of acceptedPayloadLinks.filter((entry) => entry.link_role.startsWith("procedure-artifact-body:"))) {
+    if (!acceptedProcedureArtifacts.some((artifact) => artifact.payload_id === link.payload_id
+      && link.parent_record_id === `${runInstanceId}:${artifact.artifact_id}`
+      && link.link_role === `procedure-artifact-body:${artifact.procedure_id}`)) {
+      throw new Error("ACCEPTED_PROJECT_MEMORY_PROVENANCE_INVALID:payload_link");
+    }
+  }
   const acceptedDeliveryIds = acceptedDeliveryFacts.map((entry) => entry.delivery_fact_id);
   const payloadBySourceId = new Map(acceptedPayloads.map((entry) => [entry.payload_id.slice(`${runInstanceId}:`.length), entry]));
   const reviews = [...run.review_results].sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -744,7 +837,17 @@ export function buildHistoricalEvidenceReport(run: Run, inputs: EvidenceViewInpu
     const source = redactFreeText(fact.source);
     redactedFieldCount += Number(source.redacted);
     const acceptedRecordId = exactAcceptedRef(runInstanceId, fact.delivery_fact_id, acceptedDeliveryIds, "delivery");
-    const excerptPayloadRef = fact.excerpt_payload_id ? payloadBySourceId.get(fact.excerpt_payload_id)?.payload_id ?? null : null;
+    if (!acceptedRecordId) throw new Error("ACCEPTED_PROJECT_MEMORY_DELIVERY_BINDING_MISSING");
+    const deliveryDescriptor = acceptedDeliveryFacts.find((entry) => entry.delivery_fact_id === acceptedRecordId)!;
+    if (deliveryDescriptor.fact_kind !== fact.fact_kind || deliveryDescriptor.recorded_at !== fact.recorded_at
+      || deliveryDescriptor.commit_sha !== (fact.commit_sha ?? null)) {
+      throw new Error("ACCEPTED_PROJECT_MEMORY_DELIVERY_BINDING_MISMATCH");
+    }
+    const excerptPayloadRef = deliveryDescriptor.excerpt_payload_id
+      ? payloadBySourceId.get(deliveryDescriptor.excerpt_payload_id)?.payload_id ?? null : null;
+    if (deliveryDescriptor.excerpt_payload_id && !excerptPayloadRef) {
+      throw new Error("ACCEPTED_PROJECT_MEMORY_DELIVERY_PAYLOAD_MISSING");
+    }
     return { id: fact.delivery_fact_id, kind: fact.fact_kind, source: source.value, status: fact.status,
       recorded_at: fact.recorded_at, commit_sha: fact.commit_sha ?? null,
       url: url.value, url_hash: url.hash, external_run_id: external.value, external_run_id_hash: external.hash,
@@ -757,17 +860,26 @@ export function buildHistoricalEvidenceReport(run: Run, inputs: EvidenceViewInpu
     const name = redactFreeText(check.name);
     redactedFieldCount += Number(name.redacted);
     const acceptedRecordId = exactAcceptedRef(runInstanceId, check.check_result_id, acceptedDeliveryIds, "remote_ci");
+    if (!acceptedRecordId) throw new Error("ACCEPTED_PROJECT_MEMORY_REMOTE_CHECK_BINDING_MISSING");
     const deliveryDescriptor = acceptedDeliveryFacts.find((entry) => entry.delivery_fact_id === acceptedRecordId);
+    if (!deliveryDescriptor || deliveryDescriptor.fact_kind !== "remote_ci" || deliveryDescriptor.recorded_at !== check.recorded_at) {
+      throw new Error("ACCEPTED_PROJECT_MEMORY_REMOTE_CHECK_BINDING_MISMATCH");
+    }
     const payload = deliveryDescriptor?.excerpt_payload_id ? payloadBySourceId.get(deliveryDescriptor.excerpt_payload_id) : undefined;
+    if (deliveryDescriptor.excerpt_payload_id && !payload) throw new Error("ACCEPTED_PROJECT_MEMORY_REMOTE_CHECK_PAYLOAD_MISSING");
     const excerpt = redactFreeText(payload?.bounded_excerpt ?? undefined);
     redactedFieldCount += Number(excerpt.redacted);
     const commitSha = typeof check.metadata?.commit_sha === "string" && /^[a-f0-9]{40}$/u.test(check.metadata.commit_sha)
       ? check.metadata.commit_sha : deliveryDescriptor?.commit_sha ?? null;
+    const conclusions = projectedConclusions(check.metadata);
+    redactedFieldCount += conclusions.redactedCount;
+    const provider = safeIdentifier(check.ci_run.provider);
+    redactedFieldCount += Number(!provider && Boolean(check.ci_run.provider));
     return { id: check.check_result_id, gate_id: check.gate_id, name: name.value, required: check.required,
       status: check.status, recorded_at: check.recorded_at, provider: safeIdentifier(check.ci_run.provider) ?? "[REDACTED_IDENTIFIER]",
       url: url.value, url_hash: url.hash, external_run_id: external.value, external_run_id_hash: external.hash,
       commit_sha: commitSha, conclusion: safeIdentifier(check.metadata?.conclusion) ?? check.status,
-      check_conclusions: projectedConclusions(check.metadata), accepted_record_id: acceptedRecordId,
+      check_conclusions: conclusions.values, accepted_record_id: acceptedRecordId,
       evidence_ref: payload?.payload_id ?? acceptedRecordId, failure_excerpt: excerpt.value,
       failure_excerpt_hash: excerpt.hash, redaction_status: payload?.redaction_status ?? "not_recorded" };
   });

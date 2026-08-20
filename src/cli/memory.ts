@@ -96,7 +96,8 @@ function runReport(args: string[]): number {
     acceptedRecordDescriptors: memory.listAcceptedRecordDescriptorsReadOnly(run.run_instance_id!),
     acceptedDeliveryFactDescriptors: memory.listAcceptedDeliveryFactDescriptorsReadOnly(run.run_instance_id!),
     acceptedProcedureArtifactDescriptors: memory.listAcceptedProcedureArtifactDescriptorsReadOnly(run.run_instance_id!),
-    acceptedPayloadDescriptors: memory.listAcceptedPayloadDescriptorsReadOnly(run.run_instance_id!)
+    acceptedPayloadDescriptors: memory.listAcceptedPayloadDescriptorsReadOnly(run.run_instance_id!),
+    acceptedPayloadLinkDescriptors: memory.listAcceptedPayloadLinkDescriptorsReadOnly(run.run_instance_id!)
   }))]);
   return 0;
 }

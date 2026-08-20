@@ -207,6 +207,12 @@ export interface AcceptedPayloadDescriptor {
   created_at: string;
 }
 
+export interface AcceptedPayloadLinkDescriptor {
+  payload_id: string;
+  parent_record_id: string;
+  link_role: string;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -1370,6 +1376,17 @@ export class ProjectMemoryDatabase {
         "raw_size_bytes, content_hash, created_at FROM payload_index",
         "WHERE source_run_id = ? AND payload_id LIKE ? ORDER BY created_at ASC, payload_id ASC"
       ].join(" ")).all(runInstanceId, prefix) as AcceptedPayloadDescriptor[];
+    } finally { database.close(); }
+  }
+
+  listAcceptedPayloadLinkDescriptorsReadOnly(runInstanceId: string): AcceptedPayloadLinkDescriptor[] {
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      return database.prepare([
+        "SELECT pl.payload_id, pl.parent_record_id, pl.link_role FROM payload_links pl",
+        "JOIN payload_index pi ON pi.payload_id = pl.payload_id",
+        "WHERE pi.source_run_id = ? ORDER BY pl.payload_id ASC, pl.parent_record_id ASC, pl.link_role ASC"
+      ].join(" ")).all(runInstanceId) as AcceptedPayloadLinkDescriptor[];
     } finally { database.close(); }
   }
 

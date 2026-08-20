@@ -18,6 +18,48 @@ import { parseAuthoritativeProcedureProvenance } from "../../dist/core/run-stagi
 
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 
+function reidentify(view) {
+  const copy = structuredClone(view);
+  delete copy.view_id;
+  copy.view_id = "sha256:" + sha(canonicalJson({ kind: copy.view_kind, ...copy }));
+  return copy;
+}
+
+function assertSchema(value, schema, root = schema, label = "$") {
+  if (schema.$ref) {
+    if (!schema.$ref.startsWith("#/") ) {
+      const [file, fragment] = schema.$ref.split("#");
+      const external = JSON.parse(fs.readFileSync(path.join("schemas", file), "utf8"));
+      return assertSchema(value, fragment.split("/").filter(Boolean).reduce((entry, key) => entry[key], external), external, label);
+    }
+    return assertSchema(value, schema.$ref.slice(2).split("/").reduce((entry, key) => entry[key], root), root, label);
+  }
+  if (schema.anyOf) {
+    if (!schema.anyOf.some((candidate) => { try { assertSchema(value, candidate, root, label); return true; } catch { return false; } })) {
+      throw new Error(`schema mismatch: ${label}`);
+    }
+    return;
+  }
+  if (schema.const !== undefined && !Object.is(value, schema.const)) throw new Error(`schema const: ${label}`);
+  if (schema.enum && !schema.enum.includes(value)) throw new Error(`schema enum: ${label}`);
+  const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
+  if (types.length) {
+    const actual = value === null ? "null" : Array.isArray(value) ? "array" : Number.isInteger(value) ? "integer" : typeof value;
+    if (!types.includes(actual)) throw new Error(`schema type: ${label}`);
+  }
+  if (typeof value === "string" && schema.pattern && !(new RegExp(schema.pattern, "u")).test(value)) throw new Error(`schema pattern: ${label}`);
+  if (typeof value === "string" && schema.minLength !== undefined && value.length < schema.minLength) throw new Error(`schema minLength: ${label}`);
+  if (typeof value === "number" && schema.minimum !== undefined && value < schema.minimum) throw new Error(`schema minimum: ${label}`);
+  if (Array.isArray(value) && schema.items) value.forEach((entry, index) => assertSchema(entry, schema.items, root, `${label}[${index}]`));
+  if (value && typeof value === "object" && !Array.isArray(value) && schema.properties) {
+    for (const key of schema.required ?? []) if (!(key in value)) throw new Error(`schema required: ${label}.${key}`);
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(value)) if (!(key in schema.properties)) throw new Error(`schema additional: ${label}.${key}`);
+    }
+    for (const [key, child] of Object.entries(schema.properties)) if (key in value) assertSchema(value[key], child, root, `${label}.${key}`);
+  }
+}
+
 function run(overrides = {}) {
   return {
     ...buildRuntimeRun({ runId: "run-view", taskPath: "TASK.md", activeTaskPath: "tasks/PHASE_24A.md",
@@ -117,8 +159,12 @@ test("Phase 24A historical report redacts external secrets before deterministic 
       url: "https://example.test/SECRET_SENTINEL?token=SECRET_SENTINEL", external_run_id: "SECRET_SENTINEL" }] });
   const proof = acceptedProofRecord();
   const harvestRecord = promotedHarvest(input);
-  const first = buildHistoricalEvidenceReport(input, { proofRecords: [proof], harvestRecord });
-  const second = buildHistoricalEvidenceReport(input, { proofRecords: [proof], harvestRecord });
+  const acceptedDeliveryFactDescriptors = [
+    { delivery_fact_id: "instance-24a:check-1", fact_kind: "remote_ci", recorded_at: "2026-01-01T00:00:03.000Z", commit_sha: null, excerpt_payload_id: null },
+    { delivery_fact_id: "instance-24a:delivery-1", fact_kind: "pr", recorded_at: "2026-01-01T00:00:03.000Z", commit_sha: null, excerpt_payload_id: null }
+  ];
+  const first = buildHistoricalEvidenceReport(input, { proofRecords: [proof], harvestRecord, acceptedDeliveryFactDescriptors });
+  const second = buildHistoricalEvidenceReport(input, { proofRecords: [proof], harvestRecord, acceptedDeliveryFactDescriptors });
   assert.deepEqual(first, second);
   assert.equal(JSON.stringify(first).includes("SECRET_SENTINEL"), false);
   assert.equal(first.proof.status, "recorded");
@@ -234,7 +280,7 @@ test("Phase 24A remote CI and accepted provenance projection is bounded, exact, 
       { payload_id: "instance-24a:payload-ci", parent_record_id: "instance-24a:delivery-fact:check-1", kind: "delivery_excerpt",
         bounded_excerpt: "SECRET_SENTINEL failed log", redaction_status: "redacted", retention_class: "audit",
         raw_size_bytes: 26, content_hash: "6".repeat(64), created_at: "2026-01-01T00:00:02.000Z" },
-      { payload_id: "instance-24a:payload-review", parent_record_id: "instance-24a:review-record", kind: "procedure-artifact-body:implementation-review",
+      { payload_id: "instance-24a:payload-review", parent_record_id: `instance-24a:${artifactId}`, kind: "procedure-artifact-body:implementation-review",
         bounded_excerpt: null, redaction_status: "not_applicable", retention_class: "accepted",
         raw_size_bytes: 10, content_hash: "4".repeat(64), created_at: "2026-01-01T00:00:01.000Z" }
     ] });
@@ -244,6 +290,35 @@ test("Phase 24A remote CI and accepted provenance projection is bounded, exact, 
   assert.equal(report.remote_checks[0].evidence_ref, "instance-24a:payload-ci");
   assert.deepEqual(report.reviews[0].procedure_artifact_refs, [`implementation-review:${artifactId}`]);
   assert.ok(report.provenance.payloads.some((entry) => entry.payload_id === "instance-24a:payload-ci"));
+  assert.equal(report.redaction.redacted_field_count, 6);
+});
+
+test("Phase 24A historical provenance graph and delivery bindings fail closed on corruption", () => {
+  const artifactId = "sha256:" + "4".repeat(64);
+  const input = run({ delivery_facts: [{ delivery_fact_id: "delivery-1", run_id: "run-view", fact_kind: "pr",
+    source: "github", status: "created", recorded_at: "2026-01-01T00:00:01.000Z", summary: "created" }] });
+  const harvestRecord = promotedHarvest(input);
+  const artifact = { procedure_id: "implementation-review", artifact_id: artifactId,
+    payload_id: "instance-24a:payload-review", content_hash: "4".repeat(64), recorded_at: "2026-01-01T00:00:01.000Z",
+    reviewed_plan_artifact_id: null, reviewed_plan_content_hash: null, reviewed_evidence_artifact_id: null };
+  const payload = { payload_id: artifact.payload_id, parent_record_id: `instance-24a:${artifactId}`,
+    kind: "procedure-artifact-body:implementation-review", bounded_excerpt: null, redaction_status: "not_applicable",
+    retention_class: "accepted", raw_size_bytes: 10, content_hash: "4".repeat(64), created_at: "2026-01-01T00:00:01.000Z" };
+  const delivery = { delivery_fact_id: "instance-24a:delivery-1", fact_kind: "pr",
+    recorded_at: "2026-01-01T00:00:01.000Z", commit_sha: null, excerpt_payload_id: null };
+  const valid = { harvestRecord, acceptedDeliveryFactDescriptors: [delivery],
+    acceptedProcedureArtifactDescriptors: [artifact], acceptedPayloadDescriptors: [payload] };
+  assert.equal(buildHistoricalEvidenceReport(input, valid).claims.find((claim) => claim.claim === "delivery").status, "evidence");
+  assert.throws(() => buildHistoricalEvidenceReport(input, { ...valid, acceptedDeliveryFactDescriptors: [] }), /DELIVERY_BINDING_MISSING/);
+  assert.throws(() => buildHistoricalEvidenceReport(input, { ...valid, acceptedPayloadDescriptors: [] }), /procedure_payload_graph/);
+  assert.throws(() => buildHistoricalEvidenceReport(input, { ...valid,
+    acceptedPayloadDescriptors: [{ ...payload, parent_record_id: "instance-24a:wrong" }] }), /procedure_payload_graph/);
+  assert.throws(() => buildHistoricalEvidenceReport(input, { ...valid,
+    acceptedPayloadDescriptors: [{ ...payload, payload_id: "other:payload-review" }] }), /PROVENANCE_INVALID:payload/);
+  assert.throws(() => buildHistoricalEvidenceReport(input, { ...valid,
+    acceptedPayloadDescriptors: [{ ...payload, content_hash: "5".repeat(64) }] }), /procedure_payload_graph/);
+  assert.throws(() => buildHistoricalEvidenceReport(input, { ...valid,
+    acceptedPayloadDescriptors: [payload, { ...payload }] }), /PROVENANCE_AMBIGUOUS/);
 });
 
 test("Phase 24A accepted Project Memory read-only run selectors reject corrupt persisted RuntimeRun JSON", () => {
@@ -303,6 +378,26 @@ test("Phase 24A typed review authority is invariant under adversarial prose and 
     adversarial.planned_surface_classes, adversarial.risk_classes));
   const runtimeSource = fs.readFileSync("src/core/runtime.ts", "utf8");
   assert.doesNotMatch(runtimeSource, /taskContractRef[^\n]*includes\([^\n]*extra-high/);
+});
+
+test("Phase 24A typed review authority rejects ambiguous, duplicate, unknown, and malformed facts", () => {
+  const task = ["```yaml", "planning_review_authority_contract: planned-review-facts.v1", "task_id: 24A",
+    "task_contract_ref: tasks/PHASE_24A.md", "review_tier: extra-high", "minimum_planned_surface_classes:",
+    "  - runtime", "minimum_planned_risk_classes:", "  - lifecycle", "```"].join("\n");
+  const plan = ["```yaml", "planning_review_facts_contract: planned-review-facts.v1", "review_tier: high",
+    "planned_surface_classes:", "  - schemas", "planned_risk_classes:", "  - storage", "```"].join("\n");
+  const resolve = (taskMarkdown = task, planMarkdown = plan) => resolvePlanningReviewFacts({ taskMarkdown, planMarkdown,
+    taskArtifactId: "sha256:" + "1".repeat(64), activeTaskPath: "tasks/PHASE_24A.md", phaseId: "24A",
+    effectivePlanArtifactId: "sha256:" + "2".repeat(64), runInstanceId: "instance", immutableBase: "3".repeat(40) });
+  assert.throws(() => resolve(`${task}\n${task.replace("extra-high", "standard")}`), /ambiguous/);
+  assert.throws(() => resolve(task, `${plan}\n${plan}`), /ambiguous/);
+  assert.throws(() => resolve(task.replace("review_tier: extra-high", "review_tier: high\nreview_tier: extra-high")), /field_invalid:review_tier/);
+  assert.throws(() => resolve(task.replace("minimum_planned_surface_classes:", "minimum_planned_surface_classes:\n  - runtime\nminimum_planned_surface_classes:")), /field_invalid/);
+  assert.throws(() => resolve(task.replace("task_id: 24A", "task_id: 24A\nunknown_key: nope")), /field_invalid:unknown_key/);
+  assert.throws(() => resolve(task.replace("  - runtime", "  - runtmie")), /minimum_planned_surface_classes/);
+  assert.throws(() => resolve(task.replace("  - lifecycle", "  - lifecyle")), /minimum_planned_risk_classes/);
+  assert.throws(() => resolve(`${task}\n\nExample:\n${task}`), /ambiguous/);
+  assert.deepEqual(resolve().required_planning_lenses, ["plan-review", "architecture-review", "db-storage-review"]);
 });
 
 test("Phase 24A task authority rejects unreadable, out-of-repository, and recursive targets", () => {
@@ -493,8 +588,18 @@ test("Phase 24A schemas reject ungoverned top-level fields and type the material
     assert.throws(() => validateEvidenceView(malformed), /SCHEMA_INVALID/);
   }
   const historicalRun = run({ verification_results: [{ verification_result_id: "verify", status: "PASS",
-    created_at: "2026-01-01T00:00:01.000Z", summary: "ok", source: "test", artifact_refs: [], command_results: [] }] });
-  const historical = buildHistoricalEvidenceReport(historicalRun, { harvestRecord: promotedHarvest(historicalRun) });
+    created_at: "2026-01-01T00:00:01.000Z", summary: "ok", source: "test", artifact_refs: [], command_results: [] }],
+    delivery_facts: [{ delivery_fact_id: "delivery-1", run_id: "run-view", fact_kind: "pr", source: "github",
+      status: "created", recorded_at: "2026-01-01T00:00:01.000Z", summary: "created", commit_sha: "5".repeat(40) }],
+    remote_checks: [{ check_result_id: "check-1", gate_id: "ci", name: "CI", required: true, status: "pass",
+      recorded_at: "2026-01-01T00:00:01.000Z", ci_run: { provider: "github" }, metadata: { conclusion: "pass" } }],
+    review_routing_records: [{ record_kind: "routing_evaluation", record_id: "route-1", created_at: "2026-01-01T00:00:01.000Z",
+      status: "accepted", summary: "route", payload: { input_tokens: 10 } }] });
+  const historical = buildHistoricalEvidenceReport(historicalRun, { harvestRecord: promotedHarvest(historicalRun),
+    acceptedDeliveryFactDescriptors: [
+      { delivery_fact_id: "instance-24a:delivery-1", fact_kind: "pr", recorded_at: "2026-01-01T00:00:01.000Z", commit_sha: "5".repeat(40), excerpt_payload_id: null },
+      { delivery_fact_id: "instance-24a:check-1", fact_kind: "remote_ci", recorded_at: "2026-01-01T00:00:01.000Z", commit_sha: null, excerpt_payload_id: null }
+    ] });
   for (const mutate of [
     (view) => { view.verification[0].commands = {}; },
     (view) => { view.harvest.accepted_count = -1; },
@@ -504,6 +609,29 @@ test("Phase 24A schemas reject ungoverned top-level fields and type the material
   ]) {
     const malformed = structuredClone(historical); mutate(malformed);
     assert.throws(() => validateEvidenceView(malformed), /SCHEMA_INVALID/);
+  }
+  const schemaViews = [
+    [historical, "historical-evidence-report.schema.json"],
+    [accepted, "context-export-view.schema.json"],
+    [implementationView, "implementation-review-view.schema.json"]
+  ];
+  for (const [view, file] of schemaViews) {
+    assert.doesNotThrow(() => assertSchema(view, JSON.parse(fs.readFileSync(path.join("schemas", file), "utf8"))));
+  }
+  for (const [view, mutate] of [
+    [historical, (entry) => { entry.delivery[0].commit_sha = {}; }],
+    [historical, (entry) => { entry.remote_checks[0].conclusion = 1; }],
+    [historical, (entry) => { entry.routing.records[0].input_tokens = "10"; }],
+    [accepted, (entry) => { entry.transport.procedure_id = 1; }],
+    [accepted, (entry) => { entry.context.overlay_id = {}; }],
+    [accepted, (entry) => { entry.ordered_payload_refs[0].content_hash = "bad"; }],
+    [implementationView, (entry) => { entry.plan.task_artifact_id = 1; }],
+    [implementationView, (entry) => { entry.transport.usage_ref = {}; }],
+    [implementationView, (entry) => { entry.run.source_snapshot = 1; }]
+  ]) {
+    const malformed = structuredClone(view); mutate(malformed);
+    const identified = reidentify(malformed);
+    assert.throws(() => validateEvidenceView(identified), /SCHEMA_INVALID/);
   }
 });
 
