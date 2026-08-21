@@ -186,12 +186,35 @@ const REVIEW_RISK_CLASSES = [
   "provider", "retention", "schema", "security", "storage", "weak_evidence"
 ] as const;
 
+function readTopLevelYamlFences(markdown: string): string[] {
+  const blocks: string[] = [];
+  let active: { marker: "`" | "~"; length: number; yaml: boolean; lines: string[] } | undefined;
+  for (const line of markdown.split(/\r?\n/u)) {
+    if (active) {
+      const close = /^(?: {0,3})(`{3,}|~{3,})[ \t]*$/u.exec(line);
+      if (close && close[1][0] === active.marker && close[1].length >= active.length) {
+        if (active.yaml) blocks.push(active.lines.join("\n"));
+        active = undefined;
+      } else if (active.yaml) {
+        active.lines.push(line);
+      }
+      continue;
+    }
+    const open = /^(?: {0,3})(`{3,}|~{3,})([^\r\n]*)$/u.exec(line);
+    if (!open) continue;
+    const info = open[2].trim().split(/[ \t]+/u)[0]?.toLowerCase() ?? "";
+    active = { marker: open[1][0] as "`" | "~", length: open[1].length,
+      yaml: info === "yaml", lines: [] };
+  }
+  return blocks;
+}
+
 function readStructuredReviewFactsBlock(
   markdown: string,
   contractKey: string,
   allowedKeys: readonly string[]
 ): Map<string, string | string[]> | undefined {
-  const blocks = [...markdown.matchAll(/```yaml[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```/giu)].map((match) => match[1]);
+  const blocks = readTopLevelYamlFences(markdown);
   const matching = blocks.filter((candidate) => new RegExp(`^\\s*${contractKey}:\\s*planned-review-facts\\.v1\\s*$`, "mu").test(candidate));
   if (matching.length === 0) return undefined;
   if (matching.length !== 1) throw new Error(`planning_review_facts_ambiguous:${contractKey}`);
