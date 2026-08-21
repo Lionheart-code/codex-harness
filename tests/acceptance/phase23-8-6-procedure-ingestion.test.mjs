@@ -568,6 +568,28 @@ function buildPlanReviewArtifact(recommendation = "PASS") {
   ].join("\n");
 }
 
+function recordFreshPlanReviewAfterAmend(tempRepo, run, label) {
+  const artifactName = `plan-review-post-amend-${label}`;
+  const artifact = buildPlanReviewArtifact().replace(
+    "source_trace: procedure:plan-review",
+    `source_trace: procedure:plan-review:${label}`
+  );
+  writeProcedureArtifact(tempRepo, run.run_id, artifactName, artifact);
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/${artifactName}.md`
+    ],
+    { cwd: tempRepo }
+  ), "record fresh plan-review after the effective plan amendment");
+}
+
 function prepareApprovedImplementationReviewRun(runtimeModule, tempRepo, reviewMarkdown) {
   let run = createBaseRun(runtimeModule, tempRepo, "run-0001");
   run = appendProcedureEvidence(run, "task-intake", 1);
@@ -1535,6 +1557,8 @@ test("phase 23.8.6 operator treats live task-scoped source changes as implementa
     { cwd: tempRepo }
   ), "record effective amended plan before live implementation evidence");
 
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "live-implementation-evidence");
+
   assertSuccess(runCli(
     [
       "run",
@@ -1602,6 +1626,8 @@ test("phase 23.8.6B2 docs/task-only phases treat allowed authority-surface diffs
     ],
     { cwd: tempRepo }
   ), "record effective amended plan before docs-only implementation evidence");
+
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "docs-only-implementation-evidence");
 
   assertSuccess(runCli(
     [
@@ -1677,6 +1703,8 @@ test("phase 23.8.6B2 docs/task-only phases do not advance on forbidden source ch
     { cwd: tempRepo }
   ), "record effective amended plan before forbidden source diff check");
 
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "forbidden-source");
+
   assertSuccess(runCli(
     [
       "run",
@@ -1744,6 +1772,8 @@ test("phase 23.8.6B2 docs/task-only phases do not advance on forbidden CI change
     ],
     { cwd: tempRepo }
   ), "record effective amended plan before forbidden CI diff check");
+
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "forbidden-ci");
 
   assertSuccess(runCli(
     [
@@ -1813,6 +1843,8 @@ test("phase 23.8.6B2 docs/task-only phases do not advance on forbidden package-s
     { cwd: tempRepo }
   ), "record effective amended plan before forbidden package diff check");
 
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "forbidden-package");
+
   assertSuccess(runCli(
     [
       "run",
@@ -1879,6 +1911,8 @@ test("phase 23.8.6B2 docs/task-only phases do not advance on forbidden runner ch
     ],
     { cwd: tempRepo }
   ), "record effective amended plan before forbidden runner diff check");
+
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "forbidden-runner");
 
   assertSuccess(runCli(
     [
@@ -1953,6 +1987,8 @@ test("phase 23.8.6B2 docs/task-only phases do not advance when a future phase ta
     { cwd: tempRepo }
   ), "record effective amended plan before mentioned future task diff check");
 
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "mentioned-future-task");
+
   assertSuccess(runCli(
     [
       "run",
@@ -2020,6 +2056,8 @@ test("phase 23.8.6B2 docs/task-only phases do not authorize explicit paths menti
     ],
     { cwd: tempRepo }
   ), "record effective amended plan before non-approved explicit path diff check");
+
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "non-approved-path");
 
   assertSuccess(runCli(
     [
@@ -2089,6 +2127,8 @@ test("phase 23.8.6B2 docs/task-only phases ignore superseded draft-plan path men
     { cwd: tempRepo }
   ), "record effective amended plan before superseded draft-path diff check");
 
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "superseded-draft-path");
+
   assertSuccess(runCli(
     [
       "run",
@@ -2157,6 +2197,8 @@ test("phase 23.8.6B2 real B2-only changed-path set routes to implementation revi
     { cwd: tempRepo }
   ), "record effective amended plan before live B2-only authority proof");
 
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "live-b2-authority");
+
   assertSuccess(runCli(
     [
       "run",
@@ -2223,6 +2265,8 @@ test("phase 23.8.6B2 actual approved B2 authority does not authorize unrelated f
     ],
     { cwd: tempRepo }
   ), "record effective amended plan before unrelated future task proof");
+
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "unrelated-future-task");
 
   assertSuccess(runCli(
     [
@@ -2291,6 +2335,8 @@ test("phase 23.8.6B2 mixed B2 plus B2A worktree still does not count as B2 imple
     ],
     { cwd: tempRepo }
   ), "record effective amended plan before mixed B2 and B2A proof");
+
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "mixed-b2-b2a");
 
   assertSuccess(runCli(
     [
@@ -3637,7 +3683,7 @@ test("phase 23.8.6A approve-plan records and replays explicit amended-plan appro
   writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
   writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", "# approved plan\n");
 
-  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan", "plan-review", "plan-amend"]) {
+  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan", "plan-amend", "plan-review"]) {
     const fileName = procedureId === "plan-review"
       ? "plan-review-amended-8.md"
       : procedureId === "plan-amend"
@@ -3714,7 +3760,7 @@ test("phase 23.8.6A approve-plan replay backfills missing derived approval state
   writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
   writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", "# approved plan\n");
 
-  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan", "plan-review", "plan-amend"]) {
+  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan", "plan-amend", "plan-review"]) {
     const fileName = procedureId === "plan-review"
       ? "plan-review-amended-8.md"
       : procedureId === "plan-amend"

@@ -757,7 +757,7 @@ test("phase 23.8 approval before the latest plan-review does not satisfy the rev
     status: "approved",
     approver: "owner",
     reason: "Human approved the plan before the plan-review evidence was recorded.",
-    createdAt: "2026-05-27T00:10:15.000Z"
+    createdAt: "2026-05-27T00:09:59.000Z"
   });
 
   runtimeModule.validateRuntimeRun(run);

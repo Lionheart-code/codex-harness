@@ -11534,7 +11534,7 @@ function hasApprovedPlan(runContext: OperatorRunContext): boolean {
     ?? readLatestApprovedPlanEvidence(runContext.run)?.artifact_id
   );
   if (!latestEffectivePlanArtifactId) {
-    return true;
+    return isPrePhaseFVerificationCompatibility(runContext.run.phase_id) && !legacyTimestampStale;
   }
 
   const expectedContentHash = /^sha256:([a-f0-9]{64})$/.exec(latestEffectivePlanArtifactId)?.[1];
