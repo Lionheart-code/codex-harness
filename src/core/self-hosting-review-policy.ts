@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { type SelfHostingProcedureRegistry } from "./self-hosting-procedures";
 
 export const PROCEDURE_EXECUTION_POLICY_PATH = "skills/self-hosting/procedure-execution-policy.json";
+export const PROCEDURE_EXECUTION_POLICY_SCHEMA_PATH = "schemas/self-hosting-procedure-execution-policy.schema.json";
 export const REVIEW_ROUTE_POLICY_PATH = "skills/self-hosting/review-route-policy.json";
 export const CODEX_REFERENCE_BINDING_PATH = "skills/self-hosting/codex-reference-binding.json";
 
@@ -36,6 +37,21 @@ export interface ProcedureExecutionContract {
   required_evidence_contract: string[];
   direct_artifact_required?: boolean;
   nested_review_launch_forbidden?: boolean;
+  review_launch?: ReviewLaunchTimingPolicy;
+}
+
+export interface ReviewLaunchTimingPolicy {
+  timeout_seconds: number;
+  stale_after_seconds: number;
+  timeout_override: {
+    minimum_seconds: number;
+    maximum_seconds: number;
+  };
+  stale_after_override: {
+    minimum_seconds: number;
+    maximum_seconds: number;
+  };
+  termination_policy: "terminal_completion_only";
 }
 
 export interface ProcedureExecutionPolicy {
@@ -129,6 +145,226 @@ export interface ReviewRouteDecision {
   authoritative_inputs_hash: string;
 }
 
+export interface TaskPlanningReviewAuthorityFactsV1 {
+  contract: "planned-review-facts.v1";
+  task_id: string;
+  task_contract_ref: string;
+  review_tier: "standard" | "high" | "extra-high";
+  minimum_planned_surface_classes: string[];
+  minimum_planned_risk_classes: string[];
+}
+
+export interface PlanBoundPlanningReviewFactsV1 {
+  contract: "planned-review-facts.v1";
+  review_tier: "standard" | "high" | "extra-high";
+  planned_surface_classes: string[];
+  planned_risk_classes: string[];
+}
+
+export interface ResolvedPlanningReviewFactsV1 {
+  contract: "planned-review-facts.v1";
+  task_artifact_id: `sha256:${string}`;
+  task_contract_ref: string;
+  effective_plan_artifact_id: `sha256:${string}`;
+  run_instance_id: string;
+  immutable_base: string;
+  review_tier: "standard" | "high" | "extra-high";
+  planned_surface_classes: string[];
+  risk_classes: string[];
+  required_semantic_reviews: string[];
+  required_planning_lenses: Array<"plan-review" | "architecture-review" | "db-storage-review">;
+}
+
+const REVIEW_TIERS = ["standard", "high", "extra-high"] as const;
+const PLANNING_LENSES = ["plan-review", "architecture-review", "db-storage-review"] as const;
+const REVIEW_SURFACE_CLASSES = [
+  "acceptance", "authority", "authority_docs", "docs", "docs_task_only", "harness", "policy",
+  "procedure_policy", "runtime", "schema", "schemas", "storage", "task"
+] as const;
+const REVIEW_RISK_CLASSES = [
+  "adapter", "architecture", "authority", "conflicting_evidence", "database", "db", "harness", "lifecycle",
+  "provider", "retention", "schema", "security", "storage", "weak_evidence"
+] as const;
+
+function readTopLevelYamlFences(markdown: string): string[] {
+  const blocks: string[] = [];
+  let active: { marker: "`" | "~"; length: number; yaml: boolean; lines: string[] } | undefined;
+  for (const line of markdown.split(/\r?\n/u)) {
+    if (active) {
+      const close = /^(?: {0,3})(`{3,}|~{3,})[ \t]*$/u.exec(line);
+      if (close && close[1][0] === active.marker && close[1].length >= active.length) {
+        if (active.yaml) blocks.push(active.lines.join("\n"));
+        active = undefined;
+      } else if (active.yaml) {
+        active.lines.push(line);
+      }
+      continue;
+    }
+    const open = /^(?: {0,3})(`{3,}|~{3,})([^\r\n]*)$/u.exec(line);
+    if (!open) continue;
+    const info = open[2].trim().split(/[ \t]+/u)[0]?.toLowerCase() ?? "";
+    active = { marker: open[1][0] as "`" | "~", length: open[1].length,
+      yaml: info === "yaml", lines: [] };
+  }
+  return blocks;
+}
+
+function readStructuredReviewFactsBlock(
+  markdown: string,
+  contractKey: string,
+  allowedKeys: readonly string[]
+): Map<string, string | string[]> | undefined {
+  const blocks = readTopLevelYamlFences(markdown);
+  const matching = blocks.filter((candidate) => new RegExp(`^\\s*${contractKey}:\\s*planned-review-facts\\.v1\\s*$`, "mu").test(candidate));
+  if (matching.length === 0) return undefined;
+  if (matching.length !== 1) throw new Error(`planning_review_facts_ambiguous:${contractKey}`);
+  const block = matching[0];
+  const values = new Map<string, string | string[]>();
+  let arrayKey: string | undefined;
+  for (const rawLine of block.split(/\r?\n/u)) {
+    const trimmed = rawLine.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    if (trimmed.startsWith("- ") && arrayKey) {
+      (values.get(arrayKey) as string[]).push(trimmed.slice(2).trim());
+      continue;
+    }
+    const separator = trimmed.indexOf(":");
+    if (separator < 1) throw new Error(`planning_review_facts_invalid:${contractKey}`);
+    const key = trimmed.slice(0, separator).trim();
+    if (!allowedKeys.includes(key) || values.has(key)) throw new Error(`planning_review_facts_field_invalid:${key}`);
+    const rawValue = trimmed.slice(separator + 1).trim();
+    if (!rawValue) {
+      values.set(key, []);
+      arrayKey = key;
+      continue;
+    }
+    values.set(key, rawValue.replace(/^(["'])(.*)\1$/u, "$2"));
+    arrayKey = undefined;
+  }
+  if (values.get(contractKey) === "planned-review-facts.v1") return values;
+  return undefined;
+}
+
+function requireStructuredString(values: Map<string, string | string[]>, key: string): string {
+  const value = values.get(key);
+  if (typeof value !== "string" || !value.trim()) throw new Error(`planning_review_facts_field_invalid:${key}`);
+  return value;
+}
+
+function requireStructuredStringArray(values: Map<string, string | string[]>, key: string): string[] {
+  const value = values.get(key);
+  if (!Array.isArray(value) || value.length === 0 || value.some((entry) => !entry.trim())
+    || new Set(value).size !== value.length) {
+    throw new Error(`planning_review_facts_field_invalid:${key}`);
+  }
+  return [...value];
+}
+
+function requireReviewTier(value: string): "standard" | "high" | "extra-high" {
+  if (!REVIEW_TIERS.includes(value as typeof REVIEW_TIERS[number])) {
+    throw new Error("planning_review_facts_review_tier_invalid");
+  }
+  return value as typeof REVIEW_TIERS[number];
+}
+
+function requireReviewClasses(values: string[], vocabulary: readonly string[], field: string): string[] {
+  if (values.some((value) => !vocabulary.includes(value))) {
+    throw new Error(`planning_review_facts_field_invalid:${field}`);
+  }
+  return values;
+}
+
+export function parseTaskPlanningReviewAuthorityFacts(markdown: string): TaskPlanningReviewAuthorityFactsV1 | undefined {
+  const values = readStructuredReviewFactsBlock(markdown, "planning_review_authority_contract", [
+    "planning_review_authority_contract", "task_id", "task_contract_ref", "review_tier",
+    "minimum_planned_surface_classes", "minimum_planned_risk_classes"
+  ]);
+  if (!values) return undefined;
+  return {
+    contract: "planned-review-facts.v1",
+    task_id: requireStructuredString(values, "task_id"),
+    task_contract_ref: requireStructuredString(values, "task_contract_ref"),
+    review_tier: requireReviewTier(requireStructuredString(values, "review_tier")),
+    minimum_planned_surface_classes: requireReviewClasses(
+      requireStructuredStringArray(values, "minimum_planned_surface_classes"), REVIEW_SURFACE_CLASSES,
+      "minimum_planned_surface_classes"),
+    minimum_planned_risk_classes: requireReviewClasses(
+      requireStructuredStringArray(values, "minimum_planned_risk_classes"), REVIEW_RISK_CLASSES,
+      "minimum_planned_risk_classes")
+  };
+}
+
+export function parsePlanBoundPlanningReviewFacts(markdown: string): PlanBoundPlanningReviewFactsV1 | undefined {
+  const values = readStructuredReviewFactsBlock(markdown, "planning_review_facts_contract", [
+    "planning_review_facts_contract", "review_tier", "planned_surface_classes", "planned_risk_classes"
+  ]);
+  if (!values) return undefined;
+  return {
+    contract: "planned-review-facts.v1",
+    review_tier: requireReviewTier(requireStructuredString(values, "review_tier")),
+    planned_surface_classes: requireReviewClasses(
+      requireStructuredStringArray(values, "planned_surface_classes"), REVIEW_SURFACE_CLASSES, "planned_surface_classes"),
+    planned_risk_classes: requireReviewClasses(
+      requireStructuredStringArray(values, "planned_risk_classes"), REVIEW_RISK_CLASSES, "planned_risk_classes")
+  };
+}
+
+export function resolvePlanningReviewFacts(input: {
+  taskMarkdown: string;
+  planMarkdown: string;
+  taskArtifactId: `sha256:${string}`;
+  activeTaskPath: string;
+  phaseId: string;
+  effectivePlanArtifactId: `sha256:${string}`;
+  runInstanceId: string;
+  immutableBase: string;
+  knownChangedSurfaceClasses?: string[];
+  knownRiskClasses?: string[];
+}): ResolvedPlanningReviewFactsV1 | undefined {
+  const task = parseTaskPlanningReviewAuthorityFacts(input.taskMarkdown);
+  if (!task) return undefined;
+  const plan = parsePlanBoundPlanningReviewFacts(input.planMarkdown);
+  if (!plan) throw new Error("planning_review_plan_facts_missing");
+  if (task.task_id !== input.phaseId || task.task_contract_ref !== input.activeTaskPath) {
+    throw new Error("planning_review_task_facts_identity_mismatch");
+  }
+  if (!/^sha256:[a-f0-9]{64}$/u.test(input.taskArtifactId)
+    || !/^sha256:[a-f0-9]{64}$/u.test(input.effectivePlanArtifactId)
+    || !input.runInstanceId.trim() || !/^[a-f0-9]{40}$/u.test(input.immutableBase)) {
+    throw new Error("planning_review_facts_binding_invalid");
+  }
+  requireReviewClasses(input.knownChangedSurfaceClasses ?? [], REVIEW_SURFACE_CLASSES, "knownChangedSurfaceClasses");
+  requireReviewClasses(input.knownRiskClasses ?? [], REVIEW_RISK_CLASSES, "knownRiskClasses");
+  const reviewTier = REVIEW_TIERS[Math.max(REVIEW_TIERS.indexOf(task.review_tier), REVIEW_TIERS.indexOf(plan.review_tier))];
+  const plannedSurfaceClasses = [...new Set([
+    ...task.minimum_planned_surface_classes,
+    ...plan.planned_surface_classes,
+    ...(input.knownChangedSurfaceClasses ?? [])
+  ])].sort();
+  const riskClasses = [...new Set([
+    ...task.minimum_planned_risk_classes,
+    ...plan.planned_risk_classes,
+    ...(input.knownRiskClasses ?? [])
+  ])].sort();
+  const requiredSemanticReviews = deriveRequiredSemanticReviews(
+    "plan-review", reviewTier, plannedSurfaceClasses, riskClasses
+  );
+  const requiredPlanningLenses = PLANNING_LENSES.filter((lens) => requiredSemanticReviews.includes(lens));
+  return {
+    contract: "planned-review-facts.v1",
+    task_artifact_id: input.taskArtifactId,
+    task_contract_ref: input.activeTaskPath,
+    effective_plan_artifact_id: input.effectivePlanArtifactId,
+    run_instance_id: input.runInstanceId,
+    immutable_base: input.immutableBase,
+    review_tier: reviewTier,
+    planned_surface_classes: plannedSurfaceClasses,
+    risk_classes: riskClasses,
+    required_semantic_reviews: requiredSemanticReviews,
+    required_planning_lenses: requiredPlanningLenses
+  };
+}
+
 export function deriveRequiredSemanticReviews(
   procedureId: string,
   reviewTier: "standard" | "high" | "extra-high",
@@ -203,12 +439,134 @@ function readJson<T>(targetRoot: string, relativePath: string, label: string): T
   return JSON.parse(fs.readFileSync(absolutePath, "utf8")) as T;
 }
 
+function assertSchemaValidation(value: unknown, schema: unknown, label: string): void {
+  const rule = assertObject(schema, `${label} schema`);
+  if ("const" in rule && canonicalReviewPolicyJson(value) !== canonicalReviewPolicyJson(rule.const)) {
+    throw new Error(`${label} must equal the registered schema constant.`);
+  }
+  if (Array.isArray(rule.enum) && !rule.enum.some((entry) => canonicalReviewPolicyJson(entry) === canonicalReviewPolicyJson(value))) {
+    throw new Error(`${label} is not one of the registered schema values.`);
+  }
+  if (rule.type === "object") {
+    const record = assertObject(value, label);
+    const properties = rule.properties === undefined ? {} : assertObject(rule.properties, `${label} schema properties`);
+    const required = rule.required === undefined ? [] : rule.required;
+    if (!Array.isArray(required) || required.some((field) => typeof field !== "string")) {
+      throw new Error(`${label} schema required must be a string array.`);
+    }
+    for (const field of required) {
+      if (!(field in record)) throw new Error(`${label} is missing required property: ${field}.`);
+    }
+    if (rule.additionalProperties === false) {
+      const unknown = Object.keys(record).filter((field) => !(field in properties));
+      if (unknown.length > 0) throw new Error(`${label} contains unknown properties: ${unknown.sort().join(",")}.`);
+    }
+    for (const [field, childSchema] of Object.entries(properties)) {
+      if (field in record) assertSchemaValidation(record[field], childSchema, `${label}.${field}`);
+    }
+    return;
+  }
+  if (rule.type === "array") {
+    if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
+    if (typeof rule.minItems === "number" && value.length < rule.minItems) {
+      throw new Error(`${label} must contain at least ${rule.minItems} items.`);
+    }
+    if (rule.items !== undefined) value.forEach((entry, index) => assertSchemaValidation(entry, rule.items, `${label}[${index}]`));
+    return;
+  }
+  if (rule.type === "string") {
+    if (typeof value !== "string") throw new Error(`${label} must be a string.`);
+    if (typeof rule.minLength === "number" && value.length < rule.minLength) {
+      throw new Error(`${label} must have at least ${rule.minLength} characters.`);
+    }
+    if (typeof rule.pattern === "string" && !(new RegExp(rule.pattern, "u")).test(value)) {
+      throw new Error(`${label} does not match the registered schema pattern.`);
+    }
+    return;
+  }
+  if (rule.type === "integer") {
+    if (!Number.isInteger(value)) throw new Error(`${label} must be an integer.`);
+    if (typeof rule.minimum === "number" && Number(value) < rule.minimum) {
+      throw new Error(`${label} must be at least ${rule.minimum}.`);
+    }
+    return;
+  }
+  if (rule.type === "boolean" && typeof value !== "boolean") {
+    throw new Error(`${label} must be a boolean.`);
+  }
+}
+
+export function validateProcedureExecutionPolicySchema(targetRoot: string, policy: unknown): asserts policy is ProcedureExecutionPolicy {
+  const schema = readJson<unknown>(
+    targetRoot,
+    PROCEDURE_EXECUTION_POLICY_SCHEMA_PATH,
+    "Procedure execution policy schema"
+  );
+  assertSchemaValidation(policy, schema, "Procedure execution policy");
+}
+
 export function readProcedureExecutionPolicy(targetRoot: string): ProcedureExecutionPolicy {
-  const policy = readJson<ProcedureExecutionPolicy>(targetRoot, PROCEDURE_EXECUTION_POLICY_PATH, "Procedure execution policy");
+  const policy = readJson<unknown>(targetRoot, PROCEDURE_EXECUTION_POLICY_PATH, "Procedure execution policy");
+  validateProcedureExecutionPolicySchema(targetRoot, policy);
   if (policy.schema_version !== 1 || !policy.contract_version || !Array.isArray(policy.procedures)) {
     throw new Error("Procedure execution policy is invalid.");
   }
+  for (const procedure of policy.procedures) {
+    const label = `Procedure execution policy ${procedure.procedure_id}`;
+    if (procedure.automatic_launch) {
+      if (!procedure.review_launch) throw new Error(`${label} requires review_launch timing authority.`);
+      assertReviewLaunchTimingPolicy(procedure.review_launch, label);
+    } else if (procedure.review_launch) {
+      throw new Error(`${label} may not define review_launch timing without automatic_launch.`);
+    }
+  }
   return policy;
+}
+
+function assertReviewLaunchTimingPolicy(policy: ReviewLaunchTimingPolicy, label: string): void {
+  const positiveInteger = (value: unknown, field: string): number => {
+    if (!Number.isInteger(value) || Number(value) <= 0) {
+      throw new Error(`${label} review_launch ${field} must be a positive integer.`);
+    }
+    return Number(value);
+  };
+  const timeoutSeconds = positiveInteger(policy.timeout_seconds, "timeout_seconds");
+  const staleAfterSeconds = positiveInteger(policy.stale_after_seconds, "stale_after_seconds");
+  const timeoutMinimum = positiveInteger(policy.timeout_override?.minimum_seconds, "timeout_override.minimum_seconds");
+  const timeoutMaximum = positiveInteger(policy.timeout_override?.maximum_seconds, "timeout_override.maximum_seconds");
+  const staleMinimum = positiveInteger(policy.stale_after_override?.minimum_seconds, "stale_after_override.minimum_seconds");
+  const staleMaximum = positiveInteger(policy.stale_after_override?.maximum_seconds, "stale_after_override.maximum_seconds");
+  if (policy.termination_policy !== "terminal_completion_only") {
+    throw new Error(`${label} review_launch termination_policy must be terminal_completion_only.`);
+  }
+  if (staleAfterSeconds >= timeoutSeconds) {
+    throw new Error(`${label} review_launch stale_after_seconds must remain below timeout_seconds.`);
+  }
+  if (timeoutMinimum < timeoutSeconds || timeoutMaximum < timeoutMinimum) {
+    throw new Error(`${label} review_launch timeout override bounds may not shorten the registered timeout.`);
+  }
+  if (staleMinimum < staleAfterSeconds || staleMaximum < staleMinimum || staleMaximum >= timeoutSeconds) {
+    throw new Error(`${label} review_launch stale override bounds are invalid.`);
+  }
+}
+
+export function resolveReviewLaunchTiming(
+  policy: ProcedureExecutionPolicy,
+  procedureIds: string[]
+): ReviewLaunchTimingPolicy {
+  const timings = procedureIds.map((procedureId) => {
+    const procedure = policy.procedures.find((entry) => entry.procedure_id === procedureId);
+    if (!procedure?.automatic_launch || !procedure.review_launch) {
+      throw new Error(`REVIEW_TIMING_POLICY_UNAVAILABLE: ${procedureId} has no registered automatic review timing.`);
+    }
+    return procedure.review_launch;
+  });
+  if (timings.length === 0) throw new Error("REVIEW_TIMING_POLICY_UNAVAILABLE: no registered review procedures were selected.");
+  const authoritative = timings[0];
+  if (timings.some((timing) => canonicalReviewPolicyJson(timing) !== canonicalReviewPolicyJson(authoritative))) {
+    throw new Error("REVIEW_BUNDLE_TIMING_POLICY_CONFLICT: selected review procedures do not share one registered timing policy.");
+  }
+  return authoritative;
 }
 
 export function readReviewRoutePolicy(targetRoot: string): ReviewRoutePolicy {

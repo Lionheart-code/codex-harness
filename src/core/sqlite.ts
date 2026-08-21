@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 
 export interface StatementLike {
   run(...params: unknown[]): unknown;
@@ -14,7 +15,41 @@ export interface DatabaseLike {
 }
 
 interface SqliteModuleLike {
-  DatabaseSync?: new (database: string) => DatabaseLike;
+  DatabaseSync?: new (database: string | URL, options?: { readOnly?: boolean }) => DatabaseLike;
+}
+
+export function openSqliteDatabaseReadOnly(databasePath: string): DatabaseLike {
+  if (!fs.existsSync(databasePath)) throw new Error(`SQLite database not found: ${databasePath}`);
+  const probe = probeNodeSqlite();
+  if (!probe.available) throw new Error(`${probe.message}\nSQLite-backed memory commands require a Node runtime with node:sqlite.`);
+  const sqlite = loadNodeSqlite();
+  if (typeof sqlite.DatabaseSync !== "function") throw new Error("node:sqlite loaded, but DatabaseSync is not available.");
+  const sourcePaths = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`];
+  const fingerprint = (sourcePath: string): string => {
+    if (!fs.existsSync(sourcePath)) return "missing";
+    const stat = fs.statSync(sourcePath, { bigint: true });
+    return [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
+  };
+  const before = sourcePaths.map(fingerprint);
+  const walPath = `${databasePath}-wal`;
+  if (fs.existsSync(walPath) && fs.statSync(walPath).size > 32) {
+    throw new Error(`SQLITE_READ_ACTIVE_WAL_UNAVAILABLE:${databasePath}`);
+  }
+  const immutableUrl = pathToFileURL(databasePath);
+  immutableUrl.searchParams.set("mode", "ro");
+  immutableUrl.searchParams.set("immutable", "1");
+  const immutable = new sqlite.DatabaseSync(immutableUrl, { readOnly: true });
+  return {
+    exec: (sql) => immutable.exec(sql),
+    prepare: (sql) => immutable.prepare(sql),
+    close: () => {
+      immutable.close();
+      const after = sourcePaths.map(fingerprint);
+      if (before.some((value, index) => value !== after[index])) {
+        throw new Error(`SQLITE_READ_SNAPSHOT_CHANGED:${databasePath}`);
+      }
+    }
+  };
 }
 
 const SQLITE_SPECIFIER = "node:sqlite";

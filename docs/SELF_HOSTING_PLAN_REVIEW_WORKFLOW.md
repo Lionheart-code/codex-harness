@@ -1,6 +1,6 @@
 # Self-hosting Plan-Review Workflow
 
-## Phase 23.9 bounded three-lens lifecycle
+## Phase 23.9 bounded three-lens lifecycle and active Phase 24A reuse
 
 For `high` and `extra-high` plans, one fresh independent read-only invocation
 evaluates one exact candidate through `plan-review`, `architecture-review`, and
@@ -10,6 +10,19 @@ decisions, traces, contract surfaces, and compatibility claims. Each lens
 remains a separate schema-validated canonical procedure artifact. Deterministic
 cross-lens reconciliation precedes owner approval. No plan-review PASS
 prerequisite blocks the two specialized lenses.
+
+Active Phase 24A reuses this bounded mechanism only for its prerequisite
+planning gate. Its three planning lenses result from typed task/plan surface and
+risk facts evaluated by the existing deterministic review policy; keyword or
+regex scanning of task/plan prose is not authority. Phase 24A.1 owns reusable
+completion/generalization.
+
+Cohort disposition is exact: incomplete keeps planning review required;
+complete all-PASS may expose the owner gate; complete with any
+`AMEND_REQUIRED` exposes `plan-amend`, then fresh derivation and a new cohort;
+complete with any `BLOCKED` exposes a typed human-decision blocker; malformed,
+identity-mismatched, or structured/document-verdict-disagreeing evidence fails
+closed. A terminal non-PASS cohort is not treated as missing review evidence.
 
 ## Purpose
 
@@ -130,6 +143,12 @@ required evidence
 forbidden scope
 authority boundaries
 ```
+
+Lifecycle selection of required reviews is narrower and typed: task-owned
+minimum risk/surface facts, exact plan-owned planned facts, and known exact
+changed-source facts feed the existing deterministic semantic-review policy.
+The prose/file inspection above informs reviewer coverage after selection; it
+does not itself authorize lifecycle routing.
 
 If the review surface cannot be determined safely, do not guess. Return:
 

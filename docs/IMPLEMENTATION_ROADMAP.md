@@ -437,8 +437,8 @@ Required scope:
   product-source registry update, not a runtime migration;
 - update this roadmap with the Phase 23.8.5 -> 23.8.6 -> 23.8.6A -> 23.8.6B ->
   23.8.6B1 -> 23.8.6B2 -> 23.8.6C -> 23.8.6C1 -> 23.8.6C1A ->
-  23.8.6C2 -> 23.8.6C2A -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9 -> 24A -> 24B ->
-  25A -> 25B -> 26 sequence and
+  23.8.6C2 -> 23.8.6C2A -> 23.8.6D -> 23.8.6E -> 23.8.7 -> 23.9 -> 24A ->
+  24A.1 -> 24A.2 -> 24B -> 25A -> 25B -> 26 sequence and
   a direct block before Phase 23.9;
 - separate end-of-old-cycle disposition from start-of-new-cycle materialization:
   closeout records exactly one selected-successor or explicit no-successor
@@ -1172,8 +1172,10 @@ Add a minimal proof/evidence/assumption/review mapping over stable
 procedure/stage records.
 
 Status:
-Active. First correct the normal zero-TaskState native-successor materialization
-gap under the Phase 23.9 task contract. The proof-record work remains blocked
+Complete, accepted, merged, closed out, and harvested. It corrected the normal
+zero-TaskState native-successor materialization gap and delivered proof-record
+provenance. Its successor decision selected Phase 24A at its immutable delivered
+base. Its proof-record work was gated
 until Phase 23.8.6, Phase 23.8.6A, Phase 23.8.6B, Phase
 23.8.6B1, Phase 23.8.6B2, Phase 23.8.6C, Phase 23.8.6C1A, Phase 23.8.6C2,
 Phase 23.8.6C2A, Phase 23.8.6D, Phase 23.8.6E, Phase 23.8.6F, and Phase
@@ -1241,8 +1243,19 @@ Goal:
 Implement the smallest useful deterministic report/packet substrate.
 
 Status:
-Planned split from `tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`. Blocked
-until Phase 23.9 is complete and reviewed.
+Active successor to accepted and harvested Phase 23.9. Before its minimal
+report/packet slice, it owns bounded transition-correctness hardening: direct
+task-contract pointer grammar, distinct decision-source versus task-contract
+identity, phase-neutral successor/bootstrap guarantees, and reusable exact
+implementation-review-to-delivery/closeout provenance. The live planning gate
+also requires `plan-review`, `architecture-review`, and `db-storage-review`
+perspectives derived through the existing deterministic semantic-review policy
+from typed task minimums, exact plan-owned planned surface/risk facts, and known
+exact source facts. Free-text keyword/regex scanning is not lifecycle authority.
+The cohort has distinct incomplete, all-PASS, `AMEND_REQUIRED`, `BLOCKED`, and
+invalid dispositions and exact task/plan/base/source/run/set/artifact binding,
+with narrow compatible self-hosting combined-review reuse. This does not expand
+into a generic lifecycle rewrite, 24A.1, 24A.2, or Phase 24B.
 
 Scope:
 - one deterministic run evidence/closeout report;
@@ -1278,7 +1291,7 @@ Non-goals:
   authority independent of runtime/closeout/harvest rules.
 
 Future-phase impact check:
-- prepares 24B, 25A, and 26 by proving the smallest useful report/packet
+- prepares 24A.1, 24A.2, 24B, 25A, and 26 by proving the smallest useful report/packet
   substrate;
 - must not pre-implement broad packet catalog, proposal drafting, governance
   analytics, domain packs, MCP, or planner execution;
@@ -1287,6 +1300,47 @@ Future-phase impact check:
 - requires architecture review if report generation starts deciding lifecycle,
   promoting tasks, summarizing hidden model memory, or adding domain-specific
   report logic in core.
+
+## Phase 24A.1 — Self-Hosting Review Lifecycle and Context-Reuse Completion
+
+Task:
+`tasks/PHASE_24A_1_SELF_HOSTING_REVIEW_LIFECYCLE_COMPLETION.md`
+
+Goal:
+Complete the reusable narrow self-hosting review lifecycle, required-review
+cohort, exact context reuse, and cost/quality routing behavior.
+
+Status:
+Planned. Starts only after 24A is implemented, independently reviewed,
+accepted, closed out, and harvested. It reuses ContextCore, ContextManifest,
+and ReviewDeltaOverlay; completes deterministic review-set derivation,
+perspective-preserving combined cohorts, explicit carry-forward, route/reasoning
+independence, bounded downgrade/re-escalation, accepted-binding selection, and
+telemetry. It consolidates typed planned/changed-surface routing, complete cohort
+dispositions and verdict consistency, exact identity/invalidation, and bounded
+owner-authorized infrastructure recovery after exhausted ordinary retry. It
+does not create general external-runner execution, a second
+context system, or executable-specification methodology.
+
+## Phase 24A.2 — Executable Specification and Engineering Architecture Discipline
+
+Task:
+`tasks/PHASE_24A_2_EXECUTABLE_SPECIFICATION_AND_ENGINEERING_ARCHITECTURE_DISCIPLINE.md`
+
+Goal:
+Establish task-authorized behavior examples, risk-triggered architecture
+invariants, exact plan/evidence traceability, and requirement-specific proof.
+
+Status:
+Planned. Starts only after 24A.1 is independently reviewed, accepted, closed
+out, and harvested. It reuses existing requirement identity, decisions,
+procedures, Project Memory, ContextCore/Manifest/Overlay, evidence, and proof;
+requires equivalent exact machine-checkable coverage for every applicable
+mandatory requirement; retains explicit responsibilities across intake,
+planning, review, verification, and closeout; and permits only bounded
+owner-reviewed technical spike tasks for genuine uncertainty. It does not
+introduce Cucumber/Gherkin requirements, a second requirements or ADR store, a
+generic architecture agent, or external runner execution.
 
 ## Phase 24B — Expanded Reports and Packets
 
@@ -1298,7 +1352,7 @@ Expand reports and packets only after Phase 24A artifacts show concrete use.
 
 Status:
 Planned split from `tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`. Blocked
-until Phase 24A is complete and reviewed.
+until 24A, 24A.1, and 24A.2 are complete and reviewed.
 CLI remains the current baseline access surface. App Server is a future
 candidate only, but that access-layer evaluation remains owned by Phase 25A/25B
 and must not be reintroduced here as Phase 24B implementation scope.
@@ -1350,8 +1404,9 @@ Expose read-only governed access to runtime, memory, reports, and packets
 through shared core services.
 
 Status:
-Planned split from `tasks/PHASE_25_AGENT_ACCESS_LAYER.md`. Blocked until Phase
-24A is complete and reviewed.
+Planned split from `tasks/PHASE_25_AGENT_ACCESS_LAYER.md`. Blocked until the
+accepted Phase 24B substrate, and therefore 24A, 24A.1, and 24A.2, are complete
+and reviewed.
 
 Scope:
 - query runs;
@@ -1450,9 +1505,10 @@ Extend the existing `feature-decomposition` procedure into a stronger
 architect/planner layer that emits reviewable task graph proposals only.
 
 Status:
-Planned. Blocked until Phase 25A is complete and reviewed. Produces reviewable
-task graph proposals and first-task recommendations. Does not execute generated
-tasks and does not approve its own scope.
+Planned. Blocked until Phase 25A is complete and reviewed. Consumes the 24A.2
+requirement/scenario/invariant vocabulary for compatible reviewable task graph
+proposals and first-task recommendations. Does not execute generated tasks or
+approve its own scope.
 
 Must preserve:
 - builds on existing `feature-decomposition`;
@@ -1530,7 +1586,9 @@ evaluator fixtures exist.
 
 Status:
 Planned experimental. Blocked until Phase 23.8 is complete and reviewed.
-Blocked until Phase 29 is complete and reviewed. Not
+Blocked until Phase 29 is complete and reviewed. It evaluates the stable 24A.1
+review/context/routing and 24A.2 requirement/scenario/invariant production
+contracts without treating production tests as promotion evidence. Not
 uncontrolled self-improvement, not autonomous product development, and not a
 replacement for architecture review.
 
@@ -1589,6 +1647,10 @@ Phase 31 consumes the exact Phase 23.9 `implementation-review` and
 Phase 23.9's narrow automatic standalone read-only `fix-pass-review` launcher.
 Phase 31 owns approved write-capable packet execution, CI/review-result
 ingestion, and bounded fix-pass packet preparation and execution.
+It consumes rather than recreates the 24A.1 self-hosting review/context/routing
+and 24A.2 requirement/scenario/invariant/decision trace contracts; approved
+execution packets bind exact task, plan, engineering-map, obligations, review
+set, and evidence/proof identities.
 
 ## Pilot — Research Ops pack
 

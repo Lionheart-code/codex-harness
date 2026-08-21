@@ -11,10 +11,13 @@ import {
 import {
   PROJECT_MEMORY_DB_WARNING_THRESHOLD_BYTES,
   initializeMemoryDatabase,
+  parseAuthoritativeProcedureProvenance,
+  readStoredPayloadBody,
   resolveMemoryDbPaths,
+  type ReadOnlyStoredPayload,
   type DatabaseStatus
 } from "./run-staging-db";
-import { type DatabaseLike, openSqliteDatabase } from "./sqlite";
+import { type DatabaseLike, openSqliteDatabase, openSqliteDatabaseReadOnly } from "./sqlite";
 import { type Run } from "./runtime";
 import { canonicalJson } from "./evidence-types";
 import { indexSelfHostingProceduresById, readSelfHostingProcedureRegistry } from "./self-hosting-procedures";
@@ -163,6 +166,53 @@ export interface ReviewReplayEligibility {
   reasons: string[];
 }
 
+export interface AcceptedRecordDescriptor {
+  record_id: string;
+  record_kind: string;
+  task_path: string;
+  created_at: string;
+  status: string | null;
+  source_step_id: string | null;
+  source_command: string | null;
+}
+
+export interface AcceptedDeliveryFactDescriptor {
+  delivery_fact_id: string;
+  fact_kind: string;
+  recorded_at: string;
+  commit_sha: string | null;
+  excerpt_payload_id: string | null;
+}
+
+export interface AcceptedProcedureArtifactDescriptor {
+  procedure_id: string;
+  artifact_id: string;
+  payload_id: string;
+  content_hash: string;
+  recorded_at: string;
+  reviewed_plan_artifact_id: string | null;
+  reviewed_plan_content_hash: string | null;
+  reviewed_evidence_artifact_id: string | null;
+}
+
+export interface AcceptedPayloadDescriptor {
+  payload_id: string;
+  parent_record_id: string;
+  kind: string;
+  bounded_excerpt: string | null;
+  redaction_status: string;
+  retention_class: string;
+  raw_size_bytes: number;
+  content_hash: string;
+  created_at: string;
+}
+
+export interface AcceptedPayloadLinkDescriptor {
+  payload_id: string;
+  parent_record_id: string;
+  link_role: string;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -175,23 +225,38 @@ function sha256Hex(value: Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function parseAuthoritativeProcedureProvenance(value: string): Record<string, unknown> {
-  let provenance: unknown;
-  try {
-    provenance = JSON.parse(value) as unknown;
-  } catch {
-    throw new Error("Authoritative procedure-artifact provenance is malformed.");
+function parseAcceptedRuntimeRun(value: unknown, expectedInstanceId: string, expectedDisplayRunId?: string): Run {
+  if (typeof value !== "string") throw new Error("ACCEPTED_RUNTIME_RUN_JSON_MISSING");
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); }
+  catch { throw new Error("ACCEPTED_RUNTIME_RUN_JSON_INVALID"); }
+  const { validateRuntimeRun } = require("./runtime") as { validateRuntimeRun: (candidate: unknown) => Run };
+  const run = validateRuntimeRun(parsed);
+  if (run.run_instance_id !== expectedInstanceId
+    || (expectedDisplayRunId !== undefined && run.run_id !== expectedDisplayRunId)) {
+    throw new Error("ACCEPTED_RUNTIME_RUN_IDENTITY_MISMATCH");
   }
-  if (!provenance || typeof provenance !== "object" || Array.isArray(provenance)) {
-    throw new Error("Authoritative procedure-artifact provenance must be an object.");
+  return run;
+}
+
+function parseExactHarvestRecord(value: unknown, expectedInstanceId: string, expectedDisplayRunId: string): HarvestRecord {
+  if (typeof value !== "string") throw new Error("ACCEPTED_HARVEST_JSON_MISSING");
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); }
+  catch { throw new Error("ACCEPTED_HARVEST_JSON_INVALID"); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("ACCEPTED_HARVEST_RECORD_INVALID");
+  const record = parsed as Record<string, unknown>;
+  for (const field of ["harvest_id", "run_id", "project_run_id", "status", "promoted_at", "source_task_path", "source_snapshot"] as const) {
+    if (typeof record[field] !== "string" || !record[field]) throw new Error(`ACCEPTED_HARVEST_RECORD_INVALID:${field}`);
   }
-  const record = provenance as Record<string, unknown>;
-  for (const field of ["phase_id", "task_path", "worktree", "branch", "head", "source_snapshot", "base_commit", "compatibility_path"]) {
-    if (typeof record[field] !== "string" || record[field].trim().length === 0) {
-      throw new Error(`Authoritative procedure-artifact provenance is missing ${field}.`);
-    }
+  for (const field of ["accepted_count", "discarded_count", "quarantined_count", "redacted_count", "unresolved_count"] as const) {
+    if (!Number.isInteger(record[field]) || Number(record[field]) < 0) throw new Error(`ACCEPTED_HARVEST_RECORD_INVALID:${field}`);
   }
-  return record;
+  if (!record.details || typeof record.details !== "object" || Array.isArray(record.details)
+    || record.project_run_id !== expectedInstanceId || record.run_id !== expectedDisplayRunId) {
+    throw new Error("ACCEPTED_HARVEST_RECORD_IDENTITY_MISMATCH");
+  }
+  return record as unknown as HarvestRecord;
 }
 
 function openProjectDatabase(projectDbPath: string): DatabaseLike {
@@ -1174,7 +1239,7 @@ export class ProjectMemoryDatabase {
         || (row.reviewed_plan_artifact_id !== null && row.reviewed_plan_content_hash !== row.reviewed_plan_artifact_id.slice("sha256:".length))) {
         throw new Error("Authoritative procedure-artifact reviewed-plan binding is malformed.");
       }
-      const provenance = parseAuthoritativeProcedureProvenance(row.provenance_json);
+      const provenance = parseAuthoritativeProcedureProvenance(row.provenance_json, row.procedure_id);
       if (row.procedure_id === "plan-review" && (row.reviewed_plan_artifact_id || provenance.phase_id === "23.8.6D")) {
         if (!row.reviewed_plan_artifact_id || !row.reviewed_plan_content_hash) {
           throw new Error("Authoritative plan-review readback requires an exact reviewed-plan binding.");
@@ -1232,6 +1297,123 @@ export class ProjectMemoryDatabase {
     } finally {
       database.close();
     }
+  }
+
+  getRunByInstanceIdReadOnly(runInstanceId: string): Run | undefined {
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      const row = database.prepare("SELECT run_instance_id, run_id, run_json FROM project_run_instances WHERE run_instance_id = ?")
+        .get(runInstanceId) as { run_instance_id?: string; run_id?: string; run_json?: string } | undefined;
+      return row ? parseAcceptedRuntimeRun(row.run_json, String(row.run_instance_id), String(row.run_id)) : undefined;
+    } finally { database.close(); }
+  }
+
+  getHarvestRecordByRunInstanceIdReadOnly(runInstanceId: string): HarvestRecord | undefined {
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      const row = database.prepare(
+        "SELECT run_instance_id, run_id, harvest_json FROM project_harvest_records_exact WHERE run_instance_id = ?"
+      ).get(runInstanceId) as { run_instance_id?: string; run_id?: string; harvest_json?: string } | undefined;
+      return row ? parseExactHarvestRecord(row.harvest_json, String(row.run_instance_id), String(row.run_id)) : undefined;
+    } finally { database.close(); }
+  }
+
+  listRunsByDisplayRunIdReadOnly(runId: string): Run[] {
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      return (database.prepare("SELECT run_instance_id, run_id, run_json FROM project_run_instances WHERE run_id = ? ORDER BY updated_at DESC")
+        .all(runId) as Array<{ run_instance_id: string; run_id: string; run_json?: string }>)
+        .map((row) => parseAcceptedRuntimeRun(row.run_json, row.run_instance_id, row.run_id));
+    } finally { database.close(); }
+  }
+
+  listAcceptedRecordDescriptorsReadOnly(runInstanceId: string): AcceptedRecordDescriptor[] {
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      return database.prepare([
+        "SELECT record_id, record_kind, task_path, created_at, status, source_step_id, source_command",
+        "FROM records WHERE run_id = ? ORDER BY created_at ASC, record_kind ASC, record_id ASC"
+      ].join(" ")).all(runInstanceId) as AcceptedRecordDescriptor[];
+    } finally { database.close(); }
+  }
+
+  listAcceptedDeliveryFactDescriptorsReadOnly(runInstanceId: string): AcceptedDeliveryFactDescriptor[] {
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      return database.prepare([
+        "SELECT delivery_fact_id, fact_kind, recorded_at, commit_sha, excerpt_payload_id",
+        "FROM delivery_facts WHERE run_id = ? ORDER BY recorded_at ASC, delivery_fact_id ASC"
+      ].join(" ")).all(runInstanceId) as AcceptedDeliveryFactDescriptor[];
+    } finally { database.close(); }
+  }
+
+  listAcceptedProcedureArtifactDescriptorsReadOnly(runInstanceId: string): AcceptedProcedureArtifactDescriptor[] {
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      const rows = database.prepare([
+        "SELECT procedure_id, artifact_id, payload_id, content_hash, recorded_at, reviewed_plan_artifact_id,",
+        "reviewed_plan_content_hash, reviewed_evidence_artifact_id FROM procedure_artifacts",
+        "WHERE run_instance_id = ? AND source_run_id = ? ORDER BY recorded_at ASC, procedure_id ASC, artifact_id ASC"
+      ].join(" ")).all(runInstanceId, runInstanceId) as AcceptedProcedureArtifactDescriptor[];
+      const registry = readSelfHostingProcedureRegistry(this.targetRoot);
+      const procedures = registry ? indexSelfHostingProceduresById(registry) : undefined;
+      if (!procedures || rows.some((row) => !procedures.has(row.procedure_id)
+        || !/^sha256:[a-f0-9]{64}$/u.test(row.artifact_id)
+        || row.content_hash !== row.artifact_id.slice("sha256:".length)
+        || !row.payload_id.startsWith(`${runInstanceId}:`))) {
+        throw new Error("ACCEPTED_PROCEDURE_ARTIFACT_DESCRIPTOR_INVALID");
+      }
+      return rows;
+    } finally { database.close(); }
+  }
+
+  listAcceptedPayloadDescriptorsReadOnly(runInstanceId: string): AcceptedPayloadDescriptor[] {
+    const prefix = `${runInstanceId}:%`;
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      return database.prepare([
+        "SELECT payload_id, parent_record_id, kind, bounded_excerpt, redaction_status, retention_class,",
+        "raw_size_bytes, content_hash, created_at FROM payload_index",
+        "WHERE source_run_id = ? AND payload_id LIKE ? ORDER BY created_at ASC, payload_id ASC"
+      ].join(" ")).all(runInstanceId, prefix) as AcceptedPayloadDescriptor[];
+    } finally { database.close(); }
+  }
+
+  listAcceptedPayloadLinkDescriptorsReadOnly(runInstanceId: string): AcceptedPayloadLinkDescriptor[] {
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      return database.prepare([
+        "SELECT pl.payload_id, pl.parent_record_id, pl.link_role FROM payload_links pl",
+        "JOIN payload_index pi ON pi.payload_id = pl.payload_id",
+        "WHERE pi.source_run_id = ? ORDER BY pl.payload_id ASC, pl.parent_record_id ASC, pl.link_role ASC"
+      ].join(" ")).all(runInstanceId) as AcceptedPayloadLinkDescriptor[];
+    } finally { database.close(); }
+  }
+
+  listAcceptedProofRecordsReadOnly(runInstanceId: string): unknown[] {
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      const rows = database.prepare([
+        "SELECT payload_json FROM records WHERE record_kind = 'proof_record' AND run_id = ?",
+        "ORDER BY created_at ASC, record_id ASC"
+      ].join(" ")).all(runInstanceId) as Array<{ payload_json: string }>;
+      return rows.map((row) => JSON.parse(row.payload_json));
+    } finally { database.close(); }
+  }
+
+  readPayloadBodyReadOnly(runInstanceId: string, payloadId: string): ReadOnlyStoredPayload | undefined {
+    return this.readPayloadBodiesReadOnly(runInstanceId, [payloadId])[0];
+  }
+
+  readPayloadBodiesReadOnly(runInstanceId: string, payloadIds: string[]): ReadOnlyStoredPayload[] {
+    if (new Set(payloadIds).size !== payloadIds.length) throw new Error("PAYLOAD_READ_IDS_AMBIGUOUS");
+    const database = openSqliteDatabaseReadOnly(this.projectDbPath);
+    try {
+      return payloadIds.flatMap((payloadId) => {
+        const payload = readStoredPayloadBody(database, namespaceProjectRowId(runInstanceId, payloadId), payloadId);
+        return payload ? [payload] : [];
+      });
+    } finally { database.close(); }
   }
 
   markRunLifecycle(runId: string, lifecycleStatus: LifecycleStatus): void {

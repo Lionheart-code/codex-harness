@@ -23,7 +23,8 @@ Return Markdown with these sections in this order:
 - `future_phase_leakage:`
 - `review_tier_controls:`
 
-`## Recommendation` must end with either `PASS` or `AMEND_REQUIRED`.
+`## Recommendation` must end with `PASS`, `AMEND_REQUIRED`, or `BLOCKED`, and
+must agree with the `verdict:` in `## Durable Decision Record`.
 
 Every finding must include exactly one classification:
 `PLAN_BLOCKER`, `IMPLEMENTATION_DISCRETION`,

@@ -211,6 +211,12 @@ test("phase 22 acceptance runner fails closed when no acceptance tests are found
   assert.match(result.stderr, /No acceptance tests found/);
 });
 
+test("phase 22 repo-owned acceptance runner defaults to the CI-aligned 45-minute cap", () => {
+  const runnerText = readText(path.join(productRoot, "scripts", "run-acceptance.mjs"));
+  assert.match(runnerText, /return 45 \* 60 \* 1000;/);
+  assert.doesNotMatch(runnerText, /return 20 \* 60 \* 1000;/);
+});
+
 test("phase 22 acceptance runner times out with clear diagnostics for hanging acceptance suites", () => {
   const hangingAcceptanceDir = createTempDirectory("codex-harness-phase22-hanging-acceptance-");
   tempDirectories.push(hangingAcceptanceDir);

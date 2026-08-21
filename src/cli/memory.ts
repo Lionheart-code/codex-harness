@@ -13,6 +13,8 @@ import {
   resolveMemoryDbPaths
 } from "../core/run-staging-db";
 import { getRuntimeStatus } from "../core/runtime";
+import { buildAcceptedContextView, buildHistoricalEvidenceReport, buildImplementationReviewView } from "../core/evidence-views";
+import { execFileSync } from "node:child_process";
 
 type ParsedOptions = Record<string, string | boolean>;
 
@@ -29,6 +31,9 @@ function printMemoryHelp(): void {
     "  node bin/ch memory harvest --help",
     "  node bin/ch memory harvest --run <run-id> [--dry-run]",
     "  node bin/ch memory replay-eligibility --run-instance <exact-run-instance-id> [--packet-record <sha256:id>]",
+    "  node bin/ch memory report --run-instance <exact-run-instance-id>",
+    "  node bin/ch memory packet context --run-instance <exact-run-instance-id> --packet-record <sha256:id>",
+    "  node bin/ch memory packet implementation-review --run-instance <exact-run-instance-id>",
     "  node bin/ch memory delivery-facts --help",
     "  node bin/ch memory delivery-facts import --run <run-id> --file <path> [--dry-run]",
     "  node bin/ch memory rebuild [--dry-run]",
@@ -36,6 +41,113 @@ function printMemoryHelp(): void {
     "  node bin/ch memory show <run-id>",
     "  node bin/ch memory export --dry-run"
   ]);
+}
+
+function printReportHelp(): void {
+  lines(["Usage:", "  node bin/ch memory report --run-instance <exact-run-instance-id>",
+    "  node bin/ch memory report --run <unambiguous-accepted-display-run-id>"]);
+}
+
+function printPacketHelp(): void {
+  lines(["Usage:", "  node bin/ch memory packet context --run-instance <exact-run-instance-id> --packet-record <sha256:id>",
+    "  node bin/ch memory packet implementation-review --run-instance <exact-run-instance-id>"]);
+}
+
+function resolveAcceptedAuthority(options: ParsedOptions) {
+  const roots = resolveHarnessRoots(process.cwd());
+  const memory = new ProjectMemoryDatabase(roots.targetRoot, roots.projectRoot);
+  const instance = stringOption(options, "run-instance");
+  const display = stringOption(options, "run");
+  if (Boolean(instance) === Boolean(display)) throw new Error("Specify exactly one of --run-instance or --run.");
+  const run = instance ? memory.getRunByInstanceIdReadOnly(instance) : (() => {
+    const matches = memory.listRunsByDisplayRunIdReadOnly(display!).filter((candidate) => {
+      const harvest = candidate.run_instance_id
+        ? memory.getHarvestRecordByRunInstanceIdReadOnly(candidate.run_instance_id) : undefined;
+      return harvest?.status === "promoted" && harvest.project_run_id === candidate.run_instance_id
+        && harvest.run_id === candidate.run_id;
+    });
+    if (matches.length !== 1) throw new Error(`Accepted promoted display run id is ambiguous or missing: ${display}.`);
+    return matches[0];
+  })();
+  if (!run) throw new Error("Accepted exact run instance not found.");
+  const harvestRecord = memory.getHarvestRecordByRunInstanceIdReadOnly(run.run_instance_id!);
+  if (!harvestRecord || harvestRecord.status !== "promoted"
+    || harvestRecord.project_run_id !== run.run_instance_id || harvestRecord.run_id !== run.run_id) {
+    throw new Error("ACCEPTED_PROJECT_MEMORY_REQUIRED: exact run lacks a promoted HarvestRecord.");
+  }
+  return { run, memory, harvestRecord };
+}
+
+function packetPayloadIds(run: { review_routing_records?: Array<{ record_id: string; payload: Record<string, unknown> }> }, packetRecordId: string): string[] {
+  const packet = run.review_routing_records?.find((record) => record.record_id === packetRecordId);
+  if (!packet || !Array.isArray(packet.payload.payload_ids)
+    || packet.payload.payload_ids.some((entry) => typeof entry !== "string")) {
+    throw new Error("Exact review packet payload inventory is unavailable.");
+  }
+  return packet.payload.payload_ids as string[];
+}
+
+function runReport(args: string[]): number {
+  if (args.length === 0 || args[0] === "--help" || args[0] === "-h") { printReportHelp(); return 0; }
+  const options = parseOptions(args, new Set(["run-instance", "run"]));
+  const { run, memory, harvestRecord } = resolveAcceptedAuthority(options);
+  lines([canonicalOutput(buildHistoricalEvidenceReport(run, {
+    proofRecords: memory.listAcceptedProofRecordsReadOnly(run.run_instance_id!), harvestRecord,
+    acceptedRecordDescriptors: memory.listAcceptedRecordDescriptorsReadOnly(run.run_instance_id!),
+    acceptedDeliveryFactDescriptors: memory.listAcceptedDeliveryFactDescriptorsReadOnly(run.run_instance_id!),
+    acceptedProcedureArtifactDescriptors: memory.listAcceptedProcedureArtifactDescriptorsReadOnly(run.run_instance_id!),
+    acceptedPayloadDescriptors: memory.listAcceptedPayloadDescriptorsReadOnly(run.run_instance_id!),
+    acceptedPayloadLinkDescriptors: memory.listAcceptedPayloadLinkDescriptorsReadOnly(run.run_instance_id!)
+  }))]);
+  return 0;
+}
+
+function canonicalOutput(value: unknown): string { return JSON.stringify(value, null, 2); }
+
+function runPacket(args: string[]): number {
+  const [kind, ...rest] = args;
+  if (!kind || kind === "--help" || kind === "-h" || kind === "help") { printPacketHelp(); return 0; }
+  if (kind === "context") {
+    const options = parseOptions(rest, new Set(["run-instance", "run", "packet-record"]));
+    const packet = stringOption(options, "packet-record");
+    if (!packet) throw new Error("--packet-record is required.");
+    const { run, memory, harvestRecord } = resolveAcceptedAuthority(options);
+    const payloads = memory.readPayloadBodiesReadOnly(run.run_instance_id!, packetPayloadIds(run, packet));
+    lines([canonicalOutput(buildAcceptedContextView(run, packet, { payloads, harvestRecord }))]);
+    return 0;
+  }
+  if (kind === "implementation-review") {
+    const options = parseOptions(rest, new Set(["run-instance"]));
+    const instance = stringOption(options, "run-instance");
+    if (!instance) throw new Error("--run-instance is required.");
+    const roots = resolveHarnessRoots(process.cwd());
+    const runIds = fs.existsSync(path.join(roots.targetRoot, ".harness", "runs"))
+      ? fs.readdirSync(path.join(roots.targetRoot, ".harness", "runs"), { withFileTypes: true })
+        .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
+      : [];
+    const matches = runIds.flatMap((runId) => {
+      const staging = new RunStagingDatabase(roots.targetRoot, roots.projectRoot, runId);
+      const candidate = staging.loadRunReadOnly();
+      return candidate?.run_instance_id === instance ? [{ run: candidate, staging }] : [];
+    });
+    if (matches.length !== 1) throw new Error("Active exact run instance is ambiguous or missing in Staging.");
+    const { run, staging } = matches[0];
+    const candidateHead = execFileSync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+      cwd: roots.targetRoot, encoding: "utf8"
+    }).trim();
+    const packet = [...(run.review_routing_records ?? [])].reverse().find((record) =>
+      record.record_kind === "review_replay_packet"
+      && ["implementation-review", "fix-pass-review"].includes(String(record.payload.procedure_id ?? "")));
+    if (!packet) throw new Error("Exact implementation review packet is unavailable in active Staging.");
+    const payloads = staging.readPayloadBodiesReadOnly(packetPayloadIds(run, packet.record_id));
+    lines([canonicalOutput(buildImplementationReviewView(run, candidateHead, {
+      packetRecordId: packet.record_id,
+      payloads,
+      proofRecords: staging.listIndependentRecordsReadOnly("proof_record", run.run_id)
+    }))]);
+    return 0;
+  }
+  throw new Error(`Unknown memory packet kind: ${kind}`);
 }
 
 function printProjectHelp(): void {
@@ -532,6 +644,10 @@ export async function runMemory(args: string[]): Promise<number> {
         return await runHarvest(subcommandArgs);
       case "replay-eligibility":
         return await runReplayEligibility(subcommandArgs);
+      case "report":
+        return runReport(subcommandArgs);
+      case "packet":
+        return runPacket(subcommandArgs);
       case "delivery-facts":
         return await runDeliveryFacts(subcommandArgs);
       case "rebuild":

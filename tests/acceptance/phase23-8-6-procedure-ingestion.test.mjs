@@ -107,6 +107,14 @@ function readProductText(relativePath) {
   return fs.readFileSync(path.join(productRoot, relativePath), "utf8");
 }
 
+function copyProcedureExecutionPolicySchema(tempRepo) {
+  fs.mkdirSync(path.join(tempRepo, "schemas"), { recursive: true });
+  fs.copyFileSync(
+    path.join(productRoot, "schemas", "self-hosting-procedure-execution-policy.schema.json"),
+    path.join(tempRepo, "schemas", "self-hosting-procedure-execution-policy.schema.json")
+  );
+}
+
 function writeSuccessorBootstrapSurfaces(tempRepo) {
   fs.mkdirSync(path.join(tempRepo, "bin"), { recursive: true });
   writeText(path.join(tempRepo, "AGENTS.md"), "# Fixture instructions\n");
@@ -181,6 +189,7 @@ function createPhase2386Repo(prefix) {
   fs.cpSync(path.join(productRoot, "skills", "self-hosting"), path.join(tempRepo, "skills", "self-hosting"), {
     recursive: true
   });
+  copyProcedureExecutionPolicySchema(tempRepo);
   fs.cpSync(path.join(productRoot, "prompts", "self-hosting"), path.join(tempRepo, "prompts", "self-hosting"), {
     recursive: true
   });
@@ -231,6 +240,7 @@ function createPhase2386ARepo(prefix) {
   fs.cpSync(path.join(productRoot, "skills", "self-hosting"), path.join(tempRepo, "skills", "self-hosting"), {
     recursive: true
   });
+  copyProcedureExecutionPolicySchema(tempRepo);
   fs.cpSync(path.join(productRoot, "prompts", "self-hosting"), path.join(tempRepo, "prompts", "self-hosting"), {
     recursive: true
   });
@@ -281,6 +291,7 @@ function createPhase2386B2Repo(prefix) {
   fs.cpSync(path.join(productRoot, "skills", "self-hosting"), path.join(tempRepo, "skills", "self-hosting"), {
     recursive: true
   });
+  copyProcedureExecutionPolicySchema(tempRepo);
   fs.cpSync(path.join(productRoot, "prompts", "self-hosting"), path.join(tempRepo, "prompts", "self-hosting"), {
     recursive: true
   });
@@ -367,6 +378,7 @@ function createPhase2386B2AuthorityBaselineRepo(prefix) {
   fs.cpSync(path.join(productRoot, "skills", "self-hosting"), path.join(tempRepo, "skills", "self-hosting"), {
     recursive: true
   });
+  copyProcedureExecutionPolicySchema(tempRepo);
   fs.cpSync(path.join(productRoot, "prompts", "self-hosting"), path.join(tempRepo, "prompts", "self-hosting"), {
     recursive: true
   });
@@ -554,6 +566,28 @@ function buildPlanReviewArtifact(recommendation = "PASS") {
     "",
     recommendation
   ].join("\n");
+}
+
+function recordFreshPlanReviewAfterAmend(tempRepo, run, label) {
+  const artifactName = `plan-review-post-amend-${label}`;
+  const artifact = buildPlanReviewArtifact().replace(
+    "source_trace: procedure:plan-review",
+    `source_trace: procedure:plan-review:${label}`
+  );
+  writeProcedureArtifact(tempRepo, run.run_id, artifactName, artifact);
+  assertSuccess(runCli(
+    [
+      "run",
+      "record-procedure",
+      "--run",
+      run.run_id,
+      "--procedure",
+      "plan-review",
+      "--file",
+      `.harness/runs/${run.run_id}/manual/${artifactName}.md`
+    ],
+    { cwd: tempRepo }
+  ), "record fresh plan-review after the effective plan amendment");
 }
 
 function prepareApprovedImplementationReviewRun(runtimeModule, tempRepo, reviewMarkdown) {
@@ -1523,6 +1557,8 @@ test("phase 23.8.6 operator treats live task-scoped source changes as implementa
     { cwd: tempRepo }
   ), "record effective amended plan before live implementation evidence");
 
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "live-implementation-evidence");
+
   assertSuccess(runCli(
     [
       "run",
@@ -1590,6 +1626,8 @@ test("phase 23.8.6B2 docs/task-only phases treat allowed authority-surface diffs
     ],
     { cwd: tempRepo }
   ), "record effective amended plan before docs-only implementation evidence");
+
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "docs-only-implementation-evidence");
 
   assertSuccess(runCli(
     [
@@ -1665,6 +1703,8 @@ test("phase 23.8.6B2 docs/task-only phases do not advance on forbidden source ch
     { cwd: tempRepo }
   ), "record effective amended plan before forbidden source diff check");
 
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "forbidden-source");
+
   assertSuccess(runCli(
     [
       "run",
@@ -1732,6 +1772,8 @@ test("phase 23.8.6B2 docs/task-only phases do not advance on forbidden CI change
     ],
     { cwd: tempRepo }
   ), "record effective amended plan before forbidden CI diff check");
+
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "forbidden-ci");
 
   assertSuccess(runCli(
     [
@@ -1801,6 +1843,8 @@ test("phase 23.8.6B2 docs/task-only phases do not advance on forbidden package-s
     { cwd: tempRepo }
   ), "record effective amended plan before forbidden package diff check");
 
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "forbidden-package");
+
   assertSuccess(runCli(
     [
       "run",
@@ -1867,6 +1911,8 @@ test("phase 23.8.6B2 docs/task-only phases do not advance on forbidden runner ch
     ],
     { cwd: tempRepo }
   ), "record effective amended plan before forbidden runner diff check");
+
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "forbidden-runner");
 
   assertSuccess(runCli(
     [
@@ -1941,6 +1987,8 @@ test("phase 23.8.6B2 docs/task-only phases do not advance when a future phase ta
     { cwd: tempRepo }
   ), "record effective amended plan before mentioned future task diff check");
 
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "mentioned-future-task");
+
   assertSuccess(runCli(
     [
       "run",
@@ -2008,6 +2056,8 @@ test("phase 23.8.6B2 docs/task-only phases do not authorize explicit paths menti
     ],
     { cwd: tempRepo }
   ), "record effective amended plan before non-approved explicit path diff check");
+
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "non-approved-path");
 
   assertSuccess(runCli(
     [
@@ -2077,6 +2127,8 @@ test("phase 23.8.6B2 docs/task-only phases ignore superseded draft-plan path men
     { cwd: tempRepo }
   ), "record effective amended plan before superseded draft-path diff check");
 
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "superseded-draft-path");
+
   assertSuccess(runCli(
     [
       "run",
@@ -2145,6 +2197,8 @@ test("phase 23.8.6B2 real B2-only changed-path set routes to implementation revi
     { cwd: tempRepo }
   ), "record effective amended plan before live B2-only authority proof");
 
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "live-b2-authority");
+
   assertSuccess(runCli(
     [
       "run",
@@ -2211,6 +2265,8 @@ test("phase 23.8.6B2 actual approved B2 authority does not authorize unrelated f
     ],
     { cwd: tempRepo }
   ), "record effective amended plan before unrelated future task proof");
+
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "unrelated-future-task");
 
   assertSuccess(runCli(
     [
@@ -2279,6 +2335,8 @@ test("phase 23.8.6B2 mixed B2 plus B2A worktree still does not count as B2 imple
     ],
     { cwd: tempRepo }
   ), "record effective amended plan before mixed B2 and B2A proof");
+
+  recordFreshPlanReviewAfterAmend(tempRepo, run, "mixed-b2-b2a");
 
   assertSuccess(runCli(
     [
@@ -3625,7 +3683,7 @@ test("phase 23.8.6A approve-plan records and replays explicit amended-plan appro
   writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
   writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", "# approved plan\n");
 
-  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan", "plan-review", "plan-amend"]) {
+  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan", "plan-amend", "plan-review"]) {
     const fileName = procedureId === "plan-review"
       ? "plan-review-amended-8.md"
       : procedureId === "plan-amend"
@@ -3702,7 +3760,7 @@ test("phase 23.8.6A approve-plan replay backfills missing derived approval state
   writeProcedureArtifact(tempRepo, run.run_id, "plan-review-amended-8", buildPlanReviewArtifact());
   writeProcedureArtifact(tempRepo, run.run_id, "plan-amend-8", "# approved plan\n");
 
-  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan", "plan-review", "plan-amend"]) {
+  for (const procedureId of ["task-intake", "task-prompt-writer", "draft-plan", "plan-amend", "plan-review"]) {
     const fileName = procedureId === "plan-review"
       ? "plan-review-amended-8.md"
       : procedureId === "plan-amend"
@@ -4714,13 +4772,42 @@ test("phase 23.8.6F harvested replay proves distinct-host eligibility and reject
     created_at: "2026-06-24T00:30:00.000Z",
     approver: "owner",
     reviewed_plan_artifact_id: sourcePlanArtifact.artifact_id,
-    reviewed_plan_content_hash: sourcePlanArtifact.artifact_id.slice("sha256:".length)
+    reviewed_plan_content_hash: sourcePlanArtifact.artifact_id.slice("sha256:".length),
+    reviewed_evidence_artifact_id: `sha256:${"1".repeat(64)}`
   });
+  run.implementation_baseline_head = run.source_snapshot;
+  run.implementation_baseline_binding = {
+    schema_version: 2,
+    approval_id: "approval-replay-source-plan",
+    plan_artifact_hash: sourcePlanArtifact.artifact_id,
+    plan_review_artifact_hash: `sha256:${"1".repeat(64)}`,
+    planning_review_source_head: run.source_snapshot,
+    authority_transition: "reviewed_source",
+    owner_authority_diff_hash: `sha256:${createHash("sha256").update("").digest("hex")}`,
+    implementation_baseline_head: run.source_snapshot,
+    implementation_baseline_tree_hash: runCommand("git", ["rev-parse", "HEAD^{tree}"], { cwd: tempRepo }).stdout.trim(),
+    expected_tree_hash: runCommand("git", ["rev-parse", "HEAD^{tree}"], { cwd: tempRepo }).stdout.trim(),
+    bound_at: "2026-06-24T00:30:00.000Z"
+  };
   writeText(path.join(tempRepo, ".harness", "runs", run.run_id, sourcePlanArtifact.path), sourcePlanBody);
+  const fakeCodexEnv = createFakeCodexReviewEnv(tempRepo, exactImplementationReviewPass());
+  assertSuccess(runCommand("git", ["add", "fake-codex-bin"], { cwd: tempRepo }), "stage replay fixture reviewer");
+  assertSuccess(runCommand("git", ["commit", "-m", "replay fixture reviewer"], { cwd: tempRepo }), "commit replay fixture reviewer");
+  const reviewedHead = gitHead(tempRepo);
+  const reviewedTree = runCommand("git", ["rev-parse", "HEAD^{tree}"], { cwd: tempRepo }).stdout.trim();
+  run.source_snapshot = reviewedHead;
+  run.repository.head_sha = reviewedHead;
+  run.implementation_baseline_head = reviewedHead;
+  run.implementation_baseline_binding = {
+    ...run.implementation_baseline_binding,
+    planning_review_source_head: reviewedHead,
+    implementation_baseline_head: reviewedHead,
+    implementation_baseline_tree_hash: reviewedTree,
+    expected_tree_hash: reviewedTree
+  };
   writeRuntimeRunFixture(tempRepo, run);
   const requestPath = writeProcedureArtifact(tempRepo, run.run_id, "replay-source-request", "Review exact replay source.\n");
   const sourceOutput = `.harness/runs/${run.run_id}/manual/replay-source-output.md`;
-  const fakeCodexEnv = createFakeCodexReviewEnv(tempRepo, exactImplementationReviewPass());
   const sourceLaunch = runCli([
     "run", "launch-review", "--run", run.run_id, "--procedure", "implementation-review",
     "--request", path.relative(tempRepo, requestPath),
@@ -4995,6 +5082,31 @@ test("phase 23.8.6 materialize-next-task enters a registered existing worktree w
   assert.match(dirtyWorktree.stderr, /worktree is dirty/i);
   assertSuccess(runCommand("git", ["checkout", "--", "README.md"], { cwd: worktreePath }), "restore entered-existing worktree");
 
+  const pointerBeforeConflict = fs.readFileSync(path.join(worktreePath, "TASK.md"));
+  const ownerBeforeConflict = JSON.parse(fs.readFileSync(taskStatePath, "utf8"));
+  const conflictingOwner = { ...ownerBeforeConflict, base_commit_sha: "f".repeat(40) };
+  writeText(taskStatePath, `${JSON.stringify(conflictingOwner, null, 2)}\n`);
+  const stateBytesBeforeFailure = fs.readFileSync(taskStatePath);
+  const gitHeadBeforeFailure = gitHead(worktreePath);
+  const gitStatusBeforeFailure = runCommand("git", ["status", "--porcelain=v1"], { cwd: worktreePath }).stdout;
+  const conflictingBase = runCli(
+    [
+      "run", "materialize-next-task", "--run", run.run_id, "--decision-id", decisionId,
+      "--task", nextTaskPath, "--branch", branch, "--worktree", worktreePath, "--enter-existing"
+    ],
+    { cwd: tempRepo }
+  );
+  assertFailure(conflictingBase, "enter existing worktree with conflicting owner base");
+  assert.match(conflictingBase.stderr, /already records immutable base_commit_sha/i);
+  assert.deepEqual(fs.readFileSync(path.join(worktreePath, "TASK.md")), pointerBeforeConflict,
+    "normal materialization failure preserves exact TASK.md bytes");
+  assert.deepEqual(fs.readFileSync(taskStatePath), stateBytesBeforeFailure,
+    "normal materialization failure preserves owner authority");
+  assert.equal(gitHead(worktreePath), gitHeadBeforeFailure);
+  assert.equal(runCommand("git", ["status", "--porcelain=v1"], { cwd: worktreePath }).stdout, gitStatusBeforeFailure);
+  assert.equal(fs.existsSync(path.join(worktreePath, ".harness", "runs", "current.json")), false);
+  writeText(taskStatePath, `${JSON.stringify(ownerBeforeConflict, null, 2)}\n`);
+
   const materialize = runCli(
     [
       "run",
@@ -5096,14 +5208,30 @@ test("phase 23.8.6 recovers a clean committed successor activation into one task
   assert.match(beforeActivation.stderr, /requires a clean successor activation chain descending from recorded base/i);
 
   writeText(path.join(worktreePath, "TASK.md"), `# Current Task\n\nImplement only: ${nextTaskPath}\n\nDo not implement later phases.\n`);
-  fs.appendFileSync(path.join(worktreePath, nextTaskPath), "\nActivation authority.\n", "utf8");
   fs.appendFileSync(path.join(worktreePath, "docs", "IMPLEMENTATION_ROADMAP.md"), "\nRecovery activation authority.\n", "utf8");
   fs.appendFileSync(path.join(worktreePath, "docs", "OPERATIONS_PLAN.md"), "\nRecovery activation authority.\n", "utf8");
   assertSuccess(
-    runCommand("git", ["add", "TASK.md", nextTaskPath, "docs/IMPLEMENTATION_ROADMAP.md", "docs/OPERATIONS_PLAN.md"], { cwd: worktreePath }),
+    runCommand("git", ["add", "TASK.md", "docs/IMPLEMENTATION_ROADMAP.md", "docs/OPERATIONS_PLAN.md"], { cwd: worktreePath }),
     "git add committed recovery activation"
   );
   assertSuccess(runCommand("git", ["commit", "-m", "commit recovery activation authority"], { cwd: worktreePath }), "git commit recovery activation authority");
+
+  fs.appendFileSync(path.join(worktreePath, nextTaskPath), "\nChanged after decision.\n", "utf8");
+  assertSuccess(runCommand("git", ["add", nextTaskPath], { cwd: worktreePath }), "git add changed recovery task contract");
+  assertSuccess(runCommand("git", ["commit", "-m", "change recovery task contract"], { cwd: worktreePath }), "git commit changed recovery task contract");
+  const mismatchedIdentity = runCli(
+    [
+      "run", "materialize-next-task", "--run", run.run_id, "--decision-id", decisionId,
+      "--task", nextTaskPath, "--branch", branch, "--worktree", worktreePath,
+      "--enter-existing", "--recover-existing-activation"
+    ],
+    { cwd: tempRepo }
+  );
+  assertFailure(mismatchedIdentity, "recover after selected task bytes changed");
+  assert.match(mismatchedIdentity.stderr, /TASK_CONTRACT_IDENTITY_MISMATCH/);
+  assert.equal(fs.existsSync(path.join(tempRepo, ".harness", "tasks")), false,
+    "identity mismatch must fail before task-state materialization");
+  assertSuccess(runCommand("git", ["revert", "--no-edit", "HEAD"], { cwd: worktreePath }), "restore exact selected task bytes");
 
   const recoveryPreview = runCli(
     [

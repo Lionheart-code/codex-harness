@@ -13,7 +13,7 @@ import {
   getRunJsonRelativePath,
   getRunStagingDbRelativePath
 } from "./paths";
-import { type DatabaseLike, openSqliteDatabase } from "./sqlite";
+import { type DatabaseLike, openSqliteDatabase, openSqliteDatabaseReadOnly } from "./sqlite";
 import { detectGitRepository } from "./git";
 import { canonicalJson } from "./evidence-types";
 import { type Run } from "./runtime";
@@ -127,6 +127,62 @@ interface NormalizedRecordRow {
   retentionClass: string;
 }
 
+export interface ReadOnlyStoredPayload {
+  payload_id: string;
+  parent_record_id: string;
+  source_run_id: string;
+  kind: string;
+  media_type: string;
+  redaction_status: string;
+  retention_class: string;
+  raw_size_bytes: number;
+  content_hash: string;
+  body: unknown;
+}
+
+export function readStoredPayloadBody(
+  database: DatabaseLike,
+  storedPayloadId: string,
+  exposedPayloadId = storedPayloadId
+): ReadOnlyStoredPayload | undefined {
+  const row = database.prepare([
+    "SELECT parent_record_id, source_run_id, kind, media_type, redaction_status, retention_class,",
+    "compression_status, chunk_count, raw_size_bytes, content_hash FROM payload_index WHERE payload_id = ?"
+  ].join(" ")).get(storedPayloadId) as Record<string, unknown> | undefined;
+  if (!row) return undefined;
+  const chunks = database.prepare(
+    "SELECT chunk_order, chunk_bytes FROM payload_chunks WHERE payload_id = ? ORDER BY chunk_order ASC"
+  ).all(storedPayloadId) as Array<{ chunk_order: number; chunk_bytes: Uint8Array }>;
+  const expectedChunkCount = Number(row.chunk_count);
+  if (chunks.length !== expectedChunkCount || chunks.some((entry, index) => entry.chunk_order !== index)) {
+    throw new Error(`PAYLOAD_CHUNKS_INVALID:${exposedPayloadId}`);
+  }
+  const stored = Buffer.concat(chunks.map((entry) => Buffer.from(entry.chunk_bytes)));
+  const raw = row.compression_status === "gzip" ? gunzipSync(stored) : stored;
+  const expectedHash = String(row.content_hash);
+  if (raw.byteLength !== Number(row.raw_size_bytes)
+    || createHash("sha256").update(raw).digest("hex") !== expectedHash) {
+    throw new Error(`PAYLOAD_HASH_MISMATCH:${exposedPayloadId}`);
+  }
+  let body: unknown = raw.toString("utf8");
+  if (String(row.media_type) === "application/json") {
+    try { body = JSON.parse(String(body)); }
+    catch { throw new Error(`PAYLOAD_JSON_INVALID:${exposedPayloadId}`); }
+  }
+  return {
+    payload_id: exposedPayloadId,
+    parent_record_id: String(row.parent_record_id),
+    source_run_id: String(row.source_run_id),
+    kind: String(row.kind),
+    media_type: String(row.media_type),
+    redaction_status: String(row.redaction_status),
+    retention_class: String(row.retention_class),
+    raw_size_bytes: Number(row.raw_size_bytes),
+    content_hash: `sha256:${expectedHash}`,
+    body
+  };
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -135,7 +191,7 @@ function sha256Hex(value: Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function assertAuthoritativeProcedureProvenance(value: string): void {
+export function parseAuthoritativeProcedureProvenance(value: string, procedureId: string): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
@@ -145,11 +201,23 @@ function assertAuthoritativeProcedureProvenance(value: string): void {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Authoritative procedure-artifact provenance must be an object.");
   }
-  for (const field of ["phase_id", "task_path", "worktree", "branch", "head", "source_snapshot", "base_commit", "compatibility_path"]) {
-    if (typeof (parsed as Record<string, unknown>)[field] !== "string" || !(parsed as Record<string, string>)[field].trim()) {
+  const record = parsed as Record<string, unknown>;
+  const reviewProcedure = ["plan-review", "implementation-review", "fix-pass-review"].includes(procedureId);
+  const common = ["phase_id", "task_path", "worktree", "branch", "compatibility_path"];
+  const reviewIdentity = ["reviewed_source_head", "reviewed_diff_hash", "review_attempt_id"];
+  const legacyIdentity = ["head", "source_snapshot", "base_commit"];
+  const hasCompleteReviewIdentity = reviewIdentity.every((field) => typeof record[field] === "string" && Boolean((record[field] as string).trim()));
+  const required = [...common, ...(reviewProcedure && hasCompleteReviewIdentity ? reviewIdentity : legacyIdentity)];
+  for (const field of required) {
+    if (typeof record[field] !== "string" || !(record[field] as string).trim()) {
       throw new Error(`Authoritative procedure-artifact provenance is missing ${field}.`);
     }
   }
+  if (reviewProcedure && hasCompleteReviewIdentity && (!/^[a-f0-9]{40}$/u.test(String(record.reviewed_source_head))
+    || !/^sha256:[a-f0-9]{64}$/u.test(String(record.reviewed_diff_hash)))) {
+    throw new Error("Authoritative review procedure-artifact provenance has invalid source or diff identity.");
+  }
+  return record;
 }
 
 function toPortablePath(targetPath: string): string {
@@ -843,6 +911,32 @@ export class RunStagingDatabase {
     }
   }
 
+  readPayloadBodyReadOnly(payloadId: string): ReadOnlyStoredPayload | undefined {
+    return this.readPayloadBodiesReadOnly([payloadId])[0];
+  }
+
+  readPayloadBodiesReadOnly(payloadIds: string[]): ReadOnlyStoredPayload[] {
+    if (!this.paths.stagingDbPath) return [];
+    if (new Set(payloadIds).size !== payloadIds.length) throw new Error("PAYLOAD_READ_IDS_AMBIGUOUS");
+    const database = openSqliteDatabaseReadOnly(this.paths.stagingDbPath);
+    try { return payloadIds.flatMap((payloadId) => {
+      const payload = readStoredPayloadBody(database, payloadId);
+      return payload ? [payload] : [];
+    }); }
+    finally { database.close(); }
+  }
+
+  listIndependentRecordsReadOnly(recordKind: Phase239IndependentRecordKind, runId: string): unknown[] {
+    if (!this.paths.stagingDbPath) return [];
+    const database = openSqliteDatabaseReadOnly(this.paths.stagingDbPath);
+    try {
+      const rows = database.prepare(
+        "SELECT payload_json FROM records WHERE record_kind = ? AND run_id = ? ORDER BY created_at ASC, record_id ASC"
+      ).all(recordKind, runId) as Array<{ payload_json: string }>;
+      return rows.map((row) => JSON.parse(row.payload_json));
+    } finally { database.close(); }
+  }
+
   readProcedureArtifact(
     runInstanceId: string,
     procedureId: string,
@@ -910,7 +1004,7 @@ export class RunStagingDatabase {
         || !proceduresById.has(row.procedure_id) || (input.procedureId && row.procedure_id !== input.procedureId)) {
         throw new Error("Authoritative procedure-artifact staging descriptor is malformed or mismatched.");
       }
-      assertAuthoritativeProcedureProvenance(row.provenance_json);
+      parseAuthoritativeProcedureProvenance(row.provenance_json, row.procedure_id);
       if (row.procedure_id === "plan-review") {
         if (!row.reviewed_plan_artifact_id || !row.reviewed_plan_content_hash
           || row.reviewed_plan_content_hash !== row.reviewed_plan_artifact_id.slice("sha256:".length)
@@ -1167,15 +1261,19 @@ export class RunStagingDatabase {
     return row?.payload_json ? JSON.parse(row.payload_json) : undefined;
   }
 
-  listIndependentRecords(recordKind: Phase239IndependentRecordKind, runId: string): unknown[] {
-    const database = this.open();
+  listIndependentRecords(
+    recordKind: Phase239IndependentRecordKind,
+    runId: string,
+    database?: DatabaseLike
+  ): unknown[] {
+    const activeDatabase = database ?? this.open();
     try {
-      const rows = database.prepare(
+      const rows = activeDatabase.prepare(
         "SELECT payload_json FROM records WHERE record_kind = ? AND run_id = ? ORDER BY created_at ASC, record_id ASC"
       ).all(recordKind, runId) as Array<{ payload_json: string }>;
       return rows.map((row) => JSON.parse(row.payload_json));
     } finally {
-      database.close();
+      if (!database) activeDatabase.close();
     }
   }
 
@@ -1352,6 +1450,15 @@ export class RunStagingDatabase {
     } finally {
       database.close();
     }
+  }
+
+  loadRunReadOnly(runId = this.runId): Run | undefined {
+    if (!this.paths.stagingDbPath) return undefined;
+    const database = openSqliteDatabaseReadOnly(this.paths.stagingDbPath);
+    try {
+      const row = database.prepare("SELECT run_json FROM runs WHERE run_id = ?").get(runId) as { run_json?: string } | undefined;
+      return row ? parseRunJson(row.run_json, runId) : undefined;
+    } finally { database.close(); }
   }
 
   recordDeliveryFacts(runId: string, deliveryFacts: DeliveryFactRecord[]): Run {

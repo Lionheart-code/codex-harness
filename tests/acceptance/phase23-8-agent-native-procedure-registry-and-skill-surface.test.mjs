@@ -543,7 +543,7 @@ test("phase 23.8 guarded compatibility mutation rejects a concurrently appeared 
   assert.deepEqual(staging.loadRun(run.run_id), run, "concurrent authoritative staging row must remain unchanged");
 });
 
-test("phase 23.8 operator progression requires typed review outcome and treats plan-amend as the latest effective plan update", () => {
+test("phase 23.8 operator progression requires a fresh independent review after plan-amend", () => {
   const { runtimeModule } = loadBuiltModules();
 
   const missingOutcomeRepo = createPhase238Repo("codex-harness-phase23-8-missing-review-outcome-");
@@ -591,7 +591,9 @@ test("phase 23.8 operator progression requires typed review outcome and treats p
   writeRuntimeRunFixture(amendedPlanRepo, amendedPlanRun);
   materializeRunEvidenceFiles(amendedPlanRepo, amendedPlanRun);
   const amendedPlan = runOperatorStatus(amendedPlanRepo, amendedPlanRun.run_id);
-  assert.equal(amendedPlan.get("current_stage"), "PLAN_APPROVAL_REQUIRED");
+  assert.equal(amendedPlan.get("current_stage"), "PLAN_REVIEW_REQUIRED");
+  assert.equal(amendedPlan.get("stop_reason"), "plan_amend_requires_fresh_independent_review");
+  assert.match(amendedPlan.get("missing_evidence"), /fresh plan-review after the latest plan-amend artifact/);
 });
 
 test("phase 23.8 pre-implementation gate does not accept review results from a different procedure as the plan-review durable record", () => {
@@ -698,7 +700,7 @@ test("phase 23.8 stale plan-amend evidence does not satisfy a later durable plan
   assert.match(output.get("notes"), /plan_amend_stale_for_latest_plan_review: true/);
 });
 
-test("phase 23.8 stale plan approval does not survive a later plan-amend", () => {
+test("phase 23.8 later plan-amend invalidates both prior review progression and approval", () => {
   const { runtimeModule } = loadBuiltModules();
   const tempRepo = createPhase238Repo("codex-harness-phase23-8-stale-plan-approval-");
   let run = addTaggedProcedures(
@@ -728,8 +730,8 @@ test("phase 23.8 stale plan approval does not survive a later plan-amend", () =>
   });
 
   const output = runOperatorStatus(tempRepo, run.run_id);
-  assert.equal(output.get("current_stage"), "PLAN_APPROVAL_REQUIRED");
-  assert.equal(output.get("stop_reason"), "missing_plan_approval");
+  assert.equal(output.get("current_stage"), "PLAN_REVIEW_REQUIRED");
+  assert.equal(output.get("stop_reason"), "plan_amend_requires_fresh_independent_review");
 });
 
 test("phase 23.8 approval before the latest plan-review does not satisfy the reviewed-plan approval boundary", () => {
@@ -755,7 +757,7 @@ test("phase 23.8 approval before the latest plan-review does not satisfy the rev
     status: "approved",
     approver: "owner",
     reason: "Human approved the plan before the plan-review evidence was recorded.",
-    createdAt: "2026-05-27T00:10:15.000Z"
+    createdAt: "2026-05-27T00:09:59.000Z"
   });
 
   runtimeModule.validateRuntimeRun(run);

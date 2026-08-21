@@ -109,10 +109,30 @@ worktree retention. Phase 23.8.6E is complete, independently reviewed,
 accepted, merged, closed out, and harvested. Phase 23.8.6F is complete,
 independently reviewed, accepted, merged, closed out, and harvested. Phase
 23.8.7 is complete, independently reviewed, accepted, merged, closed out, and
-harvested. Phase 23.9 is the active implementation phase. It first corrects
-the normal zero-TaskState native-successor materialization gap, then adds proof
-provenance without selecting providers or launching runners. Phase 24A adds
-deterministic report/export views, and Phase 30 generalizes experimentation.
+harvested. Phase 23.9 is historical, complete, accepted, merged, closed out,
+and harvested; it corrected the normal zero-TaskState native-successor
+materialization gap and added proof provenance without selecting providers or
+launching runners. Phase 24A is the active successor. It first owns bounded
+transition correctness for direct task parsing, successor identity semantics,
+phase-neutral successor/bootstrap authority, and reusable delivery provenance,
+then adds deterministic report/export views. The live planning gate also
+requires plan, architecture, and DB/storage perspectives derived from typed
+task minimums plus exact plan/source surface and risk facts through the existing
+deterministic review policy, never prose keyword/regex routing. It distinguishes
+incomplete, all-PASS, amendment-required, blocked, and invalid cohorts with
+exact task/plan/base/source/run/set/artifact binding. Phase 24A.1
+subsequently completes reusable self-hosting review lifecycle, context, and
+cost behavior, including typed planned/changed surfaces, verdict consistency,
+carry-forward invalidation, and bounded human-authorized infrastructure
+recovery; Phase 24A.2 then owns executable specification, equivalent exact
+machine-checkable requirement coverage, engineering architecture trace
+discipline, and bounded technical-spike contracts; Phase 24B, 25A, 25B, and 26
+consume those
+foundations rather than recreating them. The already-recorded 23.9-to-24A
+decision predates corrected identity semantics, so this activation uses the
+existing recovery path; that historical recovery does not claim the corrected
+runtime behavior is already implemented. Phase 30 generalizes experimentation
+over these production contracts.
 Phase 31 remains the first general external-runner provider-binding and
 execution boundary.
 

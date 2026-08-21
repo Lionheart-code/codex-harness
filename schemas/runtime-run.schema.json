@@ -85,15 +85,22 @@
         "bound_at"
       ],
       "properties": {
-        "schema_version": { "const": 1 },
+        "schema_version": { "enum": [1, 2, 3] },
         "approval_id": { "type": "string", "minLength": 1 },
         "plan_artifact_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "plan_review_artifact_hash": {
           "type": "string",
           "pattern": "^sha256:[a-f0-9]{64}$"
         },
         "planning_review_source_head": {
           "type": "string",
           "pattern": "^[a-f0-9]{40}$"
+        },
+        "authority_transition": {
+          "enum": ["reviewed_source", "owner_authorized_overlay", "owner_authorized_in_scope_correction"]
         },
         "owner_authority_diff_hash": {
           "type": "string",
@@ -112,8 +119,18 @@
           "pattern": "^[a-f0-9]{40}$"
         },
         "bound_at": { "type": "string", "minLength": 1 }
+        ,"task_artifact_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+        ,"run_instance_id": { "type": "string", "minLength": 1 }
+        ,"immutable_base": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
+        ,"planning_cohort_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+        ,"required_planning_lens_ids": { "type": "array", "items": { "enum": ["plan-review", "architecture-review", "db-storage-review"] }, "minItems": 1, "uniqueItems": true }
+        ,"planning_lens_artifacts": { "type": "array", "items": { "type": "object", "required": ["procedure_id", "artifact_id", "artifact_content_hash"], "properties": { "procedure_id": { "enum": ["plan-review", "architecture-review", "db-storage-review"] }, "artifact_id": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "artifact_content_hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }, "additionalProperties": false }, "minItems": 1 }
       },
       "additionalProperties": false
+    },
+    "implementation_baseline_history": {
+      "type": "array",
+      "items": { "$ref": "#/properties/implementation_baseline_binding" }
     },
     "review_launch_claims": {
       "type": "array",
@@ -234,6 +251,26 @@
       "properties": {
         "repository": {
           "required": ["root_path", "project_root", "dirty"]
+        }
+      }
+    }
+  ],
+  "allOf": [
+    {
+      "if": {
+        "required": ["implementation_baseline_binding"],
+        "properties": {
+          "implementation_baseline_binding": {
+            "required": ["schema_version"],
+            "properties": { "schema_version": { "const": 3 } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "implementation_baseline_binding": {
+            "required": ["task_artifact_id", "run_instance_id", "immutable_base", "planning_cohort_id", "required_planning_lens_ids", "planning_lens_artifacts"]
+          }
         }
       }
     }

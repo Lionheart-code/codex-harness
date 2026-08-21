@@ -1,14 +1,35 @@
 # Human Operator Manual
 
-## Phase 23.9 planning and review launch
+## Phase 23.9 planning and active Phase 24A review launch
 
 Use one fresh read-only `run launch-review --bundle planning` invocation for a
-high/extra-high candidate or bounded impact closure. Harness resolves output
+candidate whose typed authority facts require the compatible planning-lens
+set, or for bounded impact closure. Harness resolves output
 contracts from the checked-in registry, validates the envelope and every lens
 schema first, then ingests the three existing procedure artifacts atomically.
 Session resume is disabled. Standalone `implementation-review` and the narrow
 post-fix `fix-pass-review` use fresh read-only `--procedure` launches; neither
 writes or executes repairs.
+
+Do not select planning reviews by scanning task or plan prose. The existing
+deterministic policy consumes the task floor, exact typed planned surfaces and
+risks, and known exact source-change facts. For active Phase 24A those facts
+require `plan-review`, `architecture-review`, and `db-storage-review`.
+
+Interpret terminal cohort results precisely:
+
+- missing/nonterminal lenses mean the cohort is incomplete and approval stays
+  closed;
+- all lenses `PASS` permits the owner-approval gate only when every exact
+  task/plan/base/run/source/set/artifact binding also matches;
+- any `AMEND_REQUIRED` permits `plan-amend`, after which a fresh set is derived
+  and a new exact cohort is required;
+- any `BLOCKED` requires the typed human-decision path;
+- malformed, mismatched, or structured/document-disagreeing output fails
+  closed.
+
+Do not treat terminal non-PASS as missing review, manually record/adopt an
+artifact, or retry outside the registered bounded recovery policy.
 
 ## Purpose
 

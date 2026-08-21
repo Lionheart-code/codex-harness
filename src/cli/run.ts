@@ -93,7 +93,7 @@ function printRunHelp(): void {
     "  record-procedure Record a self-hosting procedure artifact as durable run evidence.",
     "  prepare-packet Prepare one deterministic hookless stage packet without launching a runner.",
     "  record-stage-result Validate and ingest one supplied stage-result fixture.",
-    "  launch-review Supervise a read-only review launch and record structured launch evidence.",
+    "  launch-review Supervise a read-only review launch; policy defaults apply unless an override is within its registered bounds.",
     "  record-routing-evaluation Record an immutable routing evaluation bundle.",
     "  decide-routing-policy Record an explicit owner canary, promotion, rejection, or rollback decision.",
     "  record-routing-policy-source-application Validate and record reviewed source application.",
@@ -347,6 +347,9 @@ function renderReviewLaunchLines(result: RuntimeReviewLaunchResult): string[] {
   output.push(`procedure: ${observation.procedure_id}`);
   output.push(`adapter: ${observation.adapter_id}`);
   output.push(`sandbox: ${observation.sandbox_mode}`);
+  if (observation.timeout_seconds !== undefined) output.push(`timeout seconds: ${observation.timeout_seconds}`);
+  if (observation.stale_after_seconds !== undefined) output.push(`stale-after seconds: ${observation.stale_after_seconds}`);
+  if (observation.termination_policy) output.push(`termination policy: ${observation.termination_policy}`);
   output.push(`output path: ${observation.output_path}`);
   if (observation.attempt_id) {
     output.push(`attempt id: ${observation.attempt_id}`);

@@ -1,5 +1,5 @@
 # Current Task
 
-Implement only: tasks/PHASE_23_9_MINIMAL_PROOF_CARRYING_WORK_AND_REVIEW_POLICY.md
+Implement only: tasks/PHASE_24A_MINIMAL_EVIDENCE_REPORT_AND_REVIEW_PACKET.md
 
-Do not implement Phase 24A or later.
+Do not implement Phase 24B or later.

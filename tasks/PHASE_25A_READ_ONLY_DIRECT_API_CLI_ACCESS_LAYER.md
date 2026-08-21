@@ -3,8 +3,8 @@
 ## Status
 
 Planned split from `tasks/PHASE_25_AGENT_ACCESS_LAYER.md`.
-Starts only after Phase 24A Minimal Evidence Report and Review Packet is
-complete, reviewed, and accepted.
+Starts only after the accepted Phase 24B substrate, and therefore after
+Phase 24A, Phase 24A.1, and Phase 24A.2.
 
 ## Purpose
 
@@ -23,10 +23,14 @@ Required behavior:
 - query packets/results;
 - query proof;
 - fetch minimal reports/packets from Phase 24A;
+- expose exact requirement/scenario/invariant traces, review-cohort facts, and
+  context/reuse/usage facts through governed reads;
 - enforce redaction and query limits in shared service;
 - Direct API/CLI first;
 - all access surfaces call shared core services;
 - no raw SQL exposed;
+- no review-routing, engineering-specification, or architecture-decision
+  promotion authority;
 - provider/model-specific behavior remains outside shared core logic;
 - model opinion cannot override missing evidence, failing tests,
   source/runtime boundary violations, or approval requirements.

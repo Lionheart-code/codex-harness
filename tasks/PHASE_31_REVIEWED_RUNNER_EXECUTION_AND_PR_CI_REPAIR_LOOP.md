@@ -31,6 +31,15 @@ repair loops. It is the reviewed external runner-adapter boundary only:
 `codex-harness` remains the supervisor/orchestrator shell while reviewed
 external runners remain workers.
 
+Consume rather than recreate the Phase 24A.1 self-hosting review/context/routing
+contract and Phase 24A.2 requirement/scenario/invariant/decision trace contract.
+Approved external execution packets carry or reference exact task, effective
+plan, the exact machine-checkable engineering coverage representation,
+applicable trace IDs, verification obligations, typed required-review and route
+facts, complete cohort disposition, and evidence/proof identities. Phase 31
+remains the first general external-runner execution boundary and must not
+recreate review selection, routing, context reuse, or specification authority.
+
 ## Scope
 
 Required behavior:

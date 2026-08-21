@@ -14,7 +14,7 @@ export interface ZeroOwnerMaterializationInput {
   branch: string;
   baseCommitSha: string;
   taskPath: string;
-  sourceArtifactIdentity: `sha256:${string}`;
+  taskContractIdentity: `sha256:${string}`;
   pointerContents: string;
   dryRun?: boolean;
 }
@@ -44,7 +44,7 @@ export function materializeZeroOwnerTaskState(
     throw new Error("zero_owner_materialization_task_contract_missing");
   }
   const actualTaskIdentity = `sha256:${sha256Hex(fs.readFileSync(taskContractPath))}`;
-  if (actualTaskIdentity !== input.sourceArtifactIdentity) {
+  if (actualTaskIdentity !== input.taskContractIdentity) {
     throw new Error("zero_owner_materialization_task_contract_identity_mismatch");
   }
   const store = openVerifiedTaskStateStore(input.projectRoot);
