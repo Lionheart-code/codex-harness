@@ -43,7 +43,8 @@ import { importDeliveryFacts } from "../../dist/core/delivery-facts.js";
 import {
   buildRuntimeRun, extractEffectiveValidationCommands, extractReviewedAuthorityOverlay,
   launchRuntimePlanningReviewBundle, createCloseoutReceipt, validatePlanningLensDocumentVerdict,
-  planningReviewIsFreshForEffectivePlan, validateRuntimeRun
+  planningReviewIsFreshForEffectivePlan, validateRuntimeRun,
+  evaluateCurrentSelfHostingMergeStrategy
 } from "../../dist/core/runtime.js";
 import { harvestRun } from "../../dist/core/harvest.js";
 
@@ -94,6 +95,39 @@ test("phase 23.9 operator authority matches zero-owner and pre-harvest dispositi
   assert.match(stageMap, /selected-successor or explicit no-successor disposition/);
   assert.match(stageMap, /Harvest rejects a missing, duplicate, ambiguous, or conflicting successor/);
   assert.doesNotMatch(stageMap, /RUN_HARVESTED[^\n]+record next-task decision/);
+});
+
+test("Phase 24A pre-merge admission permits only a normal merge commit and fails closed", () => {
+  assert.deepEqual(evaluateCurrentSelfHostingMergeStrategy("merge_commit"), {
+    strategy: "merge_commit",
+    status: "allowed",
+    reason: "normal_merge_commit_required",
+    allowed_merge_method: "NORMAL MERGE COMMIT",
+    squash: "UNSUPPORTED",
+    rebase: "UNSUPPORTED"
+  });
+  for (const strategy of ["squash", "rebase"]) {
+    const admission = evaluateCurrentSelfHostingMergeStrategy(strategy);
+    assert.equal(admission.status, "blocked");
+    assert.equal(admission.reason, "merge_strategy_unsupported");
+  }
+  assert.equal(evaluateCurrentSelfHostingMergeStrategy(undefined).reason, "merge_strategy_missing");
+  assert.equal(evaluateCurrentSelfHostingMergeStrategy("unknown").status, "blocked");
+
+  const runtimeSource = fs.readFileSync(path.join(process.cwd(), "src/core/runtime.ts"), "utf8");
+  const proofSection = runtimeSource.slice(
+    runtimeSource.indexOf("export function recordRuntimeProof"),
+    runtimeSource.indexOf("export function recordRuntimeReviewCapabilityEvidence")
+  );
+  assert.match(proofSection, /deriveDeliverySourceRelationship\(/);
+  assert.doesNotMatch(proofSection, /merge-base[\s\S]{0,80}--is-ancestor/);
+
+  const deliveryFactSchema = JSON.parse(fs.readFileSync(
+    path.join(process.cwd(), "schemas/delivery-fact.schema.json"), "utf8"
+  ));
+  assert.ok(deliveryFactSchema.properties.fact_kind.enum.includes("merge_result"));
+  assert.ok(deliveryFactSchema.properties.fact_kind.enum.includes("merge_commit"));
+  assert.ok(deliveryFactSchema.properties.fact_kind.enum.includes("merge"), "legacy merge remains explicit input compatibility");
 });
 
 test("phase 23.9 zero-owner materialization creates one exact owner and replays", () => {
@@ -624,13 +658,22 @@ test("Phase 24A reusable review-to-delivery-to-closeout path persists exact-tree
   git("init", "-q");
   git("config", "user.email", "phase23-9@example.invalid");
   git("config", "user.name", "Phase 23.9 Test");
+  fs.writeFileSync(path.join(root, "base.txt"), "base\n");
+  git("add", "base.txt");
+  git("commit", "-q", "-m", "base");
+  const baseHead = git("rev-parse", "HEAD");
+  const defaultBranch = git("branch", "--show-current");
+  git("switch", "-q", "-c", "reviewed-candidate");
   fs.writeFileSync(path.join(root, "source.txt"), "reviewed\n");
   git("add", "source.txt");
   git("commit", "-q", "-m", "reviewed");
   const reviewedHead = git("rev-parse", "HEAD");
   const reviewedTree = git("rev-parse", "HEAD^{tree}");
-  git("commit", "-q", "--allow-empty", "-m", "delivered");
+  git("switch", "-q", defaultBranch);
+  git("merge", "-q", "--no-ff", "reviewed-candidate", "-m", "delivered normal merge");
   const deliveredHead = git("rev-parse", "HEAD");
+  assert.equal(git("rev-list", "--parents", "-n", "1", deliveredHead).split(/\s+/).length, 3);
+  assert.equal(git("rev-parse", `${deliveredHead}^{tree}`), reviewedTree);
 
   const makeRun = (runId) => ({
     ...buildRuntimeRun({
@@ -694,6 +737,18 @@ test("Phase 24A reusable review-to-delivery-to-closeout path persists exact-tree
     imported.run.delivery_source_relationship);
   assert.equal(createCloseoutReceipt(imported.run, root).status, "READY");
 
+  const singleParentHead = git("commit-tree", reviewedTree, "-p", reviewedHead, "-m", "single-parent equal tree");
+  const singleParentRun = makeRun("run-delivery-source-single-parent");
+  const singleParentStaging = new RunStagingDatabase(root, root, singleParentRun.run_id);
+  singleParentStaging.saveRun(singleParentRun);
+  const singleParentFactsPath = path.join(root, "delivery-facts-single-parent.json");
+  fs.writeFileSync(singleParentFactsPath, `${JSON.stringify(factsFor(singleParentHead))}\n`);
+  assert.throws(
+    () => importDeliveryFacts(root, singleParentRun.run_id, singleParentFactsPath),
+    /delivery_source_merge_topology_invalid/
+  );
+  assert.equal(singleParentStaging.loadRun(singleParentRun.run_id).delivery_facts.length, 0);
+
   const missing = { ...imported.run, delivered_source_head: undefined, delivery_source_relationship: undefined };
   assert.match(createCloseoutReceipt(missing, root).blockers.join("\n"), /relationship is absent/);
   const stale = {
@@ -756,6 +811,31 @@ test("Phase 24A reusable review-to-delivery-to-closeout path persists exact-tree
     /delivery_source_ancestry_mismatch/
   );
   assert.equal(unrelatedStaging.loadRun(unrelatedRun.run_id).delivery_facts.length, 0);
+
+  const rewrittenHead = git("commit-tree", reviewedTree, "-p", baseHead, "-m", "rewritten equal tree");
+  const rewrittenRun = makeRun("run-delivery-source-rewritten");
+  const rewrittenStaging = new RunStagingDatabase(root, root, rewrittenRun.run_id);
+  rewrittenStaging.saveRun(rewrittenRun);
+  const rewrittenFactsPath = path.join(root, "delivery-facts-rewritten.json");
+  fs.writeFileSync(rewrittenFactsPath, `${JSON.stringify(factsFor(rewrittenHead))}\n`);
+  assert.throws(
+    () => importDeliveryFacts(root, rewrittenRun.run_id, rewrittenFactsPath),
+    /delivery_source_ancestry_mismatch/
+  );
+  assert.equal(rewrittenStaging.loadRun(rewrittenRun.run_id).delivery_facts.length, 0);
+
+  const disagreeingRun = makeRun("run-delivery-source-fact-disagreement");
+  const disagreeingStaging = new RunStagingDatabase(root, root, disagreeingRun.run_id);
+  disagreeingStaging.saveRun(disagreeingRun);
+  const disagreeingFactsPath = path.join(root, "delivery-facts-disagreeing.json");
+  const disagreeingFacts = factsFor(deliveredHead);
+  disagreeingFacts.facts[0].source = "different-provider";
+  fs.writeFileSync(disagreeingFactsPath, `${JSON.stringify(disagreeingFacts)}\n`);
+  assert.throws(
+    () => importDeliveryFacts(root, disagreeingRun.run_id, disagreeingFactsPath),
+    /delivery_source_merge_facts_disagree/
+  );
+  assert.equal(disagreeingStaging.loadRun(disagreeingRun.run_id).delivery_facts.length, 0);
 
   const rollbackRun = makeRun("run-delivery-source-rollback");
   const rollbackStaging = new RunStagingDatabase(root, root, rollbackRun.run_id);

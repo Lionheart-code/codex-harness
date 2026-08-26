@@ -63,6 +63,60 @@ authority/source/runtime consequence, revisit condition, and testable invariant
 where practical. Small mechanical work may state that existing invariants hold;
 never invent paper alternatives.
 
+### Deterministic planning-coverage preflight
+
+Before an expensive semantic planning-review cohort is eligible to launch,
+every mandatory current task requirement that is machine-identifiable through
+the established task/trace contract must have one exact disposition in the
+current effective plan: planned and trace-bound; already satisfied with exact
+evidence/provenance; explicitly non-applicable with task-authorized
+justification; or blocked/ambiguous and therefore not review-ready. This is a
+deterministic preflight over existing canonical requirement and trace
+identities, not a second requirements database and not prose-similarity or
+keyword matching.
+
+Mechanically provable omissions fail before semantic review through the
+repository's canonical typed planning-coverage blocker. These include a
+missing mandatory requirement disposition, an uncovered required
+scenario/invariant or verification expectation, a silently omitted required
+task section, duplicate/conflicting requirement identities, stale trace
+identity after task amendment, and coverage bound to the wrong task artifact.
+Task amendments deterministically invalidate stale coverage. Every new
+effective plan or amendment is self-contained for the current remaining scope;
+already-satisfied work may be carried forward only through exact accepted
+evidence/provenance rather than being planned for reimplementation.
+
+Deterministic coverage is necessary but never sufficient for semantic PASS.
+Semantic reviewers still judge substantive satisfaction, interpretation,
+architecture quality, unsafe tradeoffs, non-obvious scenarios, authority/
+storage/lifecycle risk, contradictions, evidence quality, and future-phase
+leakage. The planning lifecycle therefore distinguishes mechanically
+incomplete/not-review-ready, semantically reviewable, semantic
+`AMEND_REQUIRED`, semantic `BLOCKED`, and semantic `PASS`.
+
+### Extended delivery, context, impact, artifact, and audit trace
+
+Extend the same exact chain with machine-checkable traces for:
+
+- `delivery policy/decision -> reviewed candidate -> allowed delivery
+  relationship -> exact delivery facts -> delivered commit/tree -> closeout
+  proof`;
+- `review obligation -> affected requirement/invariant/surface -> selected
+  context sources -> role/lens projection -> attributed additional retrieval`;
+- `changed requirement/contract/invariant/surface -> typed impact/risk ->
+  route/profile/reason`;
+- `semantic obligation -> bounded semantic decision payload -> deterministic
+  validation/rendering -> recorded procedure artifact -> evidence/proof`;
+- `changed requirement/authority/surface/risk -> audit obligation -> selected
+  registered procedure/lens -> exact audit artifact -> disposition ->
+  successor-readiness evidence`.
+
+Deterministic coverage proves every mandatory audit obligation has exactly one
+valid disposition. A required audit without an executable registered binding is
+not review-ready, and semantic checklist prose alone cannot satisfy audit
+coverage. Mechanical wrapper normalization is not a new semantic judgment; a
+semantic retry maps to an exact invalidated semantic obligation.
+
 Use the existing staged-to-accepted Project Memory decision lifecycle for
 durable architecture decisions; do not create an ADR directory. Procedure
 responsibilities over the same contract are explicit:
@@ -119,6 +173,17 @@ close unrelated coverage; architecture and DB/storage ownership remain distinct;
 staged decisions are not promoted early; a small non-behavioral task uses the
 minimal direct trace; bounded spike proposals preserve their approval boundary;
 and no Cucumber/Gherkin/second ADR source appears.
+
+Acceptance also proves an A1-A4 task whose plan covers only A1, A2, and A4 is
+rejected before semantic launch; arbitrary prose similarity cannot satisfy
+coverage; exact requirement/trace identities determine disposition; a task
+amendment adding a mandatory requirement invalidates older readiness;
+already-satisfied scope carries only through exact evidence; and mechanically
+complete coverage still proceeds to required semantic review. Delivery,
+context-relevance, typed-impact, semantic-artifact, and audit-to-successor
+traces remain exact and machine-checkable. Every mandatory audit has exactly
+one valid disposition; a required audit with no executable binding blocks; and
+checklist prose alone cannot satisfy audit coverage.
 
 ## Non-goals
 

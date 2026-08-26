@@ -204,6 +204,17 @@ function implementationReviewMarkdown(recommendation = "PASS") {
   ].join("\n");
 }
 
+function verificationReviewMarkdown() {
+  return [
+    "## Commands Reviewed", "", "- npm test", "",
+    "## Results", "", "- npm test: pass", "",
+    "## Evidence Gaps", "", "None.", "",
+    "## Missing Or Failed Evidence", "", "None.", "",
+    "## Local Versus Remote Status", "", "Local verification passed; remote status is separately recorded.", "",
+    "## Recommendation", "", "PASS", ""
+  ].join("\n");
+}
+
 function planReviewMarkdown() {
   return [
     "## Durable Decision Record",
@@ -350,6 +361,74 @@ function bindImplementationBaseline(tempRepo, planPath, approvalId, expectedHead
     "run", "bind-implementation-baseline", "--run", "run-0001",
     "--plan", planPath, "--approval-id", approvalId, "--expected-head", expectedHead
   ], { cwd: tempRepo });
+}
+
+function addMilliseconds(timestamp, milliseconds) {
+  const parsed = Date.parse(timestamp);
+  assert.ok(Number.isFinite(parsed), `fixture timestamp must be parseable: ${timestamp}`);
+  return new Date(parsed + milliseconds).toISOString();
+}
+
+function seedEpochLifecycleEvidence(tempRepo, epochId, afterTimestamp) {
+  const roots = stagingModule.resolveHarnessRoots(tempRepo);
+  const staging = new stagingModule.RunStagingDatabase(roots.targetRoot, roots.projectRoot, "run-0001");
+  const timestamps = {
+    review: addMilliseconds(afterTimestamp, 1),
+    verification: addMilliseconds(afterTimestamp, 2),
+    delivery: addMilliseconds(afterTimestamp, 3),
+    command: addMilliseconds(afterTimestamp, 4),
+    stepStarted: addMilliseconds(afterTimestamp, 5),
+    stepCompleted: addMilliseconds(afterTimestamp, 6),
+    closeout: addMilliseconds(afterTimestamp, 7)
+  };
+  const artifactId = `sha256:${epochId === "epoch-a" ? "a".repeat(64) : "b".repeat(64)}`;
+  staging.mutateRun("run-0001", (run) => {
+    const artifact = {
+      artifact_id: artifactId, path: `manual/${epochId}-implementation.md`,
+      kind: "procedure:implementation-review", description: "implementation-review"
+    };
+    const evidence = {
+      evidence_id: `procedure-implementation-review-${epochId}`, kind: "procedure:implementation-review",
+      summary: "implementation-review", artifact_id: artifact.artifact_id, path: artifact.path
+    };
+    const review = {
+      review_result_id: `review-${epochId}`, status: "PASS", created_at: timestamps.review,
+      summary: `${epochId} implementation review`, source: "procedure:implementation-review",
+      blockers: [], artifact_refs: [artifact]
+    };
+    const verification = {
+      verification_result_id: `verification-${epochId}`, status: "pass", created_at: timestamps.verification,
+      summary: `${epochId} verification`, source: "self-hosting", artifact_refs: [artifact], command_results: []
+    };
+    const delivery = {
+      delivery_fact_id: `delivery-${epochId}`, run_id: run.run_id, fact_kind: "pr", source: "fixture",
+      status: "created", recorded_at: timestamps.delivery, summary: `${epochId} delivery`
+    };
+    const command = {
+      command_result_id: `command-${epochId}`, command: "npm test", status: "pass", completed_at: timestamps.command,
+      artifact_refs: [artifact]
+    };
+    const step = {
+      step_id: `step-${epochId}`, name: `${epochId} implementation`, status: "passed", started_at: timestamps.stepStarted,
+      completed_at: timestamps.stepCompleted, artifact_refs: [artifact], evidence_refs: [evidence], command_result_ids: [command.command_result_id]
+    };
+    const closeout = {
+      schema_version: run.schema_version, producer_command: "fixture", receipt_id: `closeout-${epochId}`,
+      run_id: run.run_id, task_path: run.task_path, active_task_path: run.active_task_path, phase_id: run.phase_id,
+      status: "READY", created_at: timestamps.closeout, repository: run.repository,
+      change_set: { git_status_lines: [], changed_paths: [], is_dirty: false }, verification_result: verification,
+      review_result: review, findings: [], decisions: [], approvals: run.approvals,
+      required_gates: [], remote_checks: [], blockers: [], delivery_facts: [delivery]
+    };
+    return {
+      ...run,
+      steps: [...run.steps, step], artifacts: [...run.artifacts, artifact], evidence: [...run.evidence, evidence],
+      command_results: [...run.command_results, command], review_results: [...run.review_results, review],
+      verification_results: [...run.verification_results, verification], delivery_facts: [...run.delivery_facts, delivery],
+      closeout_receipts: [...run.closeout_receipts, closeout]
+    };
+  });
+  return { artifactId, timestamps };
 }
 
 test("Phase F and later bind the exact approved reviewed source before implementation review", () => {
@@ -950,7 +1029,7 @@ test("a later approved plan supersedes its predecessor baseline through the regi
   for (const procedureId of ["task-intake", "task-prompt-writer"]) {
     recordProcedure(tempRepo, "run-0001", procedureId, `# ${procedureId}\n`);
   }
-  const firstPlan = recordProcedure(tempRepo, "run-0001", "draft-plan", "# first plan\n");
+  const firstPlan = recordProcedure(tempRepo, "run-0001", "draft-plan", "# first plan\n\n## Effective Validation\n\n1. `git diff --check`\n");
   const firstRequest = writeManualFile(tempRepo, "run-0001", "first-review.md", "review first plan");
   assertSuccess(runCli([
     "run", "launch-review", "--run", "run-0001", "--procedure", "plan-review",
@@ -961,10 +1040,28 @@ test("a later approved plan supersedes its predecessor baseline through the regi
     "--approver", "owner", "--reason", "approve first plan"
   ], { cwd: tempRepo }), "approve first plan");
   const firstApproval = readRun(tempRepo).approvals.at(-1);
-  assertSuccess(bindImplementationBaseline(tempRepo, firstPlan, firstApproval.approval_id, readHead(tempRepo)), "bind first baseline");
+  const firstBinding = bindImplementationBaseline(tempRepo, firstPlan, firstApproval.approval_id, readHead(tempRepo));
+  assertSuccess(firstBinding, "bind first baseline");
+  assert.match(firstBinding.stdout, /recorded: true/);
   const predecessor = structuredClone(readRun(tempRepo).implementation_baseline_binding);
+  fs.mkdirSync(path.join(tempRepo, "src"), { recursive: true });
+  writeText(path.join(tempRepo, "src", "epoch-a.ts"), "export const epochA = true;\n");
+  assertSuccess(runCommand("git", ["add", "src/epoch-a.ts"], { cwd: tempRepo }), "stage epoch-A implementation");
+  assertSuccess(runCommand("git", ["commit", "-m", "fixture epoch A implementation"], { cwd: tempRepo }), "commit epoch-A implementation");
+  const epochARequest = writeManualFile(tempRepo, "run-0001", "epoch-a-implementation-review-request.md", "review epoch A implementation");
+  assertSuccess(runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review",
+    "--request", epochARequest, "--output", ".harness/runs/run-0001/manual/epoch-a-implementation-review.md"
+  ], { cwd: tempRepo, env: { ...planEnv, CODEX_FAKE_REVIEW_CONTENT: implementationReviewMarkdown("PASS") } }), "review epoch-A implementation");
+  const epochAReview = readRun(tempRepo).review_results.at(-1);
+  assert.ok(epochAReview?.created_at);
+  const epochA = seedEpochLifecycleEvidence(tempRepo, "epoch-a", epochAReview.created_at);
+  assert.ok(Date.parse(epochA.timestamps.review) > Date.parse(predecessor.bound_at));
+  const epochAStatus = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(epochAStatus, "operator recognizes epoch-A implementation and verification evidence");
+  assert.match(epochAStatus.stdout, /current_stage: VERIFICATION_REVIEW_REQUIRED/);
 
-  const laterPlan = recordProcedure(tempRepo, "run-0001", "plan-amend", "# later effective plan\n");
+  const laterPlan = recordProcedure(tempRepo, "run-0001", "plan-amend", "# later effective plan\n\n## Effective Validation\n\n1. `git diff --check`\n");
   const laterRequest = writeManualFile(tempRepo, "run-0001", "later-review.md", "review later plan");
   assertSuccess(runCli([
     "run", "launch-review", "--run", "run-0001", "--procedure", "plan-review",
@@ -989,14 +1086,206 @@ test("a later approved plan supersedes its predecessor baseline through the regi
   assertFailure(wrongApproval, "predecessor approval cannot supersede baseline");
   assert.match(wrongApproval.stderr, /IMPLEMENTATION_BASELINE_APPROVAL_MISMATCH/);
 
-  assertSuccess(bindImplementationBaseline(tempRepo, laterPlan, laterApproval.approval_id, readHead(tempRepo)), "supersede exact later baseline");
+  const supersedingBinding = bindImplementationBaseline(tempRepo, laterPlan, laterApproval.approval_id, readHead(tempRepo));
+  assertSuccess(supersedingBinding, "supersede exact later baseline");
+  assert.match(supersedingBinding.stdout, /recorded: true/);
   const rebound = readRun(tempRepo);
   assert.equal(rebound.implementation_baseline_binding.approval_id, laterApproval.approval_id);
   assert.equal(rebound.implementation_baseline_history.length, 1);
   assert.deepEqual(rebound.implementation_baseline_history[0], predecessor);
+  assert.ok(Date.parse(rebound.implementation_baseline_binding.bound_at) > Date.parse(epochA.timestamps.closeout));
+  assert.ok(rebound.steps.some((step) => step.step_id === "step-epoch-a"));
+  assert.ok(rebound.command_results.some((result) => result.command_result_id === "command-epoch-a"));
+  assert.ok(rebound.artifacts.some((artifact) => artifact.artifact_id === epochA.artifactId));
+  assert.ok(rebound.review_results.some((result) => result.review_result_id === "review-epoch-a"));
+  assert.ok(rebound.verification_results.some((result) => result.verification_result_id === "verification-epoch-a"));
+  assert.ok(rebound.delivery_facts.some((fact) => fact.delivery_fact_id === "delivery-epoch-a"));
+  assert.ok(rebound.closeout_receipts.some((receipt) => receipt.receipt_id === "closeout-epoch-a"));
   const ready = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
   assertSuccess(ready, "operator after superseding baseline");
   assert.match(ready.stdout, /current_stage: IMPLEMENTATION_READY/);
+  const replay = bindImplementationBaseline(tempRepo, laterPlan, laterApproval.approval_id, readHead(tempRepo));
+  assertSuccess(replay, "replay current exact baseline");
+  assert.match(replay.stdout, /recorded: false/);
+
+  const blockerRoots = stagingModule.resolveHarnessRoots(tempRepo);
+  const blockerStaging = new stagingModule.RunStagingDatabase(
+    blockerRoots.targetRoot,
+    blockerRoots.projectRoot,
+    "run-0001"
+  );
+  const runWithCarriedBlocker = blockerStaging.mutateRun("run-0001", (run) => ({
+    ...run,
+    findings: [...run.findings, {
+      finding_id: "epoch-a-open-blocker",
+      title: "Epoch A unresolved blocker",
+      severity: "high",
+      status: "open",
+      blocking: true,
+      created_at: epochA.timestamps.review,
+      evidence_refs: []
+    }]
+  }));
+  writeText(
+    path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"),
+    `${JSON.stringify(runWithCarriedBlocker, null, 2)}\n`
+  );
+  const carriedBlocker = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(carriedBlocker, "operator carries unresolved predecessor blocker into superseding epoch");
+  assert.match(carriedBlocker.stdout, /current_stage: BLOCKED/);
+  assert.match(carriedBlocker.stdout, /stop_reason: unresolved_predecessor_blocking_findings/);
+  assert.ok(blockerStaging.loadRun("run-0001").findings.some((finding) => finding.finding_id === "epoch-a-open-blocker"));
+
+  writeText(path.join(tempRepo, "src", "epoch-b.ts"), "export const epochB = true;\n");
+  assertSuccess(runCommand("git", ["add", "src/epoch-b.ts"], { cwd: tempRepo }), "stage epoch-B implementation");
+  assertSuccess(runCommand("git", ["commit", "-m", "fixture epoch B implementation"], { cwd: tempRepo }), "commit epoch-B implementation");
+  const blockerWithImplementation = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(blockerWithImplementation, "implementation evidence cannot bypass carried predecessor blocker");
+  assert.match(blockerWithImplementation.stdout, /current_stage: BLOCKED/);
+  assert.match(blockerWithImplementation.stdout, /stop_reason: unresolved_predecessor_blocking_findings/);
+  assert.doesNotMatch(blockerWithImplementation.stdout, /next_procedure_id: implementation-review/);
+
+  const runWithResolvedBlocker = blockerStaging.mutateRun("run-0001", (run) => ({
+    ...run,
+    findings: run.findings.map((finding) => finding.finding_id === "epoch-a-open-blocker"
+      ? { ...finding, status: "resolved" }
+      : finding)
+  }));
+  writeText(
+    path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"),
+    `${JSON.stringify(runWithResolvedBlocker, null, 2)}\n`
+  );
+  const resolvedBlocker = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(resolvedBlocker, "exact blocker resolution restores current epoch implementation eligibility");
+  assert.match(resolvedBlocker.stdout, /current_stage: IMPLEMENTATION_REVIEW_REQUIRED/);
+  const boundaryRequest = writeManualFile(tempRepo, "run-0001", "epoch-b-boundary-review-request.md", "review epoch B boundary fixture");
+  assertSuccess(runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review",
+    "--request", boundaryRequest, "--output", ".harness/runs/run-0001/manual/epoch-b-boundary-review.md"
+  ], { cwd: tempRepo, env: {
+    ...planEnv,
+    CODEX_FAKE_REVIEW_CONTENT: `${implementationReviewMarkdown("PASS")}\n<!-- epoch-b-boundary -->\n`
+  } }), "record boundary implementation-review fixture");
+  const boundaryRun = readRun(tempRepo);
+  const boundaryArtifactId = [...boundaryRun.evidence].reverse().find((entry) =>
+    entry.kind === "procedure:implementation-review"
+  )?.artifact_id;
+  assert.ok(boundaryArtifactId);
+  const roots = stagingModule.resolveHarnessRoots(tempRepo);
+  const staging = new stagingModule.RunStagingDatabase(roots.targetRoot, roots.projectRoot, "run-0001");
+  const boundaryDescriptor = staging.readProcedureArtifact(
+    boundaryRun.run_instance_id,
+    "implementation-review",
+    boundaryArtifactId
+  );
+  assert.ok(boundaryDescriptor);
+  const boundaryEpochRun = staging.mutateRun("run-0001", (run) => ({
+    ...run,
+    implementation_baseline_binding: {
+      ...run.implementation_baseline_binding,
+      bound_at: boundaryDescriptor.recorded_at
+    }
+  }));
+  assert.equal(boundaryEpochRun.implementation_baseline_binding.bound_at, boundaryDescriptor.recorded_at);
+  writeText(
+    path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"),
+    `${JSON.stringify(boundaryEpochRun, null, 2)}\n`
+  );
+  const boundaryStatus = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(boundaryStatus, "operator rejects boundary-ambiguous review evidence");
+  assert.match(boundaryStatus.stdout, /current_stage: IMPLEMENTATION_REVIEW_REQUIRED/);
+
+  const epochBRequest = writeManualFile(tempRepo, "run-0001", "epoch-b-current-review-request.md", "review epoch B implementation");
+  assertSuccess(runCli([
+    "run", "launch-review", "--run", "run-0001", "--procedure", "implementation-review",
+    "--request", epochBRequest, "--output", ".harness/runs/run-0001/manual/epoch-b-current-review.md"
+  ], { cwd: tempRepo, env: {
+    ...planEnv,
+    CODEX_FAKE_REVIEW_CONTENT: `${implementationReviewMarkdown("PASS")}\n<!-- epoch-b-current -->\n`
+  } }), "record current epoch-B implementation-review fixture");
+  const epochBRun = readRun(tempRepo);
+  const epochBArtifactId = [...epochBRun.evidence].reverse().find((entry) =>
+    entry.kind === "procedure:implementation-review"
+  )?.artifact_id;
+  assert.ok(epochBArtifactId);
+  const epochBDescriptor = staging.readProcedureArtifact(epochBRun.run_instance_id, "implementation-review", epochBArtifactId);
+  assert.ok(epochBDescriptor);
+  assert.ok(Date.parse(epochBDescriptor.recorded_at) > Date.parse(epochBRun.implementation_baseline_binding.bound_at));
+  const epochBStatus = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(epochBStatus, "operator recognizes post-boundary epoch-B review evidence");
+  assert.match(epochBStatus.stdout, /current_stage: VERIFICATION_REVIEW_REQUIRED/);
+
+  const verificationTimestamp = addMilliseconds(epochBDescriptor.recorded_at, 1);
+  const runWithCurrentVerification = staging.mutateRun("run-0001", (run) => ({
+    ...run,
+    verification_results: [...run.verification_results, {
+      verification_result_id: "verification-epoch-b-current", status: "pass",
+      created_at: verificationTimestamp, summary: "epoch-B current verification",
+      source: "self-hosting", artifact_refs: [], command_results: []
+    }]
+  }));
+  writeText(
+    path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"),
+    `${JSON.stringify(runWithCurrentVerification, null, 2)}\n`
+  );
+  recordProcedure(tempRepo, "run-0001", "verification-review", verificationReviewMarkdown());
+  const verificationReviewedRun = readRun(tempRepo);
+  const verificationReviewArtifact = [...verificationReviewedRun.evidence].reverse().find((entry) =>
+    entry.kind === "procedure:verification-review"
+  );
+  assert.ok(verificationReviewArtifact?.artifact_id);
+  const verificationDescriptor = staging.readProcedureArtifact(
+    verificationReviewedRun.run_instance_id,
+    "verification-review",
+    verificationReviewArtifact.artifact_id
+  );
+  assert.ok(verificationDescriptor);
+  assert.ok(Date.parse(verificationDescriptor.recorded_at) > Date.parse(verificationReviewedRun.implementation_baseline_binding.bound_at));
+  const deliveryTimestamp = addMilliseconds(verificationDescriptor.recorded_at, 1);
+  const runWithPreMergeFacts = staging.mutateRun("run-0001", (run) => ({
+    ...run,
+    delivery_facts: [...run.delivery_facts, {
+      delivery_fact_id: "delivery-epoch-b-pr", run_id: run.run_id, fact_kind: "pr",
+      source: "fixture", status: "created", recorded_at: deliveryTimestamp,
+      summary: "pre-existing PR fact"
+    }, {
+      delivery_fact_id: "delivery-epoch-b-ci", run_id: run.run_id, fact_kind: "remote_ci",
+      source: "fixture", status: "pass", recorded_at: deliveryTimestamp,
+      summary: "pre-existing remote CI fact"
+    }]
+  }));
+  writeText(
+    path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"),
+    `${JSON.stringify(runWithPreMergeFacts, null, 2)}\n`
+  );
+
+  const beforeAdmission = fs.readFileSync(path.join(tempRepo, ".harness", "runs", "run-0001", "run.json"));
+  const missingAdmission = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(missingAdmission, "missing Phase 24A merge strategy is typed");
+  assert.match(missingAdmission.stdout, /current_stage: DELIVERY_MERGE_ADMISSION_REQUIRED/);
+  assert.match(missingAdmission.stdout, /stop_reason: merge_strategy_missing/);
+  for (const strategy of ["squash", "rebase", "unknown"]) {
+    const blocked = runCli([
+      "run", "status", "--operator", "--run", "run-0001", "--merge-strategy", strategy
+    ], { cwd: tempRepo });
+    assertSuccess(blocked, `unsupported ${strategy} strategy is typed`);
+    assert.match(blocked.stdout, /current_stage: DELIVERY_MERGE_STRATEGY_BLOCKED/);
+    assert.match(blocked.stdout, /stop_reason: merge_strategy_unsupported/);
+  }
+  const admitted = runCli([
+    "run", "status", "--operator", "--run", "run-0001", "--merge-strategy", "merge_commit"
+  ], { cwd: tempRepo });
+  assertSuccess(admitted, "normal merge commit strategy advances to delivery facts");
+  assert.match(admitted.stdout, /current_stage: DELIVERY_FACTS_REVIEW_REQUIRED/);
+  assert.match(admitted.stdout, /ALLOWED MERGE METHOD: NORMAL MERGE COMMIT/);
+  const repeatedAdmission = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(repeatedAdmission, "repeated admission evaluation");
+  assert.equal(repeatedAdmission.stdout, missingAdmission.stdout);
+  assert.deepEqual(
+    fs.readFileSync(path.join(tempRepo, ".harness", "runs", "run-0001", "run.json")),
+    beforeAdmission,
+    "operator admission reads must not mutate run state"
+  );
 });
 
 test("plan-review accepts Markdown-formatted durable decision tokens", () => {

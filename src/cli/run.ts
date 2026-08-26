@@ -64,7 +64,7 @@ function printRunHelp(): void {
     "Usage:",
     "  node bin/ch run --help",
     "  node bin/ch run start --task TASK.md [--dry-run]",
-    "  node bin/ch run status [--operator] [--run <run-id>] [--dry-run]",
+    "  node bin/ch run status [--operator] [--run <run-id>] [--merge-strategy <merge_commit|squash|rebase>] [--dry-run]",
     "  node bin/ch run verify [--run <run-id>] [--dry-run]",
     "  node bin/ch run closeout [--run <run-id>] [--dry-run]",
     "  node bin/ch run record-procedure --run <run-id> --procedure <id> --file <path> [--dry-run]",
@@ -476,14 +476,15 @@ async function runStart(args: string[]): Promise<number> {
 }
 
 async function runStatusCommand(args: string[]): Promise<number> {
-  const options = parseOptions(args, new Set(["run"]), new Set(["dry-run", "operator"]));
+  const options = parseOptions(args, new Set(["run", "merge-strategy"]), new Set(["dry-run", "operator"]));
 
   if (operatorOption(options)) {
     lines(
       renderOperatorLines(
         getRuntimeOperatorStatus(process.cwd(), {
           dryRun: dryRunOption(options),
-          runId: stringOption(options, "run")
+          runId: stringOption(options, "run"),
+          mergeStrategy: stringOption(options, "merge-strategy")
         })
       )
     );

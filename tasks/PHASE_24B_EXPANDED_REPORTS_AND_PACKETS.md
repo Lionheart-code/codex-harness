@@ -3,8 +3,8 @@
 ## Status
 
 Planned split from `tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`.
-Starts only after Phase 24A, Phase 24A.1, and Phase 24A.2 are complete,
-independently reviewed, accepted, and demonstrably useful.
+Starts only after Phase 24A, Phase 24A.1, Phase 24A.2, and Phase 24A.3 are
+complete, independently reviewed, accepted, and demonstrably useful.
 
 ## Purpose
 
@@ -38,7 +38,8 @@ reviews retain separate rubrics, verdicts, evidence trails, and independence;
 
 Consume the canonical required-review cohort and context/reuse/route/reasoning/
 usage facts from 24A.1 and the requirement/scenario/invariant/decision traces
-from 24A.2. Reports may render these facts but remain projections, not
+from 24A.2, after 24A.3 has rationalized their acceptance and historical
+compatibility coverage. Reports may render these facts but remain projections, not
 lifecycle authority. Do not recreate review routing/cohort enforcement,
 context-reuse logic, downgrade/re-escalation, engineering-map authority,
 specification/BDD logic, or architecture-decision lifecycle.

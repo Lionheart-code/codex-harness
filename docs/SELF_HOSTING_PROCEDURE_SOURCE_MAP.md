@@ -72,8 +72,12 @@ structured verdict, and exact artifact identity; structured and document
 verdicts must agree. Phase 24A.1 owns reusable generalization, including full
 cohort states, exact carry-forward/invalidation, context reuse, and bounded
 infrastructure recovery. Phase 24A.2 owns generic machine-checkable
-requirement/scenario/invariant/plan/evidence/proof coverage. This source map does
-not replace those task contracts or create a second policy layer.
+requirement/scenario/invariant/plan/evidence/proof and audit-to-successor
+coverage. Phase 24A.3 owns acceptance and historical-compatibility regression
+assurance for those contracts, including mandatory audit selection,
+registered-procedure executability, exact disposition, and pre-successor audit
+readiness. This source map does not replace those task contracts or create a
+second policy layer.
 
 ## 2. Source classes
 
@@ -88,6 +92,7 @@ tasks/PHASE_23_6_SELF_HOSTING_SKILLS_PLAN_REVIEW_BOOTSTRAP.md
 tasks/PHASE_24A_MINIMAL_EVIDENCE_REPORT_AND_REVIEW_PACKET.md
 tasks/PHASE_24A_1_SELF_HOSTING_REVIEW_LIFECYCLE_COMPLETION.md
 tasks/PHASE_24A_2_EXECUTABLE_SPECIFICATION_AND_ENGINEERING_ARCHITECTURE_DISCIPLINE.md
+tasks/PHASE_24A_3_ACCEPTANCE_CONTRACT_RATIONALIZATION_AND_HISTORICAL_COMPATIBILITY_PARTITIONING.md
 tasks/PHASE_24B_EXPANDED_REPORTS_AND_PACKETS.md
 docs/IMPLEMENTATION_ROADMAP.md
 docs/HARNESS_GOVERNANCE_AND_EVOLUTION.md

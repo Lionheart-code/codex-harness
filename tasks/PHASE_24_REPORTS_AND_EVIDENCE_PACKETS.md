@@ -7,6 +7,7 @@ Superseded as a single implementation task by:
 - `tasks/PHASE_24A_MINIMAL_EVIDENCE_REPORT_AND_REVIEW_PACKET.md`
 - `tasks/PHASE_24A_1_SELF_HOSTING_REVIEW_LIFECYCLE_COMPLETION.md`
 - `tasks/PHASE_24A_2_EXECUTABLE_SPECIFICATION_AND_ENGINEERING_ARCHITECTURE_DISCIPLINE.md`
+- `tasks/PHASE_24A_3_ACCEPTANCE_CONTRACT_RATIONALIZATION_AND_HISTORICAL_COMPATIBILITY_PARTITIONING.md`
 - `tasks/PHASE_24B_EXPANDED_REPORTS_AND_PACKETS.md`
 
 This file remains the source catalog for useful Phase 24 report, packet,
@@ -15,8 +16,8 @@ the broad catalog below as permission to implement all reports in Phase 24A.
 
 Phase 24A starts only after Phase 23.9 operator/procedure/proof foundations are
 complete, reviewed, and accepted. The truthful sequence is Phase 24A -> Phase
-24A.1 -> Phase 24A.2 -> Phase 24B. Phase 24B starts only after the three
-preceding phases are complete, reviewed, and accepted and Phase 24A shows
+24A.1 -> Phase 24A.2 -> Phase 24A.3 -> Phase 24B. Phase 24B starts only after
+the four preceding phases are complete, reviewed, and accepted and Phase 24A shows
 concrete value.
 
 ## Review status

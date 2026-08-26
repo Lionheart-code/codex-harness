@@ -14,7 +14,7 @@
   "properties": {
     "delivery_fact_id": { "type": "string", "minLength": 1 },
     "run_id": { "type": "string", "minLength": 1 },
-    "fact_kind": { "enum": ["pr", "remote_ci", "review", "merge", "closeout_approval"] },
+    "fact_kind": { "enum": ["pr", "remote_ci", "review", "merge", "merge_result", "merge_commit", "closeout_approval"] },
     "source": { "type": "string", "minLength": 1 },
     "status": {
       "enum": ["created", "updated", "pass", "failed", "approved", "rejected", "merged", "closed", "unknown"]
