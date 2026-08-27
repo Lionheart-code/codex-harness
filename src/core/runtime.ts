@@ -5082,6 +5082,10 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
   const priorReview = [...reviewEpochRun.review_results].reverse().find((entry) =>
     reviewSourceMatchesProcedure(entry.source, priorReviewProcedure));
   const priorFindings = priorReviewArtifactFindings(targetRoot, run, priorReview);
+  const passKind = procedureId === "plan-review" && run.evidence.some((entry) => entry.kind === "procedure:plan-amend")
+    ? "amendment_review"
+    : procedureId === "plan-review" ? "initial_full_review"
+      : priorReview?.status === "FIX_REQUIRED" ? "fix_pass_review" : "implementation_review";
   const core = buildContextCore({
     task_id: run.phase_id ?? taskContractRef,
     task_pointer_ref: "TASK.md",
@@ -5137,19 +5141,16 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
   const route = decideReviewRoute(routePolicy, contract, {
     procedure_id: procedureId,
     review_tier: reviewTier,
-    pass_kind: procedureId === "plan-review" && run.evidence.some((entry) => entry.kind === "procedure:plan-amend")
-      ? "amendment_review"
-      : procedureId === "plan-review" ? "initial_full_review"
-        : priorReview?.status === "FIX_REQUIRED" ? "fix_pass_review" : "implementation_review",
-    pass_index: run.review_results.filter((entry) => reviewSourceMatchesProcedure(entry.source, procedureId)).length,
+    pass_kind: passKind,
+    pass_index: reviewEpochRun.review_results.filter((entry) => reviewSourceMatchesProcedure(entry.source, procedureId)).length,
     changed_surface_classes: core.changed_surface_classes,
     risk_classes: core.risk_classes,
     deterministic_evidence_complete: verificationComplete,
-    prior_failure_count: run.review_results.filter((entry) => reviewSourceMatchesProcedure(entry.source, procedureId) && entry.status !== "PASS").length,
+    prior_failure_count: reviewEpochRun.review_results.filter((entry) => reviewSourceMatchesProcedure(entry.source, procedureId) && entry.status !== "PASS").length,
     independence_required: true,
     context_reuse_state: contextReuse,
     owner_budget_class: "balanced",
-    open_blocker_count: run.findings.filter((entry) => entry.blocking && entry.status === "open").length,
+    open_blocker_count: reviewEpochRun.findings.filter((entry) => entry.blocking && entry.status === "open").length,
     new_blocker_count: reviewEpochRun.findings.filter((entry) =>
       entry.blocking && entry.status === "open" && (!priorReview || entry.created_at >= priorReview.created_at)
     ).length,
@@ -6662,6 +6663,9 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
       "IMPLEMENTATION_BASELINE_REQUIRED: review launch requires the exact durable implementation baseline binding."
     );
   }
+  const reviewEpochRun = options.procedureId === "plan-review"
+    ? current.run
+    : currentImplementationEpochRun(current.run);
   let fixPassLineage: {
     predecessorAttemptId: string;
     predecessorArtifactId: string;
@@ -6670,7 +6674,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     reviewedDiffHash: string;
   } | undefined;
   if (options.procedureId === "fix-pass-review") {
-    const predecessors = current.run.review_results.filter((entry) =>
+    const predecessors = reviewEpochRun.review_results.filter((entry) =>
       reviewSourceMatchesProcedure(entry.source, "implementation-review")
       && entry.artifact_refs.length === 1);
     if (predecessors.length !== 1) {
@@ -6687,7 +6691,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     if (!descriptor || descriptor.content_hash !== predecessor.artifact_refs[0].artifact_id.slice("sha256:".length)) {
       throw new Error("FIX_PASS_PREDECESSOR_ARTIFACT_UNAVAILABLE");
     }
-    const attempts = (current.run.review_routing_records ?? []).filter((entry) =>
+    const attempts = (reviewEpochRun.review_routing_records ?? []).filter((entry) =>
       entry.record_kind === "review_invocation"
       && entry.payload.procedure_id === "implementation-review"
       && entry.payload.terminal_exit_code === 0
@@ -6932,7 +6936,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
       if (Array.isArray(selector?.case_ids) && !selector.case_ids.includes(options.evaluationCaseId)) {
         throw new Error("REVIEW_CANARY_SELECTOR_MISMATCH: evaluation case is outside the owner-approved selector.");
       }
-      const priorImplementation = [...current.run.review_results].reverse().find((entry) =>
+      const priorImplementation = [...reviewEpochRun.review_results].reverse().find((entry) =>
         reviewSourceMatchesProcedure(entry.source, options.procedureId)
       );
       const passKind = options.procedureId === "plan-review"
@@ -7006,10 +7010,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     output_path: toRepoRelative(targetRoot, outputPath),
     route_decision_id: packet.route.route_decision_id,
     route_class: packet.route.route_class,
-    pass_kind: options.procedureId === "plan-review"
-      ? (current.run.evidence.some((entry) => entry.kind === "procedure:plan-amend") ? "amendment_review" : "initial_full_review")
-      : ([...current.run.review_results].reverse().find((entry) => reviewSourceMatchesProcedure(entry.source, "implementation-review"))?.status === "FIX_REQUIRED"
-          ? "fix_pass_review" : "implementation_review"),
+    pass_kind: packet.route.pass_kind,
     immutable_base: packet.core.immutable_base,
     risk_classes: packet.core.risk_classes,
     changed_surface_classes: packet.core.changed_surface_classes,
@@ -10784,7 +10785,8 @@ function currentImplementationEpochRun(run: Run): Run {
     verification_results: run.verification_results.filter(current),
     delivery_facts: run.delivery_facts.filter(current),
     closeout_receipts: run.closeout_receipts.filter(current),
-    remote_checks: run.remote_checks.filter(current)
+    remote_checks: run.remote_checks.filter(current),
+    review_routing_records: run.review_routing_records?.filter(current)
   };
 }
 
@@ -12202,6 +12204,7 @@ function hasImplementationEvidence(run: Run, procedureIds: Set<string>, options:
 }
 
 function resolveImplementationBaselineEpochStart(run: Run): number | undefined {
+  if (run.phase_id !== "24A") return undefined;
   const boundAt = run.implementation_baseline_binding?.bound_at;
   if (!boundAt) return undefined;
   const timestamp = Date.parse(boundAt);
@@ -14218,7 +14221,11 @@ export async function closeoutRuntimeRun(cwd: string, options: RuntimeDryRunOpti
   assertNoActiveReviewLaunchClaim(current.run, "closeout");
   const refreshedRun = refreshRunRepositorySnapshot(current.run);
   const preparedRun = ensureRunHasVerificationAndReview(refreshedRun, targetRoot);
-  const receipt = createCloseoutReceipt(preparedRun);
+  const closeoutAuthorityRun = currentImplementationEpochRun(preparedRun);
+  const receipt = createCloseoutReceipt({
+    ...closeoutAuthorityRun,
+    closeout_receipts: preparedRun.closeout_receipts
+  });
   const run: Run = {
     ...preparedRun,
     lifecycle_status: receipt.status === "READY" ? "closed" : "blocked",
