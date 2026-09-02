@@ -10774,6 +10774,30 @@ function currentImplementationEpochRun(run: Run): Run {
       run,
       entry.created_at ?? entry.recorded_at ?? entry.completed_at ?? entry.started_at
     );
+  const remoteChecks = run.remote_checks.filter(current);
+  const currentRemoteChecksById = new Map(remoteChecks.map((check) => [check.check_result_id, check]));
+  const requiredGates = run.required_gates.map((gate): RequiredGate => {
+    const currentCheck = gate.check_result_id
+      ? currentRemoteChecksById.get(gate.check_result_id)
+      : undefined;
+    if (currentCheck?.gate_id === gate.gate_id) {
+      return {
+        gate_id: currentCheck.gate_id,
+        name: currentCheck.name,
+        required: currentCheck.required,
+        status: currentCheck.status,
+        ...(currentCheck.explanation ? { explanation: currentCheck.explanation } : {}),
+        check_result_id: currentCheck.check_result_id
+      };
+    }
+    return {
+      gate_id: gate.gate_id,
+      name: gate.name,
+      required: gate.required,
+      status: "missing",
+      explanation: "No current implementation-baseline epoch remote check status has been recorded."
+    };
+  });
   return {
     ...run,
     steps: run.steps.filter(current),
@@ -10785,7 +10809,8 @@ function currentImplementationEpochRun(run: Run): Run {
     verification_results: run.verification_results.filter(current),
     delivery_facts: run.delivery_facts.filter(current),
     closeout_receipts: run.closeout_receipts.filter(current),
-    remote_checks: run.remote_checks.filter(current),
+    required_gates: requiredGates,
+    remote_checks: remoteChecks,
     review_routing_records: run.review_routing_records?.filter(current)
   };
 }

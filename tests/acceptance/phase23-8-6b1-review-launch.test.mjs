@@ -1071,6 +1071,14 @@ test("a later approved plan supersedes its predecessor baseline through the regi
   assert.ok(epochAReview?.created_at);
   const epochA = seedEpochLifecycleEvidence(tempRepo, "epoch-a", epochAReview.created_at);
   assert.ok(Date.parse(epochA.timestamps.review) > Date.parse(predecessor.bound_at));
+  assertSuccess(runCli([
+    "run", "remote-status", "--run", "run-0001", "--provider", "github",
+    "--gate", "remote-ci", "--name", "Remote CI", "--status", "pass", "--required", "true"
+  ], { cwd: tempRepo }), "record epoch-A PASS remote gate");
+  const epochARemoteRun = readRun(tempRepo);
+  const epochARemoteCheck = epochARemoteRun.remote_checks.at(-1);
+  assert.equal(epochARemoteCheck?.status, "pass");
+  assert.equal(epochARemoteRun.required_gates.find((gate) => gate.gate_id === "remote-ci")?.status, "pass");
   const epochAStatus = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
   assertSuccess(epochAStatus, "operator recognizes epoch-A implementation and verification evidence");
   assert.match(epochAStatus.stdout, /current_stage: VERIFICATION_REVIEW_REQUIRED/);
@@ -1115,6 +1123,8 @@ test("a later approved plan supersedes its predecessor baseline through the regi
   assert.ok(rebound.verification_results.some((result) => result.verification_result_id === "verification-epoch-a"));
   assert.ok(rebound.delivery_facts.some((fact) => fact.delivery_fact_id === "delivery-epoch-a"));
   assert.ok(rebound.closeout_receipts.some((receipt) => receipt.receipt_id === "closeout-epoch-a"));
+  assert.ok(rebound.remote_checks.some((check) => check.check_result_id === epochARemoteCheck.check_result_id));
+  assert.equal(rebound.required_gates.find((gate) => gate.gate_id === "remote-ci")?.status, "pass");
   const ready = runCli(["run", "status", "--operator", "--run", "run-0001"], { cwd: tempRepo });
   assertSuccess(ready, "operator after superseding baseline");
   assert.match(ready.stdout, /current_stage: IMPLEMENTATION_READY/);
@@ -1123,6 +1133,7 @@ test("a later approved plan supersedes its predecessor baseline through the regi
   assertSuccess(staleEpochCloseout, "closeout dry-run after superseding baseline");
   assert.match(staleEpochCloseout.stdout, /closeout: BLOCKED/);
   assert.match(staleEpochCloseout.stdout, /Verification is missing|Review is MISSING/);
+  assert.match(staleEpochCloseout.stdout, /Required remote gate Remote CI is missing/);
   assert.deepEqual(
     fs.readFileSync(path.join(tempRepo, ".harness", "runs", "run-0001", "run.json")),
     beforeCloseoutDryRun,
@@ -1310,6 +1321,17 @@ test("a later approved plan supersedes its predecessor baseline through the regi
     beforeAdmission,
     "operator admission reads must not mutate run state"
   );
+  const staleGateCloseout = runCli(["run", "closeout", "--run", "run-0001"], { cwd: tempRepo });
+  assertSuccess(staleGateCloseout, "mutating closeout rejects predecessor PASS gate");
+  assert.match(staleGateCloseout.stdout, /closeout: BLOCKED/);
+  assert.match(staleGateCloseout.stdout, /Required remote gate Remote CI is missing/);
+  const closedRun = readRun(tempRepo);
+  const closeoutReceipt = closedRun.closeout_receipts.at(-1);
+  assert.equal(closeoutReceipt?.status, "BLOCKED");
+  assert.equal(closeoutReceipt?.remote_checks.length, 0);
+  assert.equal(closeoutReceipt?.required_gates.find((gate) => gate.gate_id === "remote-ci")?.status, "missing");
+  assert.ok(closedRun.remote_checks.some((check) => check.check_result_id === epochARemoteCheck.check_result_id));
+  assert.equal(closedRun.required_gates.find((gate) => gate.gate_id === "remote-ci")?.status, "pass");
 });
 
 test("Phase 24A fix-pass launch selects exactly one current-epoch implementation predecessor", async () => {

@@ -858,6 +858,8 @@ test("Phase 24A publishes exact A1 A2 A3 future authority and successor ordering
   const roadmap = fs.readFileSync("docs/IMPLEMENTATION_ROADMAP.md", "utf8");
   const operations = fs.readFileSync("docs/OPERATIONS_PLAN.md", "utf8");
   const sourceMap = fs.readFileSync("docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md", "utf8");
+  const phase25a = fs.readFileSync("tasks/PHASE_25A_READ_ONLY_DIRECT_API_CLI_ACCESS_LAYER.md", "utf8");
+  const phase25 = fs.readFileSync("tasks/PHASE_25_AGENT_ACCESS_LAYER.md", "utf8");
 
   assert.match(a1, /^# Phase 24A\.1 - Self-Hosting Review Lifecycle and Context-Reuse Completion/m);
   for (const required of [
@@ -901,4 +903,11 @@ test("Phase 24A publishes exact A1 A2 A3 future authority and successor ordering
   assert.deepEqual([...ordering].sort((left, right) => left - right), ordering);
   assert.match(operations, /Phase 24A\.3 then owns/);
   assert.match(sourceMap, new RegExp(a3Path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (const successorAuthority of [phase25a, phase25]) {
+    assert.match(
+      successorAuthority,
+      /Phase 24A, Phase 24A\.1, Phase 24A\.2, and Phase 24A\.3/,
+      "live Phase 25 dependency authority must include Phase 24A.3"
+    );
+  }
 });
