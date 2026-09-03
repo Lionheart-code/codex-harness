@@ -1291,7 +1291,7 @@ Non-goals:
   authority independent of runtime/closeout/harvest rules.
 
 Future-phase impact check:
-- prepares 24A.1, 24A.2, 24B, 25A, and 26 by proving the smallest useful report/packet
+- prepares 24A.1, 24A.2, 24A.3, 24B, 25A, and 26 by proving the smallest useful report/packet
   substrate;
 - must not pre-implement broad packet catalog, proposal drafting, governance
   analytics, domain packs, MCP, or planner execution;
@@ -1342,6 +1342,25 @@ owner-reviewed technical spike tasks for genuine uncertainty. It does not
 introduce Cucumber/Gherkin requirements, a second requirements or ADR store, a
 generic architecture agent, or external runner execution.
 
+## Phase 24A.3 — Acceptance Contract Rationalization and Historical Compatibility Partitioning
+
+Task:
+`tasks/PHASE_24A_3_ACCEPTANCE_CONTRACT_RATIONALIZATION_AND_HISTORICAL_COMPATIBILITY_PARTITIONING.md`
+
+Goal:
+Rationalize canonical acceptance, supported historical compatibility, costly
+duplicate execution, and deterministic regression ownership only after the
+24A.1 lifecycle/context and 24A.2 trace contracts are established.
+
+Status:
+Planned. Starts only after 24A, 24A.1, and 24A.2 complete their required
+lifecycle. It owns acceptance for exact lifecycle epochs, implementation
+readiness, delivery provenance, real bounded context reuse, anti-waste semantic
+artifact handling, typed risk routing, lifecycle-enforced audit obligations,
+pre-successor audit readiness, and physical-versus-logical invocation economy.
+It does not implement those future runtime mechanisms or weaken coverage to
+reduce suite duration.
+
 ## Phase 24B — Expanded Reports and Packets
 
 Task:
@@ -1352,7 +1371,7 @@ Expand reports and packets only after Phase 24A artifacts show concrete use.
 
 Status:
 Planned split from `tasks/PHASE_24_REPORTS_AND_EVIDENCE_PACKETS.md`. Blocked
-until 24A, 24A.1, and 24A.2 are complete and reviewed.
+until 24A, 24A.1, 24A.2, and 24A.3 are complete and reviewed.
 CLI remains the current baseline access surface. App Server is a future
 candidate only, but that access-layer evaluation remains owned by Phase 25A/25B
 and must not be reintroduced here as Phase 24B implementation scope.
@@ -1405,8 +1424,8 @@ through shared core services.
 
 Status:
 Planned split from `tasks/PHASE_25_AGENT_ACCESS_LAYER.md`. Blocked until the
-accepted Phase 24B substrate, and therefore 24A, 24A.1, and 24A.2, are complete
-and reviewed.
+accepted Phase 24B substrate, and therefore 24A, 24A.1, 24A.2, and 24A.3, are
+complete and reviewed.
 
 Scope:
 - query runs;

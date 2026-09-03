@@ -4,7 +4,7 @@
 
 Planned split from `tasks/PHASE_25_AGENT_ACCESS_LAYER.md`.
 Starts only after the accepted Phase 24B substrate, and therefore after
-Phase 24A, Phase 24A.1, and Phase 24A.2.
+Phase 24A, Phase 24A.1, Phase 24A.2, and Phase 24A.3.
 
 ## Purpose
 

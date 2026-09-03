@@ -771,6 +771,7 @@ export interface StartRuntimeRunOptions {
 export interface RuntimeDryRunOptions {
   dryRun?: boolean;
   runId?: string;
+  mergeStrategy?: string;
 }
 
 export interface RecordRemoteStatusOptions extends RuntimeDryRunOptions {
@@ -972,6 +973,7 @@ interface OperatorEvaluationContext {
   proceduresById?: Map<string, SelfHostingProcedureDescriptor>;
   runContext?: OperatorRunContext;
   taggedProcedures?: Set<string>;
+  currentEpochTaggedProcedures?: Set<string>;
   latestPlanReviewResult?: ReviewResult;
   latestPlanReviewDecisionRecord?: PlanReviewDecisionRecord;
   latestImplementationChainReviewResult?: ReviewResult;
@@ -979,7 +981,11 @@ interface OperatorEvaluationContext {
   latestDbStorageReviewResult?: ReviewResult;
   latestVerification?: VerificationResult;
   latestCloseoutReceipt?: CloseoutReceipt;
+  currentEpochDeliveryFactCount?: number;
+  currentEpochDeliveryComplete?: boolean;
   blockingFindings?: boolean;
+  predecessorBlockingFindings?: boolean;
+  requestedMergeStrategy?: string;
   planApproved?: boolean;
   implementationEvidence?: boolean;
 }
@@ -3418,6 +3424,34 @@ function readExactGitObject(targetRoot: string, revision: string, kind: "commit"
   return value;
 }
 
+export type CurrentSelfHostingMergeStrategy = "merge_commit" | "squash" | "rebase";
+
+export interface CurrentSelfHostingMergeAdmission {
+  strategy?: CurrentSelfHostingMergeStrategy;
+  status: "allowed" | "blocked";
+  reason: "normal_merge_commit_required" | "merge_strategy_missing" | "merge_strategy_unsupported";
+  allowed_merge_method: "NORMAL MERGE COMMIT";
+  squash: "UNSUPPORTED";
+  rebase: "UNSUPPORTED";
+}
+
+export function evaluateCurrentSelfHostingMergeStrategy(
+  strategy: string | undefined
+): CurrentSelfHostingMergeAdmission {
+  const policy = {
+    allowed_merge_method: "NORMAL MERGE COMMIT" as const,
+    squash: "UNSUPPORTED" as const,
+    rebase: "UNSUPPORTED" as const
+  };
+  if (strategy === "merge_commit") {
+    return { ...policy, strategy, status: "allowed", reason: "normal_merge_commit_required" };
+  }
+  if (strategy === "squash" || strategy === "rebase") {
+    return { ...policy, strategy, status: "blocked", reason: "merge_strategy_unsupported" };
+  }
+  return { ...policy, status: "blocked", reason: strategy ? "merge_strategy_unsupported" : "merge_strategy_missing" };
+}
+
 export function deriveDeliverySourceRelationship(
   targetRoot: string,
   run: Pick<Run, "run_id" | "final_reviewed_source_head">,
@@ -3436,6 +3470,12 @@ export function deriveDeliverySourceRelationship(
     throw new Error("delivery_source_commit_identity_invalid");
   }
   if (resultFact.commit_sha !== deliveredHead) {
+    throw new Error("delivery_source_merge_facts_disagree");
+  }
+  if (resultFact.source.trim().toLowerCase() !== commitFact.source.trim().toLowerCase()
+    || (resultFact.url && commitFact.url && resultFact.url !== commitFact.url)
+    || (resultFact.external_run_id && commitFact.external_run_id
+      && resultFact.external_run_id !== commitFact.external_run_id)) {
     throw new Error("delivery_source_merge_facts_disagree");
   }
   const reviewedCommit = readExactGitObject(targetRoot, reviewedHead, "commit");
@@ -3460,6 +3500,11 @@ export function deriveDeliverySourceRelationship(
   const ancestor = runGitCommand(targetRoot, ["merge-base", "--is-ancestor", reviewedCommit, deliveredCommit]);
   if (ancestor.status !== 0) {
     throw new Error("delivery_source_ancestry_mismatch");
+  }
+  const topology = runGitCommand(targetRoot, ["rev-list", "--parents", "-n", "1", deliveredCommit]);
+  const topologyFields = topology.status === 0 ? topology.stdout.trim().split(/\s+/u) : [];
+  if (topologyFields[0] !== deliveredCommit || topologyFields.length < 3) {
+    throw new Error("delivery_source_merge_topology_invalid");
   }
   return {
     schema_version: 1,
@@ -5028,14 +5073,19 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
     ?? classifyOperatorReviewTier(fs.readFileSync(path.join(targetRoot, taskContractRef), "utf8")).tier;
   const changedSurfaceClasses = typedReviewAuthority?.planned_surface_classes ?? inventory.changedSurfaceClasses;
   const riskClasses = typedReviewAuthority?.risk_classes ?? inventory.riskClasses;
-  const latestVerification = run.verification_results[run.verification_results.length - 1];
+  const reviewEpochRun = procedureId === "plan-review" ? run : currentImplementationEpochRun(run);
+  const latestVerification = reviewEpochRun.verification_results[reviewEpochRun.verification_results.length - 1];
   const verificationComplete = procedureId === "plan-review"
     ? false
     : verificationSatisfiesRequiredCommandInventory(targetRoot, run, latestVerification);
   const priorReviewProcedure = procedureId === "fix-pass-review" ? "implementation-review" : procedureId;
-  const priorReview = [...run.review_results].reverse().find((entry) =>
+  const priorReview = [...reviewEpochRun.review_results].reverse().find((entry) =>
     reviewSourceMatchesProcedure(entry.source, priorReviewProcedure));
   const priorFindings = priorReviewArtifactFindings(targetRoot, run, priorReview);
+  const passKind = procedureId === "plan-review" && run.evidence.some((entry) => entry.kind === "procedure:plan-amend")
+    ? "amendment_review"
+    : procedureId === "plan-review" ? "initial_full_review"
+      : priorReview?.status === "FIX_REQUIRED" ? "fix_pass_review" : "implementation_review";
   const core = buildContextCore({
     task_id: run.phase_id ?? taskContractRef,
     task_pointer_ref: "TASK.md",
@@ -5078,7 +5128,7 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
     payload_refs: [],
     ...(priorReview ? { prior_review_result_ref: priorReview.review_result_id } : {}),
     findings: priorFindings,
-    verification_refs: run.verification_results.map((entry) => entry.verification_result_id),
+    verification_refs: reviewEpochRun.verification_results.map((entry) => entry.verification_result_id),
     changed_authority_surfaces: inventory.changedFiles.filter((entry) => entry.startsWith("docs/") || entry.startsWith("skills/") || entry.startsWith("tasks/") || entry === "TASK.md"),
     changed_architecture_surfaces: inventory.changedFiles.filter((entry) => entry.includes("ARCHITECTURE") || entry.includes("runtime") || entry.includes("routing")),
     missing_evidence: verificationComplete ? [] : ["terminal_verification_pass"],
@@ -5091,20 +5141,19 @@ function buildReviewExecutionPacket(targetRoot: string, run: Run, procedureId: "
   const route = decideReviewRoute(routePolicy, contract, {
     procedure_id: procedureId,
     review_tier: reviewTier,
-    pass_kind: procedureId === "plan-review" && run.evidence.some((entry) => entry.kind === "procedure:plan-amend")
-      ? "amendment_review"
-      : procedureId === "plan-review" ? "initial_full_review"
-        : priorReview?.status === "FIX_REQUIRED" ? "fix_pass_review" : "implementation_review",
-    pass_index: run.review_results.filter((entry) => reviewSourceMatchesProcedure(entry.source, procedureId)).length,
+    pass_kind: passKind,
+    pass_index: reviewEpochRun.review_results.filter((entry) => reviewSourceMatchesProcedure(entry.source, procedureId)).length,
     changed_surface_classes: core.changed_surface_classes,
     risk_classes: core.risk_classes,
     deterministic_evidence_complete: verificationComplete,
-    prior_failure_count: run.review_results.filter((entry) => reviewSourceMatchesProcedure(entry.source, procedureId) && entry.status !== "PASS").length,
+    prior_failure_count: reviewEpochRun.review_results.filter((entry) => reviewSourceMatchesProcedure(entry.source, procedureId) && entry.status !== "PASS").length,
     independence_required: true,
     context_reuse_state: contextReuse,
     owner_budget_class: "balanced",
-    open_blocker_count: run.findings.filter((entry) => entry.blocking && entry.status === "open").length,
-    new_blocker_count: run.findings.filter((entry) => entry.blocking && entry.status === "open" && (!priorReview || entry.created_at >= priorReview.created_at)).length,
+    open_blocker_count: reviewEpochRun.findings.filter((entry) => entry.blocking && entry.status === "open").length,
+    new_blocker_count: reviewEpochRun.findings.filter((entry) =>
+      entry.blocking && entry.status === "open" && (!priorReview || entry.created_at >= priorReview.created_at)
+    ).length,
     delta_bytes: overlay.canonical_byte_count,
     material_change_classes: inventory.materialChangeClasses,
     ...(priorReview ? { prior_verdict: priorReview.status } : {}),
@@ -6614,6 +6663,9 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
       "IMPLEMENTATION_BASELINE_REQUIRED: review launch requires the exact durable implementation baseline binding."
     );
   }
+  const reviewEpochRun = options.procedureId === "plan-review"
+    ? current.run
+    : currentImplementationEpochRun(current.run);
   let fixPassLineage: {
     predecessorAttemptId: string;
     predecessorArtifactId: string;
@@ -6622,7 +6674,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     reviewedDiffHash: string;
   } | undefined;
   if (options.procedureId === "fix-pass-review") {
-    const predecessors = current.run.review_results.filter((entry) =>
+    const predecessors = reviewEpochRun.review_results.filter((entry) =>
       reviewSourceMatchesProcedure(entry.source, "implementation-review")
       && entry.artifact_refs.length === 1);
     if (predecessors.length !== 1) {
@@ -6639,7 +6691,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     if (!descriptor || descriptor.content_hash !== predecessor.artifact_refs[0].artifact_id.slice("sha256:".length)) {
       throw new Error("FIX_PASS_PREDECESSOR_ARTIFACT_UNAVAILABLE");
     }
-    const attempts = (current.run.review_routing_records ?? []).filter((entry) =>
+    const attempts = (reviewEpochRun.review_routing_records ?? []).filter((entry) =>
       entry.record_kind === "review_invocation"
       && entry.payload.procedure_id === "implementation-review"
       && entry.payload.terminal_exit_code === 0
@@ -6884,7 +6936,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
       if (Array.isArray(selector?.case_ids) && !selector.case_ids.includes(options.evaluationCaseId)) {
         throw new Error("REVIEW_CANARY_SELECTOR_MISMATCH: evaluation case is outside the owner-approved selector.");
       }
-      const priorImplementation = [...current.run.review_results].reverse().find((entry) =>
+      const priorImplementation = [...reviewEpochRun.review_results].reverse().find((entry) =>
         reviewSourceMatchesProcedure(entry.source, options.procedureId)
       );
       const passKind = options.procedureId === "plan-review"
@@ -6958,10 +7010,7 @@ export async function launchRuntimeReview(cwd: string, options: LaunchReviewOpti
     output_path: toRepoRelative(targetRoot, outputPath),
     route_decision_id: packet.route.route_decision_id,
     route_class: packet.route.route_class,
-    pass_kind: options.procedureId === "plan-review"
-      ? (current.run.evidence.some((entry) => entry.kind === "procedure:plan-amend") ? "amendment_review" : "initial_full_review")
-      : ([...current.run.review_results].reverse().find((entry) => reviewSourceMatchesProcedure(entry.source, "implementation-review"))?.status === "FIX_REQUIRED"
-          ? "fix_pass_review" : "implementation_review"),
+    pass_kind: packet.route.pass_kind,
     immutable_base: packet.core.immutable_base,
     risk_classes: packet.core.risk_classes,
     changed_surface_classes: packet.core.changed_surface_classes,
@@ -8765,7 +8814,7 @@ export async function bindRuntimeImplementationBaseline(
       ? [...(current.run.implementation_baseline_history ?? []), existing!]
       : current.run.implementation_baseline_history,
   };
-  const recorded = !existing;
+  const recorded = !existing || superseding;
   if (!dryRun) {
     const staging = new RunStagingDatabase(
       targetRoot,
@@ -8987,20 +9036,26 @@ export function recordRuntimeProof(
       reviewRef = undefined;
     }
   }
-  const mergeCommit = deliveryFacts.find((fact) =>
-    fact.fact_kind === "merge_commit"
-    && fact.commit_sha === deliveredHead
-    && ["merged", "pass", "approved"].includes(fact.status));
+  let deliveryRelationship: DeliverySourceRelationshipV1 | undefined;
+  try {
+    deliveryRelationship = deriveDeliverySourceRelationship(
+      roots.targetRoot,
+      current.run,
+      deliveryFacts
+    );
+  } catch {
+    deliveryRelationship = undefined;
+  }
   const sourceRolesValid = Boolean(
     current.run.implementation_baseline_binding
     && current.run.implementation_baseline_binding.implementation_baseline_head
       === current.run.implementation_baseline_head
     && current.run.final_reviewed_source_head
     && deliveredHead
-    && mergeCommit
-    && runGitCommand(roots.targetRoot, [
-      "merge-base", "--is-ancestor", current.run.final_reviewed_source_head, deliveredHead
-    ]).status === 0
+    && deliveryRelationship
+    && current.run.delivery_source_relationship
+    && canonicalJson(current.run.delivery_source_relationship) === canonicalJson(deliveryRelationship)
+    && deliveredHead === deliveryRelationship.delivered_source_head
   );
   const deliveryRefs = deliveryFacts.map((fact) =>
     addEvidence("delivery_fact", fact.delivery_fact_id, fact,
@@ -10675,6 +10730,105 @@ function collectTaggedProcedureEvidence(run: Run, procedureIds: Set<string>): Se
   return tagged;
 }
 
+function collectCurrentImplementationEpochProcedureEvidence(
+  runContext: OperatorRunContext,
+  procedureIds: Set<string>
+): Set<string> {
+  const epochStart = resolveImplementationBaselineEpochStart(runContext.run);
+  if (epochStart === undefined || !runContext.run.run_instance_id) {
+    return collectTaggedProcedureEvidence(runContext.run, procedureIds);
+  }
+
+  const staging = new RunStagingDatabase(
+    runContext.run.repository.root_path,
+    runContext.run.repository.project_root,
+    runContext.run.run_id
+  );
+  const tagged = new Set<string>();
+  const refs = [
+    ...runContext.run.artifacts.map((artifact) => ({
+      procedureId: readTaggedProcedureId(artifact.kind, procedureIds) ?? readTaggedProcedureId(artifact.description, procedureIds),
+      artifactId: artifact.artifact_id
+    })),
+    ...runContext.run.evidence.map((evidence) => ({
+      procedureId: readTaggedProcedureId(evidence.kind, procedureIds) ?? readTaggedProcedureId(evidence.summary, procedureIds),
+      artifactId: evidence.artifact_id ?? runContext.run.artifacts.find((artifact) => artifact.path === evidence.path)?.artifact_id
+    }))
+  ];
+
+  for (const ref of refs) {
+    if (!ref.procedureId || !ref.artifactId) continue;
+    const descriptor = staging.readProcedureArtifact(runContext.run.run_instance_id, ref.procedureId, ref.artifactId);
+    if (descriptor && isCurrentImplementationBaselineEpochRecord(runContext.run, descriptor.recorded_at)) {
+      tagged.add(ref.procedureId);
+    }
+  }
+
+  return tagged;
+}
+
+function currentImplementationEpochRun(run: Run): Run {
+  if (resolveImplementationBaselineEpochStart(run) === undefined) return run;
+  const current = <T extends { created_at?: string; recorded_at?: string; completed_at?: string; started_at?: string }>(entry: T): boolean =>
+    isCurrentImplementationBaselineEpochRecord(
+      run,
+      entry.created_at ?? entry.recorded_at ?? entry.completed_at ?? entry.started_at
+    );
+  const remoteChecks = run.remote_checks.filter(current);
+  const currentRemoteChecksById = new Map(remoteChecks.map((check) => [check.check_result_id, check]));
+  const requiredGates = run.required_gates.map((gate): RequiredGate => {
+    const currentCheck = gate.check_result_id
+      ? currentRemoteChecksById.get(gate.check_result_id)
+      : undefined;
+    if (currentCheck?.gate_id === gate.gate_id) {
+      return {
+        gate_id: currentCheck.gate_id,
+        name: currentCheck.name,
+        required: currentCheck.required,
+        status: currentCheck.status,
+        ...(currentCheck.explanation ? { explanation: currentCheck.explanation } : {}),
+        check_result_id: currentCheck.check_result_id
+      };
+    }
+    return {
+      gate_id: gate.gate_id,
+      name: gate.name,
+      required: gate.required,
+      status: "missing",
+      explanation: "No current implementation-baseline epoch remote check status has been recorded."
+    };
+  });
+  return {
+    ...run,
+    steps: run.steps.filter(current),
+    command_results: run.command_results.filter(current),
+    findings: run.findings.filter((finding) =>
+      current(finding) || (finding.blocking && finding.status !== "resolved")
+    ),
+    review_results: run.review_results.filter(current),
+    verification_results: run.verification_results.filter(current),
+    delivery_facts: run.delivery_facts.filter(current),
+    closeout_receipts: run.closeout_receipts.filter(current),
+    required_gates: requiredGates,
+    remote_checks: remoteChecks,
+    review_routing_records: run.review_routing_records?.filter(current)
+  };
+}
+
+function hasCurrentCompletedDelivery(targetRoot: string, run: Run, epochRun: Run): boolean {
+  try {
+    const expected = deriveDeliverySourceRelationship(targetRoot, run, epochRun.delivery_facts);
+    return Boolean(
+      expected
+      && run.delivered_source_head === expected.delivered_source_head
+      && run.delivery_source_relationship
+      && canonicalJson(run.delivery_source_relationship) === canonicalJson(expected)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function getProcedureRequiredInputs(
   context: OperatorEvaluationContext,
   procedureId: string,
@@ -12037,6 +12191,11 @@ function hasImplementationEvidence(run: Run, procedureIds: Set<string>, options:
   effectivePlanMarkdown?: string;
   activeTaskPath?: string;
 } = {}): boolean {
+  const baselineEpochStart = resolveImplementationBaselineEpochStart(run);
+  if (baselineEpochStart !== undefined) {
+    return hasLiveImplementationChangeEvidence(run, options);
+  }
+
   const implementationStepIds = new Set(run.steps.filter((step) => isImplementationStep(step)).map((step) => step.step_id));
   const downstreamImplementationProcedures = [
     "implementation-review",
@@ -12066,46 +12225,65 @@ function hasImplementationEvidence(run: Run, procedureIds: Set<string>, options:
     return true;
   }
 
-  if (options.allowLiveChangeProbe) {
-    try {
-      const liveChangeSet = buildChangeSet(run.repository.root_path);
-      const committedHead = resolveExactCommit(run.repository.root_path, "HEAD");
-      const baselineHead = run.implementation_baseline_binding?.implementation_baseline_head;
-      const committedChangeSet = baselineHead && committedHead !== baselineHead
-        ? reviewChangeInventory(run.repository.root_path, baselineHead, committedHead)
-        : undefined;
-      const implementationPaths = [
-        ...liveChangeSet.changed_paths,
-        ...(committedChangeSet?.changedFiles ?? [])
-      ];
-      if (
-        options.taskMarkdown
-        && isDocsTaskPolicyOnlyImplementationScope(options.taskMarkdown, options.effectivePlanMarkdown)
-      ) {
-        const scopeRules = buildDocsTaskPolicyScopeRules(
-          run.repository.root_path,
-          options.taskMarkdown,
-          options.effectivePlanMarkdown,
-          options.activeTaskPath,
-          run.phase_id
-        );
-        const classifiedPaths = classifyDocsTaskPolicyImplementationPaths(implementationPaths, scopeRules);
-        if (classifiedPaths.forbiddenPaths.length > 0) {
-          return false;
-        }
+  return hasLiveImplementationChangeEvidence(run, options);
+}
 
-        return classifiedPaths.allowedPaths.length > 0;
+function resolveImplementationBaselineEpochStart(run: Run): number | undefined {
+  if (run.phase_id !== "24A") return undefined;
+  const boundAt = run.implementation_baseline_binding?.bound_at;
+  if (!boundAt) return undefined;
+  const timestamp = Date.parse(boundAt);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+function isCurrentImplementationBaselineEpochRecord(run: Run, timestamp: string | undefined): boolean {
+  const epochStart = resolveImplementationBaselineEpochStart(run);
+  if (epochStart === undefined) return true;
+  const recordedAt = timestamp ? Date.parse(timestamp) : Number.NaN;
+  return Number.isFinite(recordedAt) && recordedAt > epochStart;
+}
+
+function hasLiveImplementationChangeEvidence(run: Run, options: {
+  allowLiveChangeProbe?: boolean;
+  taskMarkdown?: string;
+  effectivePlanMarkdown?: string;
+  activeTaskPath?: string;
+}): boolean {
+  if (!options.allowLiveChangeProbe) return false;
+  try {
+    const liveChangeSet = buildChangeSet(run.repository.root_path);
+    const committedHead = resolveExactCommit(run.repository.root_path, "HEAD");
+    const baselineHead = run.implementation_baseline_binding?.implementation_baseline_head;
+    const committedChangeSet = baselineHead && committedHead !== baselineHead
+      ? reviewChangeInventory(run.repository.root_path, baselineHead, committedHead)
+      : undefined;
+    const implementationPaths = [
+      ...liveChangeSet.changed_paths,
+      ...(committedChangeSet?.changedFiles ?? [])
+    ];
+    if (
+      options.taskMarkdown
+      && isDocsTaskPolicyOnlyImplementationScope(options.taskMarkdown, options.effectivePlanMarkdown)
+    ) {
+      const scopeRules = buildDocsTaskPolicyScopeRules(
+        run.repository.root_path,
+        options.taskMarkdown,
+        options.effectivePlanMarkdown,
+        options.activeTaskPath,
+        run.phase_id
+      );
+      const classifiedPaths = classifyDocsTaskPolicyImplementationPaths(implementationPaths, scopeRules);
+      if (classifiedPaths.forbiddenPaths.length > 0) {
+        return false;
       }
 
-      if (implementationPaths.some((relativePath) => isImplementationSourcePath(relativePath))) {
-        return true;
-      }
-    } catch {
-      // If live git inspection fails, preserve the run-state-only fallback.
+      return classifiedPaths.allowedPaths.length > 0;
     }
-  }
 
-  return false;
+    return implementationPaths.some((relativePath) => isImplementationSourcePath(relativePath));
+  } catch {
+    return false;
+  }
 }
 
 function classifyOperatorReviewTier(taskMarkdown: string): { tier: OperatorReviewTier; notes: string[] } {
@@ -12715,6 +12893,22 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
     }
   }
 
+  if (context.blockingFindings
+    && (!context.implementationEvidence || context.predecessorBlockingFindings)) {
+    return buildOperatorStageDraft({
+      current_stage: "BLOCKED",
+      next_procedure_id: "none",
+      required_inputs: ["exact resolution, disposition, or authorized carry-forward for every unresolved blocking finding"],
+      missing_inputs: ["unresolved predecessor blocking finding disposition"],
+      required_evidence: ["resolved blocking finding authority"],
+      missing_evidence: ["resolved blocking finding authority"],
+      stop_reason: "unresolved_predecessor_blocking_findings",
+      next_allowed_action: "record an exact authorized resolution or disposition for the unresolved blocking finding before beginning the superseding implementation epoch",
+      forbidden_actions: ["implementation", "source edits", "implementation-review", "verification", "closeout"],
+      notes: [...context.baseNotes, "unresolved_blockers_survive_baseline_supersession: true"]
+    });
+  }
+
   if (!context.implementationEvidence) {
     return buildOperatorStageDraft({
       current_stage: "IMPLEMENTATION_READY",
@@ -12734,7 +12928,7 @@ function resolvePreImplementationStage(context: OperatorEvaluationContext): Oper
 }
 
 function resolveImplementationReviewStage(context: OperatorEvaluationContext): OperatorStageDraft | undefined {
-  const taggedProcedures = context.taggedProcedures ?? new Set<string>();
+  const taggedProcedures = context.currentEpochTaggedProcedures ?? context.taggedProcedures ?? new Set<string>();
   const hasImplementationReview = taggedProcedures.has("implementation-review");
   const hasFixPassReview = taggedProcedures.has("fix-pass-review");
 
@@ -12850,7 +13044,7 @@ function resolveC2ACombinedArchitectureDbReviewStage(context: OperatorEvaluation
     return undefined;
   }
 
-  const taggedProcedures = context.taggedProcedures ?? new Set<string>();
+  const taggedProcedures = context.currentEpochTaggedProcedures ?? context.taggedProcedures ?? new Set<string>();
   const hasArchitectureEvidence = taggedProcedures.has("architecture-review");
   const hasDbStorageEvidence = taggedProcedures.has("db-storage-review");
 
@@ -12957,8 +13151,12 @@ function resolveC2ACombinedArchitectureDbReviewStage(context: OperatorEvaluation
 }
 
 function resolveVerificationStage(context: OperatorEvaluationContext): OperatorStageDraft | undefined {
-  const taggedProcedures = context.taggedProcedures ?? new Set<string>();
+  const taggedProcedures = context.currentEpochTaggedProcedures ?? context.taggedProcedures ?? new Set<string>();
   const hasVerificationReview = taggedProcedures.has("verification-review");
+  const currentDeliveryFactCount = context.currentEpochDeliveryFactCount
+    ?? context.runContext?.run.delivery_facts.length
+    ?? 0;
+  const currentDeliveryComplete = context.currentEpochDeliveryComplete ?? false;
 
   if (!context.latestVerification || context.latestVerification.status !== "pass" || !hasVerificationReview) {
     return buildOperatorStageDraft({
@@ -12984,7 +13182,38 @@ function resolveVerificationStage(context: OperatorEvaluationContext): OperatorS
     });
   }
 
-  if ((context.runContext?.run.delivery_facts.length ?? 0) === 0 || !taggedProcedures.has("delivery-facts-review")) {
+  const currentPhaseIs24A = context.runContext?.run.phase_id === "24A";
+  if (currentPhaseIs24A && !currentDeliveryComplete) {
+    const admission = evaluateCurrentSelfHostingMergeStrategy(context.requestedMergeStrategy);
+    const policyNotes = [
+      ...context.baseNotes,
+      `ALLOWED MERGE METHOD: ${admission.allowed_merge_method}`,
+      `SQUASH: ${admission.squash}`,
+      `REBASE MERGE: ${admission.rebase}`
+    ];
+    if (admission.status !== "allowed") {
+      const missing = admission.reason === "merge_strategy_missing";
+      return buildOperatorStageDraft({
+        current_stage: missing ? "DELIVERY_MERGE_ADMISSION_REQUIRED" : "DELIVERY_MERGE_STRATEGY_BLOCKED",
+        next_procedure_id: "none",
+        required_inputs: ["explicit current delivery strategy"],
+        missing_inputs: missing ? ["merge strategy"] : [],
+        required_evidence: ["deterministic pre-merge admission"],
+        missing_evidence: ["allowed normal merge-commit strategy admission"],
+        stop_reason: admission.reason,
+        next_allowed_action: missing
+          ? "re-run operator status with --merge-strategy merge_commit before owner merge action"
+          : "select normal merge commit; squash and rebase remain unsupported",
+        forbidden_actions: ["owner merge", "squash merge", "rebase merge", "delivery-fact import", "closeout", "harvest"],
+        notes: policyNotes
+      });
+    }
+  }
+
+  const deliveryPending = currentPhaseIs24A
+    ? !currentDeliveryComplete
+    : currentDeliveryFactCount === 0;
+  if (deliveryPending || !taggedProcedures.has("delivery-facts-review")) {
     return buildOperatorStageDraft({
       current_stage: "DELIVERY_FACTS_REVIEW_REQUIRED",
       next_procedure_id: "delivery-facts-review",
@@ -12996,13 +13225,17 @@ function resolveVerificationStage(context: OperatorEvaluationContext): OperatorS
       missing_inputs: [],
       required_evidence: ["delivery facts", "delivery-facts-review"],
       missing_evidence: [
-        ...((context.runContext?.run.delivery_facts.length ?? 0) === 0 ? ["delivery facts"] : []),
+        ...(deliveryPending ? ["delivery facts"] : []),
         ...(!taggedProcedures.has("delivery-facts-review") ? ["delivery-facts-review"] : [])
       ],
       stop_reason: "missing_delivery_facts",
-      next_allowed_action: buildReviewStageAction("delivery-facts-review"),
+      next_allowed_action: deliveryPending && currentPhaseIs24A
+        ? "ALLOWED MERGE METHOD: NORMAL MERGE COMMIT; obtain owner merge using normal merge commit, import exact delivery facts, then run delivery-facts-review"
+        : buildReviewStageAction("delivery-facts-review"),
       forbidden_actions: ["implementation", "source edits", "closeout", "harvest"],
-      notes: context.baseNotes
+      notes: currentPhaseIs24A
+        ? [...context.baseNotes, "ALLOWED MERGE METHOD: NORMAL MERGE COMMIT", "SQUASH: UNSUPPORTED", "REBASE MERGE: UNSUPPORTED"]
+        : context.baseNotes
     });
   }
 
@@ -13017,10 +13250,10 @@ function isHarvestReady(context: OperatorEvaluationContext): boolean {
 }
 
 function resolveCloseoutLifecycleStage(context: OperatorEvaluationContext): OperatorStageDraft {
-  const taggedProcedures = context.taggedProcedures ?? new Set<string>();
+  const taggedProcedures = context.currentEpochTaggedProcedures ?? context.taggedProcedures ?? new Set<string>();
   const latestCloseoutReceipt = context.latestCloseoutReceipt;
 
-  if ((context.runContext?.run.delivery_facts.length ?? 0) === 0 || !taggedProcedures.has("delivery-facts-review")) {
+  if ((context.currentEpochDeliveryFactCount ?? context.runContext?.run.delivery_facts.length ?? 0) === 0 || !taggedProcedures.has("delivery-facts-review")) {
     throw new Error("resolveCloseoutLifecycleStage requires delivery facts to be satisfied first.");
   }
 
@@ -13127,9 +13360,15 @@ function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string,
         "review_tier_controls: anti_slop, design_invariant, scope_legality, evidence_gap, docs_consistency, future_phase_leakage"]
     : legacyClassification?.notes ?? [];
   const taggedProcedures = runContext ? collectTaggedProcedureEvidence(runContext.run, procedureIds) : undefined;
+  const currentEpochRun = runContext ? currentImplementationEpochRun(runContext.run) : undefined;
+  const currentEpochTaggedProcedures = runContext
+    ? collectCurrentImplementationEpochProcedureEvidence(runContext, procedureIds)
+    : undefined;
   const latestCloseoutReceipt = runContext?.closeoutReceipt
-    ?? (runContext && runContext.run.closeout_receipts.length > 0
-      ? runContext.run.closeout_receipts[runContext.run.closeout_receipts.length - 1]
+    && isCurrentImplementationBaselineEpochRecord(runContext.run, runContext.closeoutReceipt.created_at)
+    ? runContext.closeoutReceipt
+    : (currentEpochRun && currentEpochRun.closeout_receipts.length > 0
+      ? currentEpochRun.closeout_receipts[currentEpochRun.closeout_receipts.length - 1]
       : undefined);
 
   const planApproved = runContext ? hasApprovedPlan(runContext) : undefined;
@@ -13150,22 +13389,34 @@ function buildOperatorEvaluationContext(targetRoot: string, projectRoot: string,
       ...(procedureRegistry ? { procedureRegistry, proceduresById } : {}),
       runContext,
       taggedProcedures,
+      currentEpochTaggedProcedures,
       latestPlanReviewResult: runContext ? findLatestProcedureReviewResult(runContext.run, "plan-review") : undefined,
       latestPlanReviewDecisionRecord: runContext ? readLatestPlanReviewDecisionRecord(runContext, procedureIds) : undefined,
-      latestImplementationChainReviewResult: runContext
-        ? findLatestProcedureReviewResultForAny(runContext.run, ["implementation-review", "fix-pass-review"])
+      latestImplementationChainReviewResult: currentEpochRun
+        ? findLatestProcedureReviewResultForAny(currentEpochRun, ["implementation-review", "fix-pass-review"])
         : undefined,
-      latestArchitectureReviewResult: runContext
-        ? findLatestProcedureReviewResult(runContext.run, "architecture-review")
+      latestArchitectureReviewResult: currentEpochRun
+        ? findLatestProcedureReviewResult(currentEpochRun, "architecture-review")
         : undefined,
-      latestDbStorageReviewResult: runContext
-        ? findLatestProcedureReviewResult(runContext.run, "db-storage-review")
+      latestDbStorageReviewResult: currentEpochRun
+        ? findLatestProcedureReviewResult(currentEpochRun, "db-storage-review")
         : undefined,
-      latestVerification: runContext && runContext.run.verification_results.length > 0
-        ? runContext.run.verification_results[runContext.run.verification_results.length - 1]
+      latestVerification: currentEpochRun && currentEpochRun.verification_results.length > 0
+        ? currentEpochRun.verification_results[currentEpochRun.verification_results.length - 1]
         : undefined,
       latestCloseoutReceipt,
-      blockingFindings: runContext ? hasBlockingFindings(runContext.run) : undefined,
+      currentEpochDeliveryFactCount: currentEpochRun?.delivery_facts.length,
+      currentEpochDeliveryComplete: runContext && currentEpochRun
+        ? hasCurrentCompletedDelivery(targetRoot, runContext.run, currentEpochRun)
+        : false,
+      blockingFindings: currentEpochRun ? hasBlockingFindings(currentEpochRun) : undefined,
+      predecessorBlockingFindings: runContext
+        ? runContext.run.findings.some((finding) =>
+            finding.blocking
+            && finding.status !== "resolved"
+            && !isCurrentImplementationBaselineEpochRecord(runContext.run, finding.created_at))
+        : undefined,
+      requestedMergeStrategy: options.mergeStrategy,
       planApproved,
       implementationEvidence: runContext
         ? hasImplementationEvidence(runContext.run, procedureIds, {
@@ -13995,7 +14246,11 @@ export async function closeoutRuntimeRun(cwd: string, options: RuntimeDryRunOpti
   assertNoActiveReviewLaunchClaim(current.run, "closeout");
   const refreshedRun = refreshRunRepositorySnapshot(current.run);
   const preparedRun = ensureRunHasVerificationAndReview(refreshedRun, targetRoot);
-  const receipt = createCloseoutReceipt(preparedRun);
+  const closeoutAuthorityRun = currentImplementationEpochRun(preparedRun);
+  const receipt = createCloseoutReceipt({
+    ...closeoutAuthorityRun,
+    closeout_receipts: preparedRun.closeout_receipts
+  });
   const run: Run = {
     ...preparedRun,
     lifecycle_status: receipt.status === "READY" ? "closed" : "blocked",

@@ -144,6 +144,15 @@ policy. It does not create general runner semantics. Phase 24A.1 owns reusable
 completion and generalization of self-hosting review selection, cohort state,
 context reuse, and recovery.
 
+Phase 24A.2 owns exact requirement/scenario/invariant/delivery/context/impact/
+artifact/audit trace coverage. Phase 24A.3 owns the later rationalized
+acceptance matrix for exact lifecycle epochs, implementation readiness,
+delivery provenance, real bounded context reuse, semantic anti-retry behavior,
+typed routing, and lifecycle-enforced audit obligations. A mandatory audit with
+no executable registered procedure is a typed blocker, and successor activation
+must remain closed until every required pre-successor audit has one exact
+accepted disposition.
+
 Phase F acceptance also fails if a launched reviewer can recursively create a
 second reviewer claim/process/wait, if `REVIEW_RECURSION_FORBIDDEN` is not
 state-validated before mutation, or if prompt-only instructions are treated as

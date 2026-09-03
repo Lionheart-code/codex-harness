@@ -849,3 +849,65 @@ test("Phase 24A report and packet help are closed deterministic CLI surfaces", (
   assert.match(report, /--run-instance/);
   assert.match(packet, /implementation-review/);
 });
+
+test("Phase 24A publishes exact A1 A2 A3 future authority and successor ordering without future runtime implementation", () => {
+  const a1 = fs.readFileSync("tasks/PHASE_24A_1_SELF_HOSTING_REVIEW_LIFECYCLE_COMPLETION.md", "utf8");
+  const a2 = fs.readFileSync("tasks/PHASE_24A_2_EXECUTABLE_SPECIFICATION_AND_ENGINEERING_ARCHITECTURE_DISCIPLINE.md", "utf8");
+  const a3Path = "tasks/PHASE_24A_3_ACCEPTANCE_CONTRACT_RATIONALIZATION_AND_HISTORICAL_COMPATIBILITY_PARTITIONING.md";
+  const a3 = fs.readFileSync(a3Path, "utf8");
+  const roadmap = fs.readFileSync("docs/IMPLEMENTATION_ROADMAP.md", "utf8");
+  const operations = fs.readFileSync("docs/OPERATIONS_PLAN.md", "utf8");
+  const sourceMap = fs.readFileSync("docs/SELF_HOSTING_PROCEDURE_SOURCE_MAP.md", "utf8");
+  const phase25a = fs.readFileSync("tasks/PHASE_25A_READ_ONLY_DIRECT_API_CLI_ACCESS_LAYER.md", "utf8");
+  const phase25 = fs.readFileSync("tasks/PHASE_25_AGENT_ACCESS_LAYER.md", "utf8");
+
+  assert.match(a1, /^# Phase 24A\.1 - Self-Hosting Review Lifecycle and Context-Reuse Completion/m);
+  for (const required of [
+    /explicit identity derived\s+from exact task\/plan\/approval\/baseline\/run authority/s,
+    /implementation-progress\/builder-handoff boundary/,
+    /Finding discovery is not mutation authority/,
+    /Stable core, least-context projection, and bounded retrieval/,
+    /Planning bundles and standalone reviews must converge/,
+    /actual observable semantic consumption/,
+    /Mechanical malformed-\s*artifact failures block without automatic semantic retry/s,
+    /pre-successor-activation audit-readiness boundary/,
+    /required audit is selected.*executable repo-owned registered\s+procedure\/lens/s,
+    /safe_session_resume=false/
+  ]) assert.match(a1, required);
+
+  assert.match(a2, /^# Phase 24A\.2 - Executable Specification and Engineering Architecture Discipline/m);
+  assert.match(a2, /Deterministic planning-coverage preflight/);
+  for (const trace of [
+    /delivery policy\/decision -> reviewed candidate/s,
+    /review obligation -> affected requirement\/invariant\/surface/s,
+    /typed impact\/risk/,
+    /bounded semantic decision payload/,
+    /audit obligation -> selected\s+registered procedure\/lens/s,
+    /successor-readiness evidence/
+  ]) assert.match(a2, trace);
+
+  assert.match(a3, /^# Phase 24A\.3 - Acceptance Contract Rationalization and Historical Compatibility Partitioning/m);
+  for (const required of [
+    /unsupported merge strategy is blocked before owner merge/,
+    /source change alone does not make implementation review-ready/,
+    /metadata bytes cannot\s+hide actual semantic-context overrun/s,
+    /required-but-unexecutable or manual-only audit produces a typed blocker/,
+    /successor activation is blocked until every mandatory audit obligation/,
+    /Physical invocation, logical lens, context materialization, retrieval, and\s+retry accounting remain distinct/s
+  ]) assert.match(a3, required);
+
+  const ordering = [
+    "## Phase 24A.1", "## Phase 24A.2", "## Phase 24A.3", "## Phase 24B"
+  ].map((heading) => roadmap.indexOf(heading));
+  assert.ok(ordering.every((index) => index >= 0));
+  assert.deepEqual([...ordering].sort((left, right) => left - right), ordering);
+  assert.match(operations, /Phase 24A\.3 then owns/);
+  assert.match(sourceMap, new RegExp(a3Path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (const successorAuthority of [phase25a, phase25]) {
+    assert.match(
+      successorAuthority,
+      /Phase 24A, Phase 24A\.1, Phase 24A\.2, and Phase 24A\.3/,
+      "live Phase 25 dependency authority must include Phase 24A.3"
+    );
+  }
+});

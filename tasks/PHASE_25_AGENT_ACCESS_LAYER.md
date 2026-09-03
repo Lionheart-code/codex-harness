@@ -13,7 +13,7 @@ Implementers must not treat the broad catalog below as permission to implement
 MCP or write-capable access in Phase 25A.
 
 Phase 25A starts only after accepted Phase 24B and therefore transitively after
-Phase 24A, Phase 24A.1, and Phase 24A.2. Phase 25B starts only after Phase 25A
+Phase 24A, Phase 24A.1, Phase 24A.2, and Phase 24A.3. Phase 25B starts only after Phase 25A
 is stable and read-only parity tests exist.
 
 ## Review status

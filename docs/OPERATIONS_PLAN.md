@@ -126,8 +126,10 @@ cost behavior, including typed planned/changed surfaces, verdict consistency,
 carry-forward invalidation, and bounded human-authorized infrastructure
 recovery; Phase 24A.2 then owns executable specification, equivalent exact
 machine-checkable requirement coverage, engineering architecture trace
-discipline, and bounded technical-spike contracts; Phase 24B, 25A, 25B, and 26
-consume those
+discipline, and bounded technical-spike contracts; Phase 24A.3 then owns
+canonical acceptance/historical-compatibility partitioning, execution economy,
+and regression assurance for lifecycle-enforced audit obligations and the
+pre-successor audit-readiness boundary. Phase 24B, 25A, 25B, and 26 consume those
 foundations rather than recreating them. The already-recorded 23.9-to-24A
 decision predates corrected identity semantics, so this activation uses the
 existing recovery path; that historical recovery does not claim the corrected
